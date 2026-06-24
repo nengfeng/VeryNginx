@@ -46,7 +46,7 @@ function _M.register_plugins()
     plugin.register(require "plugin.router.init")
     plugin.register(require "plugin.proxy_pass.init")
     plugin.register(require "plugin.static_file.init")
-    -- summary     plugin.register(require "plugin.summary.init")     -- Phase 6
+    plugin.register(require "plugin.summary.init")
 end
 
 -- ---------------------------------------------------------------------------
