@@ -1,0 +1,16 @@
+version: '3'
+services:
+  verynginx:
+    image: openresty/openresty:alpine-fat
+    ports:
+      - "8080:80"
+    volumes:
+      - ../verynginx:/opt/verynginx/verynginx
+      - ./v2/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+    environment:
+      - TEST_MODE=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/verynginx/index.html"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

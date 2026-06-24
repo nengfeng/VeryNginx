@@ -1,0 +1,13 @@
+-- -*- coding: utf-8 -*-
+-- @Date    : 2026-06-24
+-- @Author  : VeryNginx v2
+-- @Disc    : Run all v2 unit tests via busted
+
+-- Export busted config
+return {
+    root = {
+        "test/v2/"
+    },
+    verbose = true,
+    output = "utfTerminal",
+}

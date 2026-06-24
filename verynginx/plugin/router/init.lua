@@ -1,7 +1,7 @@
 -- -*- coding: utf-8 -*-
 -- @Date    : 2026-06-24
 -- @Author  : VeryNginx v2
--- @Disc    : management path router - identify and dispatch admin requests
+-- @Disc    : management path router - dispatch API requests or serve dashboard static files
 
 local _M = {}
 
@@ -11,6 +11,7 @@ _M.default_enable = true
 _M.critical = false
 
 local config = require "core.config"
+local api = require "api.init"
 
 function _M.on_access(ctx)
     local base_uri = (config and config.base_uri) or "/verynginx"
@@ -20,12 +21,27 @@ function _M.on_access(ctx)
         return
     end
 
-    -- Mark this as a management request
     ctx.set_data(ctx, "router:target", "management")
 
-    -- Dispatch to the API handler
-    local api = require "api.init"
+    -- Try API dispatch first. If dispatch() handles it (finds a route),
+    -- it will call ngx.exit(). If no route matches, it returns normally.
     api.dispatch(ctx)
+
+    -- No API route matched: serve dashboard static files
+    local static_path = uri:sub(#base_uri + 1)
+    if static_path == "" or static_path == "/" then
+        static_path = "/index.html"
+    end
+
+    local dash_path = require("core.config").resolve_path():match("(.+/)lua_script/")
+        or "/opt/verynginx/verynginx/"
+    dash_path = dash_path:gsub("lua_script/", "") .. "dashboard"
+
+    ctx.set_action(ctx, "static", {
+        root = dash_path,
+        path = static_path,
+        expires = "epoch"
+    })
 end
 
 return _M

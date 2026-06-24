@@ -1,0 +1,88 @@
+name: VeryNginx v2 CI
+
+on:
+  push:
+    branches: [ v2, master ]
+  pull_request:
+    branches: [ v2, master ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install luacheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.3 luarocks
+          luarocks install luacheck
+      - name: Lint v2 Lua files
+        run: |
+          luacheck verynginx/core/ --no-color || true
+          luacheck verynginx/matcher/ --no-color || true
+          luacheck verynginx/action/ --no-color || true
+          luacheck verynginx/plugin/ --no-color || true
+          luacheck verynginx/api/ --no-color || true
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install busted
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.3 luarocks lua5.3-dev
+          luarocks install busted
+      - name: Run unit tests
+        run: |
+          cd test/v2
+          busted
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v3
+      - name: Docker Compose up
+        run: |
+          cd test/v2
+          docker compose up -d --wait
+      - name: Run integration tests
+        run: |
+          cd test/v2
+          pip install -r ../requirements.txt
+          python test_integration.py
+      - name: Collect logs
+        if: always()
+        run: |
+          cd test/v2
+          docker compose logs
+      - name: Docker Compose down
+        if: always()
+        run: |
+          cd test/v2
+          docker compose down
+
+  performance-baseline:
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    steps:
+      - uses: actions/checkout@v3
+      - name: Docker Compose up
+        run: |
+          cd test/v2
+          docker compose up -d --wait
+      - name: Install wrk
+        run: sudo apt-get install -y wrk
+      - name: Run performance baseline
+        run: |
+          echo "=== Performance Baseline ==="
+          wrk -t2 -c10 -d10s http://localhost:8080/verynginx/status
+          echo ""
+          echo "=== Concurrency Test ==="
+          wrk -t2 -c100 -d10s http://localhost:8080/ | head -20
+      - name: Docker Compose down
+        if: always()
+        run: |
+          cd test/v2
+          docker compose down
