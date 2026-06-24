@@ -6,7 +6,36 @@
 local _M = {}
 
 function _M.init()
-    -- Phase 6: register worker-level state collection timer
+    -- Register worker-level state collection timer (every 60 seconds)
+    ngx.timer.every(60, function()
+        _M._collect_worker_stats()
+    end)
+end
+
+--- Collect worker-level statistics and expose as metrics.
+function _M._collect_worker_stats()
+    local metrics = require "core.metrics"
+
+    -- Connection metrics
+    metrics.gauge("nginx_connections_active", ngx.var.connections_active or 0)
+    metrics.gauge("nginx_connections_reading", ngx.var.connections_reading or 0)
+    metrics.gauge("nginx_connections_writing", ngx.var.connections_writing or 0)
+    metrics.gauge("nginx_connections_waiting", ngx.var.connections_waiting or 0)
+
+    -- Shared dict usage (approximate)
+    local shared_dicts = { "vn_config", "vn_locks", "statistics", "metrics", "healthcheck", "dns_cache", "frequency_limit" }
+    for _, name in ipairs(shared_dicts) do
+        local shared = ngx.shared[name]
+        if shared then
+            local capacity = shared:capacity()
+            local free_space = shared:free_space()
+            local used = capacity - free_space
+            if capacity > 0 then
+                local pct = math.floor((used / capacity) * 100)
+                metrics.gauge("shared_dict_usage_pct", pct, { dict = name })
+            end
+        end
+    end
 end
 
 function _M.start_plugin_timer(ctx, plugin_name)
