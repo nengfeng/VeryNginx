@@ -1,0 +1,60 @@
+{
+    "version": "2.0",
+    "base_uri": "/verynginx",
+    "cookie_prefix": "verynginx",
+    "config_save_lock_ttl": 60,
+    "security": {
+        "session_ttl": 3600,
+        "csrf": true,
+        "rate_limit": {
+            "login": "10/m",
+            "config_save": "30/m"
+        }
+    },
+    "body": {
+        "max_size": 1048576,
+        "max_args": 100,
+        "on_error": "fail_closed"
+    },
+    "plugin": {
+        "filter": { "enable": true, "priority": 100, "critical": true },
+        "frequency_limit": { "enable": true, "priority": 200, "critical": true },
+        "browser_verify": { "enable": false, "priority": 300, "critical": true },
+        "router": { "enable": true, "priority": 400, "critical": false },
+        "proxy_pass": { "enable": true, "priority": 500, "critical": true },
+        "static_file": { "enable": true, "priority": 600, "critical": false },
+        "summary": { "enable": true, "priority": 900, "critical": false }
+    },
+    "auth_strategy": "session",
+    "statistics": {
+        "buckets": ["1m", "5m", "1h", "all"],
+        "flush_interval": 60,
+        "persist_interval": 300,
+        "max_uri_keys": 10000
+    },
+    "observability": {
+        "metrics": true,
+        "trace_header": "X-Request-Id",
+        "plugin_timing": true
+    },
+    "proxy": {
+        "health_check_interval": 5
+    },
+    "matcher": {},
+    "rule": {},
+    "backend_upstream": {},
+    "response": {
+        "forbidden_json": {
+            "code": 403,
+            "content_type": "application/json",
+            "body": "{\"error\":\"forbidden\"}"
+        }
+    },
+    "admin": [
+        {
+            "user": "verynginx",
+            "password_hash": "",
+            "enable": true
+        }
+    ]
+}
