@@ -106,16 +106,143 @@ local function normalize_defaults(config, schema)
 end
 
 -- ---------------------------------------------------------------------------
--- Compile runtime snapshot (placeholder for Phase 2+ enhancements)
+-- Known actions from action registry
 -- ---------------------------------------------------------------------------
-local function compile_runtime_snapshot(config)
-    -- Phase 2 will add: pre-compile regex, validate matcher/action/upstream refs
-    return config
+local function get_known_actions()
+    local ok, action_init = pcall(require, "action.init")
+    if not ok or not action_init then
+        return {"accept", "block", "redirect", "rewrite", "response", "proxy", "static"}
+    end
+    local actions = {}
+    for name, _ in pairs(action_init.action_handlers or {}) do
+        actions[name] = true
+    end
+    -- also include aliases mapped via __index metamethod
+    return actions
 end
 
 -- ---------------------------------------------------------------------------
--- Validate config schema and reference integrity
--- Will be enhanced in Phase 2 with matcher/action/upstream reference checks
+-- Validate a single rule for reference integrity
+-- ---------------------------------------------------------------------------
+local function validate_rule(rule, rule_idx, rule_group, config)
+    -- Check action is known
+    local ok_action, action_init = pcall(require, "action.init")
+    if ok_action and action_init then
+        local handler = action_init.get and action_init.get(rule.action)
+        if not handler then
+            return false, string.format("rule.%s[%d]: unknown action '%s'", rule_group, rule_idx, tostring(rule.action))
+        end
+    end
+
+    -- Check matcher reference exists
+    if rule.matcher then
+        if type(rule.matcher) == "string" then
+            if not config.matcher or not config.matcher[rule.matcher] then
+                return false, string.format("rule.%s[%d]: matcher '%s' not found in config.matcher", rule_group, rule_idx, rule.matcher)
+            end
+        elseif type(rule.matcher) == "table" then
+            -- inline matcher: check on_body_error values in Args conditions
+            for cond_type, cond in pairs(rule.matcher) do
+                if cond_type == "Args" and cond.on_body_error then
+                    if cond.on_body_error ~= "match" and cond.on_body_error ~= "skip" and cond.on_body_error ~= "fail_closed" then
+                        return false, string.format("rule.%s[%d]: on_body_error must be 'match', 'skip', or 'fail_closed', got '%s'",
+                            rule_group, rule_idx, tostring(cond.on_body_error))
+                    end
+                end
+            end
+        end
+    end
+
+    -- Check response template reference exists
+    if rule.response and type(rule.response) == "string" then
+        if not config.response or not config.response[rule.response] then
+            return false, string.format("rule.%s[%d]: response template '%s' not found in config.response",
+                rule_group, rule_idx, rule.response)
+        end
+    end
+
+    -- Check upstream reference for proxy_pass rules
+    if rule.action == "proxy" then
+        if not rule.upstream then
+            return false, string.format("rule.%s[%d]: proxy action requires 'upstream' field", rule_group, rule_idx)
+        end
+        local upstream = config.backend_upstream and config.backend_upstream[rule.upstream]
+        if not upstream then
+            return false, string.format("rule.%s[%d]: upstream '%s' not found in config.backend_upstream",
+                rule_group, rule_idx, rule.upstream)
+        end
+        -- validate upstream has required fields
+        if not upstream.nodes or #upstream.nodes == 0 then
+            return false, string.format("rule.%s[%d]: upstream '%s' must have at least one node",
+                rule_group, rule_idx, rule.upstream)
+        end
+        if not upstream.health_check then
+            return false, string.format("rule.%s[%d]: upstream '%s' must declare health_check",
+                rule_group, rule_idx, rule.upstream)
+        end
+        if not upstream.tls then
+            return false, string.format("rule.%s[%d]: upstream '%s' must declare tls config",
+                rule_group, rule_idx, rule.upstream)
+        end
+        if not upstream.timeout then
+            return false, string.format("rule.%s[%d]: upstream '%s' must declare timeout config",
+                rule_group, rule_idx, rule.upstream)
+        end
+    end
+
+    -- Check response action has a response reference
+    if rule.action == "response" and not rule.response then
+        return false, string.format("rule.%s[%d]: response action requires 'response' field", rule_group, rule_idx)
+    end
+
+    return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Validate all rules in a rule group
+-- ---------------------------------------------------------------------------
+local function validate_rule_group(rules, group_name, config)
+    if not rules or type(rules) ~= "table" then
+        return true
+    end
+    local idx = 0
+    for _, rule in ipairs(rules) do
+        idx = idx + 1
+        local ok, err = validate_rule(rule, idx, group_name, config)
+        if not ok then
+            return false, err
+        end
+    end
+    return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Compile runtime snapshot: resolve references, pre-compile regex
+-- ---------------------------------------------------------------------------
+local function compile_runtime_snapshot(config)
+    -- Create a compiled copy with pre-resolved references
+    local compiled = deep_copy(config)
+
+    -- Pre-resolve matcher references: convert string names to matcher defs
+    if compiled.matcher and compiled.rule then
+        for group_name, rules in pairs(compiled.rule) do
+            if type(rules) == "table" then
+                for _, rule in ipairs(rules) do
+                    if type(rule.matcher) == "string" and compiled.matcher[rule.matcher] then
+                        rule._matcher_def = compiled.matcher[rule.matcher]
+                    elseif type(rule.matcher) == "table" then
+                        rule._matcher_def = rule.matcher
+                    end
+                end
+            end
+        end
+    end
+
+    return compiled
+end
+
+-- ---------------------------------------------------------------------------
+-- Validate config schema, reference integrity, and security constraints
 -- ---------------------------------------------------------------------------
 local function validate_config(config)
     if type(config) ~= "table" then
@@ -124,14 +251,42 @@ local function validate_config(config)
     if config.version and config.version ~= _M.schema.version then
         return false, "unexpected config version: " .. tostring(config.version)
     end
-    -- admin password_hash check: reject plaintext passwords
+
+    -- Admin security check: reject plaintext passwords, require password_hash
     if config.admin then
-        for _, a in ipairs(config.admin) do
+        for i, a in ipairs(config.admin) do
+            if not a.password_hash or a.password_hash == "" then
+                return false, string.format("admin[%d]: password_hash is required", i)
+            end
+            if a.password and a.password == a.password_hash then
+                return false, string.format("admin[%d]: password must not be stored as password_hash directly, use password_hash.verify()", i)
+            end
             if a.password and not a.password_hash then
-                return false, "admin password must be stored as password_hash"
+                return false, string.format("admin[%d]: password must be stored as password_hash", i)
             end
         end
     end
+
+    -- on_body_error global default validation
+    if config.body and config.body.on_error then
+        local oe = config.body.on_error
+        if oe ~= "match" and oe ~= "skip" and oe ~= "fail_closed" then
+            return false, "body.on_error must be 'match', 'skip', or 'fail_closed'"
+        end
+    end
+
+    -- Rule group reference integrity
+    if config.rule then
+        for group_name, rules in pairs(config.rule) do
+            if type(rules) == "table" then
+                local ok, err = validate_rule_group(rules, group_name, config)
+                if not ok then
+                    return false, err
+                end
+            end
+        end
+    end
+
     return true
 end
 
