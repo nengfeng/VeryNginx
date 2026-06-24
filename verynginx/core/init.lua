@@ -40,14 +40,14 @@ function _M.register_matchers()
 end
 
 function _M.register_plugins()
-    -- Plugins will be loaded in Phase 4+
-    -- filter      plugin.register(require "plugin.filter.init")
-    -- frequency   plugin.register(require "plugin.frequency_limit.init")
-    -- browser_vfy plugin.register(require "plugin.browser_verify.init")
-    -- router      plugin.register(require "plugin.router.init")
-    -- proxy_pass  plugin.register(require "plugin.proxy_pass.init")
-    -- static_file plugin.register(require "plugin.static_file.init")
-    -- summary     plugin.register(require "plugin.summary.init")
+    plugin.register(require "plugin.filter.init")
+    plugin.register(require "plugin.frequency_limit.init")
+    plugin.register(require "plugin.browser_verify.init")
+    -- router      plugin.register(require "plugin.router.init")      -- Phase 5
+    -- proxy_pass  plugin.register(require "plugin.proxy_pass.init")  -- Phase 5
+    -- static_file plugin.register(require "plugin.static_file.init") -- Phase 4 (registered below)
+    -- summary     plugin.register(require "plugin.summary.init")     -- Phase 6
+    plugin.register(require "plugin.static_file.init")
 end
 
 -- ---------------------------------------------------------------------------

@@ -1,0 +1,169 @@
+-- -*- coding: utf-8 -*-
+-- @Date    : 2026-06-24
+-- @Author  : VeryNginx v2
+-- @Disc    : static file plugin - serve local files with path security
+
+local _M = {}
+
+_M.name = "static_file"
+_M.priority = 600
+_M.default_enable = true
+_M.critical = false
+
+local config = require "core.config"
+local matcher = require "matcher.init"
+
+function _M.on_access(ctx)
+    local rules = config.rule and config.rule.static_file
+    if not rules then
+        return
+    end
+
+    for _, rule in ipairs(rules) do
+        if rule.enable == false then
+            goto continue
+        end
+
+        local matcher_def = rule._matcher_def
+        if not matcher_def and type(rule.matcher) == "string" then
+            matcher_def = config.matcher and config.matcher[rule.matcher]
+        end
+        if not matcher_def and type(rule.matcher) == "table" then
+            matcher_def = rule.matcher
+        end
+        if not matcher_def then
+            goto continue
+        end
+
+        if matcher.test(matcher_def, ctx) then
+            ctx.set_action(ctx, "static", {
+                root = rule.root,
+                path = rule.path or ctx.request.uri,
+                expires = rule.expires or "epoch"
+            })
+            return
+        end
+        ::continue::
+    end
+end
+
+--- Serve a file with security checks.
+-- @param root string: allowed root directory
+-- @param path string: requested file path
+-- @param expires string: cache expiry policy
+function _M.serve(root, path, expires)
+    -- Path security: reject directory traversal
+    if not root or not path then
+        ngx.status = 403
+        ngx.say("Forbidden")
+        return ngx.exit(403)
+    end
+
+    -- Normalize and validate the path
+    local safe_path = _M.normalize_path(root, path)
+    if not safe_path then
+        ngx.status = 403
+        ngx.say("Forbidden")
+        return ngx.exit(403)
+    end
+
+    -- Check file exists
+    local f = io.open(safe_path, "r")
+    if not f then
+        return ngx.exit(404)
+    end
+    local size = f:seek("end")
+    f:close()
+
+    -- Large file: use X-Accel-Redirect
+    local threshold = (config and config.static_file and config.static_file.x_accel_threshold) or 1048576
+    if size > threshold then
+        local relative_path = safe_path:sub(#root + 1)
+        ngx.header["X-Accel-Redirect"] = "/verynginx/internal" .. relative_path
+        ngx.header["Content-Type"] = _M.mime_type(path)
+        return ngx.exit(200)
+    end
+
+    -- Small file: serve directly
+    _M.set_cache_header(expires)
+    ngx.header["Content-Type"] = _M.mime_type(path)
+    local f2 = io.open(safe_path, "rb")
+    if not f2 then
+        return ngx.exit(404)
+    end
+    ngx.say(f2:read("*all"))
+    f2:close()
+    return ngx.exit(200)
+end
+
+--- Normalize and validate the file path.
+-- Rejects .., NUL bytes, and paths that escape the root.
+function _M.normalize_path(root, path)
+    -- Remove query string
+    local qpos = path:find("?")
+    if qpos then
+        path = path:sub(1, qpos - 1)
+    end
+
+    -- Reject directory traversal
+    if path:find("%.%.") then
+        return nil
+    end
+
+    -- Reject NUL bytes
+    if path:find("\0") then
+        return nil
+    end
+
+    -- URL decode
+    path = ngx.unescape_uri(path)
+
+    -- Combine with root
+    local full = root .. "/" .. path:match("^/*(.*)")
+    -- Normalize slashes
+    full = full:gsub("/+", "/")
+    return full
+end
+
+--- Set cache headers based on expiry policy.
+function _M.set_cache_header(expires)
+    if expires == "epoch" then
+        ngx.header["Expires"] = "Thu, 01 Jan 1970 00:00:01 GMT"
+        ngx.header["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    elseif type(expires) == "number" then
+        ngx.header["Cache-Control"] = "public, max-age=" .. expires
+        ngx.header["Expires"] = ngx.http_time(ngx.time() + expires)
+    else
+        ngx.header["Cache-Control"] = "public, max-age=3600"
+    end
+end
+
+--- Guess MIME type from file extension.
+local mime_types = {
+    html = "text/html; charset=utf-8",
+    htm = "text/html; charset=utf-8",
+    css = "text/css",
+    js = "application/javascript",
+    json = "application/json",
+    png = "image/png",
+    jpg = "image/jpeg",
+    jpeg = "image/jpeg",
+    gif = "image/gif",
+    svg = "image/svg+xml",
+    ico = "image/x-icon",
+    txt = "text/plain",
+    xml = "application/xml",
+    pdf = "application/pdf",
+    zip = "application/zip",
+    map = "application/json",
+}
+function _M.mime_type(path)
+    local ext = path:match("%.([%w]+)$")
+    if ext then
+        ext = ext:lower()
+        return mime_types[ext] or "application/octet-stream"
+    end
+    return "application/octet-stream"
+end
+
+return _M
