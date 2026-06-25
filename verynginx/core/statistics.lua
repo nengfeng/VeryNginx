@@ -59,7 +59,7 @@ function _M.normalize_uri(uri)
     end
     -- Normalize numeric segments: /user/123 → /user/:id
     uri = uri:gsub("/%d+", "/:id")
-    uri = uri:gsub("/[0-9a-fA-F]{%d+}", "/:hex")
+    uri = uri:gsub("/[0-9a-fA-F]+", "/:hex")
     return uri
 end
 
