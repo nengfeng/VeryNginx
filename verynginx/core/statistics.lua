@@ -13,7 +13,7 @@ local function lru_add(shared, index_key, uri, max_keys)
     local data = shared:get(index_key)
     local list = {}
     if data then
-        local ok, decoded = pcall(require("json").decode, data)
+        local ok, decoded = pcall(require("dkjson").decode, data)
         if ok then
             list = decoded
         end
@@ -38,7 +38,7 @@ local function lru_list(shared, index_key)
     if not data then
         return {}
     end
-    local ok, decoded = pcall(require("json").decode, data)
+    local ok, decoded = pcall(require("dkjson").decode, data)
     if ok then
         return decoded
     end
@@ -280,7 +280,7 @@ function _M.restore()
     end
     local data = f:read("*all")
     f:close()
-    local decoded = require("json").decode(data)
+    local decoded = require("dkjson").decode(data)
     if not decoded then
         return
     end

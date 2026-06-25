@@ -53,6 +53,20 @@ local function parse_key(key)
     return name, labels
 end
 
+--- Prometheus type registry: auto-declared metric types and descriptions
+local METADATA = {
+    vn_requests_total = { type = "counter", help = "Total request count" },
+    vn_plugin_errors_total = { type = "counter", help = "Plugin error count" },
+    vn_upstream_healthy = { type = "gauge", help = "Upstream node health (1=healthy, 0=unhealthy)" },
+    nginx_connections_active = { type = "gauge", help = "Active connections" },
+    nginx_connections_reading = { type = "gauge", help = "Reading connections" },
+    nginx_connections_writing = { type = "gauge", help = "Writing connections" },
+    nginx_connections_waiting = { type = "gauge", help = "Waiting connections" },
+    shared_dict_usage_pct = { type = "gauge", help = "Shared dict usage percentage" },
+    plugin_duration_seconds_count = { type = "counter", help = "Total plugin duration count" },
+    plugin_duration_seconds_sum = { type = "counter", help = "Total plugin duration sum" },
+}
+
 --- Export all metrics in Prometheus text format.
 function _M.export_prometheus()
     local shared = ngx.shared.metrics
@@ -60,13 +74,9 @@ function _M.export_prometheus()
         return "# metrics shared dict not available\n"
     end
 
-    local buf = {}
-    table.insert(buf, "# HELP vn_requests_total Total request count\n")
-    table.insert(buf, "# TYPE vn_requests_total counter\n")
-    table.insert(buf, "# HELP vn_plugin_errors_total Plugin error count\n")
-    table.insert(buf, "# TYPE vn_plugin_errors_total counter\n")
-    table.insert(buf, "# HELP vn_upstream_healthy Upstream node health (1=healthy, 0=unhealthy)\n")
-    table.insert(buf, "# TYPE vn_upstream_healthy gauge\n")
+    -- Collect all unique metric names seen
+    local seen_names = {}
+    local samples = {}
 
     local cursor = 0
     local chunk_size = 100
@@ -76,9 +86,13 @@ function _M.export_prometheus()
             break
         end
         for _, key in ipairs(keys) do
+            if key == "__metrics_index" then
+                goto skip
+            end
             local val = shared:get(key)
             if val then
                 local name, labels = parse_key(key)
+                seen_names[name] = true
                 local ls = ""
                 if labels and next(labels) then
                     local parts = {}
@@ -87,13 +101,37 @@ function _M.export_prometheus()
                     end
                     ls = "{" .. table.concat(parts, ",") .. "}"
                 end
-                table.insert(buf, name .. ls .. " " .. tostring(val) .. "\n")
+                table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
             end
         end
+        ::skip::
         if next_cursor == cursor then
             break
         end
         cursor = next_cursor
+    end
+
+    -- Build HELP/TYPE lines for all seen metrics
+    local buf = {}
+    for name in pairs(seen_names) do
+        local meta = METADATA[name]
+        if meta then
+            table.insert(buf, "# HELP " .. name .. " " .. meta.help .. "\n")
+            table.insert(buf, "# TYPE " .. name .. " " .. meta.type .. "\n")
+        else
+            -- Infer type from name suffix
+            local typ = "gauge"
+            if name:match("_count$") or name:match("_sum$") or name:match("_total$") or name:match("_errors$") then
+                typ = "counter"
+            end
+            table.insert(buf, "# HELP " .. name .. " Auto-declared metric\n")
+            table.insert(buf, "# TYPE " .. name .. " " .. typ .. "\n")
+        end
+    end
+
+    -- Append samples
+    for _, s in ipairs(samples) do
+        table.insert(buf, s)
     end
 
     return table.concat(buf)

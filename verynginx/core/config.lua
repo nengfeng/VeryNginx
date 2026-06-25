@@ -4,8 +4,7 @@
 -- @Disc    : config management - load/save/hot-reload/rollback/validate
 
 local _M = {}
-local dkjson = require "dkjson"
-local json = require "json"
+local json = require "dkjson"
 local random = require "core.random"
 
 -- ---------------------------------------------------------------------------
@@ -398,17 +397,25 @@ end
 
 local function prune_backups(keep_count)
     local backup_dir = home_path() .. "configs/backups/"
-    local p = io.popen('ls -1t "' .. backup_dir .. '" 2>/dev/null')
-    if not p then
-        return
-    end
     local files = {}
-    for f in p:lines() do
-        if f:match("^config%.") then
-            table.insert(files, f)
+    local ok, lfs = pcall(require, "lfs")
+    if ok then
+        for f in lfs.dir(backup_dir) do
+            if f:match("^config%.") then
+                table.insert(files, f)
+            end
         end
+    else
+        local p = io.popen('ls -1t "$1" 2>/dev/null', "r")
+        if not p then return end
+        for f in p:lines() do
+            if f:match("^config%.") then
+                table.insert(files, f)
+            end
+        end
+        p:close()
     end
-    p:close()
+    table.sort(files, function(a, b) return a > b end)
     for i = keep_count + 1, #files do
         os.remove(backup_dir .. files[i])
     end
@@ -473,7 +480,7 @@ function _M.save(config)
     local compiled = compile_runtime_snapshot(normalized)
 
     -- encode and hash
-    local encoded = dkjson.encode(normalized, { indent = true })
+    local encoded = json.encode(normalized, { indent = true })
     local new_hash = ngx.md5(encoded)
 
     -- prepare file paths
@@ -532,7 +539,7 @@ end
 -- Report current config as JSON string
 -- ---------------------------------------------------------------------------
 function _M.report()
-    return dkjson.encode(config_store)
+    return json.encode(config_store)
 end
 
 return _M

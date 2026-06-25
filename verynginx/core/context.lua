@@ -80,7 +80,7 @@ function _M.get_body_args(ctx)
     local content_type = ngx.var.content_type or ""
 
     if content_type:find("application/json", 1, true) then
-        local json = require "json"
+        local json = require "dkjson"
         local ok, decoded = pcall(json.decode, data)
         if not ok or type(decoded) ~= "table" then
             ctx.request._body_error = "json_decode_failed"
