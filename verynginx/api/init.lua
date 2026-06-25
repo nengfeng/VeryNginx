@@ -190,14 +190,27 @@ function _M.dispatch(ctx)
             if route.auth_required then
                 if not auth.middleware(ctx) then
                     ngx.status = 401
-                    ngx.say(json.encode({ ret = "failed", message = "unauthorized" }))
-                    return ngx.exit(401)
+                    ctx.set_action(ctx, "response", {
+                        code = 401,
+                        response = {
+                            code = 401,
+                            content_type = "application/json; charset=utf-8",
+                            body = json.encode({ ret = "failed", message = "unauthorized" })
+                        }
+                    })
+                    return
                 end
             end
 
             local response = route.handler()
-            ngx.say(response)
-            return ngx.exit(ngx.status)
+            ctx.set_action(ctx, "response", {
+                code = ngx.status,
+                response = {
+                    code = ngx.status,
+                    content_type = ngx.header.content_type or "application/json; charset=utf-8",
+                    body = response or ""
+                }
+            })
         end
     end
 

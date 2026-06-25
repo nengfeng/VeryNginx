@@ -24,8 +24,13 @@ function _M.on_access(ctx)
     ctx.set_data(ctx, "router:target", "management")
 
     -- Try API dispatch first. If dispatch() handles it (finds a route),
-    -- it will call ngx.exit(). If no route matches, it returns normally.
+    -- it sets an action on ctx. If no route matches, it returns normally.
     api.dispatch(ctx)
+
+    -- Dispatch handled the request (auth or route handler set an action)
+    if ctx.has_decision(ctx) then
+        return
+    end
 
     -- No API route matched: serve dashboard static files
     local static_path = uri:sub(#base_uri + 1)
