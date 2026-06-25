@@ -9,15 +9,21 @@ local random = require "core.random"
 local DEFAULT_ITERATIONS = 12000
 local SALT_BYTES = 16
 
---- PBKDF1-like iterative HMAC-SHA256.
+--- PBKDF2-HMAC-SHA256 (single block, dkLen <= 32).
 -- Built-in implementation using ngx.hmac_sha256, no external dependencies.
 -- Format: "p1$iterations$salt_b64$hash_b64"
 local function pbkdf2_hmac_sha256(password, salt, iterations)
-    local h = password
-    for i = 1, iterations do
-        h = ngx.hmac_sha256(salt .. tostring(i), h)
+    local u = ngx.hmac_sha256(password, salt .. "\0\0\0\1")
+    local result = u
+    for i = 2, iterations do
+        u = ngx.hmac_sha256(password, u)
+        local xored = {}
+        for j = 1, 32 do
+            xored[j] = string.char(string.byte(result, j) ~ string.byte(u, j))
+        end
+        result = table.concat(xored)
     end
-    return h
+    return result
 end
 
 local function hash_builtin(password)
