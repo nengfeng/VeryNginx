@@ -197,7 +197,7 @@ function _M.dispatch(ctx)
 
             local response = route.handler()
             ngx.say(response)
-            return ngx.exit(200)
+            return ngx.exit(ngx.status)
         end
     end
 
