@@ -71,14 +71,6 @@ jobs:
           cd test/v2
           pip install -r ../requirements.txt
           python test_integration.py
-      - name: Collect nginx logs
-        if: always()
-        run: |
-          cd test/v2
-          echo "=== Docker compose logs ==="
-          docker compose logs --tail=100 2>&1 || true
-          echo "=== Checking for error logs ==="
-          docker compose exec -T verynginx cat /usr/local/openresty/nginx/logs/error.log 2>&1 || echo "(file not found - error log redirected to stdout)"
       - name: Docker Compose down
         if: always()
         run: |
