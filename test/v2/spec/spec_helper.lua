@@ -19,7 +19,12 @@ function ngx.now()    return 1000000 end
 function ngx.time()   return 1000000 end
 
 function ngx.md5(s)   return s end
-function ngx.hmac_sha256(key, data) return data end
+
+-- Deterministic HMAC stub: produces different output per key+data
+function ngx.hmac_sha256(key, data)
+    return key .. ":" .. data
+end
+
 function ngx.encode_base64(s) return s end
 function ngx.decode_base64(s) return s end
 
@@ -55,7 +60,6 @@ function ngx.timer_at()      end
 function ngx.timer_every()   end
 
 -- Shared dict stubs
-local shared_dict = {}
 local shared_mt = {
     __index = {
         get = function() return nil end,
@@ -70,11 +74,10 @@ local shared_mt = {
         flush_all = function() end,
     }
 }
-setmetatable(shared_dict, {
+ngx.shared = setmetatable({}, {
     __index = function()
         return setmetatable({}, shared_mt)
     end
 })
-ngx.shared = shared_dict
 
 io.stdout:setvbuf("line")

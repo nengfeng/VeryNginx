@@ -69,13 +69,21 @@ end
 -- ---------------------------------------------------------------------------
 local config_store_raw = {}
 local config_store = make_readonly(config_store_raw)
+local config_keys = {}
+if _M.schema and _M.schema.fields then
+    for k in pairs(_M.schema.fields) do
+        config_keys[k] = true
+    end
+end
+config_keys.version = true
+config_keys.admin = true
+
 local config_mt = {
     __index = function(t, k)
         return config_store[k]
     end,
     __newindex = function(t, k, v)
-        -- Allow internal metadata fields that are set directly on _M
-        if k == "local_hash" or k == "config_path" then
+        if not config_keys[k] then
             rawset(t, k, v)
             return
         end
