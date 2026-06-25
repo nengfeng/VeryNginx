@@ -168,6 +168,27 @@ def safe_pop(l):
     else:
         return l.pop(0)
 
+def hash_password(password, iterations=12000):
+    """Generate a PBKDF2-like password hash compatible with VeryNginx v2.
+    
+    Uses HMAC-SHA256 iterative hashing, same algorithm as core/password_hash.lua.
+    Format: p1$iterations$salt_b64$hash_b64
+    """
+    import hashlib
+    import hmac
+    import base64
+    import os
+
+    salt = os.urandom(16)
+    h = password.encode('utf-8')
+    for i in range(1, iterations + 1):
+        h = hmac.new(salt + str(i).encode(), h, 'sha256').digest()
+    return 'p1${}${}${}'.format(
+        iterations,
+        base64.b64encode(salt).decode(),
+        base64.b64encode(h).decode()
+    )
+
 def show_help_and_exit():
     help_doc = '''usage: install.py <cmd> <args> ...
 
@@ -178,6 +199,8 @@ install cmds and args:
         verynginx  :  install verynginx only
     update
         verynginx  :  update the installed verynginx
+    hash-password <password>
+                  :  generate a password hash for config.json (no luarocks needed)
     '''
     print(help_doc)
     exit()
@@ -207,6 +230,13 @@ if __name__ == '__main__':
             update_verynginx()
         else:
             show_help_and_exit()
+    elif cmd == 'hash-password':
+        password = safe_pop(args)
+        if not password:
+            print('Error: password argument is required')
+            sys.exit(1)
+        print(hash_password(password))
+        sys.exit(0)
     else:
         show_help_and_exit()
 

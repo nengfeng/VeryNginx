@@ -33,8 +33,7 @@ function _M._validate_config()
             end
         end
         ngx.log(ngx.WARN, "init: no admin has a password_hash set; " ..
-                          "login will be impossible until you set password_hash in config.json " ..
-                          "(use: install.py or manually hash with bcrypt/argon2)")
+                          "login will be impossible until you set password_hash in config.json")
     end
 end
 
