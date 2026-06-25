@@ -14,8 +14,9 @@ jobs:
       - name: Install luacheck
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.3 luarocks
-          luarocks install luacheck
+          sudo apt-get install -y lua5.3 liblua5.3-dev luarocks
+          sudo luarocks init 2>/dev/null || sudo mkdir -p /usr/local/lib/luarocks/rocks-5.3
+          sudo luarocks install luacheck
       - name: Lint v2 Lua files
         run: |
           luacheck verynginx/core/ --no-color || true
@@ -31,8 +32,9 @@ jobs:
       - name: Install busted
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.3 luarocks lua5.3-dev
-          luarocks install busted
+          sudo apt-get install -y lua5.3 liblua5.3-dev luarocks
+          sudo luarocks init 2>/dev/null || sudo mkdir -p /usr/local/lib/luarocks/rocks-5.3
+          sudo luarocks install busted
       - name: Run unit tests
         run: |
           cd test/v2
