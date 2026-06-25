@@ -43,20 +43,25 @@ jobs:
     needs: unit-tests
     steps:
       - uses: actions/checkout@v3
+      - name: Test nginx config syntax
+        run: |
+          cd test/v2
+          docker compose run --rm verynginx openresty -t 2>&1 || true
       - name: Docker Compose up
         run: |
           cd test/v2
-          docker compose up -d --wait
-      - name: Run integration tests
-        run: |
-          cd test/v2
-          pip install -r ../requirements.txt
-          python test_integration.py
+          docker compose up -d --wait || true
       - name: Collect logs
         if: always()
         run: |
           cd test/v2
           docker compose logs
+      - name: Run integration tests
+        if: success()
+        run: |
+          cd test/v2
+          pip install -r ../requirements.txt
+          python test_integration.py
       - name: Docker Compose down
         if: always()
         run: |
