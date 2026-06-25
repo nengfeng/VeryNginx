@@ -68,7 +68,12 @@ function _M.verify(ctx)
 
     local provided = ngx.req.get_headers()["X-CSRF-Token"]
         or ngx.req.get_headers()["X-XSRF-Token"]
-        or (ngx.req.get_post_args() or {})["csrf_token"]
+
+    if not provided then
+        ngx.req.read_body()
+        local post_args = ngx.req.get_post_args()
+        provided = (post_args or {})["csrf_token"]
+    end
 
     if not provided or provided ~= expected then
         return false
