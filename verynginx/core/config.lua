@@ -33,9 +33,43 @@ _M.schema = {
 }
 
 -- ---------------------------------------------------------------------------
+-- Deep-table copy (no ref sharing)
+-- ---------------------------------------------------------------------------
+local function deep_copy(t)
+    if type(t) ~= "table" then
+        return t
+    end
+    local copy = {}
+    for k, v in pairs(t) do
+        copy[k] = deep_copy(v)
+    end
+    return copy
+end
+
+-- Make a table read-only via a proxy metatable.
+-- The underlying storage (`store`) is still replaceable by swapping the closure.
+local function make_readonly(store_ref)
+    return setmetatable({}, {
+        __index = function(_, k)
+            return store_ref[k]
+        end,
+        __newindex = function(_, k, v)
+            error("config is readonly, use config.save()")
+        end,
+        __pairs = function()
+            return pairs(store_ref)
+        end,
+        __len = function()
+            return #store_ref
+        end,
+    })
+end
+
+-- ---------------------------------------------------------------------------
 -- Runtime config store (immutable snapshot)
 -- ---------------------------------------------------------------------------
-local config_store = table.immutable and table.immutable({}) or {}
+local config_store_raw = {}
+local config_store = make_readonly(config_store_raw)
 local config_mt = {
     __index = function(t, k)
         return config_store[k]
@@ -45,6 +79,12 @@ local config_mt = {
     end
 }
 setmetatable(_M, config_mt)
+
+-- Internal helper to atomically swap the config snapshot
+local function set_config_store(new_raw)
+    config_store_raw = new_raw
+    config_store = make_readonly(config_store_raw)
+end
 
 _M.local_hash = nil
 _M.config_path = nil
@@ -65,7 +105,11 @@ function _M.resolve_path()
 end
 
 local function home_path()
-    return _M.resolve_path():match("(.+/)core/") or "/opt/verynginx/verynginx/"
+    local p = _M.resolve_path()
+    if p:match("/$") then
+        return p
+    end
+    return p .. "/"
 end
 
 -- ---------------------------------------------------------------------------
@@ -73,20 +117,6 @@ end
 -- ---------------------------------------------------------------------------
 local function config_json_path()
     return home_path() .. "configs/config.json"
-end
-
--- ---------------------------------------------------------------------------
--- Deep table copy
--- ---------------------------------------------------------------------------
-local function deep_copy(t)
-    if type(t) ~= "table" then
-        return t
-    end
-    local copy = {}
-    for k, v in pairs(t) do
-        copy[k] = deep_copy(v)
-    end
-    return copy
 end
 
 -- ---------------------------------------------------------------------------
@@ -335,7 +365,7 @@ function _M.load_from_file()
 
     local normalized = normalize_defaults(config, _M.schema)
     local compiled = compile_runtime_snapshot(normalized)
-    config_store = compiled
+    set_config_store(compiled)
     _M.local_hash = ngx.md5(data)
 
     local shared = ngx.shared.vn_config
@@ -470,7 +500,7 @@ function _M.save(config)
     end
 
     -- activate
-    config_store = compiled
+    set_config_store(compiled)
     _M.local_hash = new_hash
     if shared then
         shared:set("config_backup_latest", final_path .. ".bak")
