@@ -5,7 +5,7 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ../verynginx:/opt/verynginx/verynginx
+      - ../../verynginx:/opt/verynginx/verynginx
       - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
     environment:
       - TEST_MODE=1
