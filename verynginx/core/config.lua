@@ -74,6 +74,11 @@ local config_mt = {
         return config_store[k]
     end,
     __newindex = function(t, k, v)
+        -- Allow internal metadata fields that are set directly on _M
+        if k == "local_hash" or k == "config_path" then
+            rawset(t, k, v)
+            return
+        end
         error("config is readonly, use config.save()")
     end
 }
