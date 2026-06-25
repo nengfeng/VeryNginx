@@ -57,6 +57,9 @@ end
 function _M.apply(ctx, phase)
     local action = ctx.action_result
     if not action then
+        if phase == "rewrite" then
+            return
+        end
         return _no_backend_error()
     end
 
