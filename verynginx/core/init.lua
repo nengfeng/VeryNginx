@@ -37,6 +37,7 @@ function _M.register_matchers()
     matcher.register("Header", require("matcher.header").test)
     matcher.register("Cookie", require("matcher.cookie").test)
     matcher.register("Method", require("matcher.method").test)
+    matcher.register("Composite", require("matcher.composite").test)
 end
 
 function _M.register_plugins()
