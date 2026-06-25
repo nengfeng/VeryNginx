@@ -14,8 +14,8 @@ import shutil
 # Configuration
 # ---------------------------------------------------------------------------
 
-openresty_pkg_url = 'https://openresty.org/download/openresty-1.21.4.3.tar.gz'
-openresty_pkg = 'openresty-1.21.4.3.tar.gz'
+openresty_pkg_url = 'https://openresty.org/download/openresty-1.25.3.2.tar.gz'
+openresty_pkg = 'openresty-1.25.3.2.tar.gz'
 
 work_path = os.getcwd()
 
@@ -57,6 +57,7 @@ def install_openresty():
         '--user=nginx --group=nginx '
         '--with-http_v2_module --with-http_sub_module '
         '--with-http_stub_status_module --with-luajit '
+        '--with-pcre-jit '
         '--with-stream --with-stream_ssl_module'
     )
 

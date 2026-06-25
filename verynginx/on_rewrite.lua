@@ -7,11 +7,6 @@ local config = require "core.config"
 local context = require "core.context"
 local rule_engine = require "core.rule_engine"
 
--- Check if this is an internal redirect from vn_exec_flag
-if ngx.var.vn_exec_flag and ngx.var.vn_exec_flag ~= '' then
-    return
-end
-
 -- 1. Check config update (zero file I/O, hash compare only)
 config.check_update()
 

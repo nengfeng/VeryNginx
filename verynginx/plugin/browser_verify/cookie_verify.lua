@@ -6,13 +6,25 @@
 local _M = {}
 
 local config = require "core.config"
+local random = require "core.random"
+
+-- Fallback seed: generated once at module load time if session_secret is not configured.
+-- This avoids a hardcoded predictable seed.
+local function _get_seed()
+    local s = config.security and config.security.session_secret
+    if s and s ~= "" then
+        return s
+    end
+    return random.hex(32)
+end
+local _fallback_seed = _get_seed()
 
 --- Compute verification signature for a given mark.
--- Uses session_secret instead of encrypt_seed for consistency with auth.
+-- Uses session_secret if configured, otherwise a random per-worker seed.
 local function sign(ctx, mark)
     local ua = ngx.var.http_user_agent or ""
     local forwarded = ngx.var.http_x_forwarded_for or ""
-    local seed = (config.security and config.security.session_secret) or "verynginx"
+    local seed = (config.security and config.security.session_secret) or _fallback_seed
     return ngx.md5("VN" .. ctx.request.remote_addr .. forwarded .. ua .. mark .. seed)
 end
 
