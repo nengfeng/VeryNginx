@@ -63,13 +63,27 @@ function _M.init_all()
     end
 end
 
---- Execute the access phase for all plugins (short-circuit on decision).
+--- Terminal actions that end the request immediately after apply.
+local TERMINAL_ACTIONS = { block = true, redirect = true, response = true }
+
+--- Check if the current decision is terminal (stops further plugin execution).
+function _M._is_terminal(ctx)
+    local action = ctx.action_result
+    if not action or not action.type then
+        return false
+    end
+    return TERMINAL_ACTIONS[action.type] == true
+end
+
+--- Execute the access phase for all plugins.
+-- Only terminal actions (block/redirect/response) short-circuit the loop;
+-- non-terminal actions like accept, proxy, static allow downstream plugins to run.
 function _M.execute_access(ctx)
     for _, plugin in ipairs(_M.plugins) do
         if not _M.is_enabled(plugin) then
             goto continue
         end
-        if ctx.has_decision(ctx) then
+        if ctx.has_decision(ctx) and _M._is_terminal(ctx) then
             break
         end
         if plugin.on_access then

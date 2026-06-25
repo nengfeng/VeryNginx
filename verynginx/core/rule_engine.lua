@@ -41,10 +41,17 @@ function _M.execute(rules, ctx)
     return { type = RESULT.PASS }
 end
 
+local function _no_backend_error()
+    ngx.status = 502
+    ngx.header["Content-Type"] = "text/plain"
+    ngx.say("Bad Gateway: no backend configured for this request")
+    return ngx.exit(502)
+end
+
 function _M.apply(ctx, phase)
     local action = ctx.action_result
     if not action then
-        return
+        return _no_backend_error()
     end
 
     if action.type == RESULT.BLOCK then
@@ -73,6 +80,9 @@ function _M.apply(ctx, phase)
     elseif action.type == RESULT.STATIC and static_file and static_file.serve then
         return static_file.serve(action.data.root, action.data.path, action.data.expires)
     elseif action.type == RESULT.ACCEPT then
+        if not ngx.var.vn_proxy_host or ngx.var.vn_proxy_host == "" then
+            return _no_backend_error()
+        end
         return
     end
 end
