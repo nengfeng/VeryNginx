@@ -3,11 +3,11 @@
 -- @Author  : VeryNginx v2
 -- @Disc    : Run all v2 unit tests via busted
 
--- Export busted config
 return {
     root = {
-        "test/v2/"
+        "."
     },
+    pattern = "test_.+%.lua$",
     verbose = true,
     output = "utfTerminal",
 }
