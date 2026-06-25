@@ -6,7 +6,7 @@ services:
       - "8080:80"
     volumes:
       - ../verynginx:/opt/verynginx/verynginx
-      - ./v2/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+      - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
     environment:
       - TEST_MODE=1
     healthcheck:
