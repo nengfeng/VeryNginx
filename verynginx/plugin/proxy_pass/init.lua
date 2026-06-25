@@ -65,7 +65,7 @@ function _M.on_access(ctx)
                 return
             end
 
-            local node = balancer.select_healthy(upstream)
+            local node = balancer.select_healthy(upstream, rule.upstream)
             if not node then
                 ngx.log(ngx.WARN, "proxy_pass: no healthy node in upstream '", rule.upstream, "'")
                 ctx.set_action(ctx, "block", { code = 503, response = "No healthy upstream" })

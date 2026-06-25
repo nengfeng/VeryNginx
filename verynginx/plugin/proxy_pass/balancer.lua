@@ -7,11 +7,16 @@ local _M = {}
 
 local health_check = require "plugin.proxy_pass.health_check"
 
+local function _rr_key(upstream_name)
+    return "rr_index:" .. tostring(upstream_name)
+end
+
 --- Select a healthy node from the upstream.
 -- Called from proxy_pass plugin during access phase.
 -- @param upstream table: upstream config from backend_upstream
+-- @param upstream_name string: name of the upstream (for shared dict keys)
 -- @return table|nil: { scheme, host, port, weight } or nil if no healthy nodes
-function _M.select_healthy(upstream)
+function _M.select_healthy(upstream, upstream_name)
     if not upstream or not upstream.nodes then
         return nil
     end
@@ -34,7 +39,7 @@ function _M.select_healthy(upstream)
     elseif method == "weighted_random" then
         return _M._weighted_random(healthy_nodes)
     else
-        return _M._round_robin(healthy_nodes, upstream)
+        return _M._round_robin(healthy_nodes, upstream, upstream_name)
     end
 end
 
@@ -42,12 +47,24 @@ end
 -- Load balancing algorithms
 -- ---------------------------------------------------------------------------
 
-function _M._round_robin(nodes, upstream)
-    upstream._rr_index = (upstream._rr_index or 0) + 1
-    if upstream._rr_index > #nodes then
-        upstream._rr_index = 1
+function _M._round_robin(nodes, upstream, upstream_name)
+    local shared = ngx.shared.healthcheck
+    local key = _rr_key(upstream_name)
+    local idx = 1
+    if shared then
+        idx = shared:incr(key, 1, 1)
+        if idx > #nodes then
+            shared:set(key, 1)
+            idx = 1
+        end
+    else
+        upstream._rr_index = (upstream._rr_index or 0) + 1
+        if upstream._rr_index > #nodes then
+            upstream._rr_index = 1
+        end
+        idx = upstream._rr_index
     end
-    return nodes[upstream._rr_index]
+    return nodes[idx]
 end
 
 function _M._ip_hash(nodes, upstream)

@@ -16,12 +16,8 @@ end
 function _M._collect_worker_stats()
     local metrics = require "core.metrics"
 
-    -- Connection metrics
-    metrics.gauge("nginx_connections_active", ngx.var.connections_active or 0)
-    metrics.gauge("nginx_connections_reading", ngx.var.connections_reading or 0)
-    metrics.gauge("nginx_connections_writing", ngx.var.connections_writing or 0)
-    metrics.gauge("nginx_connections_waiting", ngx.var.connections_waiting or 0)
-
+    -- Connection metrics are not available from timer context;
+    -- they are exposed via the /status API endpoint during request processing.
     -- Shared dict usage (approximate)
     local shared_dicts = { "vn_config", "vn_locks", "statistics", "metrics", "healthcheck", "dns_cache", "frequency_limit" }
     for _, name in ipairs(shared_dicts) do

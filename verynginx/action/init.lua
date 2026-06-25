@@ -43,11 +43,11 @@ _M.register("response", function(rule, ctx)
 end)
 
 _M.register("proxy", function(rule, ctx)
-    return { type = "pass" }
+    return { type = "proxy", data = { rule = rule } }
 end)
 
 _M.register("static", function(rule, ctx)
-    return { type = "pass" }
+    return { type = "static", data = { rule = rule } }
 end)
 
 return _M

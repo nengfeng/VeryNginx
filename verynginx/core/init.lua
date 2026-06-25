@@ -14,9 +14,28 @@ local plugin = require "core.plugin"
 function _M.init()
     config.load_from_file()
     _M.init_shared_dict()
+    _M._validate_config()
     _M.register_matchers()
     _M.register_plugins()
     plugin.init_all()
+end
+
+function _M._validate_config()
+    local c = require "core.config"
+    if not c.security or not c.security.session_secret or c.security.session_secret == "" then
+        ngx.log(ngx.WARN, "init: security.session_secret is not configured; " ..
+                          "session auth will fail until it is set in config.json")
+    end
+    if c.admin then
+        for i, a in ipairs(c.admin) do
+            if a.password_hash and a.password_hash ~= "" then
+                return
+            end
+        end
+        ngx.log(ngx.WARN, "init: no admin has a password_hash set; " ..
+                          "login will be impossible until you set password_hash in config.json " ..
+                          "(use: install.py or manually hash with bcrypt/argon2)")
+    end
 end
 
 function _M.init_shared_dict()
