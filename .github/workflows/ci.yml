@@ -66,16 +66,18 @@ jobs:
         run: |
           cd test/v2
           docker compose up -d --wait
-      - name: Collect logs
-        if: failure()
-        run: |
-          cd test/v2
-          docker compose logs
       - name: Run integration tests
         run: |
           cd test/v2
           pip install -r ../requirements.txt
           python test_integration.py
+      - name: Collect nginx logs
+        if: always()
+        run: |
+          cd test/v2
+          docker compose exec -T verynginx cat /dev/stdout 2>/dev/null || true
+          docker compose exec -T verynginx cat /usr/local/openresty/nginx/logs/error.log 2>/dev/null || true
+          docker compose logs --tail=50
       - name: Docker Compose down
         if: always()
         run: |

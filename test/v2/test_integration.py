@@ -39,7 +39,7 @@ def b64encode(s):
 def test_health():
     """Test that the service is running."""
     status, body = curl("GET", "/verynginx/index.html")
-    assert status in (200, 302), f"Health check failed: {status}"
+    assert status in (200, 302), f"Health check failed: status={status}, body={body[:200]}"
     print(f"  [PASS] Health check: {status}")
 
 def test_login():
@@ -51,9 +51,9 @@ def test_login():
 
     # Valid login
     status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")
-    assert status == 200, f"Login should succeed: {status}"
+    assert status == 200, f"Login should succeed: status={status}, body={body[:200]}"
     resp = json.loads(body)
-    assert resp.get("ret") == "success", f"Login response: {body}"
+    assert resp.get("ret") == "success", f"Login response: {body[:200]}"
     print(f"  [PASS] Valid login: {resp.get('ret')}")
 
 def test_config():
@@ -65,7 +65,7 @@ def test_config():
 
     # GET config
     status, body = curl("GET", "/verynginx/config", cookies=cookies)
-    assert status == 200, f"GET config failed: {status}"
+    assert status == 200, f"GET config failed: status={status}, body={body[:200]}"
     config_data = json.loads(body)
     assert "matcher" in config_data, f"Config missing matcher: {body[:200]}"
     print(f"  [PASS] GET config: {len(body)} bytes")
