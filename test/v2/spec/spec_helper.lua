@@ -52,7 +52,13 @@ end
 function ngx.escape_uri(s)   return s end
 function ngx.unescape_uri(s) return s end
 
-function ngx.crc32_short(s)  return 0 end
+function ngx.crc32_short(s)
+    local h = 0
+    for i = 1, #s do
+        h = h * 31 + string.byte(s, i)
+    end
+    return h
+end
 
 function ngx.http_time(t)    return "Thu, 01 Jan 1970 00:00:00 GMT" end
 
