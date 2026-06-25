@@ -51,6 +51,7 @@ local function handle_login()
     end
 
     auth.set_session_cookie(result)
+    ngx.status = 200
     return json.encode({ ret = "success", token = result })
 end
 
@@ -203,6 +204,9 @@ function _M.dispatch(ctx)
             end
 
             local response = route.handler()
+            if not ngx.status or ngx.status == 0 then
+                ngx.status = 200
+            end
             ctx.set_action(ctx, "response", {
                 code = ngx.status,
                 response = {

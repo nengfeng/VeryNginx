@@ -63,6 +63,11 @@ def test_config():
     resp = json.loads(body)
     cookies = {"verynginx_session": resp.get("token")}
 
+    # Get CSRF token
+    status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
+    resp = json.loads(body)
+    csrf_token = resp.get("csrf_token", "")
+
     # GET config
     status, body = curl("GET", "/verynginx/config", cookies=cookies)
     assert status == 200, f"GET config failed: status={status}, body={body[:200]}"
@@ -74,8 +79,8 @@ def test_config():
     config_json = json.dumps({"version": "2.0", "matcher": {}, "rule": {}, "admin": [{"user": "verynginx", "password_hash": "test"}], "security": {"session_secret": "test"}})
     encoded = b64encode(config_json)
     escaped = encoded.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D")
-    status, body = curl("POST", "/verynginx/config", data=f"config={escaped}", cookies=cookies)
-    assert status in (200, 400), f"POST config response: {status}"
+    status, body = curl("POST", "/verynginx/config", data=f"config={escaped}&csrf_token={csrf_token}", cookies=cookies)
+    assert status in (200, 400), f"POST config response: status={status}, body={body[:200]}"
     print(f"  [PASS] POST config: {status}")
 
 def test_status():
