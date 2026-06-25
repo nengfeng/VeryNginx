@@ -70,14 +70,13 @@ local function handle_set_config()
     end
 
     ngx.req.read_body()
-    local args = ngx.req.get_post_args()
-    if not args or not args.config then
+    local body = ngx.req.get_body_data()
+    if not body or body == "" then
         ngx.status = 400
-        return dkjson.encode({ ret = "failed", message = "config field required" })
+        return dkjson.encode({ ret = "failed", message = "request body required" })
     end
 
-    local config_json = ngx.unescape_uri(ngx.decode_base64(args.config))
-    local new_config = json.decode(config_json)
+    local new_config = json.decode(body)
     if not new_config then
         ngx.status = 400
         return dkjson.encode({ ret = "failed", message = "invalid config json" })
@@ -117,6 +116,33 @@ local function handle_get_summary()
     return require("core.statistics").report(args.type or "short")
 end
 
+--- GET /csrf - return a CSRF token (stored in session for later verification)
+local function handle_get_csrf()
+    local ctx = ngx.ctx.vn_ctx
+    if not ctx then
+        ngx.status = 500
+        return dkjson.encode({ ret = "failed", message = "no request context" })
+    end
+    local csrf = require "api.csrf"
+    local token = csrf.generate(ctx)
+    return dkjson.encode({ ret = "success", csrf_token = token })
+end
+
+--- GET /config - sanitize config dump (remove password hashes)
+local function handle_get_config()
+    local raw = require("core.config").report()
+    local ok, decoded = pcall(json.decode, raw)
+    if ok and decoded and decoded.admin then
+        for _, a in ipairs(decoded.admin) do
+            a.password_hash = "(redacted)"
+        end
+    end
+    if ok then
+        return dkjson.encode(decoded)
+    end
+    return raw
+end
+
 -- ---------------------------------------------------------------------------
 -- Register default routes
 -- ---------------------------------------------------------------------------
@@ -126,6 +152,7 @@ _M.register("POST", "/config", handle_set_config, true)
 _M.register("GET", "/status", handle_get_status, true)
 _M.register("GET", "/metrics", handle_get_metrics, false)
 _M.register("GET", "/summary", handle_get_summary, true)
+_M.register("GET", "/csrf", handle_get_csrf, true)
 
 -- ---------------------------------------------------------------------------
 -- Router plugin hook: dispatched from plugin/router/init.lua
