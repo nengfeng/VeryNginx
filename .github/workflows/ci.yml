@@ -66,11 +66,6 @@ jobs:
         run: |
           cd test/v2
           docker compose up -d --wait
-      - name: Diagnostic - test ngx.hmac_sha256
-        run: |
-          cd test/v2
-          docker compose exec -T verynginx resty -e 'ngx.log(ngx.ERR, "hmac_sha256 available: ", ngx.hmac_sha256 ~= nil)' 2>&1 || echo "resty test failed (may be expected)"
-          docker compose exec -T verynginx ls -la /usr/local/openresty/ 2>/dev/null | head -5 || true
       - name: Run integration tests
         run: |
           cd test/v2
