@@ -69,16 +69,32 @@ local function handle_set_config()
     end
 
     ngx.req.read_body()
-    local body = ngx.req.get_body_data()
-    if not body or body == "" then
+    local content_type = ngx.var.content_type or ""
+    local raw_body = ngx.req.get_body_data()
+    if not raw_body or raw_body == "" then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "request body required" })
     end
 
-    local new_config = json.decode(body)
+    local new_config
+
+    -- Support both JSON body and form-encoded + base64
+    if content_type:find("application/json", 1, true) then
+        new_config = json.decode(raw_body)
+    else
+        local args, err = ngx.req.get_post_args()
+        if args and args.config then
+            local decoded = ngx.decode_base64(args.config)
+            if decoded then
+                local unescaped = ngx.unescape_uri(decoded)
+                new_config = json.decode(unescaped)
+            end
+        end
+    end
+
     if not new_config then
         ngx.status = 400
-        return json.encode({ ret = "failed", message = "invalid config json" })
+        return json.encode({ ret = "failed", message = "invalid config" })
     end
 
     local ok, err = require("core.config").save(new_config)
