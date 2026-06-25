@@ -1,8 +1,0 @@
-return {
-  default = {
-    root = {"."},
-    pattern = "test_.+%.lua$",
-    verbose = true,
-    output = "utfTerminal",
-  },
-}

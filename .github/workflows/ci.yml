@@ -36,9 +36,7 @@ jobs:
           luarocks --local install busted
           echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
       - name: Run unit tests
-        run: |
-          cd test/v2
-          busted
+        run: busted test/v2/spec
 
   integration-tests:
     runs-on: ubuntu-latest
