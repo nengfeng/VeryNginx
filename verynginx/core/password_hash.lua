@@ -6,6 +6,23 @@
 local _M = {}
 local random = require "core.random"
 
+local bxor
+do
+    local ok, bitmod = pcall(require, "bit")
+    if ok then
+        bxor = bitmod.bxor
+    else
+        function bxor(a, b)
+            local r, p = 0, 1
+            while a > 0 or b > 0 do
+                if a % 2 ~= b % 2 then r = r + p end
+                a, b, p = math.floor(a / 2), math.floor(b / 2), p * 2
+            end
+            return r
+        end
+    end
+end
+
 local DEFAULT_ITERATIONS = 12000
 local SALT_BYTES = 16
 
@@ -19,7 +36,7 @@ local function pbkdf2_hmac_sha256(password, salt, iterations)
         u = ngx.hmac_sha256(password, u)
         local xored = {}
         for j = 1, 32 do
-            xored[j] = string.char(string.byte(result, j) ~ string.byte(u, j))
+            xored[j] = string.char(bxor(string.byte(result, j), string.byte(u, j)))
         end
         result = table.concat(xored)
     end
