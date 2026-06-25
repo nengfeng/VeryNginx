@@ -13,6 +13,27 @@ _M.critical = true
 local config = require "core.config"
 local matcher = require "matcher.init"
 local balancer = require "plugin.proxy_pass.balancer"
+local dns_cache = require "plugin.proxy_pass.dns_cache"
+
+local function is_ip(host)
+    return host and host:match("^%d+%.%d+%.%d+%.%d+$")
+end
+
+local function resolve_host(host)
+    if is_ip(host) then
+        return host, nil
+    end
+    local dns_conf = (config and config.proxy and config.proxy.dns) or {}
+    local answers, err = dns_cache.resolve(host, "A", dns_conf)
+    if not answers or #answers == 0 then
+        return nil, err or "dns resolution failed"
+    end
+    local addrs = dns_cache.extract_addresses(answers)
+    if #addrs == 0 then
+        return nil, "no A records found"
+    end
+    return addrs[1], nil
+end
 
 function _M.on_access(ctx)
     local rules = config.rule and config.rule.proxy_pass
@@ -51,10 +72,18 @@ function _M.on_access(ctx)
                 return
             end
 
+            -- Resolve hostname to IP (with caching) unless already an IP
+            local resolved, err = resolve_host(node.host)
+            if not resolved then
+                ngx.log(ngx.ERR, "proxy_pass: DNS resolution failed for '", node.host, "': ", err)
+                ctx.set_action(ctx, "block", { code = 502, response = "DNS resolution failed" })
+                return
+            end
+
             ctx.set_data(ctx, "proxy:target", node.host .. ":" .. (node.port or "80"))
             ctx.set_action(ctx, "proxy", {
                 scheme = node.scheme or "http",
-                host = node.host,
+                host = resolved,
                 port = node.port or "80",
                 proxy_host = rule.proxy_host or node.host,
                 sni = rule.sni or node.sni or node.host,
