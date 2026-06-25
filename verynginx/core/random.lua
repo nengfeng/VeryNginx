@@ -6,10 +6,10 @@
 local _M = {}
 
 --- Generate N random bytes as a binary string.
--- Uses OpenResty's ngx.rand_bytes if available, otherwise os.time() fallback.
+-- Uses OpenResty's ngx.random_bytes if available, otherwise os.time() fallback.
 function _M.bytes(length)
     length = length or 16
-    local ok, result = pcall(ngx.rand_bytes, length)
+    local ok, result = pcall(ngx.random_bytes, length)
     if ok and result then
         return result
     end
@@ -23,7 +23,12 @@ end
 
 --- Generate N random bytes as a hex string.
 function _M.hex(length)
-    return ngx.encode_base64(_M.bytes(length)):sub(1, length)
+    local raw = _M.bytes(length)
+    local hex = ""
+    for i = 1, #raw do
+        hex = hex .. string.format("%02x", string.byte(raw, i))
+    end
+    return hex
 end
 
 return _M
