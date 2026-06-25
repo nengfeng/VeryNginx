@@ -43,21 +43,26 @@ jobs:
     needs: unit-tests
     steps:
       - uses: actions/checkout@v3
-      - name: Test nginx config syntax
+      - name: Test nginx config + init
         run: |
           cd test/v2
-          docker compose run --rm verynginx openresty -t 2>&1 || true
-      - name: Docker Compose up
+          docker compose run --rm verynginx openresty -t 2>&1
+      - name: Start and diagnose
         run: |
           cd test/v2
-          docker compose up -d --wait || true
+          docker compose up -d
+          for i in $(seq 1 10); do
+            echo "=== attempt $i ==="
+            docker compose ps
+            curl -s -w '\n%{http_code}\n' http://127.0.0.1:8080/verynginx/index.html || echo "CURL FAILED"
+            sleep 2
+          done
       - name: Collect logs
         if: always()
         run: |
           cd test/v2
           docker compose logs
       - name: Run integration tests
-        if: success()
         run: |
           cd test/v2
           pip install -r ../requirements.txt
