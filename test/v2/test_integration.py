@@ -65,6 +65,7 @@ def test_config():
 
     # Get CSRF token
     status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
+    assert status == 200, f"GET CSRF failed: status={status}, body={body[:200]}"
     resp = json.loads(body)
     csrf_token = resp.get("csrf_token", "")
 
