@@ -30,10 +30,18 @@ local SALT_BYTES = 16
 -- Built-in implementation using ngx.hmac_sha256, no external dependencies.
 -- Format: "p1$iterations$salt_b64$hash_b64"
 local function pbkdf2_hmac_sha256(password, salt, iterations)
-    local u = ngx.hmac_sha256(password, salt .. "\0\0\0\1")
+    local ok, u = pcall(ngx.hmac_sha256, password, salt .. "\0\0\0\1")
+    if not ok or not u then
+        ngx.log(ngx.ERR, "password_hash: pbkdf2 first hmac failed: ", u)
+        return nil
+    end
     local result = u
     for i = 2, iterations do
-        u = ngx.hmac_sha256(password, u)
+        ok, u = pcall(ngx.hmac_sha256, password, u)
+        if not ok or not u then
+            ngx.log(ngx.ERR, "password_hash: pbkdf2 hmac iteration ", i, " failed: ", u)
+            return nil
+        end
         local xored = {}
         for j = 1, 32 do
             xored[j] = string.char(bxor(string.byte(result, j), string.byte(u, j)))
@@ -63,6 +71,9 @@ local function verify_builtin(password, encoded)
         return false
     end
     local derived = pbkdf2_hmac_sha256(password, salt, iterations)
+    if not derived then
+        return false
+    end
     return ngx.encode_base64(derived) == hash_b64
 end
 
