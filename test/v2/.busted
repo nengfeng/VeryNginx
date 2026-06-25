@@ -1,13 +1,8 @@
--- -*- coding: utf-8 -*-
--- @Date    : 2026-06-24
--- @Author  : VeryNginx v2
--- @Disc    : Run all v2 unit tests via busted
-
 return {
-    root = {
-        "."
-    },
+  default = {
+    root = {"."},
     pattern = "test_.+%.lua$",
     verbose = true,
     output = "utfTerminal",
+  },
 }
