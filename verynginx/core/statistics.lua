@@ -100,8 +100,39 @@ function _M.log_request(ctx)
     shared:incr(key .. ":count", 1, 0)
     shared:incr(key .. ":bytes", bytes, 0)
     shared:incr(key .. ":time", time, 0)
-    shared:incr(key .. ":status_" .. status, 1, 0)
+    local code_idx = status
+    shared:incr(key .. ":status_" .. code_idx, 1, 0)
+    _M._record_seen_code(shared, key, code_idx)
     lru_add(shared, "index:1m", uri, max_keys)
+end
+
+local function _seen_codes_key(key)
+    return key .. ":seen_codes"
+end
+
+function _M._record_seen_code(shared, key, code)
+    local sk = _seen_codes_key(key)
+    local codes = shared:get(sk)
+    local code_str = tostring(code)
+    if not codes then
+        shared:set(sk, code_str)
+        return
+    end
+    if not codes:find("," .. code_str .. ",", 1, true) and codes ~= code_str and codes:find(code_str, 1, true) ~= 1 then
+        shared:set(sk, codes .. "," .. code_str)
+    end
+end
+
+local function _get_seen_codes(shared, key)
+    local raw = shared:get(_seen_codes_key(key))
+    if not raw or raw == "" then
+        return {}
+    end
+    local codes = {}
+    for c in raw:gmatch("[^,]+") do
+        codes[#codes + 1] = c
+    end
+    return codes
 end
 
 -- ---------------------------------------------------------------------------
@@ -127,11 +158,13 @@ function _M._flush_bucket(src_bucket, dst_bucket)
             shared:incr(dst_key .. ":bytes", bytes, 0)
             shared:incr(dst_key .. ":time", time, 0)
             lru_add(shared, "index:" .. dst_bucket, uri, max_keys)
-            -- Merge status codes
-            for status_idx = 100, 599 do
-                local sc = shared:get(src_key .. ":status_" .. status_idx)
+            -- Merge status codes (only codes that were actually recorded)
+            local codes = _get_seen_codes(shared, src_key)
+            for _, c in ipairs(codes) do
+                local sc = shared:get(src_key .. ":status_" .. c)
                 if sc and sc > 0 then
-                    shared:incr(dst_key .. ":status_" .. status_idx, sc, 0)
+                    shared:incr(dst_key .. ":status_" .. c, sc, 0)
+                    _M._record_seen_code(shared, dst_key, tonumber(c))
                 end
             end
         end
@@ -139,9 +172,11 @@ function _M._flush_bucket(src_bucket, dst_bucket)
         shared:delete(src_key .. ":count")
         shared:delete(src_key .. ":bytes")
         shared:delete(src_key .. ":time")
-        for status_idx = 100, 599 do
-            shared:delete(src_key .. ":status_" .. status_idx)
+        local codes = _get_seen_codes(shared, src_key)
+        for _, c in ipairs(codes) do
+            shared:delete(src_key .. ":status_" .. c)
         end
+        shared:delete(_seen_codes_key(src_key))
     end
     shared:delete("index:" .. src_bucket)
 end
@@ -178,10 +213,11 @@ function _M.report(period)
                 time = tonumber(string.format("%.3f", shared:get(key .. ":time") or 0)),
                 status = {},
             }
-            for status_idx = 100, 599 do
-                local sc = shared:get(key .. ":status_" .. status_idx)
+            local codes = _get_seen_codes(shared, key)
+            for _, c in ipairs(codes) do
+                local sc = shared:get(key .. ":status_" .. c)
                 if sc and sc > 0 then
-                    entry.status[tostring(status_idx)] = sc
+                    entry.status[c] = sc
                 end
             end
             report[uri] = entry
@@ -212,13 +248,14 @@ function _M.persist()
                 bytes = shared:get(key .. ":bytes") or 0,
                 time = shared:get(key .. ":time") or 0,
             }
-            for status_idx = 100, 599 do
-                local sc = shared:get(key .. ":status_" .. status_idx)
+            local codes = _get_seen_codes(shared, key)
+            for _, c in ipairs(codes) do
+                local sc = shared:get(key .. ":status_" .. c)
                 if sc and sc > 0 then
                     if not entry.status then
                         entry.status = {}
                     end
-                    entry.status[tostring(status_idx)] = sc
+                    entry.status[c] = sc
                 end
             end
             data[uri] = entry
@@ -259,6 +296,7 @@ function _M.restore()
         if entry.status then
             for code, count in pairs(entry.status) do
                 shared:set(key .. ":status_" .. code, count)
+                _M._record_seen_code(shared, key, tonumber(code))
             end
         end
         lru_add(shared, "index:all", uri, (config and config.statistics and config.statistics.max_uri_keys) or 10000)
@@ -266,8 +304,11 @@ function _M.restore()
 end
 
 function _M._json_path()
-    local base = require("core.config").resolve_path():match("(.+/)core/") or "/opt/verynginx/verynginx/"
-    return base .. "configs/statistics.json"
+    local base = require("core.config").resolve_path()
+    if base:match("/$") then
+        base = base:match("(.+)/$") or "/opt/verynginx/verynginx"
+    end
+    return base .. "/configs/statistics.json"
 end
 
 return _M
