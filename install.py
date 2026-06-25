@@ -169,24 +169,54 @@ def safe_pop(l):
         return l.pop(0)
 
 def hash_password(password, iterations=12000):
-    """Generate a PBKDF2-like password hash compatible with VeryNginx v2.
-    
-    Uses HMAC-SHA256 iterative hashing, same algorithm as core/password_hash.lua.
+    """Generate a PBKDF2-HMAC-SHA256 hash compatible with VeryNginx v2.
+
+    Same algorithm as core/password_hash.lua.
     Format: p1$iterations$salt_b64$hash_b64
     """
     import hashlib
     import hmac
     import base64
     import os
+    import sys
 
     salt = os.urandom(16)
-    h = password.encode('utf-8')
-    for i in range(1, iterations + 1):
-        h = hmac.new(salt + str(i).encode(), h, 'sha256').digest()
+    if isinstance(password, str):
+        password = password.encode('utf-8')
+
+    # U_1 = HMAC(password, salt || INT(1))  -- INT(1) = 4-byte big-endian
+    init_msg = salt + b'\x00\x00\x00\x01'
+    u = hmac.new(password, init_msg, 'sha256').digest()
+
+    # Result starts as U_1, then XOR with U_2..U_iterations
+    if sys.version_info[0] == 3:
+        result = bytearray(u)
+        for i in range(2, iterations + 1):
+            u = hmac.new(password, u, 'sha256').digest()
+            for j, b in enumerate(u):
+                result[j] ^= b
+        result = bytes(result)
+    else:
+        # Python 2: bytearray doesn't support enumerate iteration well
+        import array
+        result = array.array('B', u)
+        for i in range(2, iterations + 1):
+            u = hmac.new(password, u, 'sha256').digest()
+            u_arr = array.array('B', u)
+            for j in range(len(result)):
+                result[j] ^= u_arr[j]
+        result = bytes(result)
+
+    def b64enc(data):
+        enc = base64.b64encode(data)
+        if isinstance(enc, bytes):
+            return enc.decode('ascii')
+        return enc
+
     return 'p1${}${}${}'.format(
         iterations,
-        base64.b64encode(salt).decode(),
-        base64.b64encode(h).decode()
+        b64enc(salt),
+        b64enc(result)
     )
 
 def show_help_and_exit():
