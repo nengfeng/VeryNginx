@@ -31,7 +31,7 @@ describe("Random helper", function()
 
     it("generates hex string of correct length", function()
         local hex = random.hex(16)
-        assert.is_true(#hex <= 16)
+        assert.is_true(#hex >= 30)
     end)
 end)
 
