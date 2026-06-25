@@ -7,7 +7,13 @@ local _M = {}
 local matcher = require "matcher.init"
 local action_registry = require "action.init"
 local response = require "action.response"
-local static_file = pcall(require, "plugin.static_file.init") and require("plugin.static_file.init")
+local static_file
+do
+    local ok, mod = pcall(require, "plugin.static_file.init")
+    if ok then
+        static_file = mod
+    end
+end
 
 local RESULT = {
     PASS = "pass",
@@ -73,11 +79,23 @@ function _M.apply(ctx, phase)
         ctx.clear_action(ctx)
         return
     elseif action.type == RESULT.PROXY then
+        if not action.data or not action.data.host then
+            ngx.log(ngx.ERR, "rule_engine: proxy action missing host data")
+            return _no_backend_error()
+        end
         ngx.var.vn_proxy_scheme = action.data.scheme or "http"
-        ngx.var.vn_proxy_host = action.data.host or ""
+        ngx.var.vn_proxy_host = action.data.host
         ngx.var.vn_proxy_port = action.data.port or "80"
         ngx.var.vn_proxy_sni = action.data.sni or action.data.host or ""
-    elseif action.type == RESULT.STATIC and static_file and static_file.serve then
+    elseif action.type == RESULT.STATIC then
+        if not static_file or not static_file.serve then
+            ngx.log(ngx.ERR, "rule_engine: static_file plugin not loaded")
+            return _no_backend_error()
+        end
+        if not action.data or not action.data.root then
+            ngx.log(ngx.ERR, "rule_engine: static action missing root")
+            return _no_backend_error()
+        end
         return static_file.serve(action.data.root, action.data.path, action.data.expires)
     elseif action.type == RESULT.ACCEPT then
         if not ngx.var.vn_proxy_host or ngx.var.vn_proxy_host == "" then

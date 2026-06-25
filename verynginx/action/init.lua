@@ -42,12 +42,10 @@ _M.register("response", function(rule, ctx)
     return { type = "response", data = { response = rule.response, code = rule.code } }
 end)
 
-_M.register("proxy", function(rule, ctx)
-    return { type = "proxy", data = { rule = rule } }
-end)
-
-_M.register("static", function(rule, ctx)
-    return { type = "static", data = { rule = rule } }
-end)
+-- proxy and static are NOT registered here because they require rich data
+-- (scheme/host/port for proxy, root/path/expires for static) that can only
+-- be provided by their respective plugins via ctx.set_action() directly.
+-- Registering minimal handlers here would cause rule_engine.apply() to
+-- set nil nginx variables, leading to 502 errors.
 
 return _M
