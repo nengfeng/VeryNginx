@@ -43,22 +43,33 @@ jobs:
     needs: unit-tests
     steps:
       - uses: actions/checkout@v3
-      - name: Test nginx config + init
+      - name: Generate config.json with default credentials
+        run: |
+          python3 << 'PYEOF'
+          import hashlib, hmac, base64, json
+          password = b'verynginx'
+          salt = bytes(range(16))
+          init_msg = salt + b'\x00\x00\x00\x01'
+          u = hmac.new(password, init_msg, 'sha256').digest()
+          result = bytearray(u)
+          for i in range(2, 12001):
+              u = hmac.new(password, u, 'sha256').digest()
+              for j, b in enumerate(u):
+                  result[j] ^= b
+          def b64enc(data):
+              return base64.b64encode(data).decode().rstrip('=')
+          hash_val = 'p1$12000$' + b64enc(salt) + '$' + b64enc(bytes(result))
+          config = json.load(open('verynginx/configs/config.default.json'))
+          config['admin'][0]['password_hash'] = hash_val
+          config['security']['session_secret'] = 'test-ci-secret'
+          json.dump(config, open('verynginx/configs/config.json', 'w'), indent=2)
+          PYEOF
+      - name: Docker Compose up
         run: |
           cd test/v2
-          docker compose run --rm verynginx openresty -t 2>&1
-      - name: Start and diagnose
-        run: |
-          cd test/v2
-          docker compose up -d
-          for i in $(seq 1 10); do
-            echo "=== attempt $i ==="
-            docker compose ps
-            curl -s -w '\n%{http_code}\n' http://127.0.0.1:8080/verynginx/index.html || echo "CURL FAILED"
-            sleep 2
-          done
+          docker compose up -d --wait
       - name: Collect logs
-        if: always()
+        if: failure()
         run: |
           cd test/v2
           docker compose logs
