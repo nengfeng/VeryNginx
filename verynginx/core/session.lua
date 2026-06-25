@@ -5,6 +5,7 @@
 
 local _M = {}
 local random = require "core.random"
+local hmac = require "core.hmac"
 
 --- Sign a payload into a session token using HMAC-SHA256.
 -- @param payload table: { user, expire_at, nonce }
@@ -16,7 +17,7 @@ function _M.sign(payload, secret)
     end
     local json = require "dkjson"
     local data = json.encode(payload)
-    local sig = ngx.hmac_sha256(secret, data)
+    local sig = hmac.hmac_sha256(secret, data)
     local token = ngx.encode_base64(data) .. "." .. ngx.encode_base64(sig)
     return token
 end
@@ -44,7 +45,7 @@ function _M.verify(token, secret)
     end
 
     -- Verify signature
-    local expected_sig = ngx.hmac_sha256(secret, data)
+    local expected_sig = hmac.hmac_sha256(secret, data)
     local actual_sig = ngx.decode_base64(sig_b64)
     if not actual_sig or expected_sig ~= actual_sig then
         return false, "invalid signature"
