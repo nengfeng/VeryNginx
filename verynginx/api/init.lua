@@ -54,11 +54,6 @@ local function handle_login()
     return json.encode({ ret = "success", token = result })
 end
 
---- GET /config - return current config
-local function handle_get_config()
-    return require("core.config").report()
-end
-
 --- POST /config - update config
 local function handle_set_config()
     -- Rate limit config saves
