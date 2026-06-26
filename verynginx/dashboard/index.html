@@ -436,11 +436,11 @@ const app = Vue.createApp({
         params.append('user', loginUser.value);
         params.append('password', loginPass.value);
         const d = await api('POST', '/verynginx/login', params);
+        loginPass.value = '';
         if (d.ret === 'success') {
           store.loggedIn = true;
           store.user = loginUser.value;
           loginUser.value = '';
-          loginPass.value = '';
           await refreshCsrf();
           loadData();
           if (page.value === 'status') startStatusRefresh();
