@@ -20,10 +20,34 @@ ngx = {
         if ok then
             return enc:encode_base64(s)
         end
-        -- fallback: use base64 from lua
-        return (s:gsub(".", function(c)
-            return string.format("%02x", string.byte(c))
-        end))
+        local ok, mime = pcall(require, "mime")
+        if ok then
+            return mime.b64(s)
+        end
+        -- inline base64 fallback
+        local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+        local r = {}
+        local i = 1
+        while i <= #s do
+            local a = string.byte(s, i)
+            local b1 = string.byte(s, i + 1) or 0
+            local c = string.byte(s, i + 2) or 0
+            local left = #s - i + 1
+            r[#r + 1] = b:sub(math.floor(a / 4) + 1, math.floor(a / 4) + 1)
+            r[#r + 1] = b:sub((a % 4) * 16 + math.floor(b1 / 16) + 1, (a % 4) * 16 + math.floor(b1 / 16) + 1)
+            if left == 1 then
+                r[#r + 1] = '='
+                r[#r + 1] = '='
+            elseif left == 2 then
+                r[#r + 1] = b:sub((b1 % 16) * 4 + 1, (b1 % 16) * 4 + 1)
+                r[#r + 1] = '='
+            else
+                r[#r + 1] = b:sub((b1 % 16) * 4 + math.floor(c / 64) + 1, (b1 % 16) * 4 + math.floor(c / 64) + 1)
+                r[#r + 1] = b:sub(c % 64 + 1, c % 64 + 1)
+            end
+            i = i + 3
+        end
+        return table.concat(r)
     end,
     decode_base64 = function(s) return s end,
 }

@@ -366,6 +366,33 @@ function _M.load_from_file()
         return false
     end
 
+    -- Auto-generate password_hash for admin entries with empty hash
+    local auto_generated = false
+    if config.admin then
+        local pw_mod = require "core.password_hash"
+        local random = require "core.random"
+        for _, a in ipairs(config.admin) do
+            if not a.password_hash or a.password_hash == "" then
+                local pw = random.hex(12)
+                a.password_hash = pw_mod.hash(pw)
+                a.password = nil
+                ngx.log(ngx.WARN, "config: generated admin password for '", a.user, "': ", pw)
+                auto_generated = true
+            end
+        end
+    end
+    if auto_generated then
+        local encoded = json.encode(config, { indent = true })
+        local tmp = path .. ".tmp"
+        local f = io.open(tmp, "w")
+        if f then
+            f:write(encoded)
+            f:close()
+            os.rename(tmp, path)
+            data = encoded
+        end
+    end
+
     local ok, err_or_normalized = validate_config(config)
     if not ok then
         ngx.log(ngx.ERR, "config validation failed: ", err_or_normalized)
