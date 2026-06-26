@@ -17,7 +17,9 @@ function _M.test(condition, ctx)
         return _M._test_args(body_args, name_op, name_val, op, val)
     end
     if ctx.request._body_error then
-        local policy = condition.on_body_error or (require("core.config").body and require("core.config").body.on_error) or "skip"
+        local policy = condition.on_body_error
+            or (require("core.config").body and require("core.config").body.on_error)
+            or "skip"
         return policy == "match" or policy == "fail_closed"
     end
     return false
