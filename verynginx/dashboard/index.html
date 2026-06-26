@@ -37,7 +37,7 @@ pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:aut
 .login-box .sub{color:var(--muted);font-size:14px;text-align:center;margin-bottom:24px}
 .login-box .field{margin-bottom:16px}
 .login-box .field label{display:block;font-size:13px;font-weight:600;margin-bottom:4px;color:var(--muted)}
-.login-box .error{background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
+.error{background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
 .login-box button{width:100%;padding:12px;font-size:15px}
 /* Top nav */
 #topnav{background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:56px;position:sticky;top:0;z-index:100}
@@ -315,10 +315,10 @@ pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:aut
                   <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="key">{{ key }}</td>
                   <td>{{ v.count }}</td>
                   <td>{{ formatBytes(v.size) }}</td>
-                  <td>{{ formatBytes(v.size / v.count) }}</td>
+                  <td>{{ v.count ? formatBytes(v.size / v.count) : '-' }}</td>
                   <td><span class="tag" :class="successClass(v)">{{ calcSuccess(v) }}%</span></td>
                   <td>{{ v.time.toFixed(2) }}s</td>
-                  <td>{{ (v.time / v.count).toFixed(3) }}s</td>
+                  <td>{{ v.count ? (v.time / v.count).toFixed(3) : '-' }}s</td>
                 </tr>
               </tbody>
             </table>
@@ -434,6 +434,7 @@ const app = Vue.createApp({
           loginPass.value = '';
           await refreshCsrf();
           loadData();
+          if (page.value === 'status') startStatusRefresh();
         } else {
           loginError.value = d.message || 'Login failed';
         }
