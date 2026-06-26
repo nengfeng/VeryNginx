@@ -35,7 +35,7 @@ function _M.on_access(ctx)
     -- No API route matched: serve dashboard static files
     local static_path = uri:sub(#base_uri + 1)
     if static_path == "" or static_path == "/" then
-        static_path = "/index.html"
+        static_path = "/v2.html"
     end
 
     local dash_path = require("core.config").resolve_path():match("(.+/)lua_script/")
