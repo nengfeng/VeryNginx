@@ -495,15 +495,17 @@ function _M.save(config)
     end
 
     -- Hash plaintext passwords in admin entries before validation
-    local password_hash_mod = require "core.password_hash"
-    if config.admin then
-        for _, a in ipairs(config.admin) do
-            if a.password and a.password ~= "" then
-                a.password_hash = password_hash_mod.hash(a.password)
-                a.password = nil
+    pcall(function()
+        local password_hash_mod = require "core.password_hash"
+        if config.admin then
+            for _, a in ipairs(config.admin) do
+                if a.password and a.password ~= "" then
+                    a.password_hash = password_hash_mod.hash(a.password)
+                    a.password = nil
+                end
             end
         end
-    end
+    end)
 
     -- validate
     local ok, err_or_normalized = validate_config(config)

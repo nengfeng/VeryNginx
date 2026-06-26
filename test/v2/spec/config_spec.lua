@@ -13,12 +13,12 @@ describe("Config validation", function()
         assert.is_false(ok)
     end)
 
-    it("rejects plaintext admin password", function()
+    it("auto-hashes plaintext admin password on save", function()
         local ok, err = config.save({
             version = "2.0",
             admin = { { user = "admin", password = "plaintext" } }
         })
-        assert.is_false(ok)
+        assert.is_true(ok, "save should auto-hash password: " .. tostring(err))
     end)
 
     it("accepts empty config (defaults applied)", function()

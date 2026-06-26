@@ -52,7 +52,7 @@ function _M.verify(token, secret)
 
     -- Decode payload (with pcall to catch malformed JSON)
     local json = require "dkjson"
-    local ok, payload = pcall(json.decode, json, data)
+    local ok, payload = pcall(json.decode, data)
     if not ok or not payload then
         return false, "invalid payload"
     end
