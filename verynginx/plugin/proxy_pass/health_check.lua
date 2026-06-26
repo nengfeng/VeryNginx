@@ -55,7 +55,8 @@ function _M.check_node(upstream_name, node)
         shared:delete(sk .. ":failures")
         shared:delete(sk .. ":last_error")
         if metrics and metrics.gauge then
-            metrics.gauge("upstream_healthy", 1, { upstream = upstream_name, node = node.host .. ":" .. tostring(node.port) })
+            metrics.gauge("upstream_healthy", 1,
+                { upstream = upstream_name, node = node.host .. ":" .. tostring(node.port) })
         end
         return
     end
@@ -74,9 +75,9 @@ function _M.probe_node(node)
     if hc.method == "tcp" or not hc.path then
         local sock = ngx.socket.tcp()
         sock:settimeout(timeout)
-        local ok, err = sock:connect(node.host, port)
+        local ok, _ = sock:connect(node.host, port)
         if ok and use_ssl then
-            ok, err = sock:sslhandshake()
+            ok = sock:sslhandshake()
         end
         sock:close()
         return ok
@@ -101,11 +102,11 @@ function _M.probe_node(node)
 
     local req = "GET " .. path .. " HTTP/1.0\r\nHost: " .. node.host .. "\r\nConnection: close\r\n\r\n"
     sock:send(req)
-    local resp, err = sock:receive("*l")
+    local resp, err2 = sock:receive("*l")
     sock:close()
 
     if not resp then
-        return false, err
+        return false, err2
     end
     -- Accept 2xx or 3xx responses as healthy
     local status_code = tonumber(resp:match("HTTP/%d%.%d (%d+)"))
@@ -134,7 +135,8 @@ function _M.report_failure(upstream_name, node, reason)
     shared:set(sk .. ":last_error", reason or "unknown", 60)
 
     if metrics and metrics.gauge then
-        metrics.gauge("upstream_healthy", 0, { upstream = upstream_name, node = node.host .. ":" .. tostring(node.port) })
+        metrics.gauge("upstream_healthy", 0,
+            { upstream = upstream_name, node = node.host .. ":" .. tostring(node.port) })
     end
 end
 

@@ -50,9 +50,9 @@ function _M.resolve(host, record_type, dns_conf)
         return _M.resolve_stale(key, dns_conf), "resolver init failed: " .. tostring(err)
     end
 
-    local answers, err = r:query(host, { qtype = record_type })
+    local answers, err2 = r:query(host, { qtype = record_type })
     if not answers or #answers == 0 then
-        return _M.resolve_stale(key, dns_conf), "dns query failed: " .. tostring(err)
+        return _M.resolve_stale(key, dns_conf), "dns query failed: " .. tostring(err2)
     end
 
     local ttl = _M.effective_ttl(answers, dns_conf)

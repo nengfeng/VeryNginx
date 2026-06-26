@@ -50,7 +50,7 @@ end
 function _M._round_robin(nodes, upstream, upstream_name)
     local shared = ngx.shared.healthcheck
     local key = _rr_key(upstream_name)
-    local idx = 1
+    local idx
     if shared then
         idx = shared:incr(key, 1, 0)
         if idx > #nodes then
@@ -67,7 +67,7 @@ function _M._round_robin(nodes, upstream, upstream_name)
     return nodes[idx]
 end
 
-function _M._ip_hash(nodes, upstream)
+function _M._ip_hash(nodes, _)
     local client_ip = ngx.var.remote_addr or "127.0.0.1"
     local hash = ngx.crc32_short(client_ip)
     local index = (hash % #nodes) + 1

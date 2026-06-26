@@ -11,7 +11,10 @@ _M.default_matchers = {
         Args = {
             name_operator = "*",
             operator = "≈",
-            value = "(\\bunion\\b.+\\bselect\\b|\\bselect\\b.+\\bfrom\\b|\\bsleep\\s*\\(|\\bload_file\\s*\\(|\\bexec\\s*\\(|\\bxp_cmdshell\\b|\\binformation_schema\\b|\\b1\\s*=\\s*1\\b|'\\s*or\\s*'|\\b0x[0-9a-f]{8,}\\b)",
+            value = "(\\bunion\\b.+\\bselect\\b|\\bselect\\b.+\\bfrom\\b|" ..
+                "\\bsleep\\s*\\(|\\bload_file\\s*\\(|\\bexec\\s*\\(|" ..
+                "\\bxp_cmdshell\\b|\\binformation_schema\\b|\\b1\\s*=\\s*1\\b|" ..
+                "'\\s*or\\s*'|\\b0x[0-9a-f]{8,}\\b)",
             on_body_error = "fail_closed"
         }
     },
@@ -30,7 +33,8 @@ _M.default_matchers = {
     attack_code_leak = {
         URI = {
             operator = "≈",
-            value = "(\\.git/config|\\.svn/entries|\\.env\\b|/vendor/|/composer\\.json|/package\\.json|/node_modules/|/wp-config\\.php|config\\.php\\b|WEB-INF/web\\.xml)"
+            value = "(\\.git/config|\\.svn/entries|\\.env\\b|/vendor/|/composer\\.json|" ..
+                "/package\\.json|/node_modules/|/wp-config\\.php|config\\.php\\b|WEB-INF/web\\.xml)"
         }
     },
     attack_path_traversal = {
@@ -42,7 +46,8 @@ _M.default_matchers = {
     attack_rce = {
         URI = {
             operator = "≈",
-            value = "(\\beval\\s*\\(|\\bsystem\\s*\\(|\\bpassthru\\s*\\(|\\bexec\\s*\\(|\\bassert\\s*\\(|\\bbase64_decode\\s*\\()"
+            value = "(\\beval\\s*\\(|\\bsystem\\s*\\(|\\bpassthru\\s*\\(|" ..
+                "\\bexec\\s*\\(|\\bassert\\s*\\(|\\bbase64_decode\\s*\\()"
         }
     },
 }

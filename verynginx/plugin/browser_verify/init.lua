@@ -39,7 +39,7 @@ function _M.on_access(ctx)
 
         if matcher.test(matcher_def, ctx) then
             local verify_types = rule.type or { "cookie" }
-            local cookie_ok, js_ok = false, false
+            local cookie_ok, js_ok
 
             for _, vtype in ipairs(verify_types) do
                 if vtype == "cookie" then
