@@ -610,4 +610,4 @@ VeryNginx 的配置保存后**立即生效**，无需重启 Nginx。如果是跨
 
 - [INSTALL_zh.md](INSTALL_zh.md) — 安装手册
 - [DESIGN_V2.md](DESIGN_V2.md) — v2 架构设计
-- [VeryNginx Wiki](https://github.com/alexazhou/VeryNginx/wiki)
+- [VeryNginx Issues](https://github.com/nengfeng/VeryNginx/issues)

@@ -19,7 +19,7 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/alexazhou/VeryNginx.git
+git clone https://github.com/nengfeng/VeryNginx.git
 cd VeryNginx
 
 # 2. 一键安装（OpenResty + VeryNginx）
@@ -80,7 +80,7 @@ python install.py hash-password your_password
 
 ```bash
 # 1. 克隆仓库，只复制 verynginx 目录
-git clone https://github.com/alexazhou/VeryNginx.git
+git clone https://github.com/nengfeng/VeryNginx.git
 cd VeryNginx
 
 # 2. 复制应用代码
@@ -177,7 +177,7 @@ make install  # 或手动复制 .lua 文件到 Lua 模块路径
 ### 3.4 部署 VeryNginx
 
 ```bash
-git clone https://github.com/alexazhou/VeryNginx.git
+git clone https://github.com/nengfeng/VeryNginx.git
 cd VeryNginx
 
 cp -r verynginx /opt/verynginx/
@@ -236,7 +236,7 @@ http {
 ## 方法四：Docker
 
 ```bash
-git clone https://github.com/alexazhou/VeryNginx.git
+git clone https://github.com/nengfeng/VeryNginx.git
 cd VeryNginx
 docker build -t verynginx .
 docker run -d --name=verynginx -p 8080:80 verynginx
@@ -331,4 +331,4 @@ python install.py update openresty
 ## 参考
 
 - [DESIGN_V2.md](DESIGN_V2.md) — v2 架构设计文档
-- [VeryNginx Wiki](https://github.com/alexazhou/VeryNginx/wiki)
+- [VeryNginx Issues](https://github.com/nengfeng/VeryNginx/issues)
