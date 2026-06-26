@@ -67,32 +67,26 @@ function _M.serve(root, path, expires)
         return ngx.exit(403)
     end
 
-    -- Check file exists
-    local f = io.open(safe_path, "r")
+    local f = io.open(safe_path, "rb")
     if not f then
         return ngx.exit(404)
     end
     local size = f:seek("end")
-    f:close()
+    f:seek("set", 0)
 
-    -- Large file: use X-Accel-Redirect
     local threshold = (config and config.static_file and config.static_file.x_accel_threshold) or 1048576
     if size > threshold then
+        f:close()
         local relative_path = safe_path:sub(#root + 1)
         ngx.header["X-Accel-Redirect"] = "/verynginx/internal" .. relative_path
         ngx.header["Content-Type"] = _M.mime_type(path)
         return ngx.exit(200)
     end
 
-    -- Small file: serve directly
     _M.set_cache_header(expires)
     ngx.header["Content-Type"] = _M.mime_type(path)
-    local f2 = io.open(safe_path, "rb")
-    if not f2 then
-        return ngx.exit(404)
-    end
-    ngx.say(f2:read("*all"))
-    f2:close()
+    ngx.say(f:read("*all"))
+    f:close()
     return ngx.exit(200)
 end
 

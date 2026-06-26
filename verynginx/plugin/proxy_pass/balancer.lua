@@ -52,7 +52,7 @@ function _M._round_robin(nodes, upstream, upstream_name)
     local key = _rr_key(upstream_name)
     local idx = 1
     if shared then
-        idx = shared:incr(key, 1, 1)
+        idx = shared:incr(key, 1, 0)
         if idx > #nodes then
             shared:set(key, 1)
             idx = 1
