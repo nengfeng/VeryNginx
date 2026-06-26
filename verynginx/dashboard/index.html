@@ -87,9 +87,6 @@
                         <li class="topnav" id="topnav_summary" >
                             <a href="#" onclick="dashboard.switch_to_page('summary')" >Summary</a>
                         </li>
-                        <li class="topnav"id="topnav_firewall" style="display:none">
-                            <a href="#" onclick="dashboard.switch_to_page('firewall')" >防火墙</a>
-                        </li>
                         <li class="topnav" id="topnav_about" >
                             <a href="#" onclick="dashboard.switch_to_page('about')" >About</a>
                         </li>
@@ -237,32 +234,34 @@
                                 <div class="leftnav leftnav_2 " config_name="basic_matcher" onclick="dashboard.switch_to_config(this)">Matcher</div>
                                 <div class="leftnav leftnav_2 " config_name="basic_response" onclick="dashboard.switch_to_config(this)">Response</div>
                             </div>
-                            <div class="leftnav leftnav_1" group="action" onclick="dashboard.switch_config_nav_group(this)">Custom Action</div>
+                            <div class="leftnav leftnav_1" group="action" onclick="dashboard.switch_config_nav_group(this)">Rule Groups</div>
                             <div class="leftnav_group" group="action">
+                                <div class="leftnav leftnav_2" config_name="action_filter" onclick="dashboard.switch_to_config(this)">Filter (WAF)</div>
+                                <div class="leftnav leftnav_2" config_name="action_frequency_limit" onclick="dashboard.switch_to_config(this)">Frequency Limit</div>
+                                <div class="leftnav leftnav_2" config_name="action_browser_verify" onclick="dashboard.switch_to_config(this)">Browser Verify</div>
                                 <div class="leftnav leftnav_2" config_name="action_scheme_lock" onclick="dashboard.switch_to_config(this)">Scheme Lock</div>
                                 <div class="leftnav leftnav_2" config_name="action_redirect" onclick="dashboard.switch_to_config(this)">Redirect</div>
                                 <div class="leftnav leftnav_2" config_name="action_uri_rewrite" onclick="dashboard.switch_to_config(this)">URI Rewrite</div>
-                                <div class="leftnav leftnav_2" config_name="action_browser_verify" onclick="dashboard.switch_to_config(this)">Browser Verify</div>
-                                <div class="leftnav leftnav_2" config_name="action_frequency_limit" onclick="dashboard.switch_to_config(this)">Frequency Limit</div>
-                                <div class="leftnav leftnav_2" config_name="action_filter" onclick="dashboard.switch_to_config(this)">Filter</div>
                             </div>
                             
-                            <div class="leftnav leftnav_1" group="backend" onclick="dashboard.switch_config_nav_group(this)">Backend</div>
+                            <div class="leftnav leftnav_1" group="backend" onclick="dashboard.switch_config_nav_group(this)">Upstream</div>
                             <div class="leftnav_group" group="backend">
+                                <div class="leftnav leftnav_2" config_name="backend_upstream" onclick="dashboard.switch_to_config(this)">Backend Upstream</div>
                                 <div class="leftnav leftnav_2" config_name="backend_proxy_pass" onclick="dashboard.switch_to_config(this)">Proxy Pass</div>
-                                <div class="leftnav leftnav_2" config_name="backend_static_file" onclick="dashboard.switch_to_config(this)">Static file</div>
+                                <div class="leftnav leftnav_2" config_name="backend_static_file" onclick="dashboard.switch_to_config(this)">Static File</div>
                             </div>
 
-                            <div class="leftnav leftnav_1" group="summary" onclick="dashboard.switch_config_nav_group(this)">Summary</div>
+                            <div class="leftnav leftnav_1" group="summary" onclick="dashboard.switch_config_nav_group(this)">Statistics</div>
                             <div class="leftnav_group" group="summary">
                                 <div class="leftnav leftnav_2" config_name="summary_general" onclick="dashboard.switch_to_config(this)">General</div>
                                 <div class="leftnav leftnav_2" config_name="summary_collect" onclick="dashboard.switch_to_config(this)">Collect</div>
                             </div>
                             <div class="leftnav leftnav_1" group="system" onclick="dashboard.switch_config_nav_group(this)">System</div>
                             <div class="leftnav_group" group="system">
+                                <div class="leftnav leftnav_2" config_name="plugin_config" onclick="dashboard.switch_to_config(this)">Plugins</div>
                                 <div class="leftnav leftnav_2" config_name="system_general" onclick="dashboard.switch_to_config(this)">General</div>
-                                <div class="leftnav leftnav_2" config_name="system_admin" onclick="dashboard.switch_to_config(this)">User</div>
-                                <div class="leftnav leftnav_2" config_name="system_allconfig" onclick="dashboard.switch_to_config(this)">All Configuration</div>
+                                <div class="leftnav leftnav_2" config_name="system_admin" onclick="dashboard.switch_to_config(this)">Admin</div>
+                                <div class="leftnav leftnav_2" config_name="system_allconfig" onclick="dashboard.switch_to_config(this)">All Config</div>
                             </div>
                         </div>
                     </div>  
@@ -1639,6 +1638,76 @@
                             </div>
                         </div>
                         
+                        <div class="config_container" id="config_backend_upstream">
+                            <div class="config_title">
+                                Backend Upstream
+                            </div>
+                            <table class="table table-bordered config_table" id="config_backend_upstream_table" >
+                                <thead>
+                                    <tr>
+                                        <td>#</td>
+                                        <td>Name</td>
+                                        <td>Nodes</td>
+                                        <td>Health Check</td>
+                                        <td>TLS</td>
+                                        <td></td>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template v-for="(name, upstream) in config_now.backend_upstream">
+                                        <tr>
+                                            <td>{{ $index }}</td>
+                                            <td>{{ name }}</td>
+                                            <td>
+                                                <template v-for="(node_name, node) in upstream.nodes">
+                                                    {{ node.host }}:{{ node.port }}<br>
+                                                </template>
+                                            </td>
+                                            <td>{{ upstream.health_check.path }}</td>
+                                            <td>{{ upstream.tls.enable ? 'Yes' : 'No' }}</td>
+                                            <td>
+                                                <button type="button" class="btn btn-default btn-xs btn_del" onclick="config.config_mod('backend_upstream','{{name}}',null)">
+                                                    DEL
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="config_container" id="config_plugin_config">
+                            <div class="config_title">
+                                Plugin Settings
+                            </div>
+                            <table class="table table-bordered config_table" id="config_plugin_table" >
+                                <thead>
+                                    <tr>
+                                        <td>Plugin</td>
+                                        <td>Enable</td>
+                                        <td>Priority</td>
+                                        <td>Critical</td>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template v-for="(name, settings) in config_now.plugin">
+                                        <tr>
+                                            <td>{{ name }}</td>
+                                            <td>
+                                                <template v-if="settings.enable">✓</template>
+                                                <template v-else>✗</template>
+                                            </td>
+                                            <td>{{ settings.priority }}</td>
+                                            <td>
+                                                <template v-if="settings.critical">✓</template>
+                                                <template v-else>✗</template>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
                         <div class="config_container" id="config_summary_general">
                             <div class="config_title">
                                 General
@@ -2197,17 +2266,14 @@
                 </table>
             </div>
         </div>
-        <div class="page" id="page_firewall" style="display:none">
-            防火墙
-        </div>
-        
         <div class="page" id="page_about" style="display:none">
             <div style="padding-top:100px">
                 <h1 class="text-center" id="about_title">VeryNginx</h1>
-                <h3 class="text-center" id="about_sub_title">A very powerful and friendly nginx</h3>
+                <h3 class="text-center" id="about_sub_title">A powerful WAF, reverse proxy and request management engine</h3>
+                <p class="text-center" id="about_version">v2.0</p>
                 <div id="about_sub_btn_container">
                     <a id="about_sub_btn" target="_blank" href="https://github.com/alexazhou/VeryNginx">
-                        Look in Github
+                        View on GitHub
                     </a>
                 </div>
             </div>

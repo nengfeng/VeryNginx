@@ -41,10 +41,12 @@ data_stat.tab_switch = function ( item ) {
 
 data_stat.clear_data = function( ){
     var group = data_stat.current_group();
-    $.post('./status/clear',data={group:group},function(){
+    $.post('./summary/clear',{group:group},function(){
         dashboard.show_notice( 'info', 'Clear data group [' + group + '] success' );
         data_stat.get_data();
-    })
+    }).fail(function(){
+        dashboard.show_notice( 'warning', 'Clear data failed' );
+    });
 }
 
 data_stat.make_sure_have_table = function(){

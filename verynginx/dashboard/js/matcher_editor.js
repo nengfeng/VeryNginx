@@ -29,7 +29,7 @@ matcher_editor.form_meta = {
             ]
         },
         {
-            'group_name':'value of header',
+                    'group_name':'value of header',
             'input':[
                 {
                     'title':'operator',
@@ -46,7 +46,6 @@ matcher_editor.form_meta = {
                 },
                 {
                     'title':'value',
-                    'name':'operator',
                     'name':'value',
                     'type':'input',
                     'placeholder':'',
@@ -234,7 +233,7 @@ matcher_editor.form_meta = {
             ]
         },
         {
-            'group_name':'value of argument',
+                    'group_name':'value of argument',
             'input':[
                 {
                     'title':'operator',
@@ -251,7 +250,6 @@ matcher_editor.form_meta = {
                 },
                 {
                     'title':'value',
-                    'name':'operator',
                     'name':'value',
                     'type':'input',
                     'placeholder':'',
@@ -284,7 +282,7 @@ matcher_editor.form_meta = {
             ]
         },
         {
-            'group_name':'value of cookie',
+                    'group_name':'value of cookie',
             'input':[
                 {
                     'title':'operator',
@@ -301,7 +299,6 @@ matcher_editor.form_meta = {
                 },
                 {
                     'title':'value',
-                    'name':'operator',
                     'name':'value',
                     'type':'input',
                     'placeholder':'',

@@ -26,60 +26,101 @@ tips.data = {
         {"tips":"Purpose","content":"A Matcher used to match request"},
         {"tips":"Introduce","content":"When a request match all condition in a matcher, the request hit the matcher"},
         {"tips":"Usage","content":["You can add one or more conditions to a matcher",
-		                              "A empty matcher will match all request"]}
+		                              "A empty matcher will match all request",
+                                      "Supported types: IP, Host, URI, UserAgent, Referer, Args, Header, Cookie, Method, Composite"]}
+    ],
+    'basic_response':[
+        {"tips":"Purpose","content":"Response templates define reusable HTTP responses"},
+        {"tips":"Introduce","content":"Templates can be referenced by rules via the 'response' field"},
+        {"tips":"Usage","content":["Set Content-Type and body for block/response actions"]}
     ],
     'action_scheme_lock':[
         {"tips":"Purpose","content":"Lock all request on http or https"},
-        {"tips":"Introduce","content":"This action will check if the scheme current using fit to the rule. If scheme wrong, it will give a 302 redirect to the right scheme" },
+        {"tips":"Introduce","content":"Under rule.scheme_lock. This action will check if the scheme current using fit to the rule. If scheme wrong, it will give a 302 redirect to the right scheme" },
         {"tips":"Usage","content":["https/http means only https/http,both means not limit",
                                    "From top to bottom to match, and only use the first match rule"]
-        
         },
     ],
     'action_redirect':[
         {"tips":"Purpose","content":"Redirect to other address"},
-        {"tips":"Usage","content":["From top to bottom to match, and only use the first match rule"]}
+        {"tips":"Introduce","content":"Under rule.redirect. Redirect client to another URL"},
+        {"tips":"Usage","content":["From top to bottom to match, and only use the first match rule",
+                                   "Supports 301 (permanent) and 302 (temporary) status codes"]}
     ],
-    'filter_ipwhitelist':[
-        {"tips":"功能介绍","content":"IP白名单功能可以指定免过滤的IP"},
-        {"tips":"实现原理","content":"来自该列表中IP的访问请求将跳过过滤阶段"},
-        {"tips":"配置说明","content":"请填写完整的IP地址"}
+    'action_uri_rewrite':[
+        {"tips":"Purpose","content":"Internal URI rewrite (transparent to client)"},
+        {"tips":"Introduce","content":"Under rule.uri_rewrite. Rewrite the request URI internally"},
+        {"tips":"Usage","content":["The rewrite happens before any proxying",
+                                   "Useful for mapping legacy URLs to new paths"]}
     ],
-    'filter_ip':[
-        {"tips":"功能介绍","content":"IP过滤功能可以拦截来自某些IP的所有访问"},
-        {"tips":"实现原理","content":"来自该列表中IP的访问请求将返回503"},
-        {"tips":"配置说明","content":"请填写完整的IP地址"}
+    'action_browser_verify':[
+        {"tips":"Purpose","content":"Browser verification via Cookie + JavaScript challenge"},
+        {"tips":"Introduce","content":"Under rule.browser_verify. Blocks non-browser traffic (bots, CC attacks)"},
+        {"tips":"Usage","content":["May block search engine crawlers",
+                                   "Recommended to enable only under attack, or for specific paths"]}
     ],
-    'filter_useragent':[
-        {"tips":"功能介绍","content":"UserAgent过滤功能可以拦截来自某些客户端访问"},
-        {"tips":"实现原理","content":"本功能在收到一个请求时，检查请求所携带的useragent是否和规则一致，如果一致则返回503禁止访问"},
-        {"tips":"配置说明","content":["参数UserAgent为一个正则表达式，用来匹配请求的UserAgent",
-									  "规则匹配时不区分大小写，按照从上到下的顺序进行匹配，有一条规则匹配到即被拦截"]}
+    'action_frequency_limit':[
+        {"tips":"Purpose","content":"Rate limiting - restrict request frequency per client"},
+        {"tips":"Introduce","content":"Under rule.frequency_limit. Limit max requests in a time window"},
+        {"tips":"Usage","content":["Rate format: <count>/<unit> (e.g. 100/m, 10/s, 1000/h)",
+                                   "From top to bottom to match, and only use the first match rule"]}
     ],
-    'filter_uri':[
-        {"tips":"功能介绍","content":"URI过滤功能可以拦截对某些URI的访问请求"},
-        {"tips":"实现原理","content":"本功能在收到一个请求时，检查所请求的URI是否和规则一致，如果一致则返回503禁止访问"},
-        {"tips":"配置说明","content":["参数URI为一个正则表达式，用来匹配请求的URI",
-		                              "URI和Nginx的变量URI一致，表示请求地址中域名之后的部分，不包含查询字符串",
-									  "规则匹配时不区分大小写，按照从上到下的顺序进行匹配，有一条规则匹配到即被拦截"]}
+    'action_filter':[
+        {"tips":"Purpose","content":"WAF - Block malicious requests"},
+        {"tips":"Introduce","content":"Under rule.filter. Filter can block, accept, or respond with custom content"},
+        {"tips":"Usage","content":["Combine with matchers for complex WAF rules",
+                                   "Pre-built rules for SQL injection, path traversal, scanners",
+                                   "From top to bottom to match, and only use the first match rule"]}
     ],
-    'filter_arg':[
-        {"tips":"功能介绍","content":"参数过滤功能可以拦截带有危险参数的访问请求"},
-        {"tips":"实现原理","content":"本功能在收到一个请求时，检查请求所携带的参数是否和规则一致，如果一致则返回503禁止访问"},
-        {"tips":"配置说明","content":["参数ARG为一个正则表达式，用来匹配请求所携带的参数值",
-		                              "规则将检查GET和POST请求的每一个参数",
-									  "规则匹配时不区分大小写，按照从上到下的顺序进行匹配，有一条规则匹配到即被拦截"]}
+    'backend_proxy_pass':[
+        {"tips":"Purpose","content":"Reverse proxy requests to upstream backends"},
+        {"tips":"Introduce","content":"Under rule.proxy_pass. Routes matching requests to configured upstreams"},
+        {"tips":"Usage","content":["Requires a backend_upstream definition with health_check, tls, and timeout",
+                                   "Supports WebSocket, DNS caching, and weighted load balancing"]}
     ],
-    'summarg_request':[
-        {"tips":"功能介绍","content":"访问统计功能可以统计各URI的访问情况"},
+    'backend_static_file':[
+        {"tips":"Purpose","content":"Serve static files from local filesystem"},
+        {"tips":"Introduce","content":"Under rule.static_file. Serve local files for matching requests"},
+        {"tips":"Usage","content":["Configure root directory and file path pattern",
+                                   "Optionally set Cache-Control expires header"]}
     ],
-    
+    'backend_upstream':[
+        {"tips":"Purpose","content":"Define upstream backend servers"},
+        {"tips":"Introduce","content":"Upstream definitions include nodes, health check, TLS, and timeout"},
+        {"tips":"Usage","content":["Each node has host, port, and optional weight",
+                                   "Health check probes are sent periodically",
+                                   "Unhealthy nodes are automatically removed from rotation"]}
+    ],
+    'plugin_config':[
+        {"tips":"Purpose","content":"Plugin system - enable/disable, set priority, mark critical"},
+        {"tips":"Introduce","content":"Seven built-in plugins: filter, frequency_limit, browser_verify, router, proxy_pass, static_file, summary"},
+        {"tips":"Usage","content":["Priority determines execution order (lower = earlier)",
+                                   "Critical plugins cause 503 on error",
+                                   "Plugins can be independently enabled or disabled"]}
+    ],
+    'summary_general':[
+        {"tips":"Purpose","content":"General request statistics settings"},
+        {"tips":"Introduce","content":"Configure statistics time windows (1m, 5m, 1h, all), flush and persist intervals"},
+    ],
+    'summary_collect':[
+        {"tips":"功能介绍","content":"访问统计功能可以按 URI 查看各状态码的详细请求数据"},
+    ],
+    'system_general':[
+        {"tips":"Purpose","content":"General system settings"},
+        {"tips":"Introduce","content":"base_uri, cookie_prefix, dashboard_host, body limits, proxy settings"},
+    ],
+    'system_admin':[
+        {"tips":"Purpose","content":"Admin user management"},
+        {"tips":"Introduce","content":"Manage admin accounts with PBKDF2-HMAC-SHA256 password hashing"},
+        {"tips":"Usage","content":["Generate password hash with: python install.py hash-password <password>",
+                                   "Optional: install lua-resty-bcrypt or lua-resty-argon2 for stronger hashing"]}
+    ],
     'system_allconfig':[
-        {"tips":"功能介绍","content":"可以在这里看到全部的配置情况"},
+        {"tips":"功能介绍","content":"查看和编辑全部配置的 JSON"},
         {"tips":"操作说明","content":["点击保存配置将保存全部配置到服务器，并即刻生效",
 		                              "点击读取配置将从服务器获取当前使用的配置",
-									  "配置保存在VeryNginx目录下的config.json文件。备份/删除 该文件可以 备份/恢复默认 设置"]}
+									  "配置保存在 /opt/verynginx/verynginx/configs/config.json",
+                                      "备份保存在 configs/backups/ 目录下",
+                                      "删除 config.json 可恢复出厂设置"]}
     ],
-
-
 }

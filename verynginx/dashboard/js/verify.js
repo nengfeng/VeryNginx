@@ -48,7 +48,7 @@ verify.floatRange = function (min,max)
 {
     var handle = function(v){
         
-        if( (v<min) && (v<max))
+        if( v < min || v > max )
             return "必须在"+min+"和"+max+"之间";
 
         return "";

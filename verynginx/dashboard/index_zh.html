@@ -88,14 +88,14 @@
                         <li class="topnav" id="topnav_summary" >
                             <a href="#" onclick="dashboard.switch_to_page('summary')" >概况</a>
                         </li>
-                        <li class="topnav"id="topnav_firewall" style="display:none">
-                            <a href="#" onclick="dashboard.switch_to_page('firewall')" >防火墙</a>
-                        </li>
                         <li class="topnav" id="topnav_about" >
                             <a href="#" onclick="dashboard.switch_to_page('about')" >关于</a>
                         </li>
                     </ul>
                     <ul class="nav navbar-nav navbar-right">
+                        <li class="topnav" id="topnav_logout" >
+                            <a href="index.html" >English</a>
+                        </li>
                         <li class="topnav" id="topnav_logout" >
                             <a href="#" onclick="dashboard.logout()" >登出</a>
                         </li>
@@ -235,31 +235,33 @@
                                 <div class="leftnav leftnav_2 " config_name="basic_matcher" onclick="dashboard.switch_to_config(this)">匹配规则</div>
                                 <div class="leftnav leftnav_2 " config_name="basic_response" onclick="dashboard.switch_to_config(this)">响应规则</div>
                             </div>
-                            <div class="leftnav leftnav_1" group="action" onclick="dashboard.switch_config_nav_group(this)">自定义动作</div>
+                            <div class="leftnav leftnav_1" group="action" onclick="dashboard.switch_config_nav_group(this)">规则组</div>
                             <div class="leftnav_group" group="action">
-                                <div class="leftnav leftnav_2" config_name="action_scheme_lock" onclick="dashboard.switch_to_config(this)">HTTP/HTTPS锁定</div>
-                                <div class="leftnav leftnav_2" config_name="action_redirect" onclick="dashboard.switch_to_config(this)">跳转行为</div>
-                                <div class="leftnav leftnav_2" config_name="action_uri_rewrite" onclick="dashboard.switch_to_config(this)">URI重写</div>
-                                <div class="leftnav leftnav_2" config_name="action_browser_verify" onclick="dashboard.switch_to_config(this)">浏览器校验</div>
+                                <div class="leftnav leftnav_2" config_name="action_filter" onclick="dashboard.switch_to_config(this)">拦截 (WAF)</div>
                                 <div class="leftnav leftnav_2" config_name="action_frequency_limit" onclick="dashboard.switch_to_config(this)">频率限制</div>
-                                <div class="leftnav leftnav_2" config_name="action_filter" onclick="dashboard.switch_to_config(this)">拦截规则</div>
+                                <div class="leftnav leftnav_2" config_name="action_browser_verify" onclick="dashboard.switch_to_config(this)">浏览器校验</div>
+                                <div class="leftnav leftnav_2" config_name="action_scheme_lock" onclick="dashboard.switch_to_config(this)">协议锁定</div>
+                                <div class="leftnav leftnav_2" config_name="action_redirect" onclick="dashboard.switch_to_config(this)">跳转</div>
+                                <div class="leftnav leftnav_2" config_name="action_uri_rewrite" onclick="dashboard.switch_to_config(this)">URI重写</div>
                             </div>
                             
-                            <div class="leftnav leftnav_1" group="backend" onclick="dashboard.switch_config_nav_group(this)">后端</div>
+                            <div class="leftnav leftnav_1" group="backend" onclick="dashboard.switch_config_nav_group(this)">上游</div>
                             <div class="leftnav_group" group="backend">
+                                <div class="leftnav leftnav_2" config_name="backend_upstream" onclick="dashboard.switch_to_config(this)">后端上游</div>
                                 <div class="leftnav leftnav_2" config_name="backend_proxy_pass" onclick="dashboard.switch_to_config(this)">反向代理</div>
                                 <div class="leftnav leftnav_2" config_name="backend_static_file" onclick="dashboard.switch_to_config(this)">静态文件</div>
                             </div>
 
-                            <div class="leftnav leftnav_1" group="summary" onclick="dashboard.switch_config_nav_group(this)">概况</div>
+                            <div class="leftnav leftnav_1" group="summary" onclick="dashboard.switch_config_nav_group(this)">统计</div>
                             <div class="leftnav_group" group="summary">
                                 <div class="leftnav leftnav_2" config_name="summary_general" onclick="dashboard.switch_to_config(this)">一般统计</div>
                                 <div class="leftnav leftnav_2" config_name="summary_collect" onclick="dashboard.switch_to_config(this)">集合统计</div>
                             </div>
                             <div class="leftnav leftnav_1" group="system" onclick="dashboard.switch_config_nav_group(this)">系统</div>
                             <div class="leftnav_group" group="system">
+                                <div class="leftnav leftnav_2" config_name="plugin_config" onclick="dashboard.switch_to_config(this)">插件</div>
                                 <div class="leftnav leftnav_2" config_name="system_general" onclick="dashboard.switch_to_config(this)">通用</div>
-                                <div class="leftnav leftnav_2" config_name="system_admin" onclick="dashboard.switch_to_config(this)">用户</div>
+                                <div class="leftnav leftnav_2" config_name="system_admin" onclick="dashboard.switch_to_config(this)">管理员</div>
                                 <div class="leftnav leftnav_2" config_name="system_allconfig" onclick="dashboard.switch_to_config(this)">所有配置</div>
                             </div>
                         </div>
@@ -1641,7 +1643,39 @@
                                 </form>
                             </div>
                         </div>
-                        
+
+                        <div class="config_container" id="config_plugin_config">
+                            <div class="config_title">
+                                插件设置
+                            </div>
+                            <table class="table table-bordered config_table" id="config_plugin_table" >
+                                <thead>
+                                    <tr>
+                                        <td>插件</td>
+                                        <td>启用</td>
+                                        <td>优先级</td>
+                                        <td>Critical</td>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template v-for="(name, settings) in config_now.plugin">
+                                        <tr>
+                                            <td>{{ name }}</td>
+                                            <td>
+                                                <template v-if="settings.enable">✓</template>
+                                                <template v-else>✗</template>
+                                            </td>
+                                            <td>{{ settings.priority }}</td>
+                                            <td>
+                                                <template v-if="settings.critical">✓</template>
+                                                <template v-else>✗</template>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
                         <div class="config_container" id="config_summary_general">
                             <div class="config_title">
                                 通用
@@ -2201,17 +2235,14 @@
                 </table>
             </div>
         </div>
-        <div class="page" id="page_firewall" style="display:none">
-            防火墙
-        </div>
-        
         <div class="page" id="page_about" style="display:none">
             <div style="padding-top:100px">
                 <h1 class="text-center" id="about_title">VeryNginx</h1>
-                <h3 class="text-center" id="about_sub_title">A very powerful and friendly nginx</h3>
+                <h3 class="text-center" id="about_sub_title">基于 Nginx + Lua 的 WAF、反向代理和请求管理引擎</h3>
+                <p class="text-center" id="about_version">v2.0</p>
                 <div id="about_sub_btn_container">
                     <a id="about_sub_btn" target="_blank" href="https://github.com/alexazhou/VeryNginx">
-                        Look in Github
+                        查看 GitHub
                     </a>
                 </div>
             </div>

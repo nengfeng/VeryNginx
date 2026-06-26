@@ -1,6 +1,6 @@
 var dashboard = new Object();
 
-dashboard.version = '0.3';
+dashboard.version = '2.0';
 dashboard.disable_log = false;
 dashboard.last_failed_jqxhr;
 

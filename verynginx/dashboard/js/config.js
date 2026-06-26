@@ -107,26 +107,54 @@ config.get_config = function(){
 }
 
 
+config.csrf_token = null;
+
+config.fetch_csrf = function(callback){
+    $.get("./csrf", function(data){
+        if( data['ret'] == 'success' && data['csrf_token'] ){
+            config.csrf_token = data['csrf_token'];
+        }
+        if( callback ) callback();
+    });
+}
+
 config.save_config = function(){
     console.log("save_config");
     var config_json = JSON.stringify( config.config_vm.$data['config_now'] , null, 2);
 
-    //step 1, use encodeURIComponent to escape special char 
+    // step 1: CSRF token
+    if( !config.csrf_token ){
+        config.fetch_csrf(config.save_config);
+        return;
+    }
+
+    // step 2, use encodeURIComponent to escape special char 
     var config_json_escaped = window.encodeURIComponent( config_json );
-    //step 2, use base64 to encode data to avoid be blocked by verynginx args filter
+    // step 3, use base64 to encode data to avoid be blocked by verynginx args filter
     var config_json_escaped_base64 = window.btoa( config_json_escaped );
 
-    $.post("./config",{ config:config_json_escaped_base64 },function(data){
+    $.post("./config",{
+        config: config_json_escaped_base64,
+        csrf_token: config.csrf_token
+    },function(data){
         console.log(data);
         if( data['ret'] == 'success' ){
             config.original_config_json = config.config_vm.all_config_json;
             config.refresh_bottom_bar();
+            config.csrf_token = null;
             dashboard.notify("Save config success.");
         }else{
-            dashboard.show_notice( 'warning', "Save config failed [" + data['err'] + "].");
+            dashboard.show_notice( 'warning', "Save config failed [" + (data['err'] || data['message'] || 'unknown') + "].");
         }
     });
 }
+
+config.get_config = (function(original){
+    return function(){
+        original();
+        config.fetch_csrf();
+    };
+})(config.get_config);
 
 //modify: give group, index ,value
 //delete: let value = null
