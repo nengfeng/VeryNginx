@@ -22,8 +22,12 @@
 git clone https://github.com/nengfeng/VeryNginx.git
 cd VeryNginx
 
-# 2. 一键安装（OpenResty + VeryNginx）
+# 2. 一键安装（OpenResty + VeryNginx），默认安装到 /opt/verynginx/
 python install.py install
+
+# 可指定自定义安装路径：
+# python install.py --prefix /opt/custom-path install
+```
 
 # 3. 设置管理员密码
 python install.py hash-password your_password
