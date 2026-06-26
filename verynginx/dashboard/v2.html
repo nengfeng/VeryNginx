@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VeryNginx v2</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#f5f6fa;--card:#fff;--border:#e0e3eb;--text:#1a1a2e;--muted:#6b7280;--primary:#4361ee;--primary-hover:#3a56d4;--danger:#e63946;--success:#2ec4b6;--warning:#f4a261}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+input,select,textarea,button{font:inherit}
+button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:14px}
+button.primary{background:var(--primary);color:#fff}button.primary:hover{background:var(--primary-hover)}
+button.danger{background:var(--danger);color:#fff}
+button.small{padding:4px 10px;font-size:12px}
+button.outline{background:transparent;border:1px solid var(--border);color:var(--text)}
+button.outline:hover{background:var(--bg)}
+input,select,textarea{border:1px solid var(--border);border-radius:6px;padding:8px 12px;width:100%;background:var(--card)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--primary);outline-offset:-1px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
+th{font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+tr:hover{background:#f0f2f8}
+pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:auto;font-size:13px;line-height:1.5;max-height:60vh}
+.card{background:var(--card);border-radius:10px;padding:20px;border:1px solid var(--border);margin-bottom:16px}
+.grid{display:grid;gap:16px}.grid-2{grid-template-columns:1fr 1fr}.grid-3{grid-template-columns:1fr 1fr 1fr}.grid-4{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.flex{display:flex;align-items:center}.flex-between{justify-content:space-between}.gap-8{gap:8px}.gap-16{gap:16px}
+.mb-8{margin-bottom:8px}.mb-16{margin-bottom:16px}.mt-16{margin-top:16px}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.tag-ok{background:#d1fae5;color:#065f46}.tag-err{background:#fee2e2;color:#991b1b}.tag-warn{background:#fef3c7;color:#92400e}
+/* Login */
+#login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.login-box{background:var(--card);border-radius:12px;padding:40px;width:100%;max-width:400px;border:1px solid var(--border);box-shadow:0 4px 24px rgba(0,0,0,.06)}
+.login-box h1{font-size:24px;margin-bottom:4px;text-align:center}
+.login-box .sub{color:var(--muted);font-size:14px;text-align:center;margin-bottom:24px}
+.login-box .field{margin-bottom:16px}
+.login-box .field label{display:block;font-size:13px;font-weight:600;margin-bottom:4px;color:var(--muted)}
+.login-box .error{background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
+.login-box button{width:100%;padding:12px;font-size:15px}
+/* Top nav */
+#topnav{background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:56px;position:sticky;top:0;z-index:100}
+#topnav .brand{font-weight:700;font-size:16px;margin-right:32px;color:var(--text)}
+#topnav .brand small{font-weight:400;color:var(--muted);font-size:12px}
+#topnav nav{display:flex;gap:4px;flex:1}
+#topnav nav a{padding:8px 14px;border-radius:6px;font-size:14px;color:var(--text);cursor:pointer;transition:background .15s}
+#topnav nav a:hover{background:var(--bg);text-decoration:none}
+#topnav nav a.active{background:var(--primary);color:#fff}
+#topnav .user-area{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted)}
+/* Main layout */
+#main{padding:24px;max-width:1200px;margin:0 auto}
+.page-title{font-size:22px;font-weight:700;margin-bottom:20px}
+/* Status cards */
+.stat-card{background:var(--card);border-radius:10px;padding:20px;border:1px solid var(--border);text-align:center}
+.stat-card .stat-value{font-size:32px;font-weight:700;margin-top:4px}
+.stat-card .stat-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+/* Config tabs */
+.config-tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap}
+.config-tabs a{padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text);border:1px solid transparent;transition:all .15s}
+.config-tabs a:hover{background:var(--bg);text-decoration:none}
+.config-tabs a.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.config-section h3{font-size:16px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.config-section h3 small{font-weight:400;font-size:12px;color:var(--muted)}
+/* Actions */
+.actions{display:flex;gap:8px;justify-content:center}
+.actions button{padding:4px 8px;font-size:11px}
+/* Empty state */
+.empty{color:var(--muted);font-size:14px;padding:24px;text-align:center}
+/* Modal overlay */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:200}
+.modal{background:var(--card);border-radius:12px;padding:24px;width:90%;max-width:500px;max-height:80vh;overflow-y:auto}
+.modal h3{font-size:16px;margin-bottom:16px}
+.modal .field{margin-bottom:12px}
+.modal .field label{display:block;font-size:12px;font-weight:600;margin-bottom:3px;color:var(--muted)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+/* Inline JSON */
+.json-inline{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}#topnav{padding:0 12px;flex-wrap:wrap;height:auto;padding:8px 12px}#topnav nav{gap:2px}#topnav nav a{padding:6px 10px;font-size:12px}#main{padding:12px}}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Login -->
+  <div id="login-page" v-if="!store.loggedIn">
+    <div class="login-box">
+      <h1>VeryNginx</h1>
+      <p class="sub">v2.0 — WAF &amp; Reverse Proxy Manager</p>
+      <div class="error" v-if="loginError">{{ loginError }}</div>
+      <div class="field">
+        <label>User</label>
+        <input v-model.trim="loginUser" type="text" placeholder="admin username" @keyup.enter="doLogin">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input v-model.trim="loginPass" type="password" placeholder="password" @keyup.enter="doLogin">
+      </div>
+      <button class="primary" :disabled="loading" @click="doLogin">{{ loading ? 'Signing in…' : 'Sign in' }}</button>
+    </div>
+  </div>
+
+  <!-- App -->
+  <template v-else>
+    <div id="topnav">
+      <span class="brand">VeryNginx <small>v2</small></span>
+      <nav>
+        <a :class="{active:page==='status'}" @click="page='status'">Status</a>
+        <a :class="{active:page==='config'}" @click="page='config'">Config</a>
+        <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">Stats</a>
+        <a :class="{active:page==='about'}" @click="page='about'">About</a>
+      </nav>
+      <div class="user-area">
+        <span>{{ store.user }}</span>
+        <button class="outline small" @click="doLogout">Logout</button>
+      </div>
+    </div>
+
+    <div id="main">
+      <!-- Status -->
+      <div v-if="page==='status'">
+        <h2 class="page-title">Status</h2>
+        <div class="grid grid-4 mb-16">
+          <div class="stat-card"><div class="stat-label">Active Connections</div><div class="stat-value">{{ s.connections_active || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">Reading</div><div class="stat-value">{{ s.connections_reading || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">Writing</div><div class="stat-value">{{ s.connections_writing || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">Waiting</div><div class="stat-value">{{ s.connections_waiting || 0 }}</div></div>
+        </div>
+        <div class="card">
+          <div class="flex flex-between mb-8">
+            <strong>Status Info</strong>
+            <button class="outline small" @click="loadStatus">Refresh</button>
+          </div>
+          <table>
+            <tr><th>Time</th><td>{{ formatTime(s.time) }}</td></tr>
+            <tr><th>Uptime Status</th><td><span class="tag tag-ok">Online</span></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Config -->
+      <div v-if="page==='config'">
+        <h2 class="page-title">Configuration</h2>
+        <div class="config-tabs">
+          <a :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">Matchers</a>
+          <a :class="{active:cfgTab==='rules'}" @click="cfgTab='rules'">Rules</a>
+          <a :class="{active:cfgTab==='upstreams'}" @click="cfgTab='upstreams'">Upstreams</a>
+          <a :class="{active:cfgTab==='responses'}" @click="cfgTab='responses'">Responses</a>
+          <a :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins'">Plugins</a>
+          <a :class="{active:cfgTab==='system'}" @click="cfgTab='system'">System</a>
+          <a :class="{active:cfgTab==='json'}" @click="cfgTab='json'">Raw JSON</a>
+        </div>
+
+        <!-- Matchers -->
+        <div class="config-section" v-if="cfgTab==='matchers'">
+          <div class="flex flex-between mb-16">
+            <h3>Matchers <small>{{ matcherKeys.length }} defined</small></h3>
+            <button class="primary small" @click="editMatcher(null)">+ Add</button>
+          </div>
+          <table v-if="matcherKeys.length">
+            <thead><tr><th>Name</th><th>Conditions</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="name in matcherKeys" :key="name">
+                <td><strong>{{ name }}</strong></td>
+                <td><span class="json-inline">{{ JSON.stringify(cfg.matcher[name]) }}</span></td>
+                <td class="actions">
+                  <button class="outline small" @click="editMatcher(name)">Edit</button>
+                  <button class="danger small" @click="deleteMatcher(name)">Del</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="empty">No matchers defined.</div>
+        </div>
+
+        <!-- Rules -->
+        <div class="config-section" v-if="cfgTab==='rules'">
+          <h3>Rule Groups</h3>
+          <div v-for="(rules, group) in cfg.rule || {}" :key="group" class="card" style="padding:16px">
+            <div class="flex flex-between mb-8">
+              <strong style="font-size:14px">{{ group }}</strong>
+              <span class="tag tag-ok" v-if="rules && rules.length">{{ rules.length }} rules</span>
+              <span class="tag tag-warn" v-else>empty</span>
+            </div>
+            <table v-if="rules && rules.length" style="font-size:13px">
+              <thead><tr><th>#</th><th>Enable</th><th>Matcher</th><th>Action</th><th>Detail</th></tr></thead>
+              <tbody>
+                <tr v-for="(r,i) in rules" :key="i">
+                  <td>{{ i }}</td>
+                  <td>{{ r.enable ? '✓' : '✗' }}</td>
+                  <td>{{ typeof r.matcher === 'string' ? r.matcher : '(inline)' }}</td>
+                  <td><span class="tag" :class="actionClass(r.action)">{{ r.action }}</span></td>
+                  <td><span class="json-inline">{{ summarizeRule(r) }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="empty">No rules in this group.</div>
+          </div>
+        </div>
+
+        <!-- Upstreams -->
+        <div class="config-section" v-if="cfgTab==='upstreams'">
+          <h3>Backend Upstreams</h3>
+          <div v-for="(up, name) in cfg.backend_upstream || {}" :key="name" class="card" style="padding:16px">
+            <strong>{{ name }}</strong>
+            <table style="font-size:13px;margin-top:8px">
+              <thead><tr><th>Host</th><th>Port</th><th>Weight</th></tr></thead>
+              <tbody>
+                <tr v-for="(node,ni) in up.nodes || []" :key="ni">
+                  <td>{{ node.host }}</td><td>{{ node.port }}</td><td>{{ node.weight || 1 }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px">
+              HC: {{ up.health_check?.path || 'none' }} &middot;
+              TLS: {{ up.tls?.enable ? 'yes' : 'no' }} &middot;
+              Method: {{ up.method || 'round_robin' }}
+            </div>
+          </div>
+          <div v-if="!cfg.backend_upstream || !Object.keys(cfg.backend_upstream).length" class="empty">No upstreams defined.</div>
+        </div>
+
+        <!-- Responses -->
+        <div class="config-section" v-if="cfgTab==='responses'">
+          <h3>Response Templates</h3>
+          <table v-if="respKeys.length">
+            <thead><tr><th>Name</th><th>Content-Type</th><th>Body</th></tr></thead>
+            <tbody>
+              <tr v-for="name in respKeys" :key="name">
+                <td><strong>{{ name }}</strong></td>
+                <td>{{ cfg.response[name].content_type }}</td>
+                <td><span class="json-inline">{{ cfg.response[name].body }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="empty">No response templates.</div>
+        </div>
+
+        <!-- Plugins -->
+        <div class="config-section" v-if="cfgTab==='plugins'">
+          <h3>Plugin Settings</h3>
+          <table>
+            <thead><tr><th>Plugin</th><th>Enable</th><th>Priority</th><th>Critical</th></tr></thead>
+            <tbody>
+              <tr v-for="(p, name) in cfg.plugin || {}" :key="name">
+                <td><strong>{{ name }}</strong></td>
+                <td>{{ p.enable ? '✓' : '✗' }}</td>
+                <td>{{ p.priority }}</td>
+                <td>{{ p.critical ? '✓' : '✗' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- System -->
+        <div class="config-section" v-if="cfgTab==='system'">
+          <h3>System Settings</h3>
+          <table>
+            <tbody>
+              <tr><td>base_uri</td><td>{{ cfg.base_uri }}</td></tr>
+              <tr><td>cookie_prefix</td><td>{{ cfg.cookie_prefix }}</td></tr>
+              <tr><td>auth_strategy</td><td>{{ cfg.auth_strategy }}</td></tr>
+              <tr><td>body.max_size</td><td>{{ cfg.body?.max_size || '-' }}</td></tr>
+              <tr><td>body.on_error</td><td>{{ cfg.body?.on_error || '-' }}</td></tr>
+              <tr><td>proxy.health_check_interval</td><td>{{ cfg.proxy?.health_check_interval || '-' }}s</td></tr>
+            </tbody>
+          </table>
+          <h3 style="margin-top:16px">Admin Users</h3>
+          <table>
+            <thead><tr><th>User</th><th>Enable</th><th>Password</th></tr></thead>
+            <tbody>
+              <tr v-for="(a,i) in cfg.admin || []" :key="i">
+                <td>{{ a.user }}</td>
+                <td>{{ a.enable ? '✓' : '✗' }}</td>
+                <td><span class="json-inline">{{ a.password_hash ? '(set)' : '(not set)' }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Raw JSON -->
+        <div class="config-section" v-if="cfgTab==='json'">
+          <div class="flex flex-between mb-16">
+            <h3>Raw Configuration</h3>
+            <div class="flex gap-8">
+              <button class="outline small" @click="loadConfig">Reload</button>
+              <button class="primary small" :disabled="jsonSaving" @click="saveRawConfig">{{ jsonSaving ? 'Saving…' : 'Save' }}</button>
+            </div>
+          </div>
+          <div class="error" v-if="jsonError" style="margin-bottom:8px">{{ jsonError }}</div>
+          <pre contenteditable id="json-editor" @input="onJsonEdit">{{ rawJson }}</pre>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div v-if="page==='stats'">
+        <div class="flex flex-between mb-16">
+          <h2 class="page-title" style="margin-bottom:0">Request Statistics</h2>
+          <div class="flex gap-8">
+            <select v-model="statsType" style="width:auto" @change="loadStats">
+              <option value="long">All</option>
+              <option value="short">Temporary</option>
+            </select>
+            <button class="outline small" @click="loadStats">Refresh</button>
+          </div>
+        </div>
+        <div v-if="statsError" class="error" style="margin-bottom:8px">{{ statsError }}</div>
+        <div v-if="statsData">
+          <h3 style="font-size:14px;margin-bottom:8px;">URI Statistics <small>{{ Object.keys(statsData.uri || {}).length }} entries</small></h3>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>URI</th><th>Count</th><th>Size</th><th>Avg Size</th><th>Success</th><th>Time</th><th>Avg Time</th></tr></thead>
+              <tbody>
+                <tr v-for="(v,key) in statsData.uri || {}" :key="key">
+                  <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="key">{{ key }}</td>
+                  <td>{{ v.count }}</td>
+                  <td>{{ formatBytes(v.size) }}</td>
+                  <td>{{ formatBytes(v.size / v.count) }}</td>
+                  <td><span class="tag" :class="successClass(v)">{{ calcSuccess(v) }}%</span></td>
+                  <td>{{ v.time.toFixed(2) }}s</td>
+                  <td>{{ (v.time / v.count).toFixed(3) }}s</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- About -->
+      <div v-if="page==='about'" style="text-align:center;padding-top:60px">
+        <h1>VeryNginx</h1>
+        <p style="color:var(--muted);font-size:18px;margin:8px 0 4px">v2.0</p>
+        <p style="color:var(--muted);font-size:14px">A WAF, reverse proxy and request management engine built on Nginx + Lua.</p>
+        <p style="margin-top:24px">
+          <a href="https://github.com/alexazhou/VeryNginx" target="_blank">GitHub</a> &middot;
+          <a href="index.html" target="_blank">Legacy Dashboard</a></p>
+      </div>
+    </div>
+  <!-- Matcher Editor Modal -->
+  <div class="modal-overlay" v-if="editMatcherModal.show" @click.self="editMatcherModal.show=false">
+    <div class="modal">
+      <h3>{{ editMatcherModal._origName ? 'Edit Matcher' : 'Add Matcher' }}</h3>
+      <div class="field">
+        <label>Name</label>
+        <input v-model="editMatcherModal.name" type="text" placeholder="matcher name">
+      </div>
+      <div class="field">
+        <label>Conditions (JSON, e.g. {"URI":{"operator":"≈","value":"/api/*"}})</label>
+        <pre contenteditable id="matcher-json" style="min-height:120px;background:var(--bg);color:var(--text);padding:12px;font-size:13px;border-radius:6px;border:1px solid var(--border)">{{ editMatcherModal.conditions }}</pre>
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="editMatcherModal.show=false">Cancel</button>
+        <button class="primary" @click="saveMatcher">Save</button>
+      </div>
+    </div>
+  </div>
+
+  </template>
+</div>
+
+<script>
+const { reactive, ref, computed, watch } = Vue;
+
+// ---- API ----
+let csrfToken = null;
+
+async function api(method, path, body, formEncode) {
+  const opts = { method, credentials: 'same-origin' };
+  if (body) {
+    if (formEncode || body instanceof URLSearchParams) {
+      opts.body = body;
+    } else if (typeof body === 'object' && !(body instanceof FormData)) {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = JSON.stringify(body);
+    } else {
+      opts.body = body;
+    }
+  }
+  if (method !== 'GET' && csrfToken) {
+    opts.headers = opts.headers || {};
+    opts.headers['X-CSRF-Token'] = csrfToken;
+  }
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    let msg;
+    try { const j = JSON.parse(text); msg = j.message || j.err || text; } catch { msg = text || `HTTP ${res.status}`; }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function refreshCsrf() {
+  try {
+        const d = await api('GET', '/verynginx/csrf');
+    csrfToken = d.csrf_token;
+  } catch {}
+}
+
+// ---- App ----
+const app = Vue.createApp({
+  setup() {
+    const store = reactive({ loggedIn: false, user: null });
+    const page = ref('status');
+    const loading = ref(false);
+    const loginUser = ref('');
+    const loginPass = ref('');
+    const loginError = ref('');
+    const status = ref({});
+    const cfg = ref({});
+    const cfgTab = ref('matchers');
+    const rawJson = ref('');
+    const jsonSaving = ref(false);
+    const jsonError = ref('');
+    const statsData = ref(null);
+    const statsType = ref('long');
+    const statsError = ref('');
+    const editMatcherModal = reactive({ show: false, name: '', conditions: '' });
+
+    const s = computed(() => status.value);
+
+    // ---- Login ----
+    async function doLogin() {
+      loginError.value = '';
+      if (!loginUser.value || !loginPass.value) { loginError.value = 'User and password required.'; return; }
+      loading.value = true;
+      try {
+        const params = new URLSearchParams();
+        params.append('user', loginUser.value);
+        params.append('password', loginPass.value);
+        const d = await api('POST', '/verynginx/login', params);
+        if (d.ret === 'success') {
+          store.loggedIn = true;
+          store.user = loginUser.value;
+          loginUser.value = '';
+          loginPass.value = '';
+          await refreshCsrf();
+          loadData();
+        } else {
+          loginError.value = d.message || 'Login failed';
+        }
+      } catch (e) {
+        loginError.value = e.message;
+      }
+      loading.value = false;
+    }
+
+    // ---- Logout ----
+    function doLogout() {
+      document.cookie = 'verynginx_session=; Path=/; Max-Age=0';
+      csrfToken = null;
+      store.loggedIn = false;
+      store.user = null;
+    }
+
+    // ---- Load ----
+    async function loadData() {
+      await Promise.all([loadStatus(), loadConfig()]);
+    }
+
+    async function loadStatus() {
+      try { status.value = await api('GET', '/verynginx/status'); } catch {}
+    }
+
+    async function loadConfig() {
+      try {
+        const d = await api('GET', '/verynginx/config');
+        cfg.value = d;
+        rawJson.value = JSON.stringify(d, null, 2);
+      } catch {}
+    }
+
+    // ---- Matchers ----
+    const matcherKeys = computed(() => Object.keys(cfg.value.matcher || {}).sort());
+    const respKeys = computed(() => Object.keys(cfg.value.response || {}).sort());
+
+    function editMatcher(name) {
+      if (name) {
+        editMatcherModal._origName = name;
+        editMatcherModal.name = name;
+        editMatcherModal.conditions = JSON.stringify(cfg.value.matcher[name], null, 2);
+      } else {
+        editMatcherModal._origName = null;
+        editMatcherModal.name = '';
+        editMatcherModal.conditions = '{}';
+      }
+      editMatcherModal.show = true;
+      Vue.nextTick(() => {
+        const el = document.getElementById('matcher-json');
+        if (el) el.innerText = editMatcherModal.conditions;
+      });
+    }
+
+    function saveMatcher() {
+      try {
+        const el = document.getElementById('matcher-json');
+        const updated = JSON.parse(el.innerText);
+        const newCfg = JSON.parse(JSON.stringify(cfg.value));
+        if (editMatcherModal._origName && editMatcherModal._origName !== editMatcherModal.name) {
+          delete newCfg.matcher[editMatcherModal._origName];
+        }
+        newCfg.matcher[editMatcherModal.name] = updated;
+        commitConfig(newCfg);
+        editMatcherModal.show = false;
+      } catch (e) {
+        alert('Invalid JSON: ' + e.message);
+      }
+    }
+
+    function deleteMatcher(name) {
+      if (!confirm(`Delete matcher "${name}"?`)) return;
+      const newCfg = JSON.parse(JSON.stringify(cfg.value));
+      delete newCfg.matcher[name];
+      commitConfig(newCfg);
+    }
+
+    // ---- Save ----
+    async function commitConfig(newCfg) {
+      try {
+        const d = await api('POST', '/verynginx/config', newCfg);
+        if (d.ret === 'success') {
+          await loadConfig();
+          await refreshCsrf();
+        } else {
+          alert('Save failed: ' + (d.message || d.err || 'unknown'));
+        }
+      } catch (e) {
+        alert('Save failed: ' + e.message);
+      }
+    }
+
+    async function saveRawConfig() {
+      jsonError.value = '';
+      jsonSaving.value = true;
+      try {
+        const parsed = JSON.parse(rawJson.value);
+        const d = await api('POST', '/verynginx/config', parsed);
+        if (d.ret === 'success') {
+          await loadConfig();
+          await refreshCsrf();
+        } else {
+          jsonError.value = d.message || d.err || 'Save failed';
+        }
+      } catch (e) {
+        jsonError.value = e.message;
+      }
+      jsonSaving.value = false;
+    }
+
+    function onJsonEdit(e) {
+      rawJson.value = e.target.innerText;
+    }
+
+    // Auto-refresh status every 3s
+    let statusTimer;
+    function startStatusRefresh() {
+      clearInterval(statusTimer);
+      loadStatus();
+      statusTimer = setInterval(loadStatus, 3000);
+    }
+    watch(page, (p) => {
+      if (p === 'status') startStatusRefresh();
+      else clearInterval(statusTimer);
+    });
+    // Kick off on first mount if already on status page
+    Vue.nextTick(() => { if (page.value === 'status' && store.loggedIn) startStatusRefresh(); });
+
+    // ---- Stats ----
+    async function loadStats() {
+      statsError.value = '';
+      try {
+        statsData.value = await api('GET', `/verynginx/summary?type=${statsType.value}`);
+      } catch (e) {
+        statsError.value = e.message;
+      }
+    }
+
+    // ---- Helpers ----
+    function formatTime(t) {
+      if (!t) return '-';
+      return new Date(t * 1000).toLocaleString();
+    }
+
+    function formatBytes(b) {
+      if (b == null) return '-';
+      if (b < 1024) return b.toFixed(0) + ' B';
+      if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+      return (b / 1048576).toFixed(1) + ' MB';
+    }
+
+    function calcSuccess(v) {
+      let ok = 0, total = 0;
+      for (const code in v.status || {}) {
+        const c = v.status[code];
+        total += c;
+        if (parseInt(code) < 400) ok += c;
+      }
+      return total ? ((ok / total) * 100).toFixed(1) : '0.0';
+    }
+
+    function successClass(v) {
+      const p = parseFloat(calcSuccess(v));
+      if (p >= 99) return 'tag-ok';
+      if (p >= 90) return 'tag-warn';
+      return 'tag-err';
+    }
+
+    function summarizeRule(r) {
+      const parts = [];
+      if (r.to_uri) parts.push('→ ' + r.to_uri);
+      if (r.upstream) parts.push('→ ' + r.upstream);
+      if (r.code) parts.push('HTTP ' + r.code);
+      if (r.scheme) parts.push(r.scheme);
+      if (r.rate) parts.push(r.rate);
+      return parts.join(', ') || '-';
+    }
+
+    function actionClass(a) {
+      if (a === 'block' || a === 'filter') return 'tag-err';
+      if (a === 'accept' || a === 'proxy' || a === 'static') return 'tag-ok';
+      return 'tag-warn';
+    }
+
+    return {
+      store, page, loading, loginUser, loginPass, loginError,
+      status, s, cfg, cfgTab, rawJson, jsonSaving, jsonError,
+      statsData, statsType, statsError,
+      matcherKeys, respKeys, editMatcherModal,
+      doLogin, doLogout, loadStatus, loadConfig, loadData,
+      editMatcher, saveMatcher, deleteMatcher,
+      commitConfig, saveRawConfig, onJsonEdit, loadStats,
+      formatTime, formatBytes, calcSuccess, successClass, summarizeRule, actionClass,
+    };
+  }
+});
+
+app.mount('#app');
+</script>
+</body>
+</html>
