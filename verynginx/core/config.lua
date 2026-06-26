@@ -419,7 +419,8 @@ local function prune_backups(keep_count)
             end
         end
     else
-        local p = io.popen('ls -1t "$1" 2>/dev/null', "r")
+        local cmd = 'ls -1t "' .. backup_dir .. '" 2>/dev/null'
+        local p = io.popen(cmd, "r")
         if not p then return end
         for f in p:lines() do
             if f:match("^config%.") then
