@@ -319,7 +319,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                   <td>{{ formatBytes(v.bytes) }}</td>
                   <td>{{ v.count ? formatBytes(v.bytes / v.count) : '-' }}</td>
                   <td><span class="tag" :class="successClass(v)">{{ calcSuccess(v) }}%</span></td>
-                  <td>{{ v.time.toFixed(2) }}s</td>
+                  <td>{{ v.time != null ? v.time.toFixed(2) : '-' }}s</td>
                   <td>{{ v.count ? (v.time / v.count).toFixed(3) : '-' }}s</td>
                 </tr>
               </tbody>
