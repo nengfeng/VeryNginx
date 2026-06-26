@@ -113,7 +113,7 @@ function _M.get_body_args(ctx)
 end
 
 --- Get URI query args (no body read).
-function _M.get_uri_args(ctx)
+function _M.get_uri_args(_)
     return ngx.req.get_uri_args()
 end
 

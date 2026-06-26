@@ -87,7 +87,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Per-request logging
 -- ---------------------------------------------------------------------------
-function _M.log_request(ctx)
+function _M.log_request(_)
     local status = tonumber(ngx.var.status) or 0
     local bytes = tonumber(ngx.var.body_bytes_sent) or 0
     local time = tonumber(ngx.var.request_time) or 0

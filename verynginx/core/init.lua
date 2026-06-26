@@ -27,7 +27,7 @@ function _M._validate_config()
                           "session auth will fail until it is set in config.json")
     end
     if c.admin then
-        for i, a in ipairs(c.admin) do
+        for _, a in ipairs(c.admin) do
             if a.password_hash and a.password_hash ~= "" then
                 return
             end

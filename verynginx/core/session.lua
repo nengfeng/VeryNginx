@@ -4,7 +4,6 @@
 -- @Disc    : HMAC session token - sign, verify, expire, key rotation
 
 local _M = {}
-local random = require "core.random"
 local hmac = require "core.hmac"
 
 --- Sign a payload into a session token using HMAC-SHA256.

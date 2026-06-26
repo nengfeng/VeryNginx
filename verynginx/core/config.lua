@@ -52,7 +52,7 @@ local function make_readonly(store_ref)
         __index = function(_, k)
             return store_ref[k]
         end,
-        __newindex = function(_, k, v)
+        __newindex = function(_, _k, _v)
             error("config is readonly, use config.save()")
         end,
         __pairs = function()
@@ -79,7 +79,7 @@ config_keys.version = true
 config_keys.admin = true
 
 local config_mt = {
-    __index = function(t, k)
+    __index = function(_, k)
         return config_store[k]
     end,
     __newindex = function(t, k, v)
@@ -148,22 +148,6 @@ local function normalize_defaults(config, schema)
 end
 
 -- ---------------------------------------------------------------------------
--- Known actions from action registry
--- ---------------------------------------------------------------------------
-local function get_known_actions()
-    local ok, action_init = pcall(require, "action.init")
-    if not ok or not action_init then
-        return {"accept", "block", "redirect", "rewrite", "response", "proxy", "static"}
-    end
-    local actions = {}
-    for name, _ in pairs(action_init.action_handlers or {}) do
-        actions[name] = true
-    end
-    -- also include aliases mapped via __index metamethod
-    return actions
-end
-
--- ---------------------------------------------------------------------------
 -- Validate a single rule for reference integrity
 -- ---------------------------------------------------------------------------
 local function validate_rule(rule, rule_idx, rule_group, config)
@@ -180,13 +164,15 @@ local function validate_rule(rule, rule_idx, rule_group, config)
     if rule.matcher then
         if type(rule.matcher) == "string" then
             if not config.matcher or not config.matcher[rule.matcher] then
-                return false, string.format("rule.%s[%d]: matcher '%s' not found in config.matcher", rule_group, rule_idx, rule.matcher)
+                return false, string.format("rule.%s[%d]: matcher '%s' not found in config.matcher",
+                    rule_group, rule_idx, rule.matcher)
             end
         elseif type(rule.matcher) == "table" then
             -- inline matcher: check on_body_error values in Args conditions
             for cond_type, cond in pairs(rule.matcher) do
                 if cond_type == "Args" and cond.on_body_error then
-                    if cond.on_body_error ~= "match" and cond.on_body_error ~= "skip" and cond.on_body_error ~= "fail_closed" then
+                    if cond.on_body_error ~= "match" and cond.on_body_error ~= "skip"
+                        and cond.on_body_error ~= "fail_closed" then
                         return false, string.format("rule.%s[%d]: on_body_error must be 'match', 'skip', or 'fail_closed', got '%s'",
                             rule_group, rule_idx, tostring(cond.on_body_error))
                     end
@@ -267,7 +253,7 @@ local function compile_runtime_snapshot(config)
 
     -- Pre-resolve matcher references: convert string names to matcher defs
     if compiled.matcher and compiled.rule then
-        for group_name, rules in pairs(compiled.rule) do
+        for _, rules in pairs(compiled.rule) do
             if type(rules) == "table" then
                 for _, rule in ipairs(rules) do
                     if type(rule.matcher) == "string" and compiled.matcher[rule.matcher] then
@@ -301,7 +287,8 @@ local function validate_config(config)
                 return false, string.format("admin[%d]: password_hash is required", i)
             end
             if a.password and a.password == a.password_hash then
-                return false, string.format("admin[%d]: password must not be stored as password_hash directly, use password_hash.verify()", i)
+                return false, string.format("admin[%d]: password must not be stored as password_hash directly, " ..
+                    "use password_hash.verify()", i)
             end
         end
     end
@@ -351,7 +338,7 @@ end
 -- ---------------------------------------------------------------------------
 function _M.load_from_file()
     local path = config_json_path()
-    local file, err = io.open(path, "r")
+    local file = io.open(path, "r")
     if not file then
         ngx.log(ngx.WARN, "config file not found at ", path, ", using defaults")
         return false
@@ -370,7 +357,6 @@ function _M.load_from_file()
     local auto_generated = false
     if config.admin then
         local pw_mod = require "core.password_hash"
-        local random = require "core.random"
         for _, a in ipairs(config.admin) do
             if not a.password_hash or a.password_hash == "" then
                 local pw = random.hex(12)
