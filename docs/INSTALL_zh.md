@@ -55,7 +55,7 @@ python install.py hash-password your_password
     ├── action/                    # 动作处理器
     ├── plugin/                    # 插件（7 个：filter, proxy_pass 等）
     ├── api/                       # REST API 控制器
-    ├── dashboard/                 # Web 管理界面（HTML/CSS/JS）
+    ├── dashboard/                 # Web 管理界面（Vue 3 SPA）
     ├── nginx_conf/                # Nginx 配置片段
     │   ├── in_external.conf
     │   ├── in_http_block.conf

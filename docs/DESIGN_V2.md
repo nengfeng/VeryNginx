@@ -137,11 +137,8 @@ verynginx/
 │   ├── metrics_controller.lua     # Prometheus metrics
 │   └── summary_controller.lua     # 统计查询
 │
-├── dashboard/                     # 管理面板前端
-│   ├── index.html
-│   ├── index_zh.html
-│   ├── css/
-│   └── js/
+├── dashboard/                     # 管理面板前端（SPA，单文件）
+│   └── index.html                 # Vue 3 单页应用（含全部 CSS/JS）
 │
 ├── nginx_conf/                    # Nginx 配置片段
 │   ├── in_external.conf
@@ -1856,11 +1853,11 @@ location / {
     proxy_set_header Connection $connection_upgrade;
     proxy_ssl_name $vn_proxy_sni;
     proxy_ssl_server_name on;
-    proxy_ssl_verify on;
+    proxy_ssl_verify off;
     proxy_connect_timeout 3s;
     proxy_read_timeout 60s;
     proxy_send_timeout 60s;
-    proxy_pass $vn_proxy_scheme://vn_dynamic_upstream;
+    proxy_pass http://vn_dynamic_upstream;
 
     # 日志阶段
     log_by_lua_file /opt/verynginx/verynginx/on_log.lua;
@@ -1868,7 +1865,7 @@ location / {
 
 # 管理面板静态资源走固定 location，不作为业务规则控制流
 location /verynginx/static/ {
-    root /opt/verynginx/verynginx/dashboard;
+    alias /opt/verynginx/verynginx/dashboard/;
     expires epoch;
 }
 ```
