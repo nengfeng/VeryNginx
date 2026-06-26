@@ -24,6 +24,8 @@ th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
 th{font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
 tr:hover{background:#f0f2f8}
 pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:auto;font-size:13px;line-height:1.5;max-height:60vh}
+textarea.code-editor{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;border:none;width:100%;font:13px/1.5 monospace;resize:vertical;min-height:200px;box-sizing:border-box}
+textarea.code-editor:focus{outline:1px solid var(--primary)}
 .card{background:var(--card);border-radius:10px;padding:20px;border:1px solid var(--border);margin-bottom:16px}
 .grid{display:grid;gap:16px}.grid-2{grid-template-columns:1fr 1fr}.grid-3{grid-template-columns:1fr 1fr 1fr}.grid-4{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
 .flex{display:flex;align-items:center}.flex-between{justify-content:space-between}.gap-8{gap:8px}.gap-16{gap:16px}
@@ -288,7 +290,7 @@ pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:aut
             </div>
           </div>
           <div class="error" v-if="jsonError" style="margin-bottom:8px">{{ jsonError }}</div>
-          <pre contenteditable id="json-editor" @input="onJsonEdit">{{ rawJson }}</pre>
+          <textarea id="json-editor" v-model="rawJson" spellcheck="false" class="code-editor"></textarea>
         </div>
       </div>
 
@@ -344,7 +346,7 @@ pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:aut
       </div>
       <div class="field">
         <label>Conditions (JSON, e.g. {"URI":{"operator":"≈","value":"/api/*"}})</label>
-        <pre contenteditable id="matcher-json" style="min-height:120px;background:var(--bg);color:var(--text);padding:12px;font-size:13px;border-radius:6px;border:1px solid var(--border)">{{ editMatcherModal.conditions }}</pre>
+        <textarea id="matcher-json" v-model="editMatcherModal.conditions" spellcheck="false" class="code-editor" style="min-height:120px"></textarea>
       </div>
       <div class="modal-actions">
         <button class="outline" @click="editMatcherModal.show=false">Cancel</button>
@@ -362,10 +364,10 @@ const { reactive, ref, computed, watch } = Vue;
 // ---- API ----
 let csrfToken = null;
 
-async function api(method, path, body, formEncode) {
+async function api(method, path, body) {
   const opts = { method, credentials: 'same-origin' };
   if (body) {
-    if (formEncode || body instanceof URLSearchParams) {
+    if (body instanceof URLSearchParams) {
       opts.body = body;
     } else if (typeof body === 'object' && !(body instanceof FormData)) {
       opts.headers = { 'Content-Type': 'application/json' };
@@ -484,16 +486,11 @@ const app = Vue.createApp({
         editMatcherModal.conditions = '{}';
       }
       editMatcherModal.show = true;
-      Vue.nextTick(() => {
-        const el = document.getElementById('matcher-json');
-        if (el) el.innerText = editMatcherModal.conditions;
-      });
     }
 
     function saveMatcher() {
       try {
-        const el = document.getElementById('matcher-json');
-        const updated = JSON.parse(el.innerText);
+        const updated = JSON.parse(editMatcherModal.conditions);
         const newCfg = JSON.parse(JSON.stringify(cfg.value));
         if (editMatcherModal._origName && editMatcherModal._origName !== editMatcherModal.name) {
           delete newCfg.matcher[editMatcherModal._origName];
@@ -544,10 +541,6 @@ const app = Vue.createApp({
         jsonError.value = e.message;
       }
       jsonSaving.value = false;
-    }
-
-    function onJsonEdit(e) {
-      rawJson.value = e.target.innerText;
     }
 
     // Auto-refresh status every 3s
@@ -627,7 +620,7 @@ const app = Vue.createApp({
       matcherKeys, respKeys, editMatcherModal,
       doLogin, doLogout, loadStatus, loadConfig, loadData,
       editMatcher, saveMatcher, deleteMatcher,
-      commitConfig, saveRawConfig, onJsonEdit, loadStats,
+      commitConfig, saveRawConfig, loadStats,
       formatTime, formatBytes, calcSuccess, successClass, summarizeRule, actionClass,
     };
   }
