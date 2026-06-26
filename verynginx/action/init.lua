@@ -22,23 +22,23 @@ setmetatable(_M, {
 })
 
 -- Register built-in actions
-_M.register("accept", function(rule, ctx)
+_M.register("accept", function(_, _)
     return { type = "accept" }
 end)
 
-_M.register("block", function(rule, ctx)
+_M.register("block", function(rule, _)
     return { type = "block", data = { code = rule.code or 403, response = rule.response } }
 end)
 
-_M.register("redirect", function(rule, ctx)
+_M.register("redirect", function(rule, _)
     return { type = "redirect", data = { url = rule.to_uri, code = rule.code or 302 } }
 end)
 
-_M.register("rewrite", function(rule, ctx)
+_M.register("rewrite", function(rule, _)
     return { type = "rewrite", data = { uri = rule.to_uri } }
 end)
 
-_M.register("response", function(rule, ctx)
+_M.register("response", function(rule, _)
     return { type = "response", data = { response = rule.response, code = rule.code } }
 end)
 
@@ -50,11 +50,11 @@ end)
 -- if data is missing (which would only happen if execute() were called,
 -- which it isn't).
 
-_M.register("proxy", function(rule, ctx)
+_M.register("proxy", function(_, _)
     return { type = "proxy" }
 end)
 
-_M.register("static", function(rule, ctx)
+_M.register("static", function(_, _)
     return { type = "static" }
 end)
 

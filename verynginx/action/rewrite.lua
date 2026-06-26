@@ -36,7 +36,7 @@ function _M.run(ctx)
 
             -- Apply regex replacement if specified
             if rule.replace_re and rule.to_uri then
-                local new_uri, n = ngx.re.gsub(uri, rule.replace_re, rule.to_uri, "isjo")
+                local new_uri, _ = ngx.re.gsub(uri, rule.replace_re, rule.to_uri, "isjo")
                 if new_uri and new_uri ~= uri then
                     ctx.set_action(ctx, "rewrite", { uri = new_uri })
                     return
