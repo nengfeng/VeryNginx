@@ -173,7 +173,8 @@ local function validate_rule(rule, rule_idx, rule_group, config)
                 if cond_type == "Args" and cond.on_body_error then
                     if cond.on_body_error ~= "match" and cond.on_body_error ~= "skip"
                         and cond.on_body_error ~= "fail_closed" then
-                        return false, string.format("rule.%s[%d]: on_body_error must be 'match', 'skip', or 'fail_closed', got '%s'",
+                        return false, string.format(
+                            "rule.%s[%d]: on_body_error must be 'match', 'skip', or 'fail_closed', got '%s'",
                             rule_group, rule_idx, tostring(cond.on_body_error))
                     end
                 end
