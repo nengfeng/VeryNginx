@@ -23,9 +23,8 @@ local _fallback_seed = _get_seed()
 -- Uses session_secret if configured, otherwise a random per-worker seed.
 local function sign(ctx, mark)
     local ua = ngx.var.http_user_agent or ""
-    local forwarded = ngx.var.http_x_forwarded_for or ""
     local seed = (config.security and config.security.session_secret) or _fallback_seed
-    return ngx.md5("VN" .. ctx.request.remote_addr .. forwarded .. ua .. mark .. seed)
+    return ngx.md5("VN" .. ctx.request.remote_addr .. ua .. mark .. seed)
 end
 
 --- Check if the request already has a valid verification cookie.

@@ -99,6 +99,9 @@ function _M.normalize_path(root, path)
         path = path:sub(1, qpos - 1)
     end
 
+    -- URL decode first (prevents %2e%2e traversal bypass)
+    path = ngx.unescape_uri(path)
+
     -- Reject directory traversal
     if path:find("%.%.") then
         return nil
@@ -108,9 +111,6 @@ function _M.normalize_path(root, path)
     if path:find("\0") then
         return nil
     end
-
-    -- URL decode
-    path = ngx.unescape_uri(path)
 
     -- Combine with root
     local full = root .. "/" .. path:match("^/*(.*)")

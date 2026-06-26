@@ -303,9 +303,6 @@ local function validate_config(config)
             if a.password and a.password == a.password_hash then
                 return false, string.format("admin[%d]: password must not be stored as password_hash directly, use password_hash.verify()", i)
             end
-            if a.password and not a.password_hash then
-                return false, string.format("admin[%d]: password must be stored as password_hash", i)
-            end
         end
     end
 
@@ -473,13 +470,24 @@ end
 function _M.save(config)
     local shared = ngx.shared.vn_config
     local lock_key = "config_save_lock"
-    local lock_ttl = (config and config.config_save_lock_ttl) or 60
+    local lock_ttl = math.max((config and config.config_save_lock_ttl) or 60, 30)
     local lock_token = random.bytes(16)
 
     if shared then
         local locked = shared:add(lock_key, lock_token, lock_ttl)
         if not locked then
             return false, "config save is already running"
+        end
+    end
+
+    -- Hash plaintext passwords in admin entries before validation
+    local password_hash_mod = require "core.password_hash"
+    if config.admin then
+        for _, a in ipairs(config.admin) do
+            if a.password and a.password ~= "" then
+                a.password_hash = password_hash_mod.hash(a.password)
+                a.password = nil
+            end
         end
     end
 

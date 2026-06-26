@@ -77,10 +77,13 @@ function _M.apply(ctx, phase)
         ngx.header["Content-Type"] = resp.content_type or "text/plain"
         ngx.say(resp.body or "")
         return ngx.exit(ngx.status)
-    elseif action.type == RESULT.REWRITE and phase == "rewrite" then
-        ngx.req.set_uri(action.data.uri, false)
-        ctx.clear_action(ctx)
-        return
+    elseif action.type == RESULT.REWRITE then
+        if phase == "rewrite" then
+            ngx.req.set_uri(action.data.uri, false)
+            ctx.clear_action(ctx)
+            return
+        end
+        ngx.log(ngx.WARN, "rule_engine: rewrite action ignored — running in ", phase, " phase, not rewrite")
     elseif action.type == RESULT.PROXY then
         if not action.data or not action.data.host then
             ngx.log(ngx.ERR, "rule_engine: proxy action missing host data")

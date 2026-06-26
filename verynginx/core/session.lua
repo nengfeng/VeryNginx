@@ -51,11 +51,11 @@ function _M.verify(token, secret)
         return false, "invalid signature"
     end
 
-    -- Decode payload
+    -- Decode payload (with pcall to catch malformed JSON)
     local json = require "dkjson"
-    local payload, _, err = json.decode(data)
-    if not payload then
-        return false, "invalid payload: " .. tostring(err)
+    local ok, payload = pcall(json.decode, json, data)
+    if not ok or not payload then
+        return false, "invalid payload"
     end
 
     -- Check expiration

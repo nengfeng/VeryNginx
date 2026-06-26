@@ -67,8 +67,15 @@ _M.strategies["session"] = {
     end,
 
     login = function(user, password)
-        -- Rate limit by IP
-        local rl_key = "login:" .. (ngx.var.remote_addr or "unknown")
+        -- Rate limit by client IP (support proxy headers)
+        local client_ip = ngx.var.http_x_forwarded_for
+        if client_ip then
+            client_ip = client_ip:match("[^,]+")
+        end
+        if not client_ip or client_ip == "" then
+            client_ip = ngx.var.http_x_real_ip or ngx.var.remote_addr or "unknown"
+        end
+        local rl_key = "login:" .. client_ip
         if not rate_limit.allow(rl_key, 10, 60) then
             return false, "too_many_attempts"
         end

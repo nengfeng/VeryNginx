@@ -113,6 +113,15 @@ local function _seen_codes_key(key)
     return key .. ":seen_codes"
 end
 
+local function _codes_contains(codes, code_str)
+    for c in codes:gmatch("[^,]+") do
+        if c == code_str then
+            return true
+        end
+    end
+    return false
+end
+
 function _M._record_seen_code(shared, key, code)
     local sk = _seen_codes_key(key)
     local codes = shared:get(sk)
@@ -121,7 +130,7 @@ function _M._record_seen_code(shared, key, code)
         shared:set(sk, code_str)
         return
     end
-    if not codes:find("," .. code_str .. ",", 1, true) and codes ~= code_str and codes:find(code_str, 1, true) ~= 1 then
+    if not _codes_contains(codes, code_str) then
         shared:set(sk, codes .. "," .. code_str)
     end
 end
