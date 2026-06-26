@@ -306,16 +306,16 @@ pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:aut
         </div>
         <div v-if="statsError" class="error" style="margin-bottom:8px">{{ statsError }}</div>
         <div v-if="statsData">
-          <h3 style="font-size:14px;margin-bottom:8px;">URI Statistics <small>{{ Object.keys(statsData.uri || {}).length }} entries</small></h3>
+          <h3 style="font-size:14px;margin-bottom:8px;">URI Statistics <small>{{ Object.keys(statsData || {}).length }} entries</small></h3>
           <div style="overflow-x:auto">
             <table>
               <thead><tr><th>URI</th><th>Count</th><th>Size</th><th>Avg Size</th><th>Success</th><th>Time</th><th>Avg Time</th></tr></thead>
               <tbody>
-                <tr v-for="(v,key) in statsData.uri || {}" :key="key">
+                <tr v-for="(v,key) in statsData || {}" :key="key">
                   <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="key">{{ key }}</td>
                   <td>{{ v.count }}</td>
-                  <td>{{ formatBytes(v.size) }}</td>
-                  <td>{{ v.count ? formatBytes(v.size / v.count) : '-' }}</td>
+                  <td>{{ formatBytes(v.bytes) }}</td>
+                  <td>{{ v.count ? formatBytes(v.bytes / v.count) : '-' }}</td>
                   <td><span class="tag" :class="successClass(v)">{{ calcSuccess(v) }}%</span></td>
                   <td>{{ v.time.toFixed(2) }}s</td>
                   <td>{{ v.count ? (v.time / v.count).toFixed(3) : '-' }}s</td>
