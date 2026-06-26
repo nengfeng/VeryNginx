@@ -19,11 +19,11 @@ jobs:
           echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
       - name: Lint v2 Lua files
         run: |
-          luacheck verynginx/core/ --no-color || true
-          luacheck verynginx/matcher/ --no-color || true
-          luacheck verynginx/action/ --no-color || true
-          luacheck verynginx/plugin/ --no-color || true
-          luacheck verynginx/api/ --no-color || true
+          luacheck verynginx/core/ --no-color
+          luacheck verynginx/matcher/ --no-color
+          luacheck verynginx/action/ --no-color
+          luacheck verynginx/plugin/ --no-color
+          luacheck verynginx/api/ --no-color
 
   unit-tests:
     runs-on: ubuntu-latest

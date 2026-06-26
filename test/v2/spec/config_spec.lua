@@ -22,14 +22,12 @@ describe("Config validation", function()
     end)
 
     it("accepts empty config (defaults applied)", function()
-        -- save() will fail because ngx.shared is not available in test env
-        -- but validate_config should pass
         local ok, err = config.save({
             version = "2.0",
             matcher = {},
             rule = {}
         })
-        -- Will fail at ngx.shared access, not at validation
+        assert.is_true(ok, "empty config with defaults should save: " .. tostring(err))
     end)
 end)
 
