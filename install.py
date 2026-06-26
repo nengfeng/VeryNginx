@@ -14,8 +14,8 @@ import shutil
 # Configuration
 # ---------------------------------------------------------------------------
 
-openresty_pkg_url = 'https://openresty.org/download/openresty-1.25.3.2.tar.gz'
-openresty_pkg = 'openresty-1.25.3.2.tar.gz'
+openresty_pkg_url = 'https://openresty.org/download/openresty-1.31.1.1.tar.gz'
+openresty_pkg = 'openresty-1.31.1.1.tar.gz'
 
 work_path = os.getcwd()
 
