@@ -392,9 +392,11 @@ async function api(method, path, body) {
 
 async function refreshCsrf() {
   try {
-        const d = await api('GET', '/verynginx/csrf');
+    const d = await api('GET', '/verynginx/csrf');
     csrfToken = d.csrf_token;
-  } catch {}
+  } catch (e) {
+    console.warn('CSRF token refresh failed:', e.message);
+  }
 }
 
 // ---- App ----
@@ -410,6 +412,11 @@ const app = Vue.createApp({
     const cfg = ref({});
     const cfgTab = ref('matchers');
     const rawJson = ref('');
+    watch(rawJson, (val) => {
+      jsonError.value = '';
+      if (!val) return;
+      try { JSON.parse(val); } catch (e) { jsonError.value = 'JSON: ' + e.message; }
+    });
     const jsonSaving = ref(false);
     const jsonError = ref('');
     const statsData = ref(null);
