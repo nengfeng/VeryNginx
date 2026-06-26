@@ -5,7 +5,6 @@
 
 local _M = {}
 local statistics = require "core.statistics"
-local dkjson = require "dkjson"
 
 function _M.report(period)
     local data = statistics.report(period)

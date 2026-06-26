@@ -26,7 +26,7 @@ end
 -- ---------------------------------------------------------------------------
 _M.strategies["session"] = {
     check = function(ctx)
-        local cookie_obj, err = cookie:new()
+        local cookie_obj = cookie:new()
         if not cookie_obj then
             return false
         end
@@ -101,7 +101,7 @@ _M.strategies["session"] = {
         return false, "invalid_credentials"
     end,
 
-    logout = function(ctx)
+    logout = function(_)
         -- Clear session cookie is handled by the API controller
     end
 }

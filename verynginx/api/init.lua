@@ -78,7 +78,7 @@ local function handle_set_config()
     if content_type:find("application/json", 1, true) then
         new_config = json.decode(raw_body)
     else
-        local args, err = ngx.req.get_post_args()
+        local args = ngx.req.get_post_args()
         if args and args.config then
             local decoded = ngx.decode_base64(args.config)
             if decoded then
