@@ -63,28 +63,40 @@ function _M.check_node(upstream_name, node)
     _M.report_failure(upstream_name, node, "probe failed")
 end
 
---- Probe a single node via TCP or HTTP.
+--- Probe a single node via TCP or HTTP(S).
 function _M.probe_node(node)
     local hc = node.health_check or {}
     local timeout = hc.timeout or 2000  -- ms
     local path = hc.path or "/"
+    local use_ssl = (node.scheme or "http") == "https"
+    local port = tonumber(node.port) or (use_ssl and 443 or 80)
 
     if hc.method == "tcp" or not hc.path then
-        -- TCP connect probe
         local sock = ngx.socket.tcp()
         sock:settimeout(timeout)
-        local ok, err = sock:connect(node.host, tonumber(node.port) or 80)
+        local ok, err = sock:connect(node.host, port)
+        if ok and use_ssl then
+            ok, err = sock:sslhandshake()
+        end
         sock:close()
         return ok
     end
 
-    -- HTTP probe
+    -- HTTP(S) probe
     local sock = ngx.socket.tcp()
     sock:settimeout(timeout)
-    local ok, err = sock:connect(node.host, tonumber(node.port) or 80)
+    local ok, err = sock:connect(node.host, port)
     if not ok then
         sock:close()
         return false, err
+    end
+
+    if use_ssl then
+        ok, err = sock:sslhandshake()
+        if not ok then
+            sock:close()
+            return false, err
+        end
     end
 
     local req = "GET " .. path .. " HTTP/1.0\r\nHost: " .. node.host .. "\r\nConnection: close\r\n\r\n"

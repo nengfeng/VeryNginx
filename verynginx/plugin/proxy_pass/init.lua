@@ -19,6 +19,8 @@ local function is_ip(host)
     return host and host:match("^%d+%.%d+%.%d+%.%d+$")
 end
 
+local rr_idx = {}
+
 local function resolve_host(host)
     if is_ip(host) then
         return host, nil
@@ -32,7 +34,8 @@ local function resolve_host(host)
     if #addrs == 0 then
         return nil, "no A records found"
     end
-    return addrs[1], nil
+    rr_idx[host] = (rr_idx[host] or 0) + 1
+    return addrs[(rr_idx[host] % #addrs) + 1], nil
 end
 
 function _M.on_access(ctx)
