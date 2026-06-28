@@ -88,18 +88,38 @@ _M.CATEGORIES      = {
 
 -- ---------------------------------------------------------------------------
 -- Writable storage directory (resolved lazily, cached, fallback to /tmp)
+-- Uses a shared-dict key so all workers agree on the same path.
 -- ---------------------------------------------------------------------------
 local _writable_base
+local WRIATBLE_DIR_KEY = "waf_rules:writable_dir"
 
 local function ensure_writable_dir()
     if _writable_base then return _writable_base end
+
+    -- Check if another worker already resolved the path
+    local shared = ngx.shared.vn_config
+    if shared then
+        local cached = shared:get(WRIATBLE_DIR_KEY)
+        if cached and cached ~= "" then
+            _writable_base = cached
+            os.execute('mkdir -p "' .. cached .. '" 2>/dev/null')
+            return _writable_base
+        end
+    end
+
     local primary = config.resolve_path() .. "configs/"
     os.execute('mkdir -p "' .. primary .. '" 2>/dev/null')
     local f = io.open(primary .. ".waf_write_test", "w")
-    if f then f:close(); os.remove(primary .. ".waf_write_test") _writable_base = primary return _writable_base end
-    local fallback = "/tmp/verynginx/configs/"
-    os.execute('mkdir -p "' .. fallback .. '" 2>/dev/null')
-    _writable_base = fallback
+    if f then f:close(); os.remove(primary .. ".waf_write_test") _writable_base = primary
+    else
+        local fallback = "/tmp/verynginx/configs/"
+        os.execute('mkdir -p "' .. fallback .. '" 2>/dev/null')
+        _writable_base = fallback
+    end
+
+    if shared then
+        shared:add(WRIATBLE_DIR_KEY, _writable_base)
+    end
     return _writable_base
 end
 
@@ -219,7 +239,7 @@ function _M.save_rules(rules)
 
     -- 2. Prune old backups (keep newest 10)
     local function prune_backups()
-        local dir = config.resolve_path() .. "configs/"
+        local dir = ensure_writable_dir()
         local fh = io.popen('ls -1t "' .. dir .. '"waf-rules-backup-* 2>/dev/null', "r")
         if not fh then return end
         local backups = {}

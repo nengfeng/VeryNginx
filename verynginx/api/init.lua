@@ -479,7 +479,9 @@ local function handle_get_waf_rule()
     end
     local rules_obj = waf_manager.load_rules()
     local rules = (rules_obj and rules_obj.rules) or {}
+    ngx.log(ngx.DEBUG, "handle_get_waf_rule: looking for id=", rule_id, " found ", #rules, " rules")
     for _, r in ipairs(rules) do
+        ngx.log(ngx.DEBUG, "  rule id=", r.id, " name=", (r.name or ""))
         if r.id == rule_id then
             -- Attach runtime stats to the response
             local shared = ngx.shared.vn_config
@@ -635,6 +637,7 @@ function _M.dispatch(ctx)
         path = "/"
     end
 
+    ngx.log(ngx.DEBUG, "dispatch: method=", method, " path=", path)
     for _, route in ipairs(_M.routes) do
         -- Check exact match first, then parameterized match
         local matched = (route.path == path)
@@ -647,8 +650,10 @@ function _M.dispatch(ctx)
                 matched = true
                 captures[1] = capture
             end
+            ngx.log(ngx.DEBUG, "dispatch: checking route ", route.method, " ", route.path, " matched=", tostring(matched), " capture=", tostring(capture))
         end
         if route.method == method and matched then
+            ngx.log(ngx.DEBUG, "dispatch: MATCHED route ", route.method, " ", route.path)
             -- Set captured parameters on ngx.ctx for handler use
             if captures[1] then
                 ngx.ctx.waf_rule_id = captures[1]
