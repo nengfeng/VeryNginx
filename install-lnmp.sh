@@ -19,6 +19,7 @@ set -euo pipefail
 VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
 VN_DIR="${VN_PREFIX}/verynginx"
 BACKUP_DIR="${VN_DIR}/configs/backups"
+VN_ADMIN_PASSWORD=""
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'
 NC='\033[0m'; BOLD='\033[1m'
@@ -199,6 +200,7 @@ PYEOF
   rm -f "$py_script"
 
   if [ "$hash" = "OK" ]; then
+    VN_ADMIN_PASSWORD="$password"
     info "Password set for user '${default_user}'"
     info "${YELLOW}→ Save this password: ${BOLD}${password}${NC}"
   else
@@ -410,18 +412,18 @@ show_summary() {
   title "Installation complete"
 
   local host_ip
-  host_ip=$(ip -4 route get 1 2>/dev/null | head -1 | awk '{print $7}') || host_ip="your-server-ip"
+  host_ip=$(ip -4 route get 1 2>/dev/null | head -1 | awk '{print $7}') || host_ip="<your-server-ip>"
 
   echo ""
   echo "  ${BOLD}VeryNginx v2${NC} installed at: ${CYAN}${VN_DIR}${NC}"
   echo ""
   echo "  ${BOLD}Dashboard:${NC}"
   echo "    http://${host_ip}/verynginx/index.html"
+  echo "    http://localhost/verynginx/index.html"
   echo ""
   echo "  ${BOLD}Admin account:${NC}"
   echo "    Username: ${BOLD}verynginx${NC}"
-  echo "    Password: ${YELLOW}(see above — you set it during install)${NC}"
-  echo "    If you chose random, check the install output for the generated password."
+  echo "    Password: ${YELLOW}${VN_ADMIN_PASSWORD}${NC}"
   echo ""
   echo "  ${BOLD}After login:${NC}"
   echo "    Dashboard is available alongside your existing sites."
