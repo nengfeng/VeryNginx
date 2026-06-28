@@ -103,6 +103,18 @@ def test_waf_rules():
     token = resp.get("token")
     cookies = {"verynginx_session": token}
 
+    # Get CSRF token for mutating requests
+    status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
+    assert status == 200, f"GET CSRF failed: {status}"
+    csrf_resp = json.loads(body)
+    csrf_token = csrf_resp.get("csrf_token", "")
+
+    def auth_headers(extra=None):
+        h = {"X-CSRF-Token": csrf_token}
+        if extra:
+            h.update(extra)
+        return h
+
     # GET /waf/rules - list rules
     status, body = curl("GET", "/verynginx/waf/rules", cookies=cookies)
     assert status == 200, f"GET /waf/rules failed: {status}"
@@ -123,7 +135,7 @@ def test_waf_rules():
         "tags": ["sqli", "test"],
         "code": 403
     })
-    status, body = curl("POST", "/verynginx/waf/rules", data=new_rule, cookies=cookies, headers={"Content-Type": "application/json"})
+    status, body = curl("POST", "/verynginx/waf/rules", data=new_rule, cookies=cookies, headers=auth_headers({"Content-Type": "application/json"}))
     assert status == 200, f"POST /waf/rules failed: status={status}, body={body[:200]}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Create failed: {body[:200]}"
@@ -141,7 +153,7 @@ def test_waf_rules():
 
     # PUT /waf/rules/:id - update rule
     update = json.dumps({"severity": "high", "description": "Updated by integration test"})
-    status, body = curl("PUT", f"/verynginx/waf/rules/{rule_id}", data=update, cookies=cookies, headers={"Content-Type": "application/json"})
+    status, body = curl("PUT", f"/verynginx/waf/rules/{rule_id}", data=update, cookies=cookies, headers=auth_headers({"Content-Type": "application/json"}))
     assert status == 200, f"PUT /waf/rules/:id failed: {status}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Update failed: {body[:200]}"
@@ -149,14 +161,14 @@ def test_waf_rules():
     print(f"  [PASS] PUT /waf/rules/:id: updated to v{resp['data']['version']}")
 
     # POST /waf/rules/:id/disable - disable rule
-    status, body = curl("POST", f"/verynginx/waf/rules/{rule_id}/disable", data="", cookies=cookies)
+    status, body = curl("POST", f"/verynginx/waf/rules/{rule_id}/disable", data="", cookies=cookies, headers=auth_headers())
     assert status == 200, f"POST disable failed: {status}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Disable failed: {body[:200]}"
     print(f"  [PASS] POST /waf/rules/:id/disable: disabled")
 
     # POST /waf/rules/:id/enable - enable rule
-    status, body = curl("POST", f"/verynginx/waf/rules/{rule_id}/enable", data="", cookies=cookies)
+    status, body = curl("POST", f"/verynginx/waf/rules/{rule_id}/enable", data="", cookies=cookies, headers=auth_headers())
     assert status == 200, f"POST enable failed: {status}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Enable failed: {body[:200]}"
@@ -171,7 +183,7 @@ def test_waf_rules():
             {"name": "encoded", "uri": "/api/users?id=1%20UNION%20SELECT", "expected": True}
         ]
     })
-    status, body = curl("POST", "/verynginx/waf/rules/test", data=test_body, cookies=cookies, headers={"Content-Type": "application/json"})
+    status, body = curl("POST", "/verynginx/waf/rules/test", data=test_body, cookies=cookies, headers=auth_headers({"Content-Type": "application/json"}))
     assert status == 200, f"POST /waf/rules/test failed: {status}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Test failed: {body[:200]}"
@@ -180,7 +192,7 @@ def test_waf_rules():
     print(f"  [PASS] POST /waf/rules/test: {resp['data']['passed']}/{resp['data']['total']} passed")
 
     # POST /waf/rules/reload - reload rules
-    status, body = curl("POST", "/verynginx/waf/rules/reload", data="", cookies=cookies)
+    status, body = curl("POST", "/verynginx/waf/rules/reload", data="", cookies=cookies, headers=auth_headers())
     assert status in (200, 400), f"POST reload failed: {status}, body={body[:200]}"
     print(f"  [PASS] POST /waf/rules/reload: {status}")
 
@@ -212,12 +224,12 @@ def test_waf_rules():
     history = resp["data"]
     target_version = history[0]["version"]
     rollback_body = json.dumps({"version": target_version, "rule_id": rule_id})
-    status, body = curl("POST", "/verynginx/waf/rules/rollback", data=rollback_body, cookies=cookies, headers={"Content-Type": "application/json"})
+    status, body = curl("POST", "/verynginx/waf/rules/rollback", data=rollback_body, cookies=cookies, headers=auth_headers({"Content-Type": "application/json"}))
     assert status in (200, 400), f"POST rollback failed: {status}, body={body[:200]}"
     print(f"  [PASS] POST /waf/rules/rollback: {status}")
 
     # DELETE /waf/rules/:id - delete rule
-    status, body = curl("DELETE", f"/verynginx/waf/rules/{rule_id}", cookies=cookies)
+    status, body = curl("DELETE", f"/verynginx/waf/rules/{rule_id}", cookies=cookies, headers=auth_headers())
     assert status == 200, f"DELETE /waf/rules/:id failed: {status}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Delete failed: {body[:200]}"
