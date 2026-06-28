@@ -186,6 +186,12 @@ local function handle_list_waf_rules()
     local rules_obj = waf_manager.load_rules()
     local rules = (rules_obj and rules_obj.rules) or {}
 
+    -- Count by category (from full un-filtered rules)
+    local categories = {}
+    for _, r in ipairs(rules) do
+        categories[r.category] = (categories[r.category] or 0) + 1
+    end
+
     -- Filter by category
     local category = args.category
     if category and #category > 0 then
@@ -208,14 +214,6 @@ local function handle_list_waf_rules()
             end
         end
         rules = filtered
-    end
-
-    -- Count by category
-    local categories = {}
-    local rules_obj_all = waf_manager.load_rules()
-    local all_rules = (rules_obj_all and rules_obj_all.rules) or {}
-    for _, r in ipairs(all_rules) do
-        categories[r.category] = (categories[r.category] or 0) + 1
     end
 
     -- Pagination
@@ -479,15 +477,7 @@ local function handle_get_waf_rule()
     end
     local rules_obj = waf_manager.load_rules()
     local rules = (rules_obj and rules_obj.rules) or {}
-    ngx.log(ngx.WARN, "handle_get_waf_rule: looking for id=", rule_id, " found ", #rules, " rules")
-    ngx.log(ngx.WARN, "handle_get_waf_rule: rules_obj=", tostring(rules_obj))
-    if rules_obj then
-        ngx.log(ngx.WARN, "handle_get_waf_rule: version=",
-            tostring(rules_obj.version),
-            " timestamp=", tostring(rules_obj.timestamp))
-    end
     for _, r in ipairs(rules) do
-        ngx.log(ngx.WARN, "  rule id=", r.id, " name=", (r.name or ""))
         if r.id == rule_id then
             -- Attach runtime stats to the response
             local shared = ngx.shared.vn_config
@@ -645,7 +635,6 @@ function _M.dispatch(ctx)
         path = "/"
     end
 
-    ngx.log(ngx.WARN, "dispatch: method=", method, " path=", path)
     for _, route in ipairs(_M.routes) do
         -- Check exact match first, then parameterized match
         local matched = (route.path == path)
@@ -658,14 +647,8 @@ function _M.dispatch(ctx)
                 matched = true
                 captures[1] = capture
             end
-            ngx.log(ngx.WARN, "dispatch: checking route ",
-                route.method, " ", route.path,
-                " matched=", tostring(matched),
-                " capture=", tostring(capture))
         end
         if route.method == method and matched then
-            ngx.log(ngx.WARN, "dispatch: MATCHED route ", route.method, " ", route.path)
-            -- Set captured parameters on ngx.ctx for handler use
             if captures[1] then
                 ngx.ctx.waf_rule_id = captures[1]
             end

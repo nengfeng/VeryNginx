@@ -517,15 +517,12 @@ function _M.update_rule(rule_id, updates)
     local rules = (rules_obj and rules_obj.rules) or {}
     for i, r in ipairs(rules) do
         if r.id == rule_id then
-            -- Preserve runtime stats
-            updates.hit_count        = r.hit_count
-            updates.last_triggered   = r.last_triggered
-            updates.last_matched_uri = r.last_matched_uri
-
             updates.updated_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
             updates.version    = (r.version or 1) + 1
 
             local merged = _M.merge_rule(r, updates)
+            local ok_v, err_v = _M.validate_rule(merged)
+            if not ok_v then return false, err_v end
             rules[i] = merged
             local save_ok, save_err = _M.save_rules(rules)
             if not save_ok then return false, save_err end
@@ -618,6 +615,17 @@ end
 function _M.test_rule(rule, test_cases)
     local results = {}
     if type(test_cases) ~= "table" then return results end
+    if not rule or not rule.matcher then
+        for _, case in ipairs(test_cases) do
+            results[#results + 1] = {
+                name    = case.name,
+                uri     = case.uri,
+                matched = false,
+                passed  = false
+            }
+        end
+        return results
+    end
     for _, case in ipairs(test_cases) do
         local ctx = _M.create_mock_context(case)
         local matched = matcher.test(rule.matcher, ctx)

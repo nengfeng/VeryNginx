@@ -14,16 +14,19 @@ local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 
 function _M.on_access(ctx)
-    -- Load rules from WAF rule manager (shared dict cache + file fallback)
     local rules_obj = waf_manager.load_rules()
     local rules
     if rules_obj and rules_obj.rules and #rules_obj.rules > 0 then
         rules = rules_obj.rules
     else
-        -- Fallback to hardcoded default rules
         local fallback_rules = require("plugin.filter.rules")
         rules = fallback_rules.load_rules()
     end
+
+    -- Sort by priority (lower value = higher priority)
+    table.sort(rules, function(a, b)
+        return (a.priority or 100) < (b.priority or 100)
+    end)
 
     for _, rule in ipairs(rules) do
         if rule.enable == false then
