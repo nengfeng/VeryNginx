@@ -610,19 +610,21 @@ _M.register("GET", "/metrics", handle_get_metrics, false)
 _M.register("GET", "/summary", handle_get_summary, true)
 _M.register("GET", "/csrf", handle_get_csrf, true)
 
--- WAF rule management routes (note: parameterized routes resolve in dispatch)
+-- WAF rule management routes
+-- Exact routes must be registered before parameterized ones so the
+-- dispatch loop matches them first and returns immediately.
 _M.register("GET",    "/waf/rules",              handle_list_waf_rules,     true)
 _M.register("POST",   "/waf/rules",              handle_create_waf_rule,    true)
+_M.register("GET",    "/waf/rules/history",      handle_waf_rule_history,   true)
+_M.register("POST",   "/waf/rules/test",         handle_test_waf_rule,      true)
+_M.register("POST",   "/waf/rules/reload",       handle_reload_waf_rules,   true)
+_M.register("POST",   "/waf/rules/rollback",     handle_rollback_waf_rules, true)
+_M.register("GET",    "/waf/stats",              handle_waf_stats,          true)
 _M.register("GET",    "/waf/rules/:id",          handle_get_waf_rule,       true)
 _M.register("PUT",    "/waf/rules/:id",          handle_update_waf_rule,    true)
 _M.register("DELETE", "/waf/rules/:id",          handle_delete_waf_rule,    true)
 _M.register("POST",   "/waf/rules/:id/enable",   handle_enable_waf_rule,   true)
 _M.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,  true)
-_M.register("POST",   "/waf/rules/test",         handle_test_waf_rule,      true)
-_M.register("POST",   "/waf/rules/reload",       handle_reload_waf_rules,   true)
-_M.register("GET",    "/waf/rules/history",      handle_waf_rule_history,   true)
-_M.register("POST",   "/waf/rules/rollback",     handle_rollback_waf_rules, true)
-_M.register("GET",    "/waf/stats",              handle_waf_stats,          true)
 _M.register("GET",    "/waf/stats/:id",          handle_waf_rule_stats,     true)
 
 -- ---------------------------------------------------------------------------
@@ -749,6 +751,9 @@ function _M.dispatch(ctx)
                 end
             end
 
+            -- Reset status so a previous route's 404 doesn't leak through
+            ngx.status = 200
+
             -- Security headers
             ngx.header.content_type = "application/json; charset=utf-8"
             ngx.header["X-Content-Type-Options"] = "nosniff"
@@ -789,6 +794,7 @@ function _M.dispatch(ctx)
                     body = response or ""
                 }
             })
+            return
         end
     end
 end
