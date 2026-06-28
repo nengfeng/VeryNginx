@@ -10,7 +10,6 @@ _M.priority = 100
 _M.default_enable = true
 _M.critical = true
 
-local config = require "core.config"
 local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 

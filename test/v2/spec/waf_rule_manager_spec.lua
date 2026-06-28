@@ -6,6 +6,8 @@ describe("waf-rule-manager", function()
     local waf
     setup(function()
         waf = require("waf-rule-manager")
+        -- Register URI matcher so test_rule can match by URI
+        require("matcher.init").register("URI", require("matcher.uri").test)
     end)
 
     -----------------------------------------------------------------------
@@ -56,8 +58,15 @@ describe("waf-rule-manager", function()
             category = "sqli",
             severity = "critical",
             action = "block",
-            matcher = "attack_sqli",
+            matcher = { URI = { operator = "≈", value = "attack" } },
         }
+
+        local function r(overrides)
+            local r = {}
+            for k, v in pairs(valid_rule) do r[k] = v end
+            for k, v in pairs(overrides or {}) do r[k] = v end
+            return r
+        end
 
         it("passes a valid rule", function()
             local ok, err = waf.validate_rule(valid_rule)
@@ -71,43 +80,37 @@ describe("waf-rule-manager", function()
         end)
 
         it("requires name", function()
-            local r = { name = "", category = "sqli", severity = "critical", action = "block", matcher = "attack_sqli" }
-            local ok, err = waf.validate_rule(r)
+            local ok, err = waf.validate_rule(r({ name = "" }))
             assert.is.falsy(ok)
             assert.matches("name", err)
         end)
 
         it("limits name to 100 chars", function()
-            local r = { name = string.rep("x", 101), category = "sqli", severity = "critical", action = "block", matcher = "attack_sqli" }
-            local ok, err = waf.validate_rule(r)
+            local ok, err = waf.validate_rule(r({ name = string.rep("x", 101) }))
             assert.is.falsy(ok)
             assert.matches("100", err)
         end)
 
         it("requires valid category", function()
-            local r = { name = "x", category = "invalid", severity = "critical", action = "block", matcher = "attack_sqli" }
-            local ok, err = waf.validate_rule(r)
+            local ok, err = waf.validate_rule(r({ category = "invalid" }))
             assert.is.falsy(ok)
             assert.matches("category", err)
         end)
 
         it("requires valid severity", function()
-            local r = { name = "x", category = "sqli", severity = "invalid", action = "block", matcher = "attack_sqli" }
-            local ok, err = waf.validate_rule(r)
+            local ok, err = waf.validate_rule(r({ severity = "invalid" }))
             assert.is.falsy(ok)
             assert.matches("severity", err)
         end)
 
         it("requires valid action", function()
-            local r = { name = "x", category = "sqli", severity = "critical", action = "invalid", matcher = "attack_sqli" }
-            local ok, err = waf.validate_rule(r)
+            local ok, err = waf.validate_rule(r({ action = "invalid" }))
             assert.is.falsy(ok)
             assert.matches("action", err)
         end)
 
         it("requires matcher", function()
-            local r = { name = "x", category = "sqli", severity = "critical", action = "block" }
-            local ok, err = waf.validate_rule(r)
+            local ok, err = waf.validate_rule({ name = "x", category = "sqli", severity = "critical", action = "block" })
             assert.is.falsy(ok)
             assert.matches("matcher", err)
         end)
@@ -119,8 +122,7 @@ describe("waf-rule-manager", function()
         end)
 
         it("validates HTTP status code range", function()
-            local r = { name = "x", category = "sqli", severity = "critical", action = "block", matcher = "attack_sqli", code = 999 }
-            local ok, err = waf.validate_rule(r)
+            local ok, err = waf.validate_rule(r({ code = 999 }))
             assert.is.falsy(ok)
             assert.matches("code", err)
         end)
@@ -370,20 +372,15 @@ describe("waf-rule-manager", function()
         end)
 
         it("rollback to a version restores rules", function()
-            -- Save current state, create a new version, then rollback
             local before = waf.load_rules()
+            local version_before = before and before.version or 0
 
-            -- Create a new set of rules
             local new_rules = {
                 { id = "rb_001", name = "Rollback Target", category = "sqli", severity = "critical", action = "block", matcher = { URI = { operator = "=", value = "/rb" } } }
             }
             waf.save_rules(new_rules)
 
-            -- Rollback to previous version
-            local history = waf.get_history()
-            local prev_version = history[#history].version
-
-            local ok, err = waf.rollback("", prev_version)
+            local ok, err = waf.rollback("", version_before)
             assert.is.truthy(ok, "Expected rollback to succeed, got: " .. tostring(err))
 
             local after = waf.load_rules()

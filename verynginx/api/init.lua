@@ -523,7 +523,8 @@ local function handle_update_waf_rule()
         return json.encode({ ret = "failed", message = tostring(result) })
     end
     ngx.log(ngx.NOTICE, "audit: waf rule updated id=", rule_id, " version=", result.version)
-    return json.encode({ ret = "success", data = { id = rule_id, version = result.version, updated_at = result.updated_at } })
+    return json.encode({ ret = "success",
+        data = { id = rule_id, version = result.version, updated_at = result.updated_at } })
 end
 
 local function handle_delete_waf_rule()

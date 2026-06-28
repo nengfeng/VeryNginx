@@ -120,6 +120,9 @@ local function make_shared_dict(name)
             end
             return keys
         end,
+        expire = function(_, key, ttl)
+            -- stub: no-op, key stays until deleted
+        end,
         capacity = function() return 1024 end,
         free_space = function() return 512 end,
         flush_all = function()
