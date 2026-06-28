@@ -28,6 +28,7 @@ _M.schema = {
         body = { type = "table", default = { max_size = 1048576, max_args = 100, on_error = "fail_closed" } },
         proxy = { type = "table", default = { health_check_interval = 5 } },
         config_save_lock_ttl = { type = "number", default = 60 },
+        waf_rules = { type = "table", default = {} },
     }
 }
 
