@@ -76,11 +76,13 @@ function _M.init_worker()
     local observability = require "core.observability"
     local statistics = require "core.statistics"
     local health_check = require "plugin.proxy_pass.health_check"
+    local waf_manager = require "waf-rule-manager"
 
     metrics.init()
     observability.init()
     statistics.init()
     health_check.init()
+    waf_manager.init_worker()
 end
 
 return _M
