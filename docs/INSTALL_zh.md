@@ -246,7 +246,13 @@ docker build -t verynginx .
 docker run -d --name=verynginx -p 8080:80 verynginx
 ```
 
-访问 `http://localhost:8080/verynginx/index.html`，默认用户名密码 `verynginx`/`verynginx`。
+访问 `http://localhost:8080/verynginx/index.html`。
+
+> **首次启动会自动生成随机密码**，查看容器日志获取：
+> ```bash
+> docker logs verynginx 2>&1 | grep "generated admin password"
+> ```
+> 建议登录后立即在「Config」页面修改密码。
 
 如需自定义端口：`docker run -d --name=verynginx -p 你想要的端口:80 verynginx`
 
@@ -257,6 +263,16 @@ docker run -d --name=verynginx \
     -v /host/path/config.json:/opt/verynginx/verynginx/configs/config.json \
     verynginx
 ```
+
+### 快速排错
+
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| 访问管理面板返回 502 | `lua_package_path` 配置错误 | 检查 `in_external.conf` 中的路径是否与实际安装路径一致 |
+| 登录提示密码无效 | `password_hash` 未设置或格式错误 | 使用 `python install.py hash-password` 重新生成 |
+| Docker 容器启动后无法登录 | 密码是自动生成的随机字符串 | 执行 `docker logs <容器名> 2>&1 \| grep "generated admin password"` 查看密码 |
+| 管理面板返回 404 | nginx.conf 缺少 `include` 指令 | 确认三个 `include`（`in_external.conf` / `in_http_block.conf` / `in_server_block.conf`）都已添加 |
+| 修改配置后不生效 | 配置缓存未刷新 | 执行 `nginx -s reload` 重载配置；Dashboard 修改会自动热重载 |
 
 ---
 
