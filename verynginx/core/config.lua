@@ -363,20 +363,54 @@ function _M.load_from_file()
                 local pw = random.hex(12)
                 a.password_hash = pw_mod.hash(pw)
                 a.password = nil
-                ngx.log(ngx.WARN, "config: generated admin password for '", a.user, "': ", pw)
+                ngx.log(ngx.WARN, "config: generated admin password for '", a.user, "' (check config.json)")
                 auto_generated = true
             end
         end
     end
     if auto_generated then
-        local encoded = json.encode(config, { indent = true })
-        local tmp = path .. ".tmp"
-        local f = io.open(tmp, "w")
-        if f then
-            f:write(encoded)
-            f:close()
-            os.rename(tmp, path)
-            data = encoded
+        local shared = ngx.shared.vn_config
+        local lock_key = "config_auto_save_lock"
+        local lock_token = random.bytes(16)
+        local lock_ttl = 30
+
+        local do_write = true
+        if shared then
+            do_write = shared:add(lock_key, lock_token, lock_ttl)
+            if do_write then
+                -- Re-check: another worker may have persisted the file while we computed
+                local re_f = io.open(path, "r")
+                if re_f then
+                    local re_data = re_f:read("*all")
+                    re_f:close()
+                    local re_config = json.decode(re_data)
+                    if re_config and re_config.admin then
+                        for _, a in ipairs(re_config.admin) do
+                            if a.password_hash and a.password_hash ~= "" then
+                                do_write = false
+                                data = re_data
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if do_write then
+            local encoded = json.encode(config, { indent = true })
+            local tmp = path .. ".tmp"
+            local f = io.open(tmp, "w")
+            if f then
+                f:write(encoded)
+                f:close()
+                os.rename(tmp, path)
+                data = encoded
+            end
+        end
+
+        if shared and shared:get(lock_key) == lock_token then
+            shared:delete(lock_key)
         end
     end
 

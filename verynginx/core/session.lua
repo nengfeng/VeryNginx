@@ -6,6 +6,23 @@
 local _M = {}
 local hmac = require "core.hmac"
 
+-- Constant-time string comparison to prevent timing side-channel attacks.
+-- Uses arithmetic (a+b)*(a-b) = a^2 - b^2 instead of short-circuit string comparison.
+local function constant_time_compare(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then
+        return false
+    end
+    if #a ~= #b then
+        return false
+    end
+    local result = 0
+    for i = 1, #a do
+        local ab, bb = a:byte(i), b:byte(i)
+        result = result + (ab + bb) * (ab - bb)
+    end
+    return result == 0
+end
+
 --- Sign a payload into a session token using HMAC-SHA256.
 -- @param payload table: { user, expire_at, nonce }
 -- @param secret string: HMAC signing key
@@ -46,7 +63,7 @@ function _M.verify(token, secret)
     -- Verify signature
     local expected_sig = hmac.hmac_sha256(secret, data)
     local actual_sig = ngx.decode_base64(sig_b64)
-    if not actual_sig or expected_sig ~= actual_sig then
+    if not actual_sig or not constant_time_compare(expected_sig, actual_sig) then
         return false, "invalid signature"
     end
 
