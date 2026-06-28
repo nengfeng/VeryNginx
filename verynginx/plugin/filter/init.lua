@@ -12,10 +12,16 @@ _M.critical = true
 
 local config = require "core.config"
 local matcher = require "matcher.init"
+local waf_manager = require "waf-rule-manager"
 
 function _M.on_access(ctx)
-    local rules = config.rule and config.rule.filter
-    if not rules then
+    -- Load rules from WAF rule manager (shared dict cache + file fallback)
+    local rules_obj = waf_manager.load_rules()
+    if not rules_obj then
+        return
+    end
+    local rules = rules_obj.rules
+    if not rules or #rules == 0 then
         return
     end
 
@@ -34,6 +40,14 @@ function _M.on_access(ctx)
             goto continue
         end
 
+        -- Rate limit check (only applies to matched requests)
+        if not waf_manager.check_rate_limit(rule.id, rule) then
+            goto continue
+        end
+
+        -- Record hit statistics (async, non-blocking)
+        waf_manager.record_hit(rule.id, ctx)
+
         if rule.action == "accept" then
             ctx.set_action(ctx, "accept")
             return
@@ -44,6 +58,8 @@ function _M.on_access(ctx)
                 response = rule.response
             })
             return
+        elseif rule.action == "log" then
+            ngx.log(ngx.WARN, "waf: rule matched [", rule.id, "] ", rule.name, " uri=", ctx.request.uri)
         end
         ::continue::
     end
