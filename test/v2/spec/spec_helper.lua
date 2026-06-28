@@ -71,27 +71,67 @@ end
 
 function ngx.http_time(t)    return "Thu, 01 Jan 1970 00:00:00 GMT" end
 
-function ngx.timer_at()      end
-function ngx.timer_every()   end
+ngx.timer = {
+    at = function() end,
+    every = function() end,
+}
 
--- Shared dict stubs
-local shared_mt = {
-    __index = {
-        get = function() return nil end,
-        set = function() return true end,
-        add = function() return true end,
-        incr = function(_, _, _, init) return init end,
+-- Shared dict stubs (in-memory store for testability)
+local shared_stores = {}
+local shared_counters = {}
+
+local function make_shared_dict(name)
+    if not shared_stores[name] then
+        shared_stores[name] = {}
+        shared_counters[name] = {}
+    end
+    local store = shared_stores[name]
+    local counters = shared_counters[name]
+    return {
+        get = function(_, key)
+            return store[key]
+        end,
+        set = function(_, key, val)
+            store[key] = val
+            return true
+        end,
+        add = function(_, key, val)
+            if store[key] then return false end
+            store[key] = val
+            return true
+        end,
+        incr = function(_, key, delta, init, ttl)
+            if not counters[key] then
+                counters[key] = (init or 0)
+            end
+            counters[key] = counters[key] + delta
+            store[key] = counters[key]
+            return store[key]
+        end,
         safe_add = function() return true end,
-        delete = function() end,
-        get_keys = function() return {} end,
+        delete = function(_, key)
+            store[key] = nil
+            counters[key] = nil
+        end,
+        get_keys = function()
+            local keys = {}
+            for k in pairs(store) do
+                keys[#keys + 1] = k
+            end
+            return keys
+        end,
         capacity = function() return 1024 end,
         free_space = function() return 512 end,
-        flush_all = function() end,
+        flush_all = function()
+            store = {}
+            counters = {}
+        end,
     }
-}
+end
+
 ngx.shared = setmetatable({}, {
-    __index = function()
-        return setmetatable({}, shared_mt)
+    __index = function(_, name)
+        return make_shared_dict(name)
     end
 })
 

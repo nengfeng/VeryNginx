@@ -94,6 +94,141 @@ def test_status():
     assert status == 200, f"GET status failed: {status}"
     print(f"  [PASS] GET status: {len(body)} bytes")
 
+def test_waf_rules():
+    """Test WAF rule management API."""
+    # Login
+    status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")
+    resp = json.loads(body)
+    assert status == 200, f"Login failed: {status}"
+    token = resp.get("token")
+    cookies = {"verynginx_session": token}
+
+    # GET /waf/rules - list rules
+    status, body = curl("GET", "/verynginx/waf/rules", cookies=cookies)
+    assert status == 200, f"GET /waf/rules failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Expected success, got: {body[:200]}"
+    assert "data" in resp, f"Missing data field: {body[:200]}"
+    assert "rules" in resp["data"], f"Missing rules field: {body[:200]}"
+    assert "categories" in resp["data"], f"Missing categories: {body[:200]}"
+    print(f"  [PASS] GET /waf/rules: {len(resp['data']['rules'])} rules")
+
+    # POST /waf/rules - create a rule
+    new_rule = json.dumps({
+        "name": "Integration Test Rule",
+        "category": "sqli",
+        "severity": "critical",
+        "action": "block",
+        "matcher": {"URI": {"operator": "≈", "value": "union.+select"}},
+        "tags": ["sqli", "test"],
+        "code": 403
+    })
+    status, body = curl("POST", "/verynginx/waf/rules", data=new_rule, cookies=cookies, headers={"Content-Type": "application/json"})
+    assert status == 200, f"POST /waf/rules failed: status={status}, body={body[:200]}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Create failed: {body[:200]}"
+    rule_id = resp.get("data", {}).get("id")
+    assert rule_id is not None, f"Missing rule ID: {body[:200]}"
+    print(f"  [PASS] POST /waf/rules: created {rule_id}")
+
+    # GET /waf/rules/:id - get single rule
+    status, body = curl("GET", f"/verynginx/waf/rules/{rule_id}", cookies=cookies)
+    assert status == 200, f"GET /waf/rules/:id failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Get rule failed: {body[:200]}"
+    assert resp.get("data", {}).get("id") == rule_id, f"Wrong rule ID: {body[:200]}"
+    print(f"  [PASS] GET /waf/rules/:id: found {rule_id}")
+
+    # PUT /waf/rules/:id - update rule
+    update = json.dumps({"severity": "high", "description": "Updated by integration test"})
+    status, body = curl("PUT", f"/verynginx/waf/rules/{rule_id}", data=update, cookies=cookies, headers={"Content-Type": "application/json"})
+    assert status == 200, f"PUT /waf/rules/:id failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Update failed: {body[:200]}"
+    assert resp.get("data", {}).get("version") == 2, f"Version should be 2: {body[:200]}"
+    print(f"  [PASS] PUT /waf/rules/:id: updated to v{resp['data']['version']}")
+
+    # POST /waf/rules/:id/disable - disable rule
+    status, body = curl("POST", f"/verynginx/waf/rules/{rule_id}/disable", data="", cookies=cookies)
+    assert status == 200, f"POST disable failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Disable failed: {body[:200]}"
+    print(f"  [PASS] POST /waf/rules/:id/disable: disabled")
+
+    # POST /waf/rules/:id/enable - enable rule
+    status, body = curl("POST", f"/verynginx/waf/rules/{rule_id}/enable", data="", cookies=cookies)
+    assert status == 200, f"POST enable failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Enable failed: {body[:200]}"
+    print(f"  [PASS] POST /waf/rules/:id/enable: enabled")
+
+    # POST /waf/rules/test - test rule
+    test_body = json.dumps({
+        "rule": {"matcher": {"URI": {"operator": "≈", "value": "union.+select"}}},
+        "test_cases": [
+            {"name": "normal", "uri": "/api/users", "expected": False},
+            {"name": "attack", "uri": "/api/users?id=1 UNION SELECT *", "expected": True},
+            {"name": "encoded", "uri": "/api/users?id=1%20UNION%20SELECT", "expected": True}
+        ]
+    })
+    status, body = curl("POST", "/verynginx/waf/rules/test", data=test_body, cookies=cookies, headers={"Content-Type": "application/json"})
+    assert status == 200, f"POST /waf/rules/test failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Test failed: {body[:200]}"
+    assert resp.get("data", {}).get("total") == 3, f"Expected 3 test cases: {body[:200]}"
+    assert resp.get("data", {}).get("passed") == 3, f"Expected all test cases to pass: {body[:200]}"
+    print(f"  [PASS] POST /waf/rules/test: {resp['data']['passed']}/{resp['data']['total']} passed")
+
+    # POST /waf/rules/reload - reload rules
+    status, body = curl("POST", "/verynginx/waf/rules/reload", data="", cookies=cookies)
+    assert status in (200, 400), f"POST reload failed: {status}, body={body[:200]}"
+    print(f"  [PASS] POST /waf/rules/reload: {status}")
+
+    # GET /waf/stats - get stats
+    status, body = curl("GET", "/verynginx/waf/stats", cookies=cookies)
+    assert status == 200, f"GET /waf/stats failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Stats failed: {body[:200]}"
+    assert "total_rules" in resp.get("data", {}), f"Missing total_rules: {body[:200]}"
+    assert "by_category" in resp.get("data", {}), f"Missing by_category: {body[:200]}"
+    print(f"  [PASS] GET /waf/stats: {resp['data'].get('total_rules')} rules, {resp['data'].get('total_hits')} hits")
+
+    # GET /waf/stats/:id - get single rule stats
+    status, body = curl("GET", f"/verynginx/waf/stats/{rule_id}", cookies=cookies)
+    assert status == 200, f"GET /waf/stats/:id failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Rule stats failed: {body[:200]}"
+    print(f"  [PASS] GET /waf/stats/:id: success")
+
+    # GET /waf/rules/history - get history
+    status, body = curl("GET", "/verynginx/waf/rules/history", cookies=cookies)
+    assert status == 200, f"GET /waf/rules/history failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"History failed: {body[:200]}"
+    assert len(resp.get("data", [])) > 0, f"Expected at least 1 history entry: {body[:200]}"
+    print(f"  [PASS] GET /waf/rules/history: {len(resp['data'])} entries")
+
+    # POST /waf/rules/rollback - rollback
+    history = resp["data"]
+    target_version = history[0]["version"]
+    rollback_body = json.dumps({"version": target_version, "rule_id": rule_id})
+    status, body = curl("POST", "/verynginx/waf/rules/rollback", data=rollback_body, cookies=cookies, headers={"Content-Type": "application/json"})
+    assert status in (200, 400), f"POST rollback failed: {status}, body={body[:200]}"
+    print(f"  [PASS] POST /waf/rules/rollback: {status}")
+
+    # DELETE /waf/rules/:id - delete rule
+    status, body = curl("DELETE", f"/verynginx/waf/rules/{rule_id}", cookies=cookies)
+    assert status == 200, f"DELETE /waf/rules/:id failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Delete failed: {body[:200]}"
+    print(f"  [PASS] DELETE /waf/rules/:id: deleted")
+
+    # Verify deletion
+    status, body = curl("GET", f"/verynginx/waf/rules/{rule_id}", cookies=cookies)
+    assert status == 404, f"Expected 404 after deletion, got: {status}"
+    print(f"  [PASS] GET deleted rule returns 404")
+
+
 def test_routes():
     """Test that all API routes respond correctly."""
     tests = [
@@ -113,6 +248,7 @@ def main():
         ("Login", test_login),
         ("Config CRUD", test_config),
         ("Status", test_status),
+        ("WAF Rules", test_waf_rules),
     ]
 
     passed = 0
