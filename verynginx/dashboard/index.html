@@ -110,6 +110,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <a :class="{active:page==='status'}" @click="page='status'">Status</a>
         <a :class="{active:page==='config'}" @click="page='config'">Config</a>
         <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">Stats</a>
+        <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
         <a :class="{active:page==='about'}" @click="page='about'">About</a>
       </nav>
       <div class="user-area">
@@ -328,6 +329,174 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
       </div>
 
+      <!-- WAF -->
+      <div v-if="page==='waf'">
+        <div class="flex flex-between mb-16">
+          <h2 class="page-title" style="margin-bottom:0">WAF Rule Management</h2>
+          <div class="flex gap-8">
+            <button class="outline small" @click="wafRefreshAll">Refresh</button>
+            <button class="primary small" @click="wafOpenCreate">+ New Rule</button>
+          </div>
+        </div>
+
+        <!-- WAF Tabs -->
+        <div class="config-tabs">
+          <a :class="{active:wafTab==='rules'}" @click="wafTab='rules'">Rules</a>
+          <a :class="{active:wafTab==='stats'}" @click="wafTab='stats';loadWafStats()">Stats</a>
+          <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">History</a>
+          <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">Tester</a>
+        </div>
+
+        <!-- Rule List -->
+        <div v-if="wafTab==='rules'">
+          <div v-if="wafError" class="error" style="margin-bottom:8px">{{ wafError }}</div>
+          <div class="flex gap-8 mb-8" style="flex-wrap:wrap">
+            <select v-model="wafFilterCat" @change="loadWafRules" style="width:auto">
+              <option value="">All Categories</option>
+              <option v-for="(cnt,cat) in wafCategories" :key="cat" :value="cat">{{ cat }} ({{ cnt }})</option>
+            </select>
+            <select v-model="wafFilterSev" @change="loadWafRules" style="width:auto">
+              <option value="">All Severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr>
+                <th style="width:40px">On</th>
+                <th>Name</th>
+                <th style="width:80px">Category</th>
+                <th style="width:70px">Severity</th>
+                <th style="width:70px">Hits</th>
+                <th style="width:100px">Last Triggered</th>
+                <th style="width:140px">Actions</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="r in wafRules" :key="r.id">
+                  <td style="text-align:center"><input type="checkbox" :checked="r.enable!==false" @change="wafToggleRule(r)"></td>
+                  <td><a style="cursor:pointer;text-decoration:underline" @click="wafOpenEdit(r)">{{ r.name }}</a></td>
+                  <td><span class="tag">{{ r.category }}</span></td>
+                  <td><span class="tag" :class="sevClass(r.severity)">{{ r.severity }}</span></td>
+                  <td>{{ r.hit_count || 0 }}</td>
+                  <td style="white-space:nowrap">{{ r.last_triggered ? fmtTime(r.last_triggered) : '-' }}</td>
+                  <td>
+                    <button class="outline small" @click="wafOpenEdit(r)">Edit</button>
+                    <button class="danger small" @click="wafDeleteRule(r)">Del</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="wafPagination.total_pages > 1" class="flex flex-between mt-8">
+            <span style="font-size:13px;color:var(--muted)">Page {{ wafPagination.page }} of {{ wafPagination.total_pages }} ({{ wafPagination.total }} rules)</span>
+            <div class="flex gap-4">
+              <button class="outline small" :disabled="wafPagination.page<=1" @click="wafPage(wafPagination.page-1)">Prev</button>
+              <button class="outline small" :disabled="wafPagination.page>=wafPagination.total_pages" @click="wafPage(wafPagination.page+1)">Next</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div v-if="wafTab==='stats'">
+          <div v-if="wafStatsError" class="error" style="margin-bottom:8px">{{ wafStatsError }}</div>
+          <div v-if="wafStatsData" class="grid grid-4 mb-16">
+            <div class="stat-card"><div class="stat-label">Total Rules</div><div class="stat-value">{{ wafStatsData.total_rules }}</div></div>
+            <div class="stat-card"><div class="stat-label">Enabled</div><div class="stat-value">{{ wafStatsData.enabled_rules }}</div></div>
+            <div class="stat-card"><div class="stat-label">Total Hits</div><div class="stat-value">{{ formatNumber(wafStatsData.total_hits) }}</div></div>
+            <div class="stat-card"><div class="stat-label">Today Hits</div><div class="stat-value">{{ formatNumber(wafStatsData.today_hits) }}</div></div>
+          </div>
+          <div v-if="wafStatsData" class="grid-2">
+            <div class="card">
+              <h3 style="font-size:14px;margin-bottom:8px">By Category</h3>
+              <table>
+                <thead><tr><th>Category</th><th>Rules</th><th>Hits</th></tr></thead>
+                <tbody>
+                  <tr v-for="(v,k) in wafStatsData.by_category" :key="k">
+                    <td>{{ k }}</td><td>{{ v.rules }}</td><td>{{ formatNumber(v.hits) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="card">
+              <h3 style="font-size:14px;margin-bottom:8px">By Severity</h3>
+              <table>
+                <thead><tr><th>Severity</th><th>Rules</th><th>Hits</th></tr></thead>
+                <tbody>
+                  <tr v-for="(v,k) in wafStatsData.by_severity" :key="k">
+                    <td>{{ k }}</td><td>{{ v.rules }}</td><td>{{ formatNumber(v.hits) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div v-if="wafStatsData && wafStatsData.top_rules && wafStatsData.top_rules.length" class="card mt-16">
+            <h3 style="font-size:14px;margin-bottom:8px">Top Rules by Hits</h3>
+            <table>
+              <thead><tr><th>#</th><th>Name</th><th>Hits</th></tr></thead>
+              <tbody>
+                <tr v-for="(tr,idx) in wafStatsData.top_rules" :key="tr.id">
+                  <td>{{ idx+1 }}</td><td>{{ tr.name }}</td><td>{{ formatNumber(tr.hits) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- History -->
+        <div v-if="wafTab==='history'">
+          <div v-if="wafHistError" class="error" style="margin-bottom:8px">{{ wafHistError }}</div>
+          <div v-if="wafHistory.length">
+            <table>
+              <thead><tr><th>Version</th><th>Timestamp</th><th>Action</th><th>Rules</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="h in wafHistory" :key="h.version">
+                  <td>{{ h.version }}</td>
+                  <td style="white-space:nowrap">{{ h.timestamp }}</td>
+                  <td><span class="tag">{{ h.action }}</span></td>
+                  <td>{{ h.rule_count }}</td>
+                  <td><button class="outline small" @click="wafRollback(h.version)" :disabled="wafRolling">Rollback</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else style="color:var(--muted)">No history available.</div>
+        </div>
+
+        <!-- Tester -->
+        <div v-if="wafTab==='tester'">
+          <div class="card">
+            <h3 style="font-size:14px;margin-bottom:8px">Test Rule</h3>
+            <div class="field">
+              <label>Rule (JSON)</label>
+              <textarea v-model="wafTestRuleJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"matcher":{"URI":{"operator":"≈","value":"/api/*"}},"action":"block"}'></textarea>
+            </div>
+            <div class="field">
+              <label>Test Cases (JSON array)</label>
+              <textarea v-model="wafTestCasesJson" spellcheck="false" class="code-editor" style="min-height:120px" placeholder='[{"name":"normal","uri":"/api/users","expected":false},{"name":"attack","uri":"/api/../../etc","expected":true}]'></textarea>
+            </div>
+            <div class="error" v-if="wafTestError" style="margin-bottom:8px">{{ wafTestError }}</div>
+            <button class="primary small" :disabled="wafTesting" @click="wafRunTest">{{ wafTesting ? 'Testing…' : 'Run Test' }}</button>
+          </div>
+          <div v-if="wafTestResults" class="card mt-16">
+            <h3 style="font-size:14px;margin-bottom:8px">Results: {{ wafTestResults.passed }}/{{ wafTestResults.total }} passed</h3>
+            <table>
+              <thead><tr><th>Name</th><th>URI</th><th>Matched</th><th>Passed</th></tr></thead>
+              <tbody>
+                <tr v-for="res in wafTestResults.results" :key="res.name" :style="{color:res.passed?'var(--green)':'var(--red)'}">
+                  <td>{{ res.name }}</td>
+                  <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis">{{ res.uri }}</td>
+                  <td>{{ res.matched ? '✓' : '✗' }}</td>
+                  <td>{{ res.passed ? '✓' : '✗' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- About -->
       <div v-if="page==='about'" style="text-align:center;padding-top:60px">
         <h1>VeryNginx</h1>
@@ -336,6 +505,85 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <p style="margin-top:24px"><a href="https://github.com/alexazhou/VeryNginx" target="_blank">GitHub</a></p>
       </div>
     </div>
+  <!-- Rule Editor Modal -->
+  <div class="modal-overlay" v-if="wafEditModal.show" @click.self="wafEditModal.show=false">
+    <div class="modal" style="max-width:640px">
+      <h3>{{ wafEditModal._isNew ? 'Create Rule' : 'Edit Rule' }}: {{ wafEditModal.name || '(new)' }}</h3>
+      <div class="field">
+        <label>Name *</label>
+        <input v-model="wafEditModal.name" type="text" placeholder="Rule name">
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <input v-model="wafEditModal.description" type="text" placeholder="Optional description">
+      </div>
+      <div class="grid-2 mb-8">
+        <div class="field">
+          <label>Category *</label>
+          <select v-model="wafEditModal.category" style="width:100%">
+            <option value="">Select…</option>
+            <option value="sqli">SQL Injection</option>
+            <option value="xss">XSS</option>
+            <option value="rce">RCE</option>
+            <option value="lfi">LFI</option>
+            <option value="path_traversal">Path Traversal</option>
+            <option value="scanner">Scanner</option>
+            <option value="bot">Bot</option>
+            <option value="brute">Brute Force</option>
+            <option value="spam">Spam</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Severity *</label>
+          <select v-model="wafEditModal.severity" style="width:100%">
+            <option value="">Select…</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid-2 mb-8">
+        <div class="field">
+          <label>Action *</label>
+          <select v-model="wafEditModal.action" style="width:100%">
+            <option value="block">Block</option>
+            <option value="accept">Accept</option>
+            <option value="log">Log</option>
+            <option value="challenge">Challenge</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Code</label>
+          <input v-model.number="wafEditModal.code" type="number" placeholder="403" min="200" max="599">
+        </div>
+      </div>
+      <div class="field">
+        <label>Matcher (JSON) *</label>
+        <textarea v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}'></textarea>
+      </div>
+      <div class="field">
+        <label>Tags (comma separated)</label>
+        <input v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union, injection">
+      </div>
+      <div class="field">
+        <label><input type="checkbox" v-model="wafEditModal.rateLimitEnabled"> Rate Limit</label>
+        <div v-if="wafEditModal.rateLimitEnabled" class="grid-3 mb-8">
+          <div class="field"><label>Max Hits</label><input v-model.number="wafEditModal.rateLimitMax" type="number" min="1"></div>
+          <div class="field"><label>Window (s)</label><input v-model.number="wafEditModal.rateLimitWindow" type="number" min="1"></div>
+          <div class="field"><label>Action</label><select v-model="wafEditModal.rateLimitAction" style="width:100%"><option value="log">Log</option><option value="block">Block</option></select></div>
+        </div>
+      </div>
+      <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
+      <div class="modal-actions">
+        <button class="outline" @click="wafEditModal.show=false">Cancel</button>
+        <button class="primary" :disabled="wafSaving" @click="wafSaveRule">{{ wafSaving ? 'Saving…' : 'Save' }}</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Matcher Editor Modal -->
   <div class="modal-overlay" v-if="editMatcherModal.show" @click.self="editMatcherModal.show=false">
     <div class="modal">
@@ -423,6 +671,34 @@ const app = Vue.createApp({
     const statsType = ref('long');
     const statsError = ref('');
     const editMatcherModal = reactive({ show: false, name: '', conditions: '' });
+
+    // ---- WAF State ----
+    const wafTab = ref('rules');
+    const wafError = ref('');
+    const wafRules = ref([]);
+    const wafCategories = ref({});
+    const wafPagination = reactive({ page: 1, limit: 20, total: 0, total_pages: 0 });
+    const wafFilterCat = ref('');
+    const wafFilterSev = ref('');
+    const wafStatsData = ref(null);
+    const wafStatsError = ref('');
+    const wafHistory = ref([]);
+    const wafHistError = ref('');
+    const wafRolling = ref(false);
+    const wafEditModal = reactive({
+      show: false, _isNew: false,
+      id: '', name: '', description: '', category: '', severity: '',
+      action: 'block', code: 403, matcherJson: '{}',
+      tagsStr: '',
+      rateLimitEnabled: false, rateLimitMax: 10, rateLimitWindow: 60, rateLimitAction: 'log'
+    });
+    const wafEditError = ref('');
+    const wafSaving = ref(false);
+    const wafTestRuleJson = ref('');
+    const wafTestCasesJson = ref('');
+    const wafTestError = ref('');
+    const wafTesting = ref(false);
+    const wafTestResults = ref(null);
 
     const s = computed(() => status.value);
 
@@ -620,6 +896,259 @@ const app = Vue.createApp({
       return 'tag-warn';
     }
 
+    // ---- WAF Methods ----
+    function sevClass(s) {
+      if (s === 'critical') return 'tag-err';
+      if (s === 'high') return 'tag-warn';
+      return 'tag-ok';
+    }
+
+    function fmtTime(ts) {
+      if (!ts) return '-';
+      const d = new Date(ts * 1000);
+      return d.toLocaleString();
+    }
+
+    async function loadWafRules() {
+      wafError.value = '';
+      try {
+        const params = new URLSearchParams();
+        params.append('page', wafPagination.page);
+        params.append('limit', wafPagination.limit);
+        if (wafFilterCat.value) params.append('category', wafFilterCat.value);
+        if (wafFilterSev.value) params.append('severity', wafFilterSev.value);
+        const d = await api('GET', '/verynginx/waf/rules?' + params.toString());
+        if (d.ret === 'success') {
+          wafRules.value = d.data.rules;
+          wafCategories.value = d.data.categories || {};
+          wafPagination.page = d.data.pagination.page;
+          wafPagination.limit = d.data.pagination.limit;
+          wafPagination.total = d.data.pagination.total;
+          wafPagination.total_pages = d.data.pagination.total_pages;
+        } else {
+          wafError.value = d.message || 'Failed to load rules';
+        }
+      } catch (e) {
+        wafError.value = e.message;
+      }
+    }
+
+    async function loadWafStats() {
+      wafStatsError.value = '';
+      try {
+        const d = await api('GET', '/verynginx/waf/stats');
+        if (d.ret === 'success') {
+          wafStatsData.value = d.data;
+        } else {
+          wafStatsError.value = d.message || 'Failed to load stats';
+        }
+      } catch (e) {
+        wafStatsError.value = e.message;
+      }
+    }
+
+    async function loadWafHistory() {
+      wafHistError.value = '';
+      try {
+        const d = await api('GET', '/verynginx/waf/rules/history');
+        if (d.ret === 'success') {
+          wafHistory.value = d.data;
+        } else {
+          wafHistError.value = d.message || 'Failed to load history';
+        }
+      } catch (e) {
+        wafHistError.value = e.message;
+      }
+    }
+
+    async function loadWafData() {
+      await loadWafRules();
+    }
+
+    function wafOpenCreate() {
+      wafEditModal._isNew = true;
+      wafEditModal.id = '';
+      wafEditModal.name = '';
+      wafEditModal.description = '';
+      wafEditModal.category = '';
+      wafEditModal.severity = '';
+      wafEditModal.action = 'block';
+      wafEditModal.code = 403;
+      wafEditModal.matcherJson = '{}';
+      wafEditModal.tagsStr = '';
+      wafEditModal.rateLimitEnabled = false;
+      wafEditModal.rateLimitMax = 10;
+      wafEditModal.rateLimitWindow = 60;
+      wafEditModal.rateLimitAction = 'log';
+      wafEditError.value = '';
+      wafEditModal.show = true;
+    }
+
+    function wafOpenEdit(rule) {
+      wafEditModal._isNew = false;
+      wafEditModal.id = rule.id;
+      wafEditModal.name = rule.name;
+      wafEditModal.description = rule.description || '';
+      wafEditModal.category = rule.category;
+      wafEditModal.severity = rule.severity;
+      wafEditModal.action = rule.action;
+      wafEditModal.code = rule.code || 403;
+      wafEditModal.matcherJson = JSON.stringify(rule.matcher, null, 2);
+      wafEditModal.tagsStr = (rule.tags || []).join(', ');
+      if (rule.rate_limit && rule.rate_limit.enable) {
+        wafEditModal.rateLimitEnabled = true;
+        wafEditModal.rateLimitMax = rule.rate_limit.max_hits || 10;
+        wafEditModal.rateLimitWindow = rule.rate_limit.window || 60;
+        wafEditModal.rateLimitAction = rule.rate_limit.action || 'log';
+      } else {
+        wafEditModal.rateLimitEnabled = false;
+      }
+      wafEditError.value = '';
+      wafEditModal.show = true;
+    }
+
+    async function wafSaveRule() {
+      wafEditError.value = '';
+      const m = wafEditModal;
+      if (!m.name) { wafEditError.value = 'Name is required'; return; }
+      if (!m.category) { wafEditError.value = 'Category is required'; return; }
+      if (!m.severity) { wafEditError.value = 'Severity is required'; return; }
+
+      let matcherObj;
+      try {
+        matcherObj = JSON.parse(m.matcherJson);
+      } catch (e) {
+        wafEditError.value = 'Invalid matcher JSON: ' + e.message;
+        return;
+      }
+
+      const tags = m.tagsStr.split(',').map(t => t.trim()).filter(t => t);
+
+      const rule = {
+        name: m.name,
+        description: m.description || undefined,
+        category: m.category,
+        severity: m.severity,
+        action: m.action,
+        code: m.code || undefined,
+        matcher: matcherObj,
+        tags: tags.length ? tags : undefined
+      };
+
+      if (m.rateLimitEnabled) {
+        rule.rate_limit = {
+          enable: true,
+          max_hits: m.rateLimitMax,
+          window: m.rateLimitWindow,
+          action: m.rateLimitAction
+        };
+      }
+
+      wafSaving.value = true;
+      try {
+        let d;
+        if (m._isNew) {
+          d = await api('POST', '/verynginx/waf/rules', rule);
+        } else {
+          d = await api('PUT', '/verynginx/waf/rules/' + m.id, rule);
+        }
+        if (d.ret === 'success') {
+          wafEditModal.show = false;
+          await loadWafRules();
+        } else {
+          wafEditError.value = d.message || 'Save failed';
+        }
+      } catch (e) {
+        wafEditError.value = e.message;
+      }
+      wafSaving.value = false;
+    }
+
+    async function wafDeleteRule(rule) {
+      if (!confirm('Delete rule "' + rule.name + '"? This cannot be undone.')) return;
+      try {
+        const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
+        if (d.ret === 'success') {
+          await loadWafRules();
+        } else {
+          wafError.value = d.message || 'Delete failed';
+        }
+      } catch (e) {
+        wafError.value = e.message;
+      }
+    }
+
+    async function wafToggleRule(rule) {
+      const enable = rule.enable === false;
+      try {
+        const endpoint = enable ? 'enable' : 'disable';
+        const d = await api('POST', '/verynginx/waf/rules/' + rule.id + '/' + endpoint);
+        if (d.ret === 'success') {
+          rule.enable = enable;
+        }
+      } catch (e) {
+        wafError.value = e.message;
+      }
+    }
+
+    function wafPage(p) {
+      wafPagination.page = p;
+      loadWafRules();
+    }
+
+    async function wafRefreshAll() {
+      await Promise.all([loadWafRules()]);
+    }
+
+    async function wafRollback(version) {
+      if (!confirm('Rollback to version ' + version + '? This will replace all current rules.')) return;
+      wafRolling.value = true;
+      try {
+        const d = await api('POST', '/verynginx/waf/rules/rollback', { version: version });
+        if (d.ret === 'success') {
+          await loadWafRules();
+        } else {
+          wafHistError.value = d.message || 'Rollback failed';
+        }
+      } catch (e) {
+        wafHistError.value = e.message;
+      }
+      wafRolling.value = false;
+    }
+
+    async function wafRunTest() {
+      wafTestError.value = '';
+      wafTestResults.value = null;
+
+      let rule, cases;
+      try {
+        rule = JSON.parse(wafTestRuleJson.value);
+      } catch (e) {
+        wafTestError.value = 'Invalid rule JSON: ' + e.message;
+        return;
+      }
+      try {
+        cases = JSON.parse(wafTestCasesJson.value);
+        if (!Array.isArray(cases) || !cases.length) throw new Error('Must be a non-empty array');
+      } catch (e) {
+        wafTestError.value = 'Invalid test cases JSON: ' + e.message;
+        return;
+      }
+
+      wafTesting.value = true;
+      try {
+        const d = await api('POST', '/verynginx/waf/rules/test', { rule, test_cases: cases });
+        if (d.ret === 'success') {
+          wafTestResults.value = d.data;
+        } else {
+          wafTestError.value = d.message || 'Test failed';
+        }
+      } catch (e) {
+        wafTestError.value = e.message;
+      }
+      wafTesting.value = false;
+    }
+
     return {
       store, page, loading, loginUser, loginPass, loginError,
       status, s, cfg, cfgTab, rawJson, jsonSaving, jsonError,
@@ -629,6 +1158,17 @@ const app = Vue.createApp({
       editMatcher, saveMatcher, deleteMatcher,
       commitConfig, saveRawConfig, loadStats,
       formatTime, formatBytes, calcSuccess, successClass, summarizeRule, actionClass,
+      // WAF
+      wafTab, wafError, wafRules, wafCategories, wafPagination,
+      wafFilterCat, wafFilterSev, wafStatsData, wafStatsError,
+      wafHistory, wafHistError, wafRolling,
+      wafEditModal, wafEditError, wafSaving,
+      wafTestRuleJson, wafTestCasesJson, wafTestError, wafTesting, wafTestResults,
+      sevClass, fmtTime,
+      loadWafRules, loadWafStats, loadWafHistory, loadWafData,
+      wafOpenCreate, wafOpenEdit, wafSaveRule,
+      wafDeleteRule, wafToggleRule, wafPage, wafRefreshAll,
+      wafRollback, wafRunTest,
     };
   }
 });
