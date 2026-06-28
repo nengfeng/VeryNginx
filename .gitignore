@@ -3,3 +3,9 @@
 *.swn
 *.swm
 __pycache__
+
+# Runtime-generated configs
+verynginx/configs/backups/
+verynginx/configs/waf-rules.json
+verynginx/configs/waf-rules-history.json
+verynginx/configs/waf-rules-backup-*.json
