@@ -185,9 +185,7 @@ function _M.dispatch(ctx)
 
     for _, route in ipairs(_M.routes) do
         if route.method == method and route.path == path then
-            ngx.header.content_type = "application/json; charset=utf-8"
-
-            -- Auth check
+            -- Auth check before setting headers
             if route.auth_required then
                 if not auth.middleware(ctx) then
                     ngx.status = 401
@@ -202,6 +200,8 @@ function _M.dispatch(ctx)
                     return
                 end
             end
+
+            ngx.header.content_type = "application/json; charset=utf-8"
 
             local response = route.handler()
             if not ngx.status or ngx.status == 0 then

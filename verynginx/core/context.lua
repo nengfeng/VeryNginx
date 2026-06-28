@@ -82,8 +82,14 @@ function _M.get_body_args(ctx)
     if content_type:find("application/json", 1, true) then
         local json = require "dkjson"
         local ok, decoded = pcall(json.decode, data)
-        if not ok or type(decoded) ~= "table" then
-            ctx.request._body_error = "json_decode_failed"
+        if not ok then
+            ctx.request._body_error = "json_decode_failed: " .. tostring(decoded)
+            ctx.request._body_args = nil
+            ctx.request._body_read = true
+            return nil
+        end
+        if type(decoded) ~= "table" then
+            ctx.request._body_error = "json_decode_failed: unexpected type " .. type(decoded)
             ctx.request._body_args = nil
             ctx.request._body_read = true
             return nil
