@@ -1,0 +1,25 @@
+{
+  "config_save_lock_ttl":60,
+  "dashboard_host":"",
+  "cookie_prefix":"verynginx",
+  "body":{
+    "max_args":100,
+    "max_size":1048576,
+    "on_error":"fail_closed"
+  },
+  "observability":[],
+  "rule":[],
+  "proxy":{
+    "health_check_interval":5
+  },
+  "matcher":[],
+  "response":[],
+  "plugin":[],
+  "version":"2.0",
+  "admin":[],
+  "waf_rules":[],
+  "base_uri":"/verynginx",
+  "statistics":[],
+  "backend_upstream":[],
+  "security":[]
+}

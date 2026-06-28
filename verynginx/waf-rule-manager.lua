@@ -170,6 +170,10 @@ function _M.save_rules(rules)
         return false, "rules must be a table"
     end
 
+    -- Ensure configs directory exists
+    local configs_dir = config.resolve_path() .. "configs/"
+    os.execute('mkdir -p "' .. configs_dir .. '"')
+
     local shared = ngx.shared.vn_config
     local current_version
     if shared then

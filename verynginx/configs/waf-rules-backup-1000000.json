@@ -1,0 +1,17 @@
+{
+  "timestamp":"2026-06-28T09:06:13Z",
+  "version":7,
+  "rules":[{
+      "name":"Rollback Target",
+      "category":"sqli",
+      "id":"rb_001",
+      "matcher":{
+        "URI":{
+          "value":"/rb",
+          "operator":"="
+        }
+      },
+      "action":"block",
+      "severity":"critical"
+    }]
+}
