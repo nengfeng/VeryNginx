@@ -222,18 +222,18 @@ patch_nginx_conf() {
 
   backup_nginx_conf
 
-  # 1) upstream block before http {}
+  # 1) upstream block inside http {} (upstream is only valid in http/stream context)
   if ! grep -q 'upstream vn_dynamic_upstream' "$NGINX_CONF" 2>/dev/null; then
     if grep -q '^http\s*{' "$NGINX_CONF"; then
-      sed -i '/^http\s*{/i\
-# VeryNginx v2 - dynamic upstream for proxy_pass\
-upstream vn_dynamic_upstream {\
-    server 0.0.0.1;\
-    balancer_by_lua_block {\
-        require("plugin.proxy_pass.balancer").run()\
-    }\
-    keepalive 128;\
-}\
+      sed -i '/^http\s*{/a\
+    # VeryNginx v2 - dynamic upstream for proxy_pass\
+    upstream vn_dynamic_upstream {\
+        server 0.0.0.1;\
+        balancer_by_lua_block {\
+            require("plugin.proxy_pass.balancer").run()\
+        }\
+        keepalive 128;\
+    }
 ' "$NGINX_CONF"
       info "Added upstream vn_dynamic_upstream ✓"
     fi
