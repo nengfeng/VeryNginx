@@ -109,18 +109,88 @@ install_files() {
   cp -r "${src_dir}/verynginx/"* "${VN_DIR}/"
 
   # config.json from template
-  if [ ! -f "${VN_DIR}/configs/config.json" ]; then
+  local config_file="${VN_DIR}/configs/config.json"
+  if [ ! -f "$config_file" ]; then
     if [ -f "${VN_DIR}/configs/config.default.json" ]; then
-      cp "${VN_DIR}/configs/config.default.json" "${VN_DIR}/configs/config.json"
+      cp "${VN_DIR}/configs/config.default.json" "$config_file"
       info "Created config.json from default template"
-      info "${YELLOW}→ An admin password will be auto-generated on first start${NC}"
     fi
   else
     info "config.json already exists, keeping it"
   fi
 
+  # Set admin password
+  setup_admin_password "$config_file"
+
   chmod -R 755 "${VN_DIR}/configs"
   info "Files installed to ${VN_DIR}"
+}
+
+# ----- admin password ------------------------------------------------------
+setup_admin_password() {
+  local config_file="$1"
+  local default_user="verynginx"
+
+  # Check if password already set
+  if python3 -c "import json; c=json.load(open('$config_file')); exit(0 if c.get('admin',[{}])[0].get('password_hash','') else 1)" 2>/dev/null; then
+    info "Admin password already configured, keeping it"
+    return
+  fi
+
+  local password=""
+  echo ""
+  info "Setting admin password for the Dashboard"
+  while :; do
+    printf "Enter password for user '%s' (min 6 chars, leave empty for random): " "$default_user"
+    read -rs password
+    echo
+    if [ -z "$password" ]; then
+      password=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
+      echo "  ${YELLOW}Generated password: ${BOLD}${password}${NC}"
+      break
+    elif [ ${#password} -ge 6 ]; then
+      break
+    else
+      warn "Password too short (min 6 chars)"
+    fi
+  done
+
+  local hash
+  export VN_PASSWORD="$password" VN_CONFIG="$config_file" VN_USER="$default_user"
+  hash=$(python3 -c "
+import os, hashlib, hmac, base64, json
+
+password = os.environ['VN_PASSWORD'].encode('utf-8')
+salt = os.urandom(16)
+iterations = 12000
+
+init_msg = salt + b'\x00\x00\x00\x01'
+u = hmac.new(password, init_msg, 'sha256').digest()
+result = bytearray(u)
+for i in range(2, iterations + 1):
+    u = hmac.new(password, u, 'sha256').digest()
+    for j, b in enumerate(u):
+        result[j] ^= b
+result = bytes(result)
+b64 = lambda d: base64.b64encode(d).decode('ascii')
+hash_str = 'p1\${}\${}\${}'.format(iterations, b64(salt), b64(result))
+
+config = json.load(open(os.environ['VN_CONFIG']))
+if 'admin' not in config or not config['admin']:
+    config['admin'] = [{'user': os.environ['VN_USER'], 'enable': True}]
+config['admin'][0]['password_hash'] = hash_str
+config['admin'][0]['password'] = None
+json.dump(config, open(os.environ['VN_CONFIG'], 'w'), indent=4)
+print('OK')
+" 2>&1) || die "Failed to generate password hash (python3 required)"
+
+  if [ "$hash" = "OK" ]; then
+    info "Password set for user '${default_user}'"
+    info "${YELLOW}→ Save this password: ${BOLD}${password}${NC}"
+  else
+    warn "Password hash generation failed: $hash"
+    warn "VeryNginx will auto-generate a password on first start (check error log)"
+  fi
 }
 
 # ----- backup nginx.conf ---------------------------------------------------
@@ -325,12 +395,9 @@ show_summary() {
   echo "    http://${host_ip}/verynginx/index.html"
   echo ""
   echo "  ${BOLD}Admin account:${NC}"
-  echo "    Username: verynginx"
-  echo "    Password: ${YELLOW}auto-generated on first start${NC}"
-  echo "    → Check nginx error log:"
-  echo "      grep 'generated admin password' ${WEB_INSTALL_DIR}/logs/error.log 2>/dev/null ||"
-  echo "      journalctl -u nginx | grep 'generated admin password' 2>/dev/null ||"
-  echo '      grep "generated admin password" /var/log/nginx/error.log'
+  echo "    Username: ${BOLD}verynginx${NC}"
+  echo "    Password: ${YELLOW}(see above — you set it during install)${NC}"
+  echo "    If you chose random, check the install output for the generated password."
   echo ""
   echo "  ${BOLD}After login:${NC}"
   echo "    Dashboard is available alongside your existing sites."
