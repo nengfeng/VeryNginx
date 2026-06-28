@@ -45,75 +45,37 @@ local function deep_copy(t)
     return copy
 end
 
--- Make a table read-only via a proxy metatable.
--- The underlying storage (`store`) is still replaceable by swapping the closure.
-local function make_readonly(store_ref)
-    return setmetatable({}, {
-        __index = function(_, k)
-            return store_ref[k]
-        end,
-        __newindex = function(_, _k, _v)
-            error("config is readonly, use config.save()")
-        end,
-        __pairs = function()
-            return pairs(store_ref)
-        end,
-        __len = function()
-            return #store_ref
-        end,
-    })
-end
-
 -- ---------------------------------------------------------------------------
--- Runtime config store (immutable snapshot)
+-- Runtime config store (immutable via read-only metatable)
 -- ---------------------------------------------------------------------------
-local config_store_raw = {}
-local config_store = make_readonly(config_store_raw)
-local config_keys = {}
-if _M.schema and _M.schema.fields then
-    for k in pairs(_M.schema.fields) do
-        config_keys[k] = true
-    end
-end
-config_keys.version = true
-config_keys.admin = true
-
-local config_mt = {
+local config_data = {}
+setmetatable(_M, {
     __index = function(_, k)
-        return config_store[k]
+        return config_data[k]
     end,
-    __newindex = function(t, k, v)
-        if not config_keys[k] then
-            rawset(t, k, v)
-            return
-        end
+    __newindex = function()
         error("config is readonly, use config.save()")
-    end
-}
-setmetatable(_M, config_mt)
+    end,
+    __pairs = function()
+        return pairs(config_data)
+    end,
+})
 
--- Internal helper to atomically swap the config snapshot
-local function set_config_store(new_raw)
-    config_store_raw = new_raw
-    config_store = make_readonly(config_store_raw)
+local function set_config_store(new_data)
+    config_data = new_data
 end
 
 _M.local_hash = nil
-_M.config_path = nil
+
+-- Determine module root at load time from file path
+local MODULE_ROOT = (debug.getinfo(1, "S").source or ""):match("^@(.+/)core/config%.lua$")
+    or "/opt/verynginx/verynginx/"
 
 -- ---------------------------------------------------------------------------
 -- Path helpers
 -- ---------------------------------------------------------------------------
 function _M.resolve_path()
-    if _M.config_path then
-        return _M.config_path
-    end
-    local script_path = debug.getinfo(1, "S").source:sub(2)
-    _M.config_path = script_path:match("(.+/)core/config%.lua$")
-    if not _M.config_path then
-        _M.config_path = "/opt/verynginx/verynginx/"
-    end
-    return _M.config_path
+    return MODULE_ROOT
 end
 
 local function home_path()
@@ -150,11 +112,12 @@ end
 -- ---------------------------------------------------------------------------
 -- Validate a single rule for reference integrity
 -- ---------------------------------------------------------------------------
+local _ok_action, _action_init = pcall(require, "action.init")
+
 local function validate_rule(rule, rule_idx, rule_group, config)
     -- Check action is known
-    local ok_action, action_init = pcall(require, "action.init")
-    if ok_action and action_init then
-        local handler = action_init.get and action_init.get(rule.action)
+    if _ok_action and _action_init then
+        local handler = _action_init.get and _action_init.get(rule.action)
         if not handler then
             return false, string.format("rule.%s[%d]: unknown action '%s'", rule_group, rule_idx, tostring(rule.action))
         end
