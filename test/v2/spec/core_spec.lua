@@ -71,3 +71,26 @@ describe("Session", function()
         assert.equals("admin", result.user)
     end)
 end)
+
+describe("constant_time_compare", function()
+    local session = require "core.session"
+    local ct = session._constant_time_compare
+
+    it("returns true for equal strings", function()
+        assert.is_true(ct("same", "same"))
+    end)
+
+    it("returns false for different strings", function()
+        assert.is_false(ct("abc", "xyz"))
+    end)
+
+    it("returns false for non-string inputs", function()
+        assert.is_false(ct(nil, "string"))
+        assert.is_false(ct("string", 123))
+        assert.is_false(ct({}, "table"))
+    end)
+
+    it("returns false for different length strings", function()
+        assert.is_false(ct("short", "longer"))
+    end)
+end)

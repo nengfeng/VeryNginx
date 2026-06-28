@@ -23,6 +23,9 @@ local function constant_time_compare(a, b)
     return result == 0
 end
 
+-- Exposed for unit testing
+_M._constant_time_compare = constant_time_compare
+
 --- Sign a payload into a session token using HMAC-SHA256.
 -- @param payload table: { user, expire_at, nonce }
 -- @param secret string: HMAC signing key

@@ -79,3 +79,50 @@ describe("Host matcher", function()
         assert.is_true(matcher.test({ Host = { operator = "=", value = "example.com" } }, ctx))
     end)
 end)
+
+describe("compare.match", function()
+    local compare = require "matcher.compare"
+
+    it("matches exact value with =", function()
+        assert.is_true(compare.match("hello", "=", "hello"))
+        assert.is_false(compare.match("hello", "=", "world"))
+    end)
+
+    it("matches substring with ≈", function()
+        assert.is_true(compare.match("hello world", "≈", "world"))
+        assert.is_false(compare.match("hello world", "≈", "xyz"))
+    end)
+
+    it("matches negative regex with !≈", function()
+        assert.is_true(compare.match("hello", "!≈", "xyz"))
+        assert.is_false(compare.match("hello", "!≈", "hello"))
+    end)
+
+    it("matches everything with *", function()
+        assert.is_true(compare.match("anything", "*", nil))
+        assert.is_true(compare.match("", "*", "ignored"))
+    end)
+
+    it("returns false for unknown operator", function()
+        assert.is_false(compare.match("test", "??", "pattern"))
+    end)
+end)
+
+describe("matcher.resolve", function()
+    matcher.registry = {}
+
+    it("returns _matcher_def from rule", function()
+        local def = { URI = { operator = "=", value = "/test" } }
+        assert.are_equal(matcher.resolve({ _matcher_def = def }), def)
+    end)
+
+    it("returns inline table when matcher is a table", function()
+        local inline = { URI = { operator = "=", value = "/test" } }
+        local result = matcher.resolve({ matcher = inline })
+        assert.are_equal(result.URI.operator, "=")
+    end)
+
+    it("returns nil when rule has no matcher", function()
+        assert.is_nil(matcher.resolve({}))
+    end)
+end)
