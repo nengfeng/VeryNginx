@@ -199,7 +199,7 @@ end
 -- ---------------------------------------------------------------------------
 -- save_rules  — atomic file write + chunk cache update + backup + history
 -- ---------------------------------------------------------------------------
-function _M.save_rules(rules)
+function _M.save_rules(rules, action)
     if type(rules) ~= "table" then
         return false, "rules must be a table"
     end
@@ -228,7 +228,7 @@ function _M.save_rules(rules)
         local old_data = old_f:read("*all")
         old_f:close()
         if old_data and #old_data > 0 then
-            local bk_path = backup_prefix() .. tostring(ngx.time()) .. ".json"
+            local bk_path = backup_prefix() .. string.format("%.0f", ngx.now() * 1000) .. ".json"
             local bf = io.open(bk_path, "w")
             if bf then
                 bf:write(old_data)
@@ -240,13 +240,23 @@ function _M.save_rules(rules)
     -- 2. Prune old backups (keep newest 10)
     local function prune_backups()
         local dir = ensure_writable_dir()
-        local fh = io.popen('ls -1t "' .. dir .. '"waf-rules-backup-* 2>/dev/null', "r")
-        if not fh then return end
         local backups = {}
-        for line in fh:lines() do
-            backups[#backups + 1] = line
+        local ok, lfs = pcall(require, "lfs")
+        if ok then
+            for f in lfs.dir(dir) do
+                if f:match("^waf%-rules%-backup%-") then
+                    backups[#backups + 1] = dir .. f
+                end
+            end
+        else
+            local fh = io.popen('ls -1t "' .. dir .. '"waf-rules-backup-* 2>/dev/null', "r")
+            if not fh then return end
+            for line in fh:lines() do
+                backups[#backups + 1] = line
+            end
+            fh:close()
         end
-        fh:close()
+        table.sort(backups, function(a, b) return a > b end)
         for i = 11, #backups do
             os.remove(backups[i])
         end
@@ -305,7 +315,7 @@ function _M.save_rules(rules)
     end
 
     -- 5. Record history
-    _M.record_history(rules, current_version, timestamp)
+    _M.record_history(rules, current_version, timestamp, action)
 
     return true
 end
@@ -313,7 +323,7 @@ end
 -- ---------------------------------------------------------------------------
 -- record_history  — append a snapshot to the history file
 -- ---------------------------------------------------------------------------
-function _M.record_history(rules, version, timestamp)
+function _M.record_history(rules, version, timestamp, action)
     -- Read existing history
     local path = history_path()
     local history = {}
@@ -333,7 +343,7 @@ function _M.record_history(rules, version, timestamp)
     history[#history + 1] = {
         version   = version,
         timestamp = timestamp,
-        action    = "update",
+        action    = action or "update",
         rule_count = #rules,
         rule_data = deep_copy(rules)
     }
@@ -504,7 +514,7 @@ function _M.create_rule(rule)
     new_rule.hit_count    = 0
 
     rules[#rules + 1] = new_rule
-    local save_ok, save_err = _M.save_rules(rules)
+    local save_ok, save_err = _M.save_rules(rules, "create")
     if not save_ok then return false, save_err end
     return true, new_rule
 end
@@ -524,7 +534,7 @@ function _M.update_rule(rule_id, updates)
             local ok_v, err_v = _M.validate_rule(merged)
             if not ok_v then return false, err_v end
             rules[i] = merged
-            local save_ok, save_err = _M.save_rules(rules)
+            local save_ok, save_err = _M.save_rules(rules, "update")
             if not save_ok then return false, save_err end
             return true, merged
         end
@@ -541,7 +551,7 @@ function _M.delete_rule(rule_id)
     for i, r in ipairs(rules) do
         if r.id == rule_id then
             table.remove(rules, i)
-            return _M.save_rules(rules)
+            return _M.save_rules(rules, "delete")
         end
     end
     return false, "rule not found: " .. rule_id
@@ -783,7 +793,7 @@ function _M.rollback(rule_id, target_version)
                     return false, "rule not found in version: " .. tostring(target_version)
                 end
             end
-            return _M.save_rules(rules)
+            return _M.save_rules(rules, "rollback")
         end
     end
     return false, "version not found in history"
@@ -797,7 +807,7 @@ function _M.reload()
     if not rules_obj then
         return false, "no rules file found"
     end
-    return _M.save_rules(rules_obj.rules)
+    return _M.save_rules(rules_obj.rules, "reload")
 end
 
 return _M

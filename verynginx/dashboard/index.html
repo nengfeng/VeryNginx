@@ -1007,12 +1007,20 @@ const app = Vue.createApp({
       wafEditModal.show = true;
     }
 
+    const VALID_CATEGORIES = ['sqli', 'xss', 'rce', 'lfi', 'path_traversal', 'scanner', 'bot', 'brute', 'spam', 'custom'];
+    const VALID_SEVERITIES = ['critical', 'high', 'medium', 'low'];
+    const VALID_ACTIONS = ['block', 'accept', 'log', 'challenge'];
+
     async function wafSaveRule() {
       wafEditError.value = '';
       const m = wafEditModal;
       if (!m.name) { wafEditError.value = 'Name is required'; return; }
       if (!m.category) { wafEditError.value = 'Category is required'; return; }
+      if (VALID_CATEGORIES.indexOf(m.category) === -1) { wafEditError.value = 'Invalid category: ' + m.category; return; }
       if (!m.severity) { wafEditError.value = 'Severity is required'; return; }
+      if (VALID_SEVERITIES.indexOf(m.severity) === -1) { wafEditError.value = 'Invalid severity: ' + m.severity; return; }
+      if (!m.action) { wafEditError.value = 'Action is required'; return; }
+      if (VALID_ACTIONS.indexOf(m.action) === -1) { wafEditError.value = 'Invalid action: ' + m.action; return; }
 
       let matcherObj;
       try {
