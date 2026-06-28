@@ -222,7 +222,7 @@ function _M.report(period)
             local entry = {
                 count = count,
                 bytes = shared:get(key .. ":bytes") or 0,
-                time = tonumber(string.format("%.3f", shared:get(key .. ":time") or 0)),
+                time = math.floor(((shared:get(key .. ":time") or 0) * 1000) + 0.5) / 1000,
                 status = {},
             }
             local codes = _get_seen_codes(shared, key)

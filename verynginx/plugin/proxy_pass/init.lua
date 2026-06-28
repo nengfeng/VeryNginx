@@ -34,8 +34,17 @@ local function resolve_host(host)
     if #addrs == 0 then
         return nil, "no A records found"
     end
-    rr_idx[host] = (rr_idx[host] or 0) + 1
-    return addrs[(rr_idx[host] % #addrs) + 1], nil
+
+    -- Cross-worker round-robin via shared dict; fallback to per-worker counter
+    local shared = ngx.shared.vn_locks
+    local idx
+    if shared then
+        idx = shared:incr("rr_idx:" .. host, 1, 0)
+    else
+        rr_idx[host] = (rr_idx[host] or 0) + 1
+        idx = rr_idx[host]
+    end
+    return addrs[(idx % #addrs) + 1], nil
 end
 
 function _M.on_access(ctx)

@@ -409,8 +409,11 @@ local function copy_file(src, dst)
         f_src:close()
         return false, err2
     end
-    local data = f_src:read("*all")
-    f_dst:write(data)
+    local buf = f_src:read(8192)
+    while buf do
+        f_dst:write(buf)
+        buf = f_src:read(8192)
+    end
     f_src:close()
     f_dst:close()
     return true
