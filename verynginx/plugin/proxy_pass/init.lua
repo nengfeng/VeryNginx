@@ -39,7 +39,7 @@ local function resolve_host(host)
     local shared = ngx.shared.vn_locks
     local idx
     if shared then
-        idx = shared:incr("rr_idx:" .. host, 1, 0)
+        idx = shared:incr("rr_idx:" .. host, 1, 0, 86400)
     else
         rr_idx[host] = (rr_idx[host] or 0) + 1
         idx = rr_idx[host]

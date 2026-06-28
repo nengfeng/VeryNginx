@@ -34,13 +34,17 @@ _M.schema = {
 -- ---------------------------------------------------------------------------
 -- Deep-table copy (no ref sharing)
 -- ---------------------------------------------------------------------------
-local function deep_copy(t)
+local function deep_copy(t, depth)
+    depth = depth or 0
+    if depth > 100 then
+        return {}
+    end
     if type(t) ~= "table" then
         return t
     end
     local copy = {}
     for k, v in pairs(t) do
-        copy[k] = deep_copy(v)
+        copy[k] = deep_copy(v, depth + 1)
     end
     return copy
 end

@@ -7,6 +7,7 @@ local _M = {}
 local random = require "core.random"
 local config = require "core.config"
 local cookie = require "cookie"
+local constant_time_compare = require("core.session")._constant_time_compare
 
 --- Get the session token from the current request's cookie.
 local function get_session_token()
@@ -75,7 +76,7 @@ function _M.verify(ctx)
         provided = (post_args or {})["csrf_token"]
     end
 
-    if not provided or provided ~= expected then
+    if not provided or not constant_time_compare(provided, expected) then
         return false
     end
 

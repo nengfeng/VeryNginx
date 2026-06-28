@@ -16,6 +16,15 @@ local function _get_seed()
     if s and s ~= "" then
         return s
     end
+    local shared = ngx.shared.vn_config
+    if shared then
+        local seed = shared:get("browser_verify_seed")
+        if not seed then
+            shared:add("browser_verify_seed", random.hex(32))
+            seed = shared:get("browser_verify_seed")
+        end
+        return seed
+    end
     return random.hex(32)
 end
 local _fallback_seed = _get_seed()

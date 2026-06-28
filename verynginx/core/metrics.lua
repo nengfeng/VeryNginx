@@ -6,7 +6,10 @@
 local _M = {}
 
 function _M.init()
-    ngx.shared.metrics:add("__metrics_index", "{}", 0)
+    local shared = ngx.shared.metrics
+    if shared then
+        shared:add("__metrics_index", "{}", 0)
+    end
 end
 
 function _M.key(name, labels)

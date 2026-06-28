@@ -6,9 +6,11 @@ function _M.test(condition, _)
     local name_op, name_val = condition.name_operator, condition.name_value
     local op, val = condition.operator, condition.value
     for k, v in pairs(headers) do
-        local ks, vs = tostring(k), tostring(v)
-        if compare.match(ks, name_op, name_val) then
-            return compare.match(vs, op, val)
+        if v ~= nil then
+            local ks, vs = tostring(k), tostring(v)
+            if compare.match(ks, name_op, name_val) then
+                return compare.match(vs, op, val)
+            end
         end
     end
     return false

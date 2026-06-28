@@ -8,12 +8,21 @@ local _M = {}
 local config = require "core.config"
 local random = require "core.random"
 
--- Fallback seed: generated once at module load time if session_secret is not configured.
--- This avoids a hardcoded predictable seed.
+-- Fallback seed: stored in shared dict so all workers use the same seed
+-- when session_secret is not configured.
 local function _get_seed()
     local s = config.security and config.security.session_secret
     if s and s ~= "" then
         return s
+    end
+    local shared = ngx.shared.vn_config
+    if shared then
+        local seed = shared:get("browser_verify_seed")
+        if not seed then
+            shared:add("browser_verify_seed", random.hex(32))
+            seed = shared:get("browser_verify_seed")
+        end
+        return seed
     end
     return random.hex(32)
 end
