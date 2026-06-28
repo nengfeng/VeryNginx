@@ -41,7 +41,9 @@ confirm() {
 }
 
 require_root() {
-  [ "$(id -u)" != "0" ] && die "must run as root"
+  if [ "$(id -u)" != "0" ]; then
+    die "must run as root"
+  fi
 }
 
 # ----- detect web server ---------------------------------------------------
@@ -71,8 +73,12 @@ detect_web_server() {
     fi
   done
 
-  [ -z "$WEB_SERVER_BIN" ] && die "no supported web server found (nginx/tengine/openresty)"
-  [ ! -f "$NGINX_CONF" ]  && die "nginx.conf not found at $NGINX_CONF"
+  if [ -z "$WEB_SERVER_BIN" ]; then
+    die "no supported web server found (nginx/tengine/openresty)"
+  fi
+  if [ ! -f "$NGINX_CONF" ]; then
+    die "nginx.conf not found at $NGINX_CONF"
+  fi
 
   info "Web server: ${BOLD}$WEB_SERVER_TYPE${NC} → ${WEB_SERVER_BIN}"
   info "Config:     ${NGINX_CONF}"
@@ -248,7 +254,9 @@ upstream vn_dynamic_upstream {\
   if ! grep -q 'lua_shared_dict vn_config' "$NGINX_CONF" 2>/dev/null; then
     local insert_point
     insert_point=$(grep -n 'server_names_hash_bucket_size\|client_header_buffer_size\|sendfile\|keepalive_timeout' "$NGINX_CONF" | head -1 | cut -d: -f1)
-    [ -z "$insert_point" ] && insert_point=$(grep -n '^http\s*{' "$NGINX_CONF" | head -1 | cut -d: -f1)
+    if [ -z "$insert_point" ]; then
+      insert_point=$(grep -n '^http\s*{' "$NGINX_CONF" | head -1 | cut -d: -f1)
+    fi
 
     sed -i "${insert_point}a\\
 \\
@@ -296,7 +304,9 @@ replace_server_block() {
   local http_line server_start server_end
 
   http_line=$(grep -n '^http\s*{' "$NGINX_CONF" | head -1 | cut -d: -f1)
-  [ -z "$http_line" ] && die "Cannot find http {} block in nginx.conf"
+  if [ -z "$http_line" ]; then
+    die "Cannot find http {} block in nginx.conf"
+  fi
 
   # Use awk to find the first server block after http { and its matching }
   eval "$(awk '
@@ -313,7 +323,9 @@ replace_server_block() {
     }
   ' "$NGINX_CONF")"
 
-  [ -z "$server_start" ] && die "Cannot find server {} block in nginx.conf"
+  if [ -z "$server_start" ]; then
+    die "Cannot find server {} block in nginx.conf"
+  fi
 
   # Build the VeryNginx location blocks
   local vn_block
@@ -376,7 +388,11 @@ reload_nginx() {
 svc_is_active() {
   local svc="$1"
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl is-active --quiet "$svc" 2>/dev/null && return 0 || return 1
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+      return 0
+    else
+      return 1
+    fi
   fi
   pgrep -x nginx >/dev/null 2>&1
 }
