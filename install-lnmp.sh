@@ -151,7 +151,8 @@ setup_admin_password() {
     read -rs password
     echo
     if [ -z "$password" ]; then
-      password=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
+      password=$(dd if=/dev/urandom bs=12 count=1 2>/dev/null | base64 | tr -dc 'A-Za-z0-9')
+      password="${password:0:12}"
       echo "  ${YELLOW}Generated password: ${BOLD}${password}${NC}"
       break
     elif [ ${#password} -ge 6 ]; then
