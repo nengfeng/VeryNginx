@@ -351,11 +351,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div v-if="wafTab==='rules'">
           <div v-if="wafError" class="error" style="margin-bottom:8px">{{ wafError }}</div>
           <div class="flex gap-8 mb-8" style="flex-wrap:wrap">
-            <select v-model="wafFilterCat" @change="loadWafRules" style="width:auto">
+            <select v-model="wafFilterCat" @change="wafFilterChange" style="width:auto">
               <option value="">All Categories</option>
               <option v-for="(cnt,cat) in wafCategories" :key="cat" :value="cat">{{ cat }} ({{ cnt }})</option>
             </select>
-            <select v-model="wafFilterSev" @change="loadWafRules" style="width:auto">
+            <select v-model="wafFilterSev" @change="wafFilterChange" style="width:auto">
               <option value="">All Severities</option>
               <option value="critical">Critical</option>
               <option value="high">High</option>
@@ -1093,6 +1093,11 @@ const app = Vue.createApp({
 
     function wafPage(p) {
       wafPagination.page = p;
+      loadWafRules();
+    }
+
+    function wafFilterChange() {
+      wafPagination.page = 1;
       loadWafRules();
     }
 

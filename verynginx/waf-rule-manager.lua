@@ -652,7 +652,7 @@ function _M.check_rate_limit(rule_id, rule)
     local window = rule.rate_limit.window or 60
     local slot = math.floor(ngx.time() / window)
     local key = RATE_PREFIX .. rule_id .. ":" .. tostring(slot)
-    local count = shared:incr(key, 1, 1, window)
+    local count = shared:incr(key, 1, 0, window)
     if not count then
         -- incr failure indicates the key was created with TTL but
         -- immediately expired in a race — treat as not limited
@@ -704,7 +704,8 @@ function _M.flush_hit_stats()
         if hit_data then
             shared:delete(key)
             -- Format: rule_id|timestamp|uri|ip|method
-            local rule_id, ts_str, uri = hit_data:match("^([^|]*)|([^|]*)|([^|]*)")
+            -- URI may contain | so parse greedily from the right for ip and method
+            local rule_id, ts_str, uri = hit_data:match("^([^|]*)|([^|]*)|(.*)|([^|]*)|([^|]*)$")
             if rule_id and #rule_id > 0 then
                 local ts = tonumber(ts_str)
                 if not stats_agg[rule_id] then
