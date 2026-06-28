@@ -138,7 +138,7 @@ setup_admin_password() {
   local default_user="verynginx"
 
   # Check if password already set
-  if python3 -c "import json; c=json.load(open('$config_file')); exit(0 if c.get('admin',[{}])[0].get('password_hash','') else 1)" 2>/dev/null; then
+  if python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); exit(0 if c.get("admin",[{}])[0].get("password_hash","") else 1)' "$config_file" 2>/dev/null; then
     info "Admin password already configured, keeping it"
     return
   fi
@@ -161,9 +161,12 @@ setup_admin_password() {
     fi
   done
 
-  local hash
   export VN_PASSWORD="$password" VN_CONFIG="$config_file" VN_USER="$default_user"
-  hash=$(python3 -c "
+
+  # Write Python script to temp file to avoid quoting hell
+  local py_script
+  py_script=$(mktemp /tmp/vn_hash.XXXXXX.py)
+  cat > "$py_script" << 'PYEOF'
 import os, hashlib, hmac, base64, json
 
 password = os.environ['VN_PASSWORD'].encode('utf-8')
@@ -179,7 +182,7 @@ for i in range(2, iterations + 1):
         result[j] ^= b
 result = bytes(result)
 b64 = lambda d: base64.b64encode(d).decode('ascii')
-hash_str = 'p1\${}\${}\${}'.format(iterations, b64(salt), b64(result))
+hash_str = 'p1$%s$%s$%s' % (iterations, b64(salt), b64(result))
 
 config = json.load(open(os.environ['VN_CONFIG']))
 if 'admin' not in config or not config['admin']:
@@ -188,7 +191,11 @@ config['admin'][0]['password_hash'] = hash_str
 config['admin'][0]['password'] = None
 json.dump(config, open(os.environ['VN_CONFIG'], 'w'), indent=4)
 print('OK')
-" 2>&1) || die "Failed to generate password hash (python3 required)"
+PYEOF
+
+  local hash
+  hash=$(python3 "$py_script" 2>&1) || die "Failed to generate password hash (python3 required)"
+  rm -f "$py_script"
 
   if [ "$hash" = "OK" ]; then
     info "Password set for user '${default_user}'"
