@@ -9,6 +9,7 @@ local config = require "core.config"
 local auth = require "api.auth"
 local json = require "dkjson"
 local util = require "util"
+local waf_manager = require "waf-rule-manager"
 
 -- ---------------------------------------------------------------------------
 -- Route table: { method, path, auth_required, handler }
@@ -176,6 +177,419 @@ local function handle_get_config()
 end
 
 -- ---------------------------------------------------------------------------
+-- WAF rule management handlers
+-- ---------------------------------------------------------------------------
+
+--- GET /waf/rules - list rules with filtering and pagination
+local function handle_list_waf_rules()
+    local args = ngx.req.get_uri_args()
+    local rules_obj = waf_manager.load_rules()
+    local rules = (rules_obj and rules_obj.rules) or {}
+
+    -- Filter by category
+    local category = args.category
+    if category and #category > 0 then
+        local filtered = {}
+        for _, r in ipairs(rules) do
+            if r.category == category then
+                filtered[#filtered + 1] = r
+            end
+        end
+        rules = filtered
+    end
+
+    -- Filter by severity
+    local severity = args.severity
+    if severity and #severity > 0 then
+        local filtered = {}
+        for _, r in ipairs(rules) do
+            if r.severity == severity then
+                filtered[#filtered + 1] = r
+            end
+        end
+        rules = filtered
+    end
+
+    -- Count by category
+    local categories = {}
+    local rules_obj_all = waf_manager.load_rules()
+    local all_rules = (rules_obj_all and rules_obj_all.rules) or {}
+    for _, r in ipairs(all_rules) do
+        categories[r.category] = (categories[r.category] or 0) + 1
+    end
+
+    -- Pagination
+    local page = tonumber(args.page) or 1
+    local limit = tonumber(args.limit) or 20
+    if page < 1 then page = 1 end
+    if limit < 1 then limit = 20 end
+    if limit > 100 then limit = 100 end
+
+    local total = #rules
+    local total_pages = math.ceil(total / limit)
+    if page > total_pages and total_pages > 0 then page = total_pages end
+    local start_idx = (page - 1) * limit + 1
+    local end_idx = math.min(start_idx + limit - 1, total)
+    local page_rules = {}
+    for i = start_idx, end_idx do
+        page_rules[#page_rules + 1] = rules[i]
+    end
+
+    return json.encode({
+        ret = "success",
+        data = {
+            rules = page_rules,
+            pagination = {
+                page = page,
+                limit = limit,
+                total = total,
+                total_pages = total_pages
+            },
+            categories = categories
+        }
+    })
+end
+
+--- POST /waf/rules - create a new rule
+local function handle_create_waf_rule()
+    ngx.req.read_body()
+    local raw = ngx.req.get_body_data()
+    if not raw or #raw == 0 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "request body required" })
+    end
+    local ok, rule = pcall(json.decode, raw)
+    if not ok or type(rule) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid JSON" })
+    end
+    local ok2, result = waf_manager.create_rule(rule)
+    if not ok2 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(result) })
+    end
+    ngx.log(ngx.NOTICE, "audit: waf rule created id=", result.id, " name=", result.name)
+    return json.encode({
+        ret = "success",
+        data = {
+            id = result.id,
+            name = result.name,
+            created_at = result.created_at,
+            version = result.version
+        }
+    })
+end
+
+--- POST /waf/rules/test - test a rule against test cases
+local function handle_test_waf_rule()
+    ngx.req.read_body()
+    local raw = ngx.req.get_body_data()
+    if not raw or #raw == 0 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "request body required" })
+    end
+    local ok, body = pcall(json.decode, raw)
+    if not ok or type(body) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid JSON" })
+    end
+    if not body.rule then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule is required" })
+    end
+    if not body.test_cases or type(body.test_cases) ~= "table" or #body.test_cases == 0 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "test_cases is required" })
+    end
+    local results = waf_manager.test_rule(body.rule, body.test_cases)
+    local passed = 0
+    local failed = 0
+    for _, r in ipairs(results) do
+        if r.passed then
+            passed = passed + 1
+        else
+            failed = failed + 1
+        end
+    end
+    return json.encode({
+        ret = "success",
+        data = {
+            total = #results,
+            passed = passed,
+            failed = failed,
+            results = results
+        }
+    })
+end
+
+--- POST /waf/rules/reload - force reload rules from file
+local function handle_reload_waf_rules()
+    local ok, err = waf_manager.reload()
+    if not ok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    ngx.log(ngx.NOTICE, "audit: waf rules reloaded")
+    return json.encode({ ret = "success", message = "rules reloaded" })
+end
+
+--- GET /waf/rules/history - get change history
+local function handle_waf_rule_history()
+    local args = ngx.req.get_uri_args()
+    local limit = tonumber(args.limit) or 50
+    local history = waf_manager.get_history(limit)
+    -- Omit full rule_data for list view to reduce payload size
+    local slim = {}
+    for _, h in ipairs(history) do
+        slim[#slim + 1] = {
+            version = h.version,
+            timestamp = h.timestamp,
+            action = h.action,
+            rule_count = h.rule_count
+        }
+    end
+    return json.encode({ ret = "success", data = slim })
+end
+
+--- POST /waf/rules/rollback - rollback rules to a previous version
+local function handle_rollback_waf_rules()
+    ngx.req.read_body()
+    local raw = ngx.req.get_body_data()
+    if not raw or #raw == 0 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "request body required" })
+    end
+    local ok, body = pcall(json.decode, raw)
+    if not ok or type(body) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid JSON" })
+    end
+    local version = tonumber(body.version)
+    if not version then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "version is required" })
+    end
+    local rule_id = body.rule_id or ""
+    local ok2, err = waf_manager.rollback(rule_id, version)
+    if not ok2 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    ngx.log(ngx.NOTICE, "audit: waf rules rolled back to version ", version)
+    return json.encode({ ret = "success", message = "Rolled back to version " .. tostring(version) })
+end
+
+--- GET /waf/stats - get aggregate WAF statistics
+local function handle_waf_stats()
+    local rules_obj = waf_manager.load_rules()
+    local rules = (rules_obj and rules_obj.rules) or {}
+    local shared = ngx.shared.vn_config
+
+    local total_rules = #rules
+    local enabled_rules = 0
+    local by_category = {}
+    local by_severity = {}
+    local total_hits = 0
+    local today_start = math.floor(ngx.time() / 86400) * 86400
+    local today_hits = 0
+    local top_rules = {}
+
+    for _, r in ipairs(rules) do
+        if r.enable ~= false then
+            enabled_rules = enabled_rules + 1
+        end
+
+        -- Category aggregation
+        if not by_category[r.category] then
+            by_category[r.category] = { rules = 0, hits = 0 }
+        end
+        by_category[r.category].rules = by_category[r.category].rules + 1
+
+        -- Severity aggregation
+        if not by_severity[r.severity] then
+            by_severity[r.severity] = { rules = 0, hits = 0 }
+        end
+        by_severity[r.severity].rules = by_severity[r.severity].rules + 1
+
+        -- Read runtime stats from shared dict
+        local hits = 0
+        local last_ts = 0
+        if shared then
+            local stats_json = shared:get("waf_rule_stats:" .. r.id)
+            if stats_json then
+                local ok, stats = pcall(json.decode, stats_json)
+                if ok and stats then
+                    hits = stats.hit_count or 0
+                    last_ts = stats.last_triggered or 0
+                    r.hit_count = hits
+                    r.last_triggered = last_ts
+                end
+            end
+        end
+
+        total_hits = total_hits + hits
+        by_category[r.category].hits = by_category[r.category].hits + hits
+        by_severity[r.severity].hits = by_severity[r.severity].hits + hits
+
+        if last_ts >= today_start then
+            today_hits = today_hits + hits
+        end
+
+        -- Build top rules list
+        top_rules[#top_rules + 1] = { id = r.id, name = r.name, hits = hits }
+    end
+
+    -- Sort top rules by hits descending
+    table.sort(top_rules, function(a, b) return a.hits > b.hits end)
+    if #top_rules > 10 then
+        local top10 = {}
+        for i = 1, 10 do
+            top10[i] = top_rules[i]
+        end
+        top_rules = top10
+    end
+
+    return json.encode({
+        ret = "success",
+        data = {
+            total_rules = total_rules,
+            enabled_rules = enabled_rules,
+            total_hits = total_hits,
+            today_hits = today_hits,
+            by_category = by_category,
+            by_severity = by_severity,
+            top_rules = top_rules
+        }
+    })
+end
+
+--- GET /waf/rules/:id - get a single rule
+--- PUT /waf/rules/:id - update a rule
+--- DELETE /waf/rules/:id - delete a rule
+--- POST /waf/rules/:id/enable - enable a rule
+--- POST /waf/rules/:id/disable - disable a rule
+--- GET /waf/stats/:id - get stats for a single rule
+-- These handlers receive the :id via ngx.ctx.waf_rule_id, set by dispatch()
+
+local function handle_get_waf_rule()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    local rules_obj = waf_manager.load_rules()
+    local rules = (rules_obj and rules_obj.rules) or {}
+    for _, r in ipairs(rules) do
+        if r.id == rule_id then
+            -- Attach runtime stats to the response
+            local shared = ngx.shared.vn_config
+            if shared then
+                local stats_json = shared:get("waf_rule_stats:" .. r.id)
+                if stats_json then
+                    local ok, stats = pcall(json.decode, stats_json)
+                    if ok and stats then
+                        r.hit_count = stats.hit_count or r.hit_count
+                        r.last_triggered = stats.last_triggered or r.last_triggered
+                    end
+                end
+            end
+            return json.encode({ ret = "success", data = r })
+        end
+    end
+    ngx.status = 404
+    return json.encode({ ret = "failed", message = "rule not found" })
+end
+
+local function handle_update_waf_rule()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    ngx.req.read_body()
+    local raw = ngx.req.get_body_data()
+    if not raw or #raw == 0 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "request body required" })
+    end
+    local ok, updates = pcall(json.decode, raw)
+    if not ok or type(updates) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid JSON" })
+    end
+    local ok2, result = waf_manager.update_rule(rule_id, updates)
+    if not ok2 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(result) })
+    end
+    ngx.log(ngx.NOTICE, "audit: waf rule updated id=", rule_id, " version=", result.version)
+    return json.encode({ ret = "success", data = { id = rule_id, version = result.version, updated_at = result.updated_at } })
+end
+
+local function handle_delete_waf_rule()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    local ok, err = waf_manager.delete_rule(rule_id)
+    if not ok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    ngx.log(ngx.NOTICE, "audit: waf rule deleted id=", rule_id)
+    return json.encode({ ret = "success", message = "rule deleted" })
+end
+
+local function handle_enable_waf_rule()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    local ok, result = waf_manager.update_rule(rule_id, { enable = true })
+    if not ok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(result) })
+    end
+    ngx.log(ngx.NOTICE, "audit: waf rule enabled id=", rule_id)
+    return json.encode({ ret = "success", message = "rule enabled" })
+end
+
+local function handle_disable_waf_rule()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    local ok, result = waf_manager.update_rule(rule_id, { enable = false })
+    if not ok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(result) })
+    end
+    ngx.log(ngx.NOTICE, "audit: waf rule disabled id=", rule_id)
+    return json.encode({ ret = "success", message = "rule disabled" })
+end
+
+local function handle_waf_rule_stats()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    local shared = ngx.shared.vn_config
+    local stats = {}
+    if shared then
+        local stats_json = shared:get("waf_rule_stats:" .. rule_id)
+        if stats_json then
+            local ok, decoded = pcall(json.decode, stats_json)
+            if ok then stats = decoded end
+        end
+    end
+    return json.encode({ ret = "success", data = stats })
+end
+
+-- ---------------------------------------------------------------------------
 -- Register default routes
 -- ---------------------------------------------------------------------------
 _M.register("POST", "/login", handle_login, false)
@@ -186,6 +600,21 @@ _M.register("GET", "/status", handle_get_status, true)
 _M.register("GET", "/metrics", handle_get_metrics, false)
 _M.register("GET", "/summary", handle_get_summary, true)
 _M.register("GET", "/csrf", handle_get_csrf, true)
+
+-- WAF rule management routes (note: parameterized routes resolve in dispatch)
+_M.register("GET",    "/waf/rules",              handle_list_waf_rules,     true)
+_M.register("POST",   "/waf/rules",              handle_create_waf_rule,    true)
+_M.register("GET",    "/waf/rules/:id",          handle_get_waf_rule,       true)
+_M.register("PUT",    "/waf/rules/:id",          handle_update_waf_rule,    true)
+_M.register("DELETE", "/waf/rules/:id",          handle_delete_waf_rule,    true)
+_M.register("POST",   "/waf/rules/:id/enable",   handle_enable_waf_rule,   true)
+_M.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,  true)
+_M.register("POST",   "/waf/rules/test",         handle_test_waf_rule,      true)
+_M.register("POST",   "/waf/rules/reload",       handle_reload_waf_rules,   true)
+_M.register("GET",    "/waf/rules/history",      handle_waf_rule_history,   true)
+_M.register("POST",   "/waf/rules/rollback",     handle_rollback_waf_rules, true)
+_M.register("GET",    "/waf/stats",              handle_waf_stats,          true)
+_M.register("GET",    "/waf/stats/:id",          handle_waf_rule_stats,     true)
 
 -- ---------------------------------------------------------------------------
 -- Router plugin hook: dispatched from plugin/router/init.lua
@@ -206,7 +635,23 @@ function _M.dispatch(ctx)
     end
 
     for _, route in ipairs(_M.routes) do
-        if route.method == method and route.path == path then
+        -- Check exact match first, then parameterized match
+        local matched = (route.path == path)
+        local captures = {}
+        if not matched and route.path:find(":id", 1, true) then
+            -- Convert route path to Lua pattern: :id -> capture group
+            local pattern = route.path:gsub(":id", "([^/]+)")
+            local s, e, capture = path:match("^()" .. pattern .. "()$")
+            if s and e then
+                matched = true
+                captures[1] = capture
+            end
+        end
+        if route.method == method and matched then
+            -- Set captured parameters on ngx.ctx for handler use
+            if captures[1] then
+                ngx.ctx.waf_rule_id = captures[1]
+            end
             -- Auth check
             if route.auth_required then
                 if not auth.middleware(ctx) then
