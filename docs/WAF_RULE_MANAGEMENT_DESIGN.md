@@ -663,8 +663,41 @@ function _M.save_rules(rules)
         rules = rules
     }
 
-    -- 1. 写入 JSON 文件
+    -- 1. 备份旧文件（保留最近 10 个备份） + 写入 JSON 文件
     local path = config.resolve_path() .. "configs/waf-rules.json"
+    local backup_dir = config.resolve_path() .. "configs/"
+    local timestamp = ngx.time()
+    local backup_path = backup_dir .. "waf-rules-backup-" .. timestamp .. ".json"
+
+    -- 复制旧文件作为备份（如果存在）
+    local old_f = io.open(path, "r")
+    if old_f then
+        local old_data = old_f:read("*all")
+        old_f:close()
+        local bf = io.open(backup_path, "w")
+        if bf then
+            bf:write(old_data)
+            bf:close()
+        end
+    end
+
+    -- 清理旧备份（保留最近 10 个）
+    local function prune_backups()
+        local cmd = 'ls -1t "' .. backup_dir .. '"waf-rules-backup-* 2>/dev/null'
+        local p = io.popen(cmd, "r")
+        if not p then return end
+        local backups = {}
+        for f in p:lines() do
+            table.insert(backups, f)
+        end
+        p:close()
+        for i = 11, #backups do
+            os.remove(backups[i])
+        end
+    end
+    prune_backups()
+
+    -- 原子写入新文件
     local tmp_path = path .. ".tmp"
     local f = io.open(tmp_path, "w")
     if not f then return false, "cannot open temp file" end
@@ -674,11 +707,29 @@ function _M.save_rules(rules)
 
     -- 2. 更新 shared dict 分片缓存
     if shared then
+        -- 读取旧 meta，获取上一轮的 chunk_count 以清理残留
+        local old_meta_json = shared:get(META_KEY)
+        local old_chunk_count = 0
+        if old_meta_json then
+            local old_meta = json.decode(old_meta_json)
+            if old_meta then
+                old_chunk_count = old_meta.chunk_count or 0
+            end
+        end
+
         -- 分片存储规则
         local chunks = chunk_rules(rules)
         for idx, chunk in pairs(chunks) do
             shared:set(CACHE_PREFIX .. idx, json.encode(chunk))
         end
+
+        -- 清理规则减少后多余的旧 chunk key
+        if old_chunk_count > #chunks then
+            for i = #chunks + 1, old_chunk_count do
+                shared:delete(CACHE_PREFIX .. i)
+            end
+        end
+
         -- 更新元数据
         local meta = {
             version = data.version,
