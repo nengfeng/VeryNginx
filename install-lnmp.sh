@@ -244,7 +244,7 @@ upstream vn_dynamic_upstream {\
   if grep -q 'lua_package_path' "$NGINX_CONF"; then
     # append VeryNginx paths if not already present
     if ! grep -q "${VN_DIR}" "$NGINX_CONF" 2>/dev/null; then
-      sed -i "/lua_package_path/s/;;/;${vn_paths};;/" "$NGINX_CONF"
+      sed -i "\|lua_package_path|s|;;|;${vn_paths};;|" "$NGINX_CONF"
       info "Merged VeryNginx paths into existing lua_package_path ✓"
     else
       info "VeryNginx paths already in lua_package_path, skipping ✓"
