@@ -14,11 +14,21 @@ describe("Config validation", function()
     end)
 
     it("rejects password stored as password_hash directly", function()
+        -- Use a password that passes complexity so the auto-hash comparison kicks in
         local ok, err = config.save({
             version = "2.0",
-            admin = { { user = "admin", password = "plaintext", password_hash = "plaintext" } }
+            admin = { { user = "admin", password = "Passw0rd!", password_hash = "Passw0rd!" } }
         })
         assert.is_false(ok, "save should reject password == password_hash: " .. tostring(err))
+    end)
+
+    it("rejects weak password", function()
+        local ok, err = config.save({
+            version = "2.0",
+            admin = { { user = "admin", password = "short" } }
+        })
+        assert.is_false(ok, "weak password should be rejected: " .. tostring(err))
+        assert.truthy(err:find("8 characters"), "error should mention minimum length")
     end)
 
     it("accepts empty config (defaults applied)", function()

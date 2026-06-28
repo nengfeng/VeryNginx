@@ -1,0 +1,6 @@
+return {
+    default = {
+        helper = "spec/spec_helper.lua",
+        lpath = "verynginx/?.lua;verynginx/lua_script/?.lua;verynginx/lua_script/module/?.lua",
+    }
+}

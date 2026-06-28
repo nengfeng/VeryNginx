@@ -47,12 +47,33 @@ local function handle_login()
     local ok, result = strategy.login(user, password)
     if not ok then
         ngx.status = 401
+        ngx.log(ngx.NOTICE, "audit: login failed for user=", user, " reason=", result)
         return json.encode({ ret = "failed", message = result })
     end
 
     auth.set_session_cookie(result)
     ngx.status = 200
+    ngx.log(ngx.NOTICE, "audit: login success user=", user)
     return json.encode({ ret = "success", token = result })
+end
+
+--- POST /logout - revoke current session
+local function handle_logout()
+    local cookie_obj = require("cookie"):new()
+    if cookie_obj then
+        local fields = cookie_obj:get_all()
+        if fields then
+            local prefix = (config and config.cookie_prefix) or "verynginx"
+            local token = fields[prefix .. "_session"]
+            if token then
+                require("core.session").revoke(token)
+                ngx.log(ngx.NOTICE, "audit: logout success")
+            end
+        end
+    end
+    -- Clear the cookie regardless
+    ngx.header["Set-Cookie"] = ((config and config.cookie_prefix) or "verynginx") .. "_session=; Path=/; Max-Age=0"
+    return json.encode({ ret = "success" })
 end
 
 --- POST /config - update config
@@ -158,6 +179,7 @@ end
 -- Register default routes
 -- ---------------------------------------------------------------------------
 _M.register("POST", "/login", handle_login, false)
+_M.register("POST", "/logout", handle_logout, true)
 _M.register("GET", "/config", handle_get_config, true)
 _M.register("POST", "/config", handle_set_config, true)
 _M.register("GET", "/status", handle_get_status, true)
@@ -185,7 +207,7 @@ function _M.dispatch(ctx)
 
     for _, route in ipairs(_M.routes) do
         if route.method == method and route.path == path then
-            -- Auth check before setting headers
+            -- Auth check
             if route.auth_required then
                 if not auth.middleware(ctx) then
                     ngx.status = 401
@@ -201,12 +223,104 @@ function _M.dispatch(ctx)
                 end
             end
 
+            -- Rate limiting for authenticated routes (login has its own)
+            if route.auth_required then
+                local rl = require "api.rate_limit"
+                local user = ctx and ctx.get_data and ctx.get_data(ctx, "auth:user") or "unknown"
+                local rl_key = "api:" .. method .. ":" .. path .. ":" .. tostring(user)
+                local limit, window = 60, 60
+                if method == "POST" and path == "/config" then
+                    limit, window = 30, 60
+                end
+                if not rl.allow(rl_key, limit, window) then
+                    ngx.status = 429
+                    ctx.set_action(ctx, "response", {
+                        code = 429,
+                        response = {
+                            code = 429,
+                            content_type = "application/json; charset=utf-8",
+                            body = json.encode({ ret = "failed", message = "too many requests" })
+                        }
+                    })
+                    return
+                end
+            end
+
+            -- Rate limiting for unauthenticated routes (by IP)
+            if not route.auth_required then
+                local rl = require "api.rate_limit"
+                local client_ip = ngx.var.remote_addr or "unknown"
+                local rl_key = "api:" .. method .. ":" .. path .. ":" .. client_ip
+                if not rl.allow(rl_key, 20, 60) then
+                    ngx.status = 429
+                    ctx.set_action(ctx, "response", {
+                        code = 429,
+                        response = {
+                            code = 429,
+                            content_type = "application/json; charset=utf-8",
+                            body = json.encode({ ret = "failed", message = "too many requests" })
+                        }
+                    })
+                    return
+                end
+            end
+
+            -- Idempotency key check for mutating requests
+            if method ~= "GET" and method ~= "HEAD" and method ~= "OPTIONS" then
+                local idem_key = ngx.req.get_headers()["Idempotency-Key"]
+                if idem_key and idem_key ~= "" then
+                    local shared = ngx.shared.vn_locks
+                    if shared then
+                        local cache_key = "idempotent:" .. ngx.md5(idem_key)
+                        if shared:get(cache_key) then
+                            ngx.status = 409
+                            ctx.set_action(ctx, "response", {
+                                code = 409,
+                                response = {
+                                    code = 409,
+                                    content_type = "application/json; charset=utf-8",
+                                    body = json.encode({ ret = "failed", message = "conflict: duplicate request" })
+                                }
+                            })
+                            return
+                        end
+                        shared:set(cache_key, true, 3600)
+                    end
+                end
+            end
+
+            -- Security headers
             ngx.header.content_type = "application/json; charset=utf-8"
+            ngx.header["X-Content-Type-Options"] = "nosniff"
+            ngx.header["X-Frame-Options"] = "SAMEORIGIN"
+            ngx.header["X-XSS-Protection"] = "1; mode=block"
+            ngx.header["Content-Security-Policy"] = table.concat({
+                "default-src 'self';",
+                "script-src 'self';",
+                "style-src 'self' 'unsafe-inline';",
+                "img-src 'self' data:;",
+                "connect-src 'self';",
+                "frame-ancestors 'self'",
+            }, " ")
 
             local response = route.handler()
             if not ngx.status or ngx.status == 0 then
                 ngx.status = 200
             end
+
+            -- Response size limit
+            local max_response_size = 10485760
+            if response and #response > max_response_size then
+                ngx.status = 413
+                response = json.encode({ ret = "failed", message = "response too large" })
+            end
+
+            -- Audit log for mutating operations
+            if method ~= "GET" and method ~= "HEAD" and method ~= "OPTIONS" then
+                local user = ctx and ctx.get_data and ctx.get_data(ctx, "auth:user") or "-"
+                ngx.log(ngx.NOTICE, "audit: user=", user, " method=", method, " path=", path, " status=", ngx.status)
+            end
+
             ctx.set_action(ctx, "response", {
                 code = ngx.status,
                 response = {
@@ -217,9 +331,6 @@ function _M.dispatch(ctx)
             })
         end
     end
-
-    -- No route matched: treat as static file request
-    -- The nginx config will serve these via /verynginx/static/ location
 end
 
 return _M

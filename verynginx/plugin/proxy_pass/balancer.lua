@@ -11,6 +11,50 @@ local function _rr_key(upstream_name)
     return "rr_index:" .. tostring(upstream_name)
 end
 
+-- ---------------------------------------------------------------------------
+-- Circuit breaker: passive consecutive-failure tracking
+-- ---------------------------------------------------------------------------
+
+local function _circuit_breaker_key(upstream_name, node)
+    return "cb:" .. upstream_name .. ":" .. node.host .. ":" .. tostring(node.port)
+end
+
+--- Report a successful request (reset consecutive failure counter).
+function _M.report_success(upstream_name, node)
+    local shared = ngx.shared.healthcheck
+    if not shared then
+        return
+    end
+    local key = _circuit_breaker_key(upstream_name, node)
+    shared:delete(key .. ":fails")
+end
+
+--- Report a failed request. After 3 consecutive failures, open the circuit for 30s.
+function _M.report_failure(upstream_name, node)
+    local shared = ngx.shared.healthcheck
+    if not shared then
+        return
+    end
+    local key = _circuit_breaker_key(upstream_name, node)
+    local fails = shared:incr(key .. ":fails", 1, 1)
+    if fails and fails >= 3 then
+        shared:set(key, "open", 30)
+        shared:delete(key .. ":fails")
+        ngx.log(ngx.WARN, "balancer: circuit opened for ", node.host, ":", tostring(node.port),
+            " in upstream '", upstream_name, "'")
+    end
+end
+
+--- Check if the circuit is open for a node (skip during selection).
+function _M._is_circuit_open(upstream_name, node)
+    local shared = ngx.shared.healthcheck
+    if not shared then
+        return false
+    end
+    local key = _circuit_breaker_key(upstream_name, node)
+    return shared:get(key) == "open"
+end
+
 --- Select a healthy node from the upstream.
 -- Called from proxy_pass plugin during access phase.
 -- @param upstream table: upstream config from backend_upstream
@@ -22,10 +66,21 @@ function _M.select_healthy(upstream, upstream_name)
     end
 
     local healthy_nodes = {}
+    local circuit_open_nodes = {}
     for _, node in ipairs(upstream.nodes) do
         if health_check.is_healthy(upstream, node) then
-            table.insert(healthy_nodes, node)
+            if _M._is_circuit_open(upstream_name, node) then
+                table.insert(circuit_open_nodes, node)
+            else
+                table.insert(healthy_nodes, node)
+            end
         end
+    end
+
+    -- Fallback: use circuit-open nodes if all healthy nodes are breaker-open
+    if #healthy_nodes == 0 and #circuit_open_nodes > 0 then
+        ngx.log(ngx.WARN, "balancer: all healthy nodes for '", upstream_name, "' are circuit-open, retrying")
+        healthy_nodes = circuit_open_nodes
     end
 
     if #healthy_nodes == 0 then

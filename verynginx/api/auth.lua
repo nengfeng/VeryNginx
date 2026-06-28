@@ -67,7 +67,17 @@ _M.strategies["session"] = {
     end,
 
     login = function(user, password)
-        -- Rate limit by client IP (support proxy headers)
+        local shared = ngx.shared.vn_locks
+
+        -- Account lock check (per-user, independent of IP)
+        if shared then
+            local lock_key = "account_lock:" .. tostring(user)
+            if shared:get(lock_key) then
+                return false, "account_locked"
+            end
+        end
+
+        -- Rate limit by client IP (support proxy headers) AND by username
         local client_ip = ngx.var.http_x_forwarded_for
         if client_ip then
             client_ip = client_ip:match("[^,]+")
@@ -76,7 +86,12 @@ _M.strategies["session"] = {
             client_ip = ngx.var.http_x_real_ip or ngx.var.remote_addr or "unknown"
         end
         local rl_key = "login:" .. client_ip
-        if not rate_limit.allow(rl_key, 10, 60) then
+        if not rate_limit.allow(rl_key, 30, 60) then
+            return false, "too_many_attempts"
+        end
+        -- Also rate-limit per username (prevents brute-force even with changing IPs)
+        local user_rl_key = "login_user:" .. tostring(user)
+        if not rate_limit.allow(user_rl_key, 5, 60) then
             return false, "too_many_attempts"
         end
 
@@ -84,6 +99,11 @@ _M.strategies["session"] = {
         for _, admin in ipairs(admins) do
             if admin.user == user and admin.enable ~= false then
                 if password_hash.verify(password, admin.password_hash) then
+                    -- Clear any account lock on success
+                    if shared then
+                        shared:delete("account_lock:" .. tostring(user))
+                        shared:delete("failed_login:" .. tostring(user))
+                    end
                     local payload = {
                         user = user,
                         expire_at = ngx.time() + ((config.security and config.security.session_ttl) or 3600),
@@ -98,6 +118,17 @@ _M.strategies["session"] = {
                 end
             end
         end
+
+        -- Track failed attempts per user (account lockout)
+        if shared then
+            local fail_key = "failed_login:" .. tostring(user)
+            local attempts = shared:incr(fail_key, 1, 1, 300)
+            if attempts and attempts >= 5 then
+                shared:set("account_lock:" .. tostring(user), true, 900)
+                shared:delete(fail_key)
+            end
+        end
+
         return false, "invalid_credentials"
     end,
 

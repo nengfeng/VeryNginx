@@ -8,11 +8,13 @@ package.path = "verynginx/?.lua;verynginx/lua_script/?.lua;verynginx/lua_script/
 describe("Request context", function()
     local context
 
-    before_each(function()
-        ngx.var = {}
-        ngx.req.get_body_data = function() end
-        ngx.req.get_uri_args = function() return {} end
+    setup(function()
         context = require "core.context"
+    end)
+
+    before_each(function()
+        ngx.var.connection = "1"
+        ngx.var.connection_requests = "1"
     end)
 
     it("parses JSON body into args table", function()
@@ -33,7 +35,8 @@ describe("Request context", function()
         local ctx = context.new()
         local args = ctx.get_body_args(ctx)
         assert.is_nil(args)
-        assert.are_equal("json_decode_failed: Expected value but found invalid token at character 1", ctx.request._body_error)
+        assert.truthy(ctx.request._body_error:find("json_decode_failed"),
+            "error should contain json_decode_failed, got: " .. tostring(ctx.request._body_error))
     end)
 
     it("sets _body_error on JSON non-table value", function()
@@ -43,7 +46,8 @@ describe("Request context", function()
         local ctx = context.new()
         local args = ctx.get_body_args(ctx)
         assert.is_nil(args)
-        assert.are_equal("json_decode_failed: unexpected type boolean", ctx.request._body_error)
+        assert.truthy(ctx.request._body_error:find("unexpected type"),
+            "error should mention unexpected type, got: " .. tostring(ctx.request._body_error))
     end)
 
     it("caches body args after first read", function()

@@ -2,7 +2,15 @@
 ngx = {}
 
 ngx.null = {}
-ngx.var = {}
+ngx.var = {
+    uri = "/",
+    remote_addr = "127.0.0.1",
+    host = "localhost",
+    scheme = "http",
+    connection = "0",
+    connection_requests = "1",
+    request_id = nil,
+}
 ngx.header = {}
 ngx.status = 200
 ngx.headers = {}
@@ -32,6 +40,7 @@ ngx.req = {}
 function ngx.req.get_method()   return "GET" end
 function ngx.req.read_body()    end
 function ngx.req.get_body_data()   end
+function ngx.req.get_body_file()   return nil end
 function ngx.req.get_post_args()   return {} end
 function ngx.req.get_uri_args()    return {} end
 function ngx.req.set_uri()         end
@@ -55,7 +64,7 @@ function ngx.unescape_uri(s) return s end
 function ngx.crc32_short(s)
     local h = 0
     for i = 1, #s do
-        h = h * 31 + string.byte(s, i)
+        h = (h * 31 + string.byte(s, i)) % 4294967296  -- keep within 32 bits
     end
     return h
 end

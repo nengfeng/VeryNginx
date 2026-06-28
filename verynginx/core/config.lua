@@ -46,26 +46,15 @@ local function deep_copy(t)
 end
 
 -- ---------------------------------------------------------------------------
--- Runtime config store (immutable via read-only metatable)
+-- Runtime config store (immutable via read-only metatable at end of file)
 -- ---------------------------------------------------------------------------
+_M.local_hash = nil
+
 local config_data = {}
-setmetatable(_M, {
-    __index = function(_, k)
-        return config_data[k]
-    end,
-    __newindex = function()
-        error("config is readonly, use config.save()")
-    end,
-    __pairs = function()
-        return pairs(config_data)
-    end,
-})
 
 local function set_config_store(new_data)
     config_data = new_data
 end
-
-_M.local_hash = nil
 
 -- Determine module root at load time from file path
 local MODULE_ROOT = (debug.getinfo(1, "S").source or ""):match("^@(.+/)core/config%.lua$")
@@ -494,6 +483,34 @@ function _M.save(config)
         end
     end
 
+    -- Password complexity check before auto-hashing
+    if config.admin then
+        for _, a in ipairs(config.admin) do
+            if a.password and a.password ~= "" then
+                if #a.password < 8 then
+                    release_save_lock(lock_key, lock_token)
+                    return false, "admin password must be at least 8 characters"
+                end
+                if not a.password:find("[A-Z]") then
+                    release_save_lock(lock_key, lock_token)
+                    return false, "admin password must contain at least one uppercase letter"
+                end
+                if not a.password:find("[a-z]") then
+                    release_save_lock(lock_key, lock_token)
+                    return false, "admin password must contain at least one lowercase letter"
+                end
+                if not a.password:find("[0-9]") then
+                    release_save_lock(lock_key, lock_token)
+                    return false, "admin password must contain at least one digit"
+                end
+                if not a.password:find("[^A-Za-z0-9]") then
+                    release_save_lock(lock_key, lock_token)
+                    return false, "admin password must contain at least one special character"
+                end
+            end
+        end
+    end
+
     -- Hash plaintext passwords in admin entries before validation
     pcall(function()
         local password_hash_mod = require "core.password_hash"
@@ -577,7 +594,27 @@ end
 -- Report current config as JSON string
 -- ---------------------------------------------------------------------------
 function _M.report()
-    return json.encode(config_store)
+    return json.encode(config_data)
 end
+
+-- Make config read-only (except for local_hash which is mutated at runtime)
+setmetatable(_M, {
+    __index = function(_, k)
+        if k == "local_hash" then
+            return rawget(_M, "local_hash")
+        end
+        return config_data[k]
+    end,
+    __newindex = function(t, k, v)
+        if k == "local_hash" then
+            rawset(t, k, v)
+            return
+        end
+        error("config is readonly, use config.save()")
+    end,
+    __pairs = function()
+        return pairs(config_data)
+    end,
+})
 
 return _M

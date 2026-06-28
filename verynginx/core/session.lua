@@ -6,6 +6,64 @@
 local _M = {}
 local hmac = require "core.hmac"
 
+-- ---------------------------------------------------------------------------
+-- Session revocation blacklist via shared dict
+-- ---------------------------------------------------------------------------
+
+local function revoke_key(token)
+    return "revoked_session:" .. ngx.md5(token)
+end
+
+--- Add a token to the revocation blacklist.
+-- TTL is derived from the token's remaining lifetime.
+-- @param token string: the session token to revoke
+-- @return boolean ok, string|nil error
+function _M.revoke(token)
+    if not token then
+        return false, "token required"
+    end
+    local shared = ngx.shared.vn_config
+    if not shared then
+        return false, "shared dict not available"
+    end
+
+    -- Decode the payload to determine remaining TTL
+    local dot_pos = token:find("%.")
+    if not dot_pos then
+        return false, "invalid token format"
+    end
+    local data_b64 = token:sub(1, dot_pos - 1)
+    local data = ngx.decode_base64(data_b64)
+    if not data then
+        return false, "invalid token encoding"
+    end
+    local ok, payload = pcall(require("dkjson").decode, data)
+    if not ok or not payload then
+        return false, "invalid payload"
+    end
+
+    local ttl = (payload.expire_at or ngx.time() + 3600) - ngx.time()
+    if ttl <= 0 then
+        return true
+    end
+    shared:set(revoke_key(token), true, ttl)
+    return true
+end
+
+--- Check if a token has been revoked.
+-- @param token string: the session token to check
+-- @return boolean: true if revoked
+function _M.is_revoked(token)
+    if not token then
+        return false
+    end
+    local shared = ngx.shared.vn_config
+    if not shared then
+        return false
+    end
+    return shared:get(revoke_key(token)) ~= nil
+end
+
 -- Constant-time string comparison to prevent timing side-channel attacks.
 -- Uses arithmetic (a+b)*(a-b) = a^2 - b^2 instead of short-circuit string comparison.
 local function constant_time_compare(a, b)
@@ -48,6 +106,10 @@ end
 function _M.verify(token, secret)
     if not token or not secret then
         return false, "token and secret required"
+    end
+
+    if _M.is_revoked(token) then
+        return false, "token revoked"
     end
 
     local dot_pos = token:find("%.")
