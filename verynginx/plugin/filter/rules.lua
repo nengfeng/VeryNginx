@@ -62,4 +62,36 @@ _M.default_rules = {
     { enable = true, matcher = "attack_rce", action = "block", code = 403, response = "forbidden_json" },
 }
 
+-- Load rules: priority from waf-rule-manager, fallback to defaults
+function _M.load_rules()
+    local ok, waf_manager = pcall(require, "waf-rule-manager")
+    if ok and waf_manager then
+        local rules_obj = waf_manager.load_rules()
+        if rules_obj and rules_obj.rules and #rules_obj.rules > 0 then
+            return rules_obj.rules
+        end
+    end
+    -- Fallback: convert default rules to waf format
+    local fallback = {}
+    for _, rule in ipairs(_M.default_rules) do
+        local m = rule.matcher
+        table.insert(fallback, {
+            id = m .. "_default",
+            name = m:gsub("_", " "):gsub("^%l", string.upper),
+            category = "custom",
+            severity = "medium",
+            enable = rule.enable ~= false,
+            priority = 100,
+            matcher = rule.matcher,
+            action = rule.action,
+            code = rule.code or 403,
+            response = rule.response,
+            tags = { m },
+            hit_count = 0,
+            version = 1
+        })
+    end
+    return fallback
+end
+
 return _M
