@@ -87,18 +87,32 @@ _M.CATEGORIES      = {
 }
 
 -- ---------------------------------------------------------------------------
--- Persisted file path helper
+-- Writable storage directory (resolved lazily, cached, fallback to /tmp)
 -- ---------------------------------------------------------------------------
+local _writable_base
+
+local function ensure_writable_dir()
+    if _writable_base then return _writable_base end
+    local primary = config.resolve_path() .. "configs/"
+    os.execute('mkdir -p "' .. primary .. '" 2>/dev/null')
+    local f = io.open(primary .. ".waf_write_test", "w")
+    if f then f:close(); os.remove(primary .. ".waf_write_test") _writable_base = primary return _writable_base end
+    local fallback = "/tmp/verynginx/configs/"
+    os.execute('mkdir -p "' .. fallback .. '" 2>/dev/null')
+    _writable_base = fallback
+    return _writable_base
+end
+
 local function rules_path()
-    return config.resolve_path() .. "configs/waf-rules.json"
+    return ensure_writable_dir() .. "waf-rules.json"
 end
 
 local function history_path()
-    return config.resolve_path() .. "configs/waf-rules-history.json"
+    return ensure_writable_dir() .. "waf-rules-history.json"
 end
 
 local function backup_prefix()
-    return config.resolve_path() .. "configs/waf-rules-backup-"
+    return ensure_writable_dir() .. "waf-rules-backup-"
 end
 
 -- ---------------------------------------------------------------------------
@@ -170,9 +184,7 @@ function _M.save_rules(rules)
         return false, "rules must be a table"
     end
 
-    -- Ensure configs directory exists
-    local configs_dir = config.resolve_path() .. "configs/"
-    os.execute('mkdir -p "' .. configs_dir .. '"')
+
 
     local shared = ngx.shared.vn_config
     local current_version

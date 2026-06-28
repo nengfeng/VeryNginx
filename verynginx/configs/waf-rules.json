@@ -1,22 +1,22 @@
 {
-  "timestamp":"2026-06-28T09:06:13Z",
+  "timestamp":"2026-06-28T09:10:06Z",
   "version":8,
   "rules":[{
-      "description":"Updated via update",
+      "action":"block",
       "severity":"high",
       "updated_at":"2026-06-28T09:06:13Z",
-      "enable":true,
+      "id":"test_001",
       "name":"Test 1",
       "category":"sqli",
-      "action":"block",
-      "version":2,
       "matcher":{
         "URI":{
           "value":"/test",
           "operator":"="
         }
       },
-      "id":"test_001"
+      "version":2,
+      "description":"Updated via update",
+      "enable":true
     },{
       "action":"block",
       "tags":["sqli","union"],
@@ -28,33 +28,33 @@
       },
       "hit_count":0,
       "created_at":"2026-06-28T09:06:13Z",
-      "updated_at":"2026-06-28T09:06:13Z",
+      "severity":"critical",
       "created_by":"admin",
+      "id":"sql_1000000_00000000",
       "version":1,
-      "name":"SQL Injection Test",
       "category":"sqli",
       "enable":true,
       "priority":100,
-      "id":"sql_1000000_00000000",
-      "severity":"critical"
+      "name":"SQL Injection Test",
+      "updated_at":"2026-06-28T09:06:13Z"
     },{
       "action":"block",
+      "id":"dup_001",
+      "hit_count":0,
+      "created_at":"2026-06-28T09:06:13Z",
+      "version":1,
+      "updated_at":"2026-06-28T09:06:13Z",
+      "created_by":"admin",
+      "name":"Original",
+      "category":"sqli",
+      "severity":"critical",
+      "priority":100,
+      "enable":true,
       "matcher":{
         "URI":{
           "value":"/x",
           "operator":"="
         }
-      },
-      "hit_count":0,
-      "created_at":"2026-06-28T09:06:13Z",
-      "id":"dup_001",
-      "updated_at":"2026-06-28T09:06:13Z",
-      "enable":true,
-      "name":"Original",
-      "category":"sqli",
-      "severity":"critical",
-      "priority":100,
-      "created_by":"admin",
-      "version":1
+      }
     }]
 }
