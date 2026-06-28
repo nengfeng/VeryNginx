@@ -1,7 +1,7 @@
 -- -*- coding: utf-8 -*-
 -- @Date    : 2026-06-24
 -- @Author  : VeryNginx v2
--- @Disc    : matcher registry - register and execute matchers
+-- @Disc    : matcher registry - register, resolve, and execute matchers
 
 local _M = {}
 
@@ -9,6 +9,21 @@ _M.registry = {}
 
 function _M.register(name, handler)
     _M.registry[name] = handler
+end
+
+--- Resolve a rule's matcher definition.
+-- Checks _matcher_def first (pre-resolved by config compile), then
+-- looks up string names in config.matcher, then uses inline table.
+function _M.resolve(rule)
+    local config = require "core.config"
+    local matcher_def = rule._matcher_def
+    if not matcher_def and type(rule.matcher) == "string" then
+        matcher_def = config.matcher and config.matcher[rule.matcher]
+    end
+    if not matcher_def and type(rule.matcher) == "table" then
+        matcher_def = rule.matcher
+    end
+    return matcher_def
 end
 
 function _M.test(matcher_def, ctx)

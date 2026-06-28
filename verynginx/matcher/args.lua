@@ -1,5 +1,6 @@
 -- @Disc: Args matcher (lazy body read) - Phase 2 implementation
 local _M = {}
+local compare = require "matcher.compare"
 
 function _M.test(condition, ctx)
     local name_op, name_val = condition.name_operator, condition.name_value
@@ -27,24 +28,16 @@ end
 
 function _M._test_args(args, name_op, name_val, op, val)
     for k, v in pairs(args) do
-        if _M._match_var(name_op, name_val, k) then
+        if compare.match(k, name_op, name_val) then
             if type(v) == "table" then
                 for _, arg_v in ipairs(v) do
-                    if _M._match_var(op, val, arg_v) then return true end
+                    if compare.match(arg_v, op, val) then return true end
                 end
             else
-                if _M._match_var(op, val, v) then return true end
+                if compare.match(v, op, val) then return true end
             end
         end
     end
-    return false
-end
-
-function _M._match_var(op, pattern, target)
-    if op == "=" then return target == pattern end
-    if op == "≈" then return type(target) == "string" and ngx.re.find(target, pattern, "isjo") ~= nil end
-    if op == "!≈" then return type(target) ~= "string" or ngx.re.find(target, pattern, "isjo") == nil end
-    if op == "*" then return true end
     return false
 end
 

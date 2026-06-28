@@ -1,12 +1,7 @@
--- @Disc: Host matcher - Phase 2 implementation
 local _M = {}
+local compare = require "matcher.compare"
 function _M.test(condition, ctx)
     local host = ctx.request.host or ""
-    local op, val = condition.operator, condition.value
-    if op == "=" then return host == val end
-    if op == "≈" then return ngx.re.find(host, val, "isjo") ~= nil end
-    if op == "!≈" then return ngx.re.find(host, val, "isjo") == nil end
-    if op == "*" then return true end
-    return false
+    return compare.match(host, condition.operator, condition.value)
 end
 return _M

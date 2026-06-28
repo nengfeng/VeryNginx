@@ -6,6 +6,7 @@
 local _M = {}
 
 local config = require "core.config"
+local matcher = require "matcher.init"
 
 --- Run redirect: if rule matches, issue a redirect to the target URI.
 function _M.run(ctx)
@@ -19,18 +20,11 @@ function _M.run(ctx)
             goto continue
         end
 
-        local matcher_def = rule._matcher_def
-        if not matcher_def and type(rule.matcher) == "string" then
-            matcher_def = config.matcher and config.matcher[rule.matcher]
-        end
-        if not matcher_def and type(rule.matcher) == "table" then
-            matcher_def = rule.matcher
-        end
+        local matcher_def = matcher.resolve(rule)
         if not matcher_def then
             goto continue
         end
 
-        local matcher = require "matcher.init"
         if matcher.test(matcher_def, ctx) then
             local target = rule.to_uri
             if target then

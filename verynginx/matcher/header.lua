@@ -1,18 +1,14 @@
 -- @Disc: Header matcher - Phase 2 implementation
 local _M = {}
+local compare = require "matcher.compare"
 function _M.test(condition, _)
     local headers = ngx.req.get_headers()
     local name_op, name_val = condition.name_operator, condition.name_value
     local op, val = condition.operator, condition.value
     for k, v in pairs(headers) do
         local ks, vs = tostring(k), tostring(v)
-        local name_ok = (name_op == "*")
-            or (name_op == "=" and ks == name_val)
-            or (name_op == "≈" and ngx.re.find(ks, name_val, "isjo"))
-        if name_ok then
-            if op == "=" then return vs == val end
-            if op == "≈" then return ngx.re.find(vs, val, "isjo") ~= nil end
-            if op == "*" then return true end
+        if compare.match(ks, name_op, name_val) then
+            return compare.match(vs, op, val)
         end
     end
     return false

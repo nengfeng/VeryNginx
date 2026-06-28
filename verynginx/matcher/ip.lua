@@ -1,12 +1,6 @@
--- @Disc: IP matcher - Phase 2 implementation
 local _M = {}
+local compare = require "matcher.compare"
 function _M.test(condition, ctx)
-    local ip = ctx.request.remote_addr
-    local op, val = condition.operator, condition.value
-    if op == "=" then return ip == val end
-    if op == "≈" then return ngx.re.find(ip, val, "isjo") ~= nil end
-    if op == "!≈" then return ngx.re.find(ip, val, "isjo") == nil end
-    if op == "*" then return true end
-    return false
+    return compare.match(ctx.request.remote_addr, condition.operator, condition.value)
 end
 return _M

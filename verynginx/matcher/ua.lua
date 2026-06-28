@@ -1,12 +1,6 @@
--- @Disc: UserAgent matcher - Phase 2 implementation
 local _M = {}
+local compare = require "matcher.compare"
 function _M.test(condition, ctx)
-    local ua = ctx.request.user_agent or ""
-    local op, val = condition.operator, condition.value
-    if op == "=" then return ua == val end
-    if op == "≈" then return ngx.re.find(ua, val, "isjo") ~= nil end
-    if op == "!≈" then return ngx.re.find(ua, val, "isjo") == nil end
-    if op == "*" then return true end
-    return false
+    return compare.match(ctx.request.user_agent or "", condition.operator, condition.value)
 end
 return _M

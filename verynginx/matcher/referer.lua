@@ -1,12 +1,6 @@
--- @Disc: Referer matcher - Phase 2 implementation
 local _M = {}
+local compare = require "matcher.compare"
 function _M.test(condition, ctx)
-    local ref = ctx.request.referer or ""
-    local op, val = condition.operator, condition.value
-    if op == "=" then return ref == val end
-    if op == "≈" then return ngx.re.find(ref, val, "isjo") ~= nil end
-    if op == "!≈" then return ngx.re.find(ref, val, "isjo") == nil end
-    if op == "*" then return true end
-    return false
+    return compare.match(ctx.request.referer or "", condition.operator, condition.value)
 end
 return _M

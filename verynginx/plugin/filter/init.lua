@@ -24,14 +24,7 @@ function _M.on_access(ctx)
             goto continue
         end
 
-        -- Use pre-resolved matcher def from compiled config, or resolve from name
-        local matcher_def = rule._matcher_def
-        if not matcher_def and type(rule.matcher) == "string" then
-            matcher_def = config.matcher and config.matcher[rule.matcher]
-        end
-        if not matcher_def and type(rule.matcher) == "table" then
-            matcher_def = rule.matcher
-        end
+        local matcher_def = matcher.resolve(rule)
         if not matcher_def then
             goto continue
         end
