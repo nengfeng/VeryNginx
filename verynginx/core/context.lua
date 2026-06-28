@@ -86,12 +86,14 @@ function _M.get_body_args(ctx)
             ctx.request._body_error = "json_decode_failed: " .. tostring(decoded)
             ctx.request._body_args = nil
             ctx.request._body_read = true
+            ngx.log(ngx.ERR, "context: json decode error for ", ngx.var.uri, ": ", tostring(decoded))
             return nil
         end
         if type(decoded) ~= "table" then
             ctx.request._body_error = "json_decode_failed: unexpected type " .. type(decoded)
             ctx.request._body_args = nil
             ctx.request._body_read = true
+            ngx.log(ngx.ERR, "context: json body is ", type(decoded), ", expected table for ", ngx.var.uri)
             return nil
         end
         local args = {}
