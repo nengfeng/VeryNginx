@@ -450,8 +450,8 @@ GET /waf/rules?category=sqli&severity=critical&page=1&limit=20
   "ret": "success",
   "data": [
     {
-      "version": "2026-06-28T12:05:00Z",
-      "timestamp": 1719576300,
+      "version": 5,
+      "timestamp": "2026-06-28T12:05:00Z",
       "action": "update",
       "rule_count": 6,
       "rule_data": [
@@ -464,8 +464,8 @@ GET /waf/rules?category=sqli&severity=critical&page=1&limit=20
       ]
     },
     {
-      "version": "2026-06-28T12:00:00Z",
-      "timestamp": 1719576000,
+      "version": 4,
+      "timestamp": "2026-06-28T12:00:00Z",
       "action": "create",
       "rule_count": 5,
       "rule_data": [
@@ -597,20 +597,25 @@ local function unchunk_rules(chunks)
     return rules
 end
 
--- 深拷贝表（递归）
+-- 深拷贝表（递归，含深度限制）
 -- @param t: 源表
+-- @param depth: 当前深度（内部使用）
 -- @return table: 深拷贝后的表
-local function deep_copy(t)
+local function deep_copy(t, depth)
+    depth = depth or 0
+    if depth > 100 then
+        return {}
+    end
     if type(t) ~= "table" then return t end
     local copy = {}
     for k, v in pairs(t) do
-        copy[k] = deep_copy(v)
+        copy[k] = deep_copy(v, depth + 1)
     end
     return copy
 end
 
 -- 加载规则（优先 shared dict 分片，fallback 文件）
--- @return table: 规则数组 [...] 或 nil
+-- @return table: { version, timestamp, rules = [...] } 或 nil
 function _M.load_rules()
     local shared = ngx.shared.vn_config
     if shared then
@@ -630,21 +635,31 @@ function _M.load_rules()
                     end
                 end
                 if next(chunks) then
-                    return unchunk_rules(chunks)
+                    return { version = meta.version, timestamp = meta.timestamp, rules = unchunk_rules(chunks) }
                 end
             end
         end
     end
-    -- fallback: 从文件加载
+    -- fallback: 从文件加载（返回一致的 {version, timestamp, rules} 格式）
     return _M.load_from_file()
 end
 
 -- 保存规则（原子写入 + 分片缓存更新）
 -- @param rules: 规则数组 [...]
 function _M.save_rules(rules)
-    -- 包装为 {version, rules} 格式
+    -- 读取当前版本号并自增
+    local shared = ngx.shared.vn_config
+    local current_version
+    if shared then
+        current_version = shared:incr("waf_rules_save_version", 1, 0)
+    else
+        current_version = 1
+    end
+
+    -- 包装为 {version, timestamp, rules} 格式
     local data = {
-        version = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        version = current_version,
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
         rules = rules
     }
 
@@ -658,7 +673,6 @@ function _M.save_rules(rules)
     os.rename(tmp_path, path)
 
     -- 2. 更新 shared dict 分片缓存
-    local shared = ngx.shared.vn_config
     if shared then
         -- 分片存储规则
         local chunks = chunk_rules(rules)
@@ -668,6 +682,7 @@ function _M.save_rules(rules)
         -- 更新元数据
         local meta = {
             version = data.version,
+            timestamp = data.timestamp,
             chunk_count = #chunks,
             rule_count = #rules,
             updated_at = ngx.time()
@@ -677,15 +692,16 @@ function _M.save_rules(rules)
     end
 
     -- 3. 记录变更历史
-    _M.record_history(rules, data.version)
+    _M.record_history(rules, data.version, data.timestamp)
 
     return true
 end
 
 -- 记录变更历史
 -- @param rules: 规则数组
--- @param version: 版本号
-function _M.record_history(rules, version)
+-- @param version: 版本号（整数）
+-- @param timestamp: 时间戳（ISO 8601）
+function _M.record_history(rules, version, timestamp)
     local path = config.resolve_path() .. "configs/waf-rules-history.json"
     local f = io.open(path, "r")
     local history = {}
@@ -698,7 +714,7 @@ function _M.record_history(rules, version)
     -- 记录本次变更（保存完整规则快照）
     table.insert(history, {
         version = version,
-        timestamp = ngx.time(),
+        timestamp = timestamp,
         action = "update",
         rule_count = #rules,
         rule_data = deep_copy(rules)
@@ -743,7 +759,8 @@ function _M.get_history(limit)
 end
 
 -- 从文件加载规则
--- @return table: 规则数组 [...] 或 nil
+-- 始终返回 { version, timestamp, rules = [...] } 或 nil
+-- version 为整数，timestamp 为 ISO 8601 字符串
 function _M.load_from_file()
     local path = config.resolve_path() .. "configs/waf-rules.json"
     local f = io.open(path, "r")
@@ -752,8 +769,11 @@ function _M.load_from_file()
     f:close()
     local data = json.decode(content)
     if not data then return nil end
-    -- 兼容两种格式：数组 或 {version, rules=[...]}
-    return data.rules or data
+    if data.rules then
+        return { version = data.version or 1, timestamp = data.timestamp, rules = data.rules }
+    end
+    -- 兼容旧格式：数组直接作为 rules
+    return { version = 1, timestamp = nil, rules = data }
 end
 
 -- 合并规则（将 updates 合并到 rule）
@@ -842,7 +862,8 @@ function _M.create_rule(rule)
     rule.id = rule.id or _M.generate_id(rule.name)
 
     -- 检查 ID 是否重复
-    local rules = _M.load_rules()
+    local rules_obj = _M.load_rules()
+    local rules = rules_obj and rules_obj.rules or {}
     for _, r in ipairs(rules) do
         if r.id == rule.id then
             return false, "rule id already exists: " .. rule.id
@@ -867,7 +888,8 @@ end
 
 -- 更新规则
 function _M.update_rule(rule_id, updates)
-    local rules = _M.load_rules()
+    local rules_obj = _M.load_rules()
+    local rules = rules_obj and rules_obj.rules or {}
     for i, r in ipairs(rules) do
         if r.id == rule_id then
             -- 保留运行时统计
@@ -895,7 +917,8 @@ end
 
 -- 删除规则
 function _M.delete_rule(rule_id)
-    local rules = _M.load_rules()
+    local rules_obj = _M.load_rules()
+    local rules = rules_obj and rules_obj.rules or {}
     for i, r in ipairs(rules) do
         if r.id == rule_id then
             table.remove(rules, i)
@@ -923,54 +946,67 @@ function _M.test_rule(rule, test_cases)
 end
 
 -- 记录命中统计（异步批量写入）
--- 将命中事件推入缓冲区，由 flush_hit_stats() 定期聚合
+-- 使用计数器驱动的缓冲区模式：用 head/tail 双索引指针，配合独立键存储
+-- 命中事件以轻量管道分隔字符串写入，避免 JSON 编码在热路径的开销
+local HIT_BUFFER_PREFIX = "waf_hit:"
+
 function _M.record_hit(rule_id, ctx)
     local shared = ngx.shared.vn_config
     if not shared then return end
 
-    -- 序列化命中事件并推入缓冲区（O(1) 操作，非阻塞）
-    local hit_event = json.encode({
-        rule_id = rule_id,
-        timestamp = ngx.time(),
-        uri = ctx.request.uri or "",
-        ip = ctx.request.remote_addr or "",
-        method = ctx.request.method or "GET"
-    })
-    shared:rpush("waf_hit_buffer", hit_event)
+    -- 轻量序列化：管道分隔格式 (O(1) 操作，非阻塞)
+    local hit_data = table.concat({
+        rule_id,
+        ngx.time(),
+        ctx.request.uri or "",
+        ctx.request.remote_addr or "",
+        ctx.request.method or "GET"
+    }, "|")
+    local idx = shared:incr(HIT_BUFFER_PREFIX .. "tail", 1, 0)
+    shared:set(HIT_BUFFER_PREFIX .. idx, hit_data)
 end
 
--- 刷新命中统计（由 ngx.timer.every 定期调用）
--- 聚合缓冲区中的命中事件，批量更新统计
+-- 通过消费 head/tail 之间的所有键来刷新命中统计
+-- 由 ngx.timer.every 定期调用
 function _M.flush_hit_stats()
     local shared = ngx.shared.vn_config
     if not shared then return end
 
-    -- 取出并清空缓冲区
-    local hits = shared:lrange("waf_hit_buffer", 0, -1)
-    if not hits or #hits == 0 then return end
-    shared:del("waf_hit_buffer")
+    -- 原子地读取并递增 head（多 worker 安全）
+    local head = tonumber(shared:get(HIT_BUFFER_PREFIX .. "head") or 0)
+    local tail = tonumber(shared:get(HIT_BUFFER_PREFIX .. "tail") or 0)
+    if head >= tail then return end
+
+    -- 单 worker 处理：无竞态窗口
+    -- 最多每次处理 500 条，避免阻塞新请求
+    local max_process = math.min(tail - head, 500)
 
     -- 按 rule_id 聚合命中
     local stats_agg = {}
-    for _, hit_json in ipairs(hits) do
-        local ok, hit = pcall(json.decode, hit_json)
-        if ok and hit then
-            local rule_id = hit.rule_id
-            if not stats_agg[rule_id] then
-                stats_agg[rule_id] = {
-                    hit_count = 0,
-                    last_triggered = 0,
-                    last_matched_uri = ""
-                }
-            end
-            local agg = stats_agg[rule_id]
-            agg.hit_count = agg.hit_count + 1
-            if hit.timestamp > agg.last_triggered then
-                agg.last_triggered = hit.timestamp
-                agg.last_matched_uri = hit.uri
+    for i = 1, max_process do
+        local key = HIT_BUFFER_PREFIX .. (head + i)
+        local hit_data = shared:get(key)
+        if hit_data then
+            shared:delete(key)
+            -- 解析管道分隔格式：rule_id|timestamp|uri|ip|method
+            local rule_id, ts, uri, ip, method = hit_data:match("^([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)$")
+            if rule_id then
+                ts = tonumber(ts)
+                if not stats_agg[rule_id] then
+                    stats_agg[rule_id] = { hit_count = 0, last_triggered = 0, last_matched_uri = "" }
+                end
+                local agg = stats_agg[rule_id]
+                agg.hit_count = agg.hit_count + 1
+                if ts and ts > agg.last_triggered then
+                    agg.last_triggered = ts
+                    agg.last_matched_uri = uri
+                end
             end
         end
     end
+
+    -- 更新 head 指针
+    shared:set(HIT_BUFFER_PREFIX .. "head", head + max_process)
 
     -- 合并到现有统计并写回
     for rule_id, agg in pairs(stats_agg) do
@@ -982,12 +1018,9 @@ function _M.flush_hit_stats()
             if ok then existing = decoded end
         end
 
-        -- 合并：累加命中数，取最新的触发信息
+        -- 累加命中数，只保留最新的触发信息
         agg.hit_count = (existing.hit_count or 0) + agg.hit_count
-        if agg.last_triggered > (existing.last_triggered or 0) then
-            agg.last_triggered = agg.last_triggered
-            agg.last_matched_uri = agg.last_matched_uri
-        else
+        if agg.last_triggered <= (existing.last_triggered or 0) then
             agg.last_triggered = existing.last_triggered
             agg.last_matched_uri = existing.last_matched_uri
         end
@@ -1021,6 +1054,8 @@ function _M.check_rate_limit(rule_id, rule)
 end
 
 -- 回滚到指定版本
+-- @param rule_id string: 规则 ID
+-- @param target_version number: 目标版本号（整数）
 function _M.rollback(rule_id, target_version)
     local history = _M.get_history(100)
     for _, record in ipairs(history) do
@@ -1037,7 +1072,7 @@ function _M.rollback(rule_id, target_version)
                     end
                 end
                 if not found then
-                    return false, "rule not found in version: " .. target_version
+                    return false, "rule not found in version: " .. tostring(target_version)
                 end
                 return _M.save_rules(rules)
             end
@@ -1047,11 +1082,12 @@ function _M.rollback(rule_id, target_version)
 end
 
 -- 生成规则 ID
+-- 格式: {prefix}_{timestamp}_{hex8}，使用项目统一的随机数模块
 function _M.generate_id(name)
     local prefix = name:lower():match("^(%w+)") or "rule"
     local timestamp = ngx.time()
-    local random = math.random(1000, 9999)
-    return string.format("%s_%d_%d", prefix, timestamp, random)
+    local random_hex = require("core.random").hex(4)
+    return string.format("%s_%d_%s", prefix, timestamp, random_hex)
 end
 
 -- 验证规则
@@ -1059,8 +1095,11 @@ function _M.validate_rule(rule)
     if not rule.name or rule.name == "" then
         return false, "name is required"
     end
-    if not rule.category or rule.category == "" then
-        return false, "category is required"
+    if #rule.name > 100 then
+        return false, "name must be at most 100 characters"
+    end
+    if not rule.category or not _M.CATEGORIES[rule.category] then
+        return false, "invalid category: " .. tostring(rule.category)
     end
     if not rule.severity or not _M.SEVERITY_LEVELS[rule.severity] then
         return false, "invalid severity: " .. tostring(rule.severity)
@@ -1070,6 +1109,40 @@ function _M.validate_rule(rule)
     end
     if not rule.matcher then
         return false, "matcher is required"
+    end
+    -- 验证 matcher 能被解析
+    if type(rule.matcher) == "string" then
+        local config = require("core.config")
+        if not config.matcher or not config.matcher[rule.matcher] then
+            return false, "matcher '" .. rule.matcher .. "' not found in config.matcher"
+        end
+    elseif type(rule.matcher) ~= "table" then
+        return false, "matcher must be a string reference or inline table"
+    end
+    -- 验证 HTTP 状态码范围
+    if rule.code and (type(rule.code) ~= "number" or rule.code < 200 or rule.code > 599) then
+        return false, "code must be a valid HTTP status code (200-599)"
+    end
+    -- 验证 response 模板引用存在
+    if rule.response and type(rule.response) == "string" then
+        local config = require("core.config")
+        if not config.response or not config.response[rule.response] then
+            return false, "response template '" .. rule.response .. "' not found"
+        end
+    end
+    -- 验证速率限制参数
+    if rule.rate_limit and rule.rate_limit.enable then
+        local max_hits = rule.rate_limit.max_hits
+        local window = rule.rate_limit.window
+        if type(max_hits) ~= "number" or max_hits < 1 or max_hits > 10000 then
+            return false, "rate_limit.max_hits must be between 1 and 10000"
+        end
+        if type(window) ~= "number" or window < 1 or window > 3600 then
+            return false, "rate_limit.window must be between 1 and 3600 seconds"
+        end
+        if rule.rate_limit.action and rule.rate_limit.action ~= "log" and rule.rate_limit.action ~= "block" then
+            return false, "rate_limit.action must be 'log' or 'block'"
+        end
     end
     return true
 end
@@ -1115,8 +1188,7 @@ function _M.on_access(ctx)
         return
     end
 
-    -- 兼容两种格式：数组 或 {version, rules=[...]}
-    local rules = rules_obj.rules or rules_obj
+    local rules = rules_obj.rules
     if not rules or #rules == 0 then
         return
     end
@@ -1370,7 +1442,8 @@ local rules = require("plugin.filter.rules")
 local config = require("core.config")
 
 local waf_rules = {
-    version = "2026-06-28T12:00:00Z",
+    version = 1,
+    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
     rules = {}
 }
 
