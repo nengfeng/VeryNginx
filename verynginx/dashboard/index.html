@@ -384,6 +384,29 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tr>
             </tbody>
           </table>
+          <h3 style="margin-top:16px">Shared Dictionary Memory <small>{{ dictUsage.length }} dicts</small></h3>
+          <div v-if="dictUsage.length">
+            <div v-for="d in dictUsage" :key="d.name" style="margin-bottom:10px">
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+                <span>{{ d.name }}</span>
+                <span :style="{color: d.pct > 80 ? '#ef4444' : d.pct > 60 ? '#eab308' : 'var(--muted)'}">
+                  {{ formatBytes(d.used) }} / {{ formatBytes(d.cap) }} ({{ d.pct.toFixed(1) }}%)
+                </span>
+              </div>
+              <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
+                <div :style="{
+                  width: d.pct + '%',
+                  height:'100%',
+                  borderRadius:'3px',
+                  background: d.pct > 80 ? '#ef4444' : d.pct > 60 ? '#eab308' : '#22c55e',
+                  transition: 'width .3s'
+                }"></div>
+              </div>
+            </div>
+          </div>
+          <div v-else style="font-size:12px;color:var(--muted);margin-top:8px">
+            <button class="outline small" @click="loadDictUsage">Load</button>
+          </div>
         </div>
 
         <!-- Raw JSON -->
@@ -782,6 +805,7 @@ const app = Vue.createApp({
     const cfg = ref({});
     const healthData = ref({});
     const overview = ref({});
+    const dictUsage = ref([]);
     const cfgTab = ref('matchers');
     const rawJson = ref('');
     watch(rawJson, (val) => {
@@ -1021,7 +1045,39 @@ const app = Vue.createApp({
     watch(cfgTab, (tab) => {
       if (tab === 'upstreams') startHealthRefresh();
       else clearInterval(healthTimer);
+      if (tab === 'system') loadDictUsage();
     });
+
+    // ---- Dict Usage ----
+    async function loadDictUsage() {
+      try {
+        const text = await api('GET', '/verynginx/metrics');
+        const parsed = parsePrometheus(typeof text === 'string' ? text : '');
+        const dicts = [];
+        const pctMap = {}, usedMap = {}, capMap = {};
+        for (const [key, vals] of Object.entries(parsed)) {
+          for (const [labels, val] of Object.entries(vals)) {
+            const lb = JSON.parse(labels);
+            if (key.startsWith('shared_dict_usage_pct')) {
+              pctMap[lb.dict] = val;
+            } else if (key.startsWith('shared_dict_usage_bytes')) {
+              usedMap[lb.dict] = val;
+            } else if (key.startsWith('shared_dict_capacity_bytes')) {
+              capMap[lb.dict] = val;
+            }
+          }
+        }
+        for (const name of Object.keys(pctMap).sort()) {
+          dicts.push({
+            name,
+            pct: pctMap[name] || 0,
+            used: usedMap[name] || 0,
+            cap: capMap[name] || 0
+          });
+        }
+        dictUsage.value = dicts;
+      } catch {}
+    }
 
     // ---- Overview ----
     function parsePrometheus(text) {
@@ -1465,10 +1521,10 @@ const app = Vue.createApp({
 
     return {
       store, page, loading, loginUser, loginPass, loginError,
-      status, s, cfg, healthData, overview, connHistory, connLinePoints, connFillPoints, cfgTab, rawJson, jsonSaving, jsonError,
+      status, s, cfg, healthData, overview, dictUsage, connHistory, connLinePoints, connFillPoints, cfgTab, rawJson, jsonSaving, jsonError,
       statsData, statsType, statsError, expandedUri,
       matcherKeys, respKeys, editMatcherModal,
-      doLogin, doLogout, loadStatus, loadConfig, loadData, loadOverview,
+      doLogin, doLogout, loadStatus, loadConfig, loadData, loadOverview, loadDictUsage,
       editMatcher, saveMatcher, deleteMatcher,
       commitConfig, saveRawConfig, loadStats,
       formatTime, formatBytes, formatNumber, calcSuccess, successClass, summarizeRule, actionClass,
