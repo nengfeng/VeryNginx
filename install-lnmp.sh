@@ -126,6 +126,17 @@ install_files() {
     info "config.json already exists, keeping it"
   fi
 
+  # waf-rules.json from default template
+  local rules_file="${VN_DIR}/configs/waf-rules.json"
+  if [ ! -f "$rules_file" ]; then
+    if [ -f "${VN_DIR}/configs/waf-rules.default.json" ]; then
+      cp "${VN_DIR}/configs/waf-rules.default.json" "$rules_file"
+      info "Created waf-rules.json from default template (3 rules)"
+    fi
+  else
+    info "waf-rules.json already exists, keeping it"
+  fi
+
   # Set admin password
   setup_admin_password "$config_file"
 

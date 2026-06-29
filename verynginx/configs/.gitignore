@@ -4,6 +4,7 @@ statistics.json
 
 # But track default config template and directory structure
 !config.default.json
+!waf-rules.default.json
 !.gitkeep
 !backups/
 !backups/.gitkeep

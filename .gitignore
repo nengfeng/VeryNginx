@@ -4,8 +4,9 @@
 *.swm
 __pycache__
 
-# Runtime-generated configs
+# Runtime-generated configs (allow .default.json templates)
 verynginx/configs/backups/
 verynginx/configs/waf-rules.json
 verynginx/configs/waf-rules-history.json
 verynginx/configs/waf-rules-backup-*.json
+!verynginx/configs/waf-rules.default.json
