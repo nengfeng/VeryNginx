@@ -13,7 +13,16 @@ function _M.bytes(length)
     if ok and result then
         return result
     end
-    -- fallback: not cryptographically secure, only used when ngx is unavailable
+    -- fallback: read from /dev/urandom (available on all Linux systems)
+    local f = io.open("/dev/urandom", "rb")
+    if f then
+        local data = f:read(length)
+        f:close()
+        if data and #data == length then
+            return data
+        end
+    end
+    -- Last resort: not cryptographically secure, avoids nil return
     local buf = {}
     for i = 1, length do
         buf[i] = string.char(math.random(0, 255))
