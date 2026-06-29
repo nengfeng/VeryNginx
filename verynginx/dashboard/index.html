@@ -933,6 +933,11 @@ const app = Vue.createApp({
       }
     }
 
+    function formatNumber(n) {
+      if (n == null) return '0';
+      return Number(n).toLocaleString();
+    }
+
     async function loadWafStats() {
       wafStatsError.value = '';
       try {
@@ -1170,7 +1175,7 @@ const app = Vue.createApp({
       doLogin, doLogout, loadStatus, loadConfig, loadData,
       editMatcher, saveMatcher, deleteMatcher,
       commitConfig, saveRawConfig, loadStats,
-      formatTime, formatBytes, calcSuccess, successClass, summarizeRule, actionClass,
+      formatTime, formatBytes, formatNumber, calcSuccess, successClass, summarizeRule, actionClass,
       // WAF
       wafTab, wafError, wafRules, wafCategories, wafPagination,
       wafFilterCat, wafFilterSev, wafStatsData, wafStatsError,
