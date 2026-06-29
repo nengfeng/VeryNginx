@@ -86,6 +86,13 @@ local function handle_set_config()
         return json.encode({ ret = "failed", message = "too many requests" })
     end
 
+    -- Limit request body size to prevent memory exhaustion (DoS)
+    local cl = tonumber(ngx.var.content_length) or 0
+    if cl > 1048576 then
+        ngx.status = 413
+        return json.encode({ ret = "failed", message = "request body too large (max 1MB)" })
+    end
+
     ngx.req.read_body()
     local content_type = ngx.var.content_type or ""
     local raw_body = ngx.req.get_body_data()
