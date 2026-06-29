@@ -233,13 +233,22 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
       <!-- Config -->
       <div v-if="page==='config'">
-        <h2 class="page-title">Configuration</h2>
+        <div class="flex flex-between" style="align-items:flex-start">
+          <h2 class="page-title" style="margin-bottom:0">Configuration</h2>
+          <div class="flex gap-8">
+            <button class="outline small" @click="exportConfig">Export</button>
+            <button class="outline small" @click="importConfig">Import</button>
+            <input ref="importFileInput" type="file" accept=".json" style="display:none" @change="onImportFile">
+          </div>
+        </div>
+        <div v-if="configImportError" class="error" style="margin-bottom:8px">{{ configImportError }}</div>
+        <div v-if="configImportOk" style="background:#d1fae5;color:#065f46;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:8px">{{ configImportOk }}</div>
         <div class="config-tabs">
           <a :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">Matchers</a>
           <a :class="{active:cfgTab==='rules'}" @click="cfgTab='rules'">Rules</a>
           <a :class="{active:cfgTab==='upstreams'}" @click="cfgTab='upstreams'">Upstreams</a>
           <a :class="{active:cfgTab==='responses'}" @click="cfgTab='responses'">Responses</a>
-          <a :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins'">Plugins</a>
+          <a :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins';loadPlugins()">Plugins</a>
           <a :class="{active:cfgTab==='system'}" @click="cfgTab='system'">System</a>
           <a :class="{active:cfgTab==='json'}" @click="cfgTab='json'">Raw JSON</a>
         </div>
@@ -347,18 +356,24 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
         <!-- Plugins -->
         <div class="config-section" v-if="cfgTab==='plugins'">
-          <h3>Plugin Settings</h3>
+          <div class="flex flex-between mb-8">
+            <h3>Plugin Settings <small>Toggle plugins on/off</small></h3>
+            <button class="outline small" @click="loadPlugins">Refresh</button>
+          </div>
+          <div v-if="pluginsError" class="error" style="margin-bottom:8px">{{ pluginsError }}</div>
           <table>
-            <thead><tr><th>Plugin</th><th>Enable</th><th>Priority</th><th>Critical</th></tr></thead>
+            <thead><tr><th>Plugin</th><th>Enable</th><th>Priority</th><th>Critical</th><th>Description</th></tr></thead>
             <tbody>
-              <tr v-for="(p, name) in cfg.plugin || {}" :key="name">
-                <td><strong>{{ name }}</strong></td>
-                <td>{{ p.enable ? '✓' : '✗' }}</td>
+              <tr v-for="p in plugins" :key="p.name">
+                <td><strong>{{ p.name }}</strong></td>
+                <td><input type="checkbox" :checked="p.enable" @change="togglePlugin(p)"></td>
                 <td>{{ p.priority }}</td>
                 <td>{{ p.critical ? '✓' : '✗' }}</td>
+                <td style="font-size:12px;color:var(--muted)">{{ p.description }}</td>
               </tr>
             </tbody>
           </table>
+          <div v-if="!plugins.length" class="empty">No plugins registered.</div>
         </div>
 
         <!-- System -->
@@ -472,6 +487,27 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             </table>
           </div>
         </div>
+        <!-- Top Paths -->
+        <div class="card mt-16" v-if="topPaths.length">
+          <div class="flex flex-between mb-8">
+            <strong>Top Request Paths (last 1 minute)</strong>
+            <button class="outline small" @click="loadTopPaths">Refresh</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>#</th><th>URI</th><th>Count</th><th>Bytes</th><th>Avg Time</th></tr></thead>
+              <tbody>
+                <tr v-for="(tp,idx) in topPaths" :key="tp.uri">
+                  <td>{{ idx+1 }}</td>
+                  <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="tp.uri">{{ tp.uri }}</td>
+                  <td>{{ formatNumber(tp.count) }}</td>
+                  <td>{{ formatBytes(tp.bytes) }}</td>
+                  <td>{{ tp.count > 0 ? (tp.time / tp.count * 1000).toFixed(1) + 'ms' : '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- WAF -->
@@ -489,6 +525,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <a :class="{active:wafTab==='rules'}" @click="wafTab='rules'">Rules</a>
           <a :class="{active:wafTab==='stats'}" @click="wafTab='stats';loadWafStats()">Stats</a>
           <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">History</a>
+          <a :class="{active:wafTab==='hits'}" @click="wafTab='hits';loadWafHits()">Hits</a>
           <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">Tester</a>
         </div>
 
@@ -588,6 +625,30 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tbody>
             </table>
           </div>
+        </div>
+
+        <!-- Hits -->
+        <div v-if="wafTab==='hits'">
+          <div v-if="wafHitsError" class="error" style="margin-bottom:8px">{{ wafHitsError }}</div>
+          <div class="flex flex-between mb-8">
+            <span style="font-size:13px;color:var(--muted)">Last {{ wafHitsTime }} — showing {{ wafHits.length }} records</span>
+            <button class="outline small" @click="loadWafHits">Refresh</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Time</th><th>Rule ID</th><th>Method</th><th>URI</th><th>Source IP</th></tr></thead>
+              <tbody>
+                <tr v-for="h in wafHits" :key="h.time + h.rule_id + h.uri">
+                  <td style="white-space:nowrap">{{ fmtTime(h.time) }}</td>
+                  <td><code style="font-size:11px">{{ h.rule_id }}</code></td>
+                  <td><span class="tag">{{ h.method }}</span></td>
+                  <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="h.uri">{{ h.uri }}</td>
+                  <td><code style="font-size:11px">{{ h.ip }}</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!wafHits.length" class="empty">No recent hits</div>
         </div>
 
         <!-- History -->
@@ -849,6 +910,15 @@ const app = Vue.createApp({
     const wafTestError = ref('');
     const wafTesting = ref(false);
     const wafTestResults = ref(null);
+    const wafHits = ref([]);
+    const wafHitsError = ref('');
+    const wafHitsTime = ref('');
+
+    const plugins = ref([]);
+    const pluginsError = ref('');
+    const configImportError = ref('');
+    const configImportOk = ref('');
+    const topPaths = ref([]);
 
     const s = computed(() => status.value);
 
@@ -1234,6 +1304,7 @@ const app = Vue.createApp({
       } catch (e) {
         statsError.value = e.message;
       }
+      loadTopPaths();
     }
 
     // ---- Helpers ----
@@ -1354,6 +1425,9 @@ const app = Vue.createApp({
 
     async function loadWafData() {
       await loadWafRules();
+      if (wafTab.value === 'hits') await loadWafHits();
+      if (wafTab.value === 'stats') await loadWafStats();
+      if (wafTab.value === 'history') await loadWafHistory();
     }
 
     function wafOpenCreate() {
@@ -1520,6 +1594,117 @@ const app = Vue.createApp({
       wafRolling.value = false;
     }
 
+    // ---- WAF Hits ----
+    async function loadWafHits() {
+      wafHitsError.value = '';
+      try {
+        const d = await api('GET', '/verynginx/waf/hits?limit=50');
+        if (d.ret === 'success') {
+          wafHits.value = d.data || [];
+          wafHitsTime.value = wafHits.value.length ? new Date().toLocaleTimeString() : '';
+        } else {
+          wafHitsError.value = d.message || 'Failed to load hits';
+        }
+      } catch (e) {
+        wafHitsError.value = e.message;
+      }
+    }
+
+    // ---- Plugins ----
+    async function loadPlugins() {
+      pluginsError.value = '';
+      try {
+        const d = await api('GET', '/verynginx/plugins');
+        if (d.ret === 'success') {
+          plugins.value = d.data || [];
+        } else {
+          pluginsError.value = d.message || 'Failed to load plugins';
+        }
+      } catch (e) {
+        pluginsError.value = e.message;
+      }
+    }
+
+    async function togglePlugin(p) {
+      pluginsError.value = '';
+      const old = p.enable;
+      p.enable = !p.enable;
+      try {
+        const d = await api('POST', '/verynginx/plugins/' + p.name + '/toggle');
+        if (d.ret === 'success') {
+          p.enable = d.data.enable;
+          if (p.enable !== !old) loadPlugins();
+        } else {
+          p.enable = old;
+          pluginsError.value = d.message || 'Toggle failed';
+        }
+      } catch (e) {
+        p.enable = old;
+        pluginsError.value = e.message;
+      }
+    }
+
+    // ---- Config Export/Import ----
+    const importFileInput = ref(null);
+
+    async function exportConfig() {
+      try {
+        const opts = { method: 'GET', credentials: 'same-origin' };
+        if (csrfToken) {
+          opts.headers = { 'X-CSRF-Token': csrfToken };
+        }
+        const res = await fetch('/verynginx/config/export', opts);
+        if (!res.ok) { alert('Export failed: HTTP ' + res.status); return; }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'config.json';
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Export failed: ' + e.message);
+      }
+    }
+
+    function importConfig() {
+      configImportError.value = '';
+      configImportOk.value = '';
+      if (importFileInput.value) importFileInput.value.click();
+    }
+
+    async function onImportFile(e) {
+      configImportError.value = '';
+      configImportOk.value = '';
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      if (file.size > 1048576) { configImportError.value = 'File too large (max 1 MB)'; return; }
+      const text = await file.text();
+      try {
+        const parsed = JSON.parse(text);
+        const d = await api('POST', '/verynginx/config/import', parsed);
+        if (d.ret === 'success') {
+          configImportOk.value = 'Configuration imported successfully.';
+          await loadConfig();
+        } else {
+          configImportError.value = d.message || 'Import failed';
+        }
+      } catch (e) {
+        configImportError.value = e.message;
+      }
+      e.target.value = '';
+    }
+
+    // ---- Top Paths ----
+    async function loadTopPaths() {
+      try {
+        const d = await api('GET', '/verynginx/stats/top-paths?limit=20');
+        if (d.ret === 'success') {
+          topPaths.value = d.data || [];
+        }
+      } catch {}
+    }
+
     async function wafRunTest() {
       wafTestError.value = '';
       wafTestResults.value = null;
@@ -1573,6 +1758,11 @@ const app = Vue.createApp({
       wafOpenCreate, wafOpenEdit, wafSaveRule,
       wafDeleteRule, wafToggleRule, wafPage, wafRefreshAll,
       wafRollback, wafRunTest,
+      wafHits, wafHitsError, wafHitsTime, loadWafHits,
+      plugins, pluginsError, loadPlugins, togglePlugin,
+      configImportError, configImportOk, importFileInput,
+      exportConfig, importConfig, onImportFile,
+      topPaths, loadTopPaths,
     };
   }
 });

@@ -115,6 +115,34 @@ function _M.log_request(_)
     lru_add(shared, "index:1m", uri, max_keys)
 end
 
+-- ---------------------------------------------------------------------------
+-- get_top_paths  — return the top-N URIs by request count
+-- ---------------------------------------------------------------------------
+function _M.get_top_paths(limit)
+    local shared = ngx.shared.statistics
+    if not shared then return {} end
+    local uris = lru_list(shared, "index:1m")
+    local results = {}
+    for _, uri in ipairs(uris) do
+        local key = "1m:" .. uri
+        local count = tonumber(shared:get(key .. ":count") or 0)
+        local bytes = tonumber(shared:get(key .. ":bytes") or 0)
+        local time = tonumber(shared:get(key .. ":time") or 0)
+        if count > 0 then
+            results[#results + 1] = { uri = uri, count = count, bytes = bytes, time = time }
+        end
+    end
+    table.sort(results, function(a, b) return a.count > b.count end)
+    if limit and #results > limit then
+        local trimmed = {}
+        for i = 1, limit do
+            trimmed[i] = results[i]
+        end
+        return trimmed
+    end
+    return results
+end
+
 local function _seen_codes_key(key)
     return key .. ":seen_codes"
 end

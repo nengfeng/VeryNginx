@@ -641,6 +641,125 @@ local function handle_get_upstream_health()
     return json.encode({ ret = "success", data = upstreams_data })
 end
 
+-- ============================================================
+-- GET /waf/hits - recent WAF hit records
+-- ============================================================
+local function handle_list_waf_hits()
+    local limit = tonumber(ngx.var.arg_limit) or 50
+    if limit > 200 then limit = 200 end
+    local hits = waf_manager.get_recent_hits(limit)
+    return json.encode({ ret = "success", data = hits })
+end
+
+-- ============================================================
+-- GET /config/export - download config.json
+-- ============================================================
+local function handle_export_config()
+    local path = require("core.config").resolve_path() .. "configs/config.json"
+    local f = io.open(path, "r")
+    if not f then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "config file not found" })
+    end
+    local content = f:read("*all")
+    f:close()
+    ngx.header["content-type"] = "application/json; charset=utf-8"
+    ngx.header["content-disposition"] = 'attachment; filename="config.json"'
+    return content
+end
+
+-- ============================================================
+-- POST /config/import - upload config.json
+-- ============================================================
+local function handle_import_config()
+    local cl = tonumber(ngx.var.content_length) or 0
+    if cl > 1048576 then
+        ngx.status = 413
+        return json.encode({ ret = "failed", message = "request body too large" })
+    end
+    ngx.req.read_body()
+    local raw = ngx.req.get_body_data()
+    if not raw or raw == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "body required" })
+    end
+    local ok, parsed = pcall(json.decode, raw)
+    if not ok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid json" })
+    end
+    local ok2, err = require("core.config").save(parsed)
+    if not ok2 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    return json.encode({ ret = "success" })
+end
+
+-- ============================================================
+-- GET /plugins - list registered plugins with enable status
+-- ============================================================
+local function handle_list_plugins()
+    local plugin_mod = require "core.plugin"
+    local list = {}
+    for _, p in ipairs(plugin_mod.plugins) do
+        list[#list + 1] = {
+            name = p.name,
+            enable = plugin_mod.is_enabled(p),
+            priority = p.priority,
+            critical = p.critical or false,
+            description = p.description or ""
+        }
+    end
+    return json.encode({ ret = "success", data = list })
+end
+
+-- ============================================================
+-- POST /plugins/:id/toggle - toggle a plugin's enabled state
+-- ============================================================
+local function handle_toggle_plugin()
+    local name = ngx.ctx.waf_rule_id
+    if not name or name == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "plugin name required" })
+    end
+    local config_mod = require "core.config"
+    local cfg = config_mod.data
+    if not cfg.plugin then cfg.plugin = {} end
+    if not cfg.plugin[name] then cfg.plugin[name] = {} end
+    -- Determine current state
+    local current = true
+    if cfg.plugin[name].enable ~= nil then
+        current = cfg.plugin[name].enable == true
+    else
+        local plugin_mod = require "core.plugin"
+        for _, p in ipairs(plugin_mod.plugins) do
+            if p.name == name then
+                current = p.default_enable ~= false
+                break
+            end
+        end
+    end
+    cfg.plugin[name].enable = not current
+    local ok, err = config_mod.save(cfg)
+    if not ok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    return json.encode({ ret = "success", data = { name = name, enable = cfg.plugin[name].enable } })
+end
+
+-- ============================================================
+-- GET /stats/top-paths - top N request paths by count
+-- ============================================================
+local function handle_top_paths()
+    local limit = tonumber(ngx.var.arg_limit) or 20
+    if limit > 100 then limit = 100 end
+    local stats_mod = require "core.statistics"
+    local paths = stats_mod.get_top_paths(limit)
+    return json.encode({ ret = "success", data = paths })
+end
+
 -- ---------------------------------------------------------------------------
 -- Register default routes
 -- ---------------------------------------------------------------------------
@@ -670,6 +789,15 @@ _M.register("DELETE", "/waf/rules/:id",          handle_delete_waf_rule,    true
 _M.register("POST",   "/waf/rules/:id/enable",   handle_enable_waf_rule,   true)
 _M.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,  true)
 _M.register("GET",    "/waf/stats/:id",          handle_waf_rule_stats,     true)
+_M.register("GET",    "/waf/hits",               handle_list_waf_hits,      true)
+
+_M.register("GET",    "/config/export",          handle_export_config,       true)
+_M.register("POST",   "/config/import",          handle_import_config,       true)
+
+_M.register("GET",    "/plugins",                handle_list_plugins,        true)
+_M.register("POST",   "/plugins/:id/toggle",     handle_toggle_plugin,       true)
+
+_M.register("GET",    "/stats/top-paths",        handle_top_paths,           true)
 
 -- ---------------------------------------------------------------------------
 -- Router plugin hook: dispatched from plugin/router/init.lua

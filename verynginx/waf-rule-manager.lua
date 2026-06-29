@@ -702,6 +702,39 @@ function _M.record_hit(rule_id, ctx)
 
     local idx = shared:incr(HIT_PREFIX .. "tail", 1, 0)
     shared:set(HIT_PREFIX .. tostring(idx), hit_data)
+
+    -- Ring buffer for recent hits display (keep last 100)
+    local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
+    shared:set("waf_recent_hits:data:" .. ring_idx, hit_data)
+end
+
+-- ---------------------------------------------------------------------------
+-- get_recent_hits  — read the ring buffer of recent WAF hits
+-- ---------------------------------------------------------------------------
+function _M.get_recent_hits(limit)
+    local shared = ngx.shared.vn_config
+    if not shared then return {} end
+    local tail = tonumber(shared:get("waf_recent_hits:idx") or 0)
+    if not tail or tail == 0 then return {} end
+    limit = limit or 50
+    if limit > 100 then limit = 100 end
+    local hits = {}
+    for i = 0, limit - 1 do
+        local idx = ((tail - 1 - i) % 100) + 1
+        local data = shared:get("waf_recent_hits:data:" .. idx)
+        if not data then break end
+        local rule_id, ts_str, uri, ip, method = data:match("^([^|]*)|([^|]*)|(.*)|([^|]*)|([^|]*)$")
+        if rule_id and #rule_id > 0 then
+            hits[#hits + 1] = {
+                rule_id = rule_id,
+                time = tonumber(ts_str),
+                uri = uri,
+                ip = ip,
+                method = method
+            }
+        end
+    end
+    return hits
 end
 
 -- ---------------------------------------------------------------------------
