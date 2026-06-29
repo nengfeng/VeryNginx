@@ -310,65 +310,79 @@ patch_nginx_conf() {
 }
 
 replace_server_block() {
-  # Find the first server {} block inside http {}
-  local http_line server_start server_end
+  # Use python3 to parse nginx.conf and insert location blocks
+  # inside the first server {} block, before its closing }
+  local py_script
+  py_script=$(mktemp /tmp/vn_replace.XXXXXX.py)
+  cat > "$py_script" << PYEOF
+import re, sys
 
-  http_line=$(grep -n '^http\s*{' "$NGINX_CONF" | head -1 | cut -d: -f1)
-  if [ -z "$http_line" ]; then
-    die "Cannot find http {} block in nginx.conf"
+nginx_conf = sys.argv[1]
+vn_dir = sys.argv[2]
+
+with open(nginx_conf) as f:
+    lines = f.read().split('\n')
+
+# Find the first server { block
+server_start = None
+for i, line in enumerate(lines):
+    if re.match(r'^\s*server\s*\{', line):
+        server_start = i
+        break
+
+if server_start is None:
+    print("ERROR: no server block found")
+    sys.exit(1)
+
+# Count braces to find matching closing }
+bc = 0
+server_end = None
+for i in range(server_start, len(lines)):
+    o = lines[i].count('{')
+    c = lines[i].count('}')
+    bc += o - c
+    if bc == 0:
+        server_end = i
+        break
+
+if server_end is None:
+    print("ERROR: unmatched braces in server block")
+    sys.exit(1)
+
+# Build the location blocks to insert
+vn_block = [
+    '',
+    '        # VeryNginx v2 - API & dashboard',
+    '        location /verynginx/ {',
+    '            rewrite_by_lua_file ' + vn_dir + '/on_rewrite.lua;',
+    '            access_by_lua_file ' + vn_dir + '/on_access.lua;',
+    '            log_by_lua_file ' + vn_dir + '/on_log.lua;',
+    '        }',
+    '        location /verynginx/static/ {',
+    '            alias ' + vn_dir + '/dashboard/;',
+    '            expires epoch;',
+    '            add_header X-Content-Type-Options "nosniff" always;',
+    '            add_header X-Frame-Options "SAMEORIGIN" always;',
+    '            add_header X-XSS-Protection "1; mode=block" always;',
+    '        }',
+]
+
+result = lines[:server_end] + vn_block + lines[server_end:]
+with open(nginx_conf, 'w') as f:
+    f.write('\n'.join(result))
+print("OK")
+PYEOF
+
+  local out
+  out=$(python3 "$py_script" "$NGINX_CONF" "$VN_DIR" 2>&1) || die "Failed to patch server block: $out"
+  rm -f "$py_script"
+
+  if [ "$out" = "OK" ]; then
+    info "Server block patched with VeryNginx locations ✓"
+    info "→ Dashboard: http://your-ip/verynginx/index.html"
+  else
+    die "Server block patch failed: $out"
   fi
-
-  # Use awk to find the first server block after http { and its matching }
-  eval "$(awk '
-    NR > '"$http_line"' && /^[[:space:]]*server[[:space:]]*\{/ {
-      start = NR;
-      bc = 1;
-      while (bc > 0) {
-        if (getline <= 0) break;
-        o = gsub(/\{/, "&"); c = gsub(/\}/, "&"); bc += o - c;
-      }
-      print "server_start=" start;
-      print "server_end=" NR;
-      exit;
-    }
-  ' "$NGINX_CONF")"
-
-  if [ -z "$server_start" ]; then
-    die "Cannot find server {} block in nginx.conf"
-  fi
-
-  # Build the VeryNginx location blocks
-  local vn_block
-  read -r -d '' vn_block << VNB
-        # VeryNginx v2 - API & dashboard
-        location /verynginx/ {
-            rewrite_by_lua_file ${VN_DIR}/on_rewrite.lua;
-            access_by_lua_file ${VN_DIR}/on_access.lua;
-            log_by_lua_file ${VN_DIR}/on_log.lua;
-        }
-        location /verynginx/static/ {
-            alias ${VN_DIR}/dashboard/;
-            expires epoch;
-            add_header X-Content-Type-Options "nosniff" always;
-            add_header X-Frame-Options "SAMEORIGIN" always;
-            add_header X-XSS-Protection "1; mode=block" always;
-        }
-VNB
-
-  # Insert vn_block before the closing } of the server block
-  local tmpfile
-  tmpfile=$(mktemp)
-  {
-    sed -n "1,$((server_end - 1))p" "$NGINX_CONF"
-    echo "$vn_block"
-    sed -n "${server_end},\$p" "$NGINX_CONF"
-  } > "$tmpfile"
-  mv "$tmpfile" "$NGINX_CONF"
-
-  info "Server block patched with VeryNginx locations ✓"
-  info "→ Dashboard: http://your-ip/verynginx/index.html"
-  warn "Existing PHP-FPM handling is preserved"
-  warn "→ For full WAF protection, add VeryNginx location / block manually (see docs)"
 }
 
 # ----- nginx test & reload -------------------------------------------------
