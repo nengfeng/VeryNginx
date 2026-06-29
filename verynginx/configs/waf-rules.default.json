@@ -1,60 +1,438 @@
 {
-  "timestamp":"2026-06-28T10:08:17Z",
-  "version":8,
-  "rules":[{
-      "action":"block",
-      "severity":"high",
-      "updated_at":"2026-06-28T10:08:14Z",
-      "id":"test_001",
-      "name":"Test 1",
-      "category":"sqli",
-      "matcher":{
-        "URI":{
-          "value":"/test",
-          "operator":"="
+  "version": 8,
+  "timestamp": "2026-06-29T04:48:04Z",
+  "rules": [
+    {
+      "id": "vn_sqli_0001",
+      "name": "SQL Injection — UNION Select",
+      "category": "sqli",
+      "severity": "critical",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "\\bunion\\b.+\\bselect\\b"
         }
       },
-      "version":2,
-      "description":"Updated via update",
-      "enable":true
-    },{
-      "action":"block",
-      "tags":["sqli","union"],
-      "matcher":{
-        "URI":{
-          "value":"union.+select",
-          "operator":"≈"
+      "description": "Detects UNION-based SQL injection attempts in request parameters",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_sqli_0002",
+      "name": "SQL Injection — Tautology / OR",
+      "category": "sqli",
+      "severity": "critical",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "(?:\\b(or|and)\\s+[\\w\\s'\\\"`]+\\s*[=<>])|(?:['\\\"]\\s*(?:or|and)\\s+['\\\"]\\s*[=<>]['\\\"])"
         }
       },
-      "hit_count":0,
-      "created_at":"2026-06-28T10:08:14Z",
-      "severity":"critical",
-      "created_by":"admin",
-      "id":"sql_1000000_00000000",
-      "version":1,
-      "category":"sqli",
-      "enable":true,
-      "priority":100,
-      "name":"SQL Injection Test",
-      "updated_at":"2026-06-28T10:08:14Z"
-    },{
-      "action":"block",
-      "id":"dup_001",
-      "hit_count":0,
-      "created_at":"2026-06-28T10:08:14Z",
-      "version":1,
-      "updated_at":"2026-06-28T10:08:14Z",
-      "created_by":"admin",
-      "name":"Original",
-      "category":"sqli",
-      "severity":"critical",
-      "priority":100,
-      "enable":true,
-      "matcher":{
-        "URI":{
-          "value":"/x",
-          "operator":"="
+      "description": "Detects tautology-based SQLi like ' OR 1=1",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_sqli_0003",
+      "name": "SQL Injection — Comments / Stacked Queries",
+      "category": "sqli",
+      "severity": "high",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "(?:--[\\s]|#|/\\*!|;\\s*(?:drop|truncate|exec|declare|alter|create|insert|update|delete))"
         }
-      }
-    }]
+      },
+      "description": "Detects SQL comments and stacked query keywords",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_xss_0004",
+      "name": "Cross-Site Scripting — Script Tags",
+      "category": "xss",
+      "severity": "critical",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "<script[\\s>]"
+        }
+      },
+      "description": "Detects <script> tag injection in parameters",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_xss_0005",
+      "name": "Cross-Site Scripting — Event Handlers",
+      "category": "xss",
+      "severity": "high",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "\\bon\\w+\\s*="
+        }
+      },
+      "description": "Detects HTML/JS event handler injection (onload, onerror, onclick, etc.)",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_xss_0006",
+      "name": "Cross-Site Scripting — javascript: Protocol",
+      "category": "xss",
+      "severity": "high",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "URI": {
+          "operator": "≈",
+          "value": "javascript\\s*:"
+        }
+      },
+      "description": "Detects javascript: URI scheme attempts",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_rce_0007",
+      "name": "Remote Command Execution — Shell Metacharacters",
+      "category": "rce",
+      "severity": "critical",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:\\b(?:cmd|powershell|bash|sh|python|perl|wget|curl)\\b)?"
+        }
+      },
+      "description": "Detects shell metacharacters in parameters indicating command injection",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_rce_0008",
+      "name": "Remote Command Execution — PHP Code Injection",
+      "category": "rce",
+      "severity": "critical",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "\\b(?:system|exec|passthru|shell_exec|popen|proc_open|eval|assert|create_function|call_user_func|array_map)\\s*\\("
+        }
+      },
+      "description": "Detects PHP function injection attempts",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_rce_0009",
+      "name": "Remote Code Execution — Path/Domain in Args",
+      "category": "rce",
+      "severity": "high",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "https?://[^\\s'\\\"<>]+"
+        }
+      },
+      "description": "Detects URL/schema injection in parameters (SSRF / remote inclusion)",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_lfi_0010",
+      "name": "Local File Inclusion — Sensitive Files",
+      "category": "lfi",
+      "severity": "high",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "URI": {
+          "operator": "≈",
+          "value": "(?:etc/passwd|etc/shadow|etc/hosts|proc/self/environ|proc/self/cmdline|boot\\.ini|win\\.ini)"
+        }
+      },
+      "description": "Detects attempts to read sensitive system files",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_lfi_0011",
+      "name": "Local File Inclusion — PHP Wrappers",
+      "category": "lfi",
+      "severity": "high",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Args": {
+          "name_operator": "*",
+          "operator": "≈",
+          "value": "php://|file://|expect://|data://|input://"
+        }
+      },
+      "description": "Detects PHP stream wrapper usage for LFI",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_path_traversal_0012",
+      "name": "Path Traversal — Directory Escape",
+      "category": "path_traversal",
+      "severity": "high",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "URI": {
+          "operator": "≈",
+          "value": "\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e\\\\|..%5c"
+        }
+      },
+      "description": "Detects directory traversal sequences (../) encoding bypasses included",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_path_traversal_0013",
+      "name": "Path Traversal — Absolute Windows Path",
+      "category": "path_traversal",
+      "severity": "medium",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "URI": {
+          "operator": "≈",
+          "value": "(?:\\b[a-zA-Z]:[/\\\\])"
+        }
+      },
+      "description": "Detects absolute Windows paths in request URI",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_scanner_0014",
+      "name": "Scanner — Known Security Tools",
+      "category": "scanner",
+      "severity": "medium",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "UserAgent": {
+          "operator": "≈",
+          "value": "(?i:(?:acunetix|netsparker|nessus|nikto|openvas|w3af|appscan|burpsuite|zap|arachni|grendel|webinspect|nmap|sqlmap|hydra|medusa|ncrack|thc)"
+        }
+      },
+      "description": "Blocks requests from known security scanning tools",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_scanner_0015",
+      "name": "Scanner — Vulnerability Scanner Paths",
+      "category": "scanner",
+      "severity": "medium",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "URI": {
+          "operator": "≈",
+          "value": "(?:/phpmyadmin|/wp-admin|/administrator|/manager/html|/jmx-console|/actuator|/console|/cgi-bin/|/~root|/~admin)"
+        }
+      },
+      "description": "Blocks access to common sensitive/admin paths targeted by scanners",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_bot_0016",
+      "name": "Malicious Bot — Aggressive Crawlers",
+      "category": "bot",
+      "severity": "low",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "UserAgent": {
+          "operator": "≈",
+          "value": "(?i:(?:semrush|ahrefs|majestic|mj12|dotbot|rogerbot|exabot|ltx71|turnitin)"
+        }
+      },
+      "description": "Blocks known aggressive/commercial crawlers that ignore robots.txt",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_bot_0017",
+      "name": "Malicious Bot — Scraper / Harvester",
+      "category": "bot",
+      "severity": "low",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "UserAgent": {
+          "operator": "≈",
+          "value": "(?i:(?:dataforseo|ccbot|mauibot|claudebot|brightbot|python-requests|go-http-client|scrapy|curl|wget))"
+        }
+      },
+      "description": "Blocks generic HTTP clients and known scrapers",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_brute_0018",
+      "name": "Brute Force — Login Path Protection",
+      "category": "brute",
+      "severity": "high",
+      "action": "log",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "URI": {
+          "operator": "≈",
+          "value": "(?:/login|/signin|/auth|/wp-login)"
+        }
+      },
+      "description": "Monitors login endpoints for brute force attempts; rate-limit recommended",
+      "tags": [
+        "brute",
+        "rate-limit"
+      ],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_spam_0019",
+      "name": "Spam Referrer — Known Spam Domains",
+      "category": "spam",
+      "severity": "low",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "Referer": {
+          "operator": "≈",
+          "value": "(?i:(?:shoes-online|pills|casino|viagra|cialis|buy-now|free-|click-here)"
+        }
+      },
+      "description": "Blocks requests with known spam referrer domains",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_custom_0020",
+      "name": "Sensitive Files — Environment & Config",
+      "category": "custom",
+      "severity": "medium",
+      "action": "block",
+      "enable": true,
+      "priority": 100,
+      "matcher": {
+        "URI": {
+          "operator": "≈",
+          "value": "/(?:\\.env|\\.git/config|\\.svn/entries|\\.DS_Store|composer\\.json|package\\.json|credentials|config\\.php|config\\.inc)"
+        }
+      },
+      "description": "Blocks access to sensitive configuration and version control files",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-06-29T04:48:04Z",
+      "created_by": "system"
+    }
+  ]
 }
