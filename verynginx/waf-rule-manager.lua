@@ -684,6 +684,14 @@ function _M.record_hit(rule_id, ctx)
     local shared = ngx.shared.vn_config
     if not shared then return end
 
+    -- Drop hit if buffer is too large (prevents unbounded growth when
+    -- flush cannot keep pace, e.g. burst >5000 hits per 30s cycle)
+    local head = tonumber(shared:get(HIT_PREFIX .. "head") or 0)
+    local tail = tonumber(shared:get(HIT_PREFIX .. "tail") or 0)
+    if tail - head >= 5000 then
+        return
+    end
+
     local hit_data = table.concat({
         rule_id,
         tostring(ngx.time()),
@@ -708,7 +716,7 @@ function _M.flush_hit_stats()
     local tail = tonumber(shared:get(HIT_PREFIX .. "tail") or 0)
     if not tail or head >= tail then return end
 
-    local max_process = math.min(tail - head, 500)
+    local max_process = math.min(tail - head, 5000)
 
     local stats_agg = {}
     for i = 1, max_process do
