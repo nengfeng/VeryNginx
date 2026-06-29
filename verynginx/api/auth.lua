@@ -77,14 +77,9 @@ _M.strategies["session"] = {
             end
         end
 
-        -- Rate limit by client IP (support proxy headers) AND by username
-        local client_ip = ngx.var.http_x_forwarded_for
-        if client_ip then
-            client_ip = client_ip:match("[^,]+")
-        end
-        if not client_ip or client_ip == "" then
-            client_ip = ngx.var.http_x_real_ip or ngx.var.remote_addr or "unknown"
-        end
+        -- Rate limit by client IP (trust nginx real_ip_from; do NOT
+        -- parse X-Forwarded-For directly — it can be forged by client)
+        local client_ip = ngx.var.remote_addr or "unknown"
         local rl_key = "login:" .. client_ip
         if not rate_limit.allow(rl_key, 30, 60) then
             return false, "too_many_attempts"
