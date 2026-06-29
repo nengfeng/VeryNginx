@@ -557,7 +557,8 @@ PYEOF
   echo "    New password: ${YELLOW}${BOLD}${password}${NC}"
   echo ""
   info "Password saved to ${VN_DIR}/configs/config.json"
-  info "Visit http://localhost/verynginx/index.html to login"
+  info "Restart nginx to apply: systemctl restart nginx"
+  info "Then visit http://localhost/verynginx/index.html to login"
 }
 
 main() {
