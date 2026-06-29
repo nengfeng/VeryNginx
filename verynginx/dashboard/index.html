@@ -405,17 +405,32 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <h3 style="font-size:14px;margin-bottom:8px;">URI Statistics <small>{{ Object.keys(statsData || {}).length }} entries</small></h3>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>URI</th><th>Count</th><th>Size</th><th>Avg Size</th><th>Success</th><th>Time</th><th>Avg Time</th></tr></thead>
+              <thead><tr><th style="width:24px"></th><th>URI</th><th>Count</th><th>Size</th><th>Avg Size</th><th>Success</th><th>Time</th><th>Avg Time</th></tr></thead>
               <tbody>
-                <tr v-for="(v,key) in statsData || {}" :key="key">
-                  <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="key">{{ key }}</td>
-                  <td>{{ v.count }}</td>
-                  <td>{{ formatBytes(v.bytes) }}</td>
-                  <td>{{ v.count ? formatBytes(v.bytes / v.count) : '-' }}</td>
-                  <td><span class="tag" :class="successClass(v)">{{ calcSuccess(v) }}%</span></td>
-                  <td>{{ v.time != null ? v.time.toFixed(2) : '-' }}s</td>
-                  <td>{{ v.count ? (v.time / v.count).toFixed(3) : '-' }}s</td>
-                </tr>
+                <template v-for="(v,key) in statsData || {}" :key="key">
+                  <tr @click="expandedUri = expandedUri === key ? null : key" style="cursor:pointer">
+                    <td style="color:var(--muted);font-size:11px">{{ expandedUri === key ? '&#9660;' : '&#9654;' }}</td>
+                    <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="key">{{ key }}</td>
+                    <td>{{ v.count }}</td>
+                    <td>{{ formatBytes(v.bytes) }}</td>
+                    <td>{{ v.count ? formatBytes(v.bytes / v.count) : '-' }}</td>
+                    <td><span class="tag" :class="successClass(v)">{{ calcSuccess(v) }}%</span></td>
+                    <td>{{ v.time != null ? v.time.toFixed(2) : '-' }}s</td>
+                    <td>{{ v.count ? (v.time / v.count).toFixed(3) : '-' }}s</td>
+                  </tr>
+                  <tr v-if="expandedUri === key">
+                    <td colspan="8" style="padding:4px 16px 12px 36px">
+                      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Status Code Distribution:</div>
+                      <div style="display:flex;gap:12px;flex-wrap:wrap">
+                        <span v-for="(cnt, code) in v.status || {}" :key="code" style="white-space:nowrap">
+                          <span class="tag" :class="parseInt(code) < 400 ? 'tag-ok' : parseInt(code) < 500 ? 'tag-warn' : 'tag-err'">{{ code }}</span>
+                          {{ cnt }}
+                        </span>
+                        <span v-if="!v.status || !Object.keys(v.status).length" style="color:var(--muted)">No status data</span>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
               </tbody>
             </table>
           </div>
@@ -765,6 +780,7 @@ const app = Vue.createApp({
     const statsData = ref(null);
     const statsType = ref('long');
     const statsError = ref('');
+    const expandedUri = ref(null);
     const editMatcherModal = reactive({ show: false, name: '', conditions: '' });
 
     // ---- WAF State ----
@@ -1411,7 +1427,7 @@ const app = Vue.createApp({
     return {
       store, page, loading, loginUser, loginPass, loginError,
       status, s, cfg, healthData, overview, cfgTab, rawJson, jsonSaving, jsonError,
-      statsData, statsType, statsError,
+      statsData, statsType, statsError, expandedUri,
       matcherKeys, respKeys, editMatcherModal,
       doLogin, doLogout, loadStatus, loadConfig, loadData, loadOverview,
       editMatcher, saveMatcher, deleteMatcher,
