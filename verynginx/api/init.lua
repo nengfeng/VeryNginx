@@ -104,7 +104,7 @@ local function handle_set_config()
     local new_config
 
     -- Support both JSON body and form-encoded + base64
-    if content_type:find("application/json", 1, true) then
+    if content_type:lower():find("application/json", 1, true) then
         new_config = json.decode(raw_body)
     else
         local args = ngx.req.get_post_args()

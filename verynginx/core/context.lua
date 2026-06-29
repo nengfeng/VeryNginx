@@ -79,7 +79,7 @@ function _M.get_body_args(ctx)
     local max_args = (config and config.body and config.body.max_args) or 100
     local content_type = ngx.var.content_type or ""
 
-    if content_type:find("application/json", 1, true) then
+    if content_type:lower():find("application/json", 1, true) then
         local json = require "dkjson"
         local decoded, _, err_msg = json.decode(data)
         if not decoded and err_msg then
