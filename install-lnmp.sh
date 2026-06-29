@@ -281,12 +281,12 @@ patch_nginx_conf() {
 \\
     # VeryNginx v2 - main process initialization\\
     init_by_lua_block {\\
-        require("core.init").init()\\
+        require(\"core.init\").init()\\
     }\\
 \\
     # VeryNginx v2 - worker-level timers\\
     init_worker_by_lua_block {\\
-        require("core.init").init_worker()\\
+        require(\"core.init\").init_worker()\\
     }\\
 \\
     # WebSocket connection upgrade\\
