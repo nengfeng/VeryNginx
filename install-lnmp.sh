@@ -140,6 +140,13 @@ install_files() {
   # Set admin password
   setup_admin_password "$config_file"
 
+  # Make configs writable by nginx worker (Lua needs write access for
+  # waf-rules.json persistence and writable-dir detection)
+  local nginx_user
+  nginx_user=$(grep -m1 '^\s*user\s' "$NGINX_CONF" 2>/dev/null | awk '{print $2}' | awk -F';' '{print $1}') || nginx_user=""
+  if [ -n "$nginx_user" ] && id "$nginx_user" &>/dev/null; then
+    chown -R "${nginx_user}:${nginx_user}" "${VN_DIR}/configs" 2>/dev/null || true
+  fi
   chmod -R 755 "${VN_DIR}/configs"
   info "Files installed to ${VN_DIR}"
 }

@@ -176,7 +176,10 @@ end
 function _M.load_from_file()
     local path = rules_path()
     local f = io.open(path, "r")
-    if not f then return nil end
+    if not f then
+        ngx.log(ngx.WARN, "waf-rule-manager: rules file not found at ", path)
+        return nil
+    end
     local content = f:read("*all")
     f:close()
     if not content or content == "" then return nil end

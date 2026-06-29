@@ -702,6 +702,19 @@ const app = Vue.createApp({
 
     const s = computed(() => status.value);
 
+    // ---- Auto-login on page load (check existing session cookie) ----
+    async function checkSession() {
+      try {
+        const d = await api('GET', '/verynginx/csrf');
+        csrfToken = d.csrf_token;
+        store.loggedIn = true;
+        store.user = 'verynginx';
+        await loadData();
+        if (page.value === 'status') startStatusRefresh();
+      } catch {}
+    }
+    checkSession();
+
     // ---- Login ----
     async function doLogin() {
       loginError.value = '';
