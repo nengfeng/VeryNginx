@@ -155,7 +155,7 @@ setup_admin_password() {
     if [ -z "$password" ]; then
       password=$(dd if=/dev/urandom bs=12 count=1 2>/dev/null | base64 | tr -dc 'A-Za-z0-9')
       password="${password:0:12}"
-      echo "  ${YELLOW}Generated password: ${BOLD}${password}${NC}"
+      echo "  Generated password: ${password}"
       break
     elif [ ${#password} -ge 6 ]; then
       break
@@ -213,7 +213,7 @@ PYEOF
   if [ "$hash" = "OK" ]; then
     VN_ADMIN_PASSWORD="$password"
     info "Password set for user '${default_user}'"
-    info "${YELLOW}→ Save this password: ${BOLD}${password}${NC}"
+    info "Save this password: ${password}"
   else
     warn "Password hash generation failed: $hash"
     warn "VeryNginx will auto-generate a password on first start (check error log)"
@@ -449,7 +449,7 @@ show_summary() {
   echo "  ${BOLD}Admin account:${NC}"
   if [ -n "$VN_ADMIN_PASSWORD" ]; then
     echo "    Username: ${BOLD}verynginx${NC}"
-    echo "    Password: ${YELLOW}${VN_ADMIN_PASSWORD}${NC}"
+    echo "    Password: ${VN_ADMIN_PASSWORD}"
   else
     echo "    Username: ${BOLD}verynginx${NC}"
     echo "    Password: ${YELLOW}<previously configured, check the first install output>${NC}"
@@ -552,9 +552,9 @@ PYEOF
   rm -f "$py_script"
 
   echo ""
-  echo "  ${BOLD}Admin password reset:${NC}"
-  echo "    Username: ${BOLD}verynginx${NC}"
-  echo "    New password: ${YELLOW}${BOLD}${password}${NC}"
+  echo "  Admin password reset:"
+  echo "    Username: verynginx"
+  echo "    Password: ${password}"
   echo ""
   info "Password saved to ${VN_DIR}/configs/config.json"
   info "Restart nginx to apply: systemctl restart nginx"
