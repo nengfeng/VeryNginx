@@ -47,10 +47,12 @@ local function parse_key(key)
     local name = key:sub(1, brace_pos - 1)
     local labels_str = key:sub(brace_pos + 1, -2)
     local labels = {}
+    -- Escape \" so the pattern doesn't stop at escaped quotes
+    labels_str = labels_str:gsub('\\"', '\1')
     for part in labels_str:gmatch('([^,]+)') do
         local lk, lv = part:match('^%s*(.-)%s*=%s*"(.-)"%s*$')
         if lk then
-            labels[lk] = lv
+            labels[lk] = lv:gsub('\1', '"')
         end
     end
     return name, labels
