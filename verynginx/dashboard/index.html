@@ -114,6 +114,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     <div id="topnav">
       <span class="brand">VeryNginx <small>v2</small></span>
       <nav>
+        <a :class="{active:page==='overview'}" @click="page='overview';loadOverview()">Overview</a>
         <a :class="{active:page==='status'}" @click="page='status'">Status</a>
         <a :class="{active:page==='config'}" @click="page='config'">Config</a>
         <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">Stats</a>
@@ -127,6 +128,75 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     </div>
 
     <div id="main">
+      <!-- Overview -->
+      <div v-if="page==='overview'">
+        <h2 class="page-title">System Overview</h2>
+        <!-- Top row: connections + upstream -->
+        <div class="grid grid-4 mb-16">
+          <div class="stat-card">
+            <div class="stat-label">Active Connections</div>
+            <div class="stat-value" :style="{color: (overview.conn_active||0) > 1000 ? '#ef4444' : ''}">{{ overview.conn_active || 0 }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Requests (last min)</div>
+            <div class="stat-value">{{ formatNumber(overview.req_rate || 0) }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Upstream Healthy</div>
+            <div class="stat-value">
+              <span :style="{color: overview.up_healthy === overview.up_total && overview.up_total > 0 ? '#22c55e' : overview.up_healthy > 0 ? '#eab308' : '#ef4444'}">
+                {{ overview.up_healthy || 0 }}
+              </span>
+              <span style="font-size:18px;color:var(--muted)"> / {{ overview.up_total || 0 }}</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">WAF Hits (last min)</div>
+            <div class="stat-value" :style="{color: (overview.waf_hits||0) > 100 ? '#f97316' : ''}">{{ formatNumber(overview.waf_hits || 0) }}</div>
+          </div>
+        </div>
+        <!-- Second row: memory + errors -->
+        <div class="grid grid-3 mb-16">
+          <div class="stat-card" v-for="d in overview.dicts || []" :key="d.name">
+            <div class="stat-label">Shared Dict: {{ d.name }}</div>
+            <div class="stat-value" style="font-size:20px" :style="{color: d.pct > 80 ? '#ef4444' : d.pct > 60 ? '#eab308' : ''}">{{ d.pct.toFixed(1) }}%</div>
+            <div style="font-size:11px;color:var(--muted)">{{ formatBytes(d.used) }} / {{ formatBytes(d.cap) }}</div>
+          </div>
+        </div>
+        <!-- Third row: top URIs + plugin errors -->
+        <div class="grid grid-2 mb-16">
+          <div class="card">
+            <strong>Top URIs by Requests</strong>
+            <table style="font-size:12px;margin-top:8px" v-if="(overview.top_uris || []).length">
+              <thead><tr><th>URI</th><th>Count</th><th>Bytes</th><th>Success</th></tr></thead>
+              <tbody>
+                <tr v-for="u in overview.top_uris" :key="u.uri">
+                  <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ u.uri }}</td>
+                  <td>{{ formatNumber(u.count) }}</td>
+                  <td>{{ formatBytes(u.bytes) }}</td>
+                  <td><span :class="successClass(u.success_rate)">{{ (u.success_rate || 0).toFixed(1) }}%</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="empty">No data</div>
+          </div>
+          <div class="card">
+            <strong>Plugin Errors</strong>
+            <table style="font-size:12px;margin-top:8px" v-if="(overview.plugin_errors || []).length">
+              <thead><tr><th>Plugin</th><th>Phase</th><th>Errors</th></tr></thead>
+              <tbody>
+                <tr v-for="e in overview.plugin_errors" :key="e.plugin + e.phase">
+                  <td>{{ e.plugin }}</td>
+                  <td>{{ e.phase }}</td>
+                  <td><span :style="{color: e.count > 0 ? '#ef4444' : ''}">{{ formatNumber(e.count) }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="empty">No errors</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Status -->
       <div v-if="page==='status'">
         <h2 class="page-title">Status</h2>
@@ -682,6 +752,7 @@ const app = Vue.createApp({
     const status = ref({});
     const cfg = ref({});
     const healthData = ref({});
+    const overview = ref({});
     const cfgTab = ref('matchers');
     const rawJson = ref('');
     watch(rawJson, (val) => {
@@ -895,6 +966,119 @@ const app = Vue.createApp({
     watch(cfgTab, (tab) => {
       if (tab === 'upstreams') startHealthRefresh();
       else clearInterval(healthTimer);
+    });
+
+    // ---- Overview ----
+    function parsePrometheus(text) {
+      const result = {};
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('#') || !line.trim()) continue;
+        // Match: name{labels} value
+        const m = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(\{.*?\})?\s+([0-9.e+\-]+)/);
+        if (!m) continue;
+        const name = m[1];
+        const labelStr = m[2] || '';
+        const value = parseFloat(m[3]);
+        // Parse labels
+        const labels = {};
+        if (labelStr) {
+          const inner = labelStr.slice(1, -1);
+          for (const pair of inner.split(',')) {
+            const eq = pair.indexOf('=');
+            if (eq < 0) continue;
+            const lk = pair.slice(0, eq).trim();
+            const lv = pair.slice(eq + 1).replace(/^"|"$/g, '');
+            labels[lk] = lv;
+          }
+        }
+        if (!result[name]) result[name] = {};
+        const lk = JSON.stringify(labels);
+        result[name][lk] = value;
+      }
+      return result;
+    }
+
+    async function loadOverview() {
+      const o = { conn_active: 0, req_rate: 0, up_healthy: 0, up_total: 0, waf_hits: 0, dicts: [], top_uris: [], plugin_errors: [] };
+      try {
+        // Status: connection counts
+        const s = await api('GET', '/verynginx/status');
+        o.conn_active = s.connections_active || 0;
+
+        // Health: upstream node status
+        const h = await api('GET', '/verynginx/upstreams/health');
+        if (h.ret === 'success') {
+          for (const [name, nodes] of Object.entries(h.data || {})) {
+            for (const n of nodes) {
+              o.up_total++;
+              if (n.healthy && !n.circuit_open) o.up_healthy++;
+            }
+          }
+        }
+
+        // Metrics: shared dict usage, plugin errors, request total
+        const m = await api('GET', '/verynginx/metrics');
+        const parsed = parsePrometheus(typeof m === 'string' ? m : '');
+
+        for (const [key, vals] of Object.entries(parsed)) {
+          if (key.startsWith('shared_dict_usage_pct')) {
+            for (const [labels, val] of Object.entries(vals)) {
+              const lb = JSON.parse(labels);
+              if (lb.dict) o.dicts.push({ name: lb.dict, pct: val, used: 0, cap: 0 });
+            }
+          } else if (key.startsWith('shared_dict_usage_bytes')) {
+            for (const [labels, val] of Object.entries(vals)) {
+              const lb = JSON.parse(labels);
+              const d = (o.dicts || []).find(x => x.name === lb.dict);
+              if (d) { d.used = val; if (!d.cap) { const p = parsed['shared_dict_capacity_bytes']; if (p) for (const [lk, v] of Object.entries(p)) { const l = JSON.parse(lk); if (l.dict === lb.dict) d.cap = v; } } }
+            }
+          } else if (key === 'vn_plugin_errors_total') {
+            for (const [labels, val] of Object.entries(vals)) {
+              const lb = JSON.parse(labels);
+              o.plugin_errors.push({ plugin: lb.plugin || '?', phase: lb.phase || '?', count: val });
+            }
+          } else if (key === 'vn_requests_total') {
+            o.req_rate = Math.round(Object.values(vals)[0] || 0);
+          }
+        }
+
+        // Summary: top URIs
+        const sum = await api('GET', '/verynginx/summary?type=short');
+        if (sum.ret === 'success' && sum.data) {
+          const entries = Object.entries(sum.data).map(([uri, v]) => ({
+            uri,
+            count: v.count || 0,
+            bytes: v.bytes || 0,
+            success_rate: v.count ? ((v.success || 0) / v.count * 100) : 100
+          }));
+          entries.sort((a, b) => b.count - a.count);
+          o.top_uris = entries.slice(0, 10);
+        }
+
+        // WAF hits summary
+        try {
+          const w = await api('GET', '/verynginx/waf/stats');
+          if (w.ret === 'success' && w.data) {
+            o.waf_hits = Object.values(w.data).reduce((s, r) => s + (r.hits || 0), 0);
+          }
+        } catch {}
+      } catch (e) {
+        console.warn('Overview load error:', e.message);
+      }
+      overview.value = o;
+    }
+
+    // Auto-refresh overview every 5s
+    let overviewTimer;
+    watch(page, (p) => {
+      if (p === 'overview') {
+        clearInterval(overviewTimer);
+        loadOverview();
+        overviewTimer = setInterval(loadOverview, 5000);
+      } else {
+        clearInterval(overviewTimer);
+      }
     });
 
     // ---- Stats ----
@@ -1226,10 +1410,10 @@ const app = Vue.createApp({
 
     return {
       store, page, loading, loginUser, loginPass, loginError,
-      status, s, cfg, healthData, cfgTab, rawJson, jsonSaving, jsonError,
+      status, s, cfg, healthData, overview, cfgTab, rawJson, jsonSaving, jsonError,
       statsData, statsType, statsError,
       matcherKeys, respKeys, editMatcherModal,
-      doLogin, doLogout, loadStatus, loadConfig, loadData,
+      doLogin, doLogout, loadStatus, loadConfig, loadData, loadOverview,
       editMatcher, saveMatcher, deleteMatcher,
       commitConfig, saveRawConfig, loadStats,
       formatTime, formatBytes, formatNumber, calcSuccess, successClass, summarizeRule, actionClass,
