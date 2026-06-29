@@ -140,6 +140,7 @@ setup_admin_password() {
 
   # Check if password already set
   if python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); exit(0 if c.get("admin",[{}])[0].get("password_hash","") else 1)' "$config_file" 2>/dev/null; then
+    VN_ADMIN_PASSWORD="<already configured>"
     info "Admin password already configured, keeping it"
     return
   fi
@@ -436,8 +437,13 @@ show_summary() {
   echo "    http://localhost/verynginx/index.html"
   echo ""
   echo "  ${BOLD}Admin account:${NC}"
-  echo "    Username: ${BOLD}verynginx${NC}"
-  echo "    Password: ${YELLOW}${VN_ADMIN_PASSWORD}${NC}"
+  if [ -n "$VN_ADMIN_PASSWORD" ]; then
+    echo "    Username: ${BOLD}verynginx${NC}"
+    echo "    Password: ${YELLOW}${VN_ADMIN_PASSWORD}${NC}"
+  else
+    echo "    Username: ${BOLD}verynginx${NC}"
+    echo "    Password: ${YELLOW}<previously configured, check the first install output>${NC}"
+  fi
   echo ""
   echo "  ${BOLD}After login:${NC}"
   echo "    Dashboard is available alongside your existing sites."
