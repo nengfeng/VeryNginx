@@ -181,18 +181,19 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <div v-else class="empty">No data</div>
           </div>
           <div class="card">
-            <strong>Plugin Errors</strong>
-            <table style="font-size:12px;margin-top:8px" v-if="(overview.plugin_errors || []).length">
-              <thead><tr><th>Plugin</th><th>Phase</th><th>Errors</th></tr></thead>
+            <strong>Plugin Performance</strong>
+            <table style="font-size:12px;margin-top:8px" v-if="(overview.plugin_perf || []).length">
+              <thead><tr><th>Plugin</th><th>Phase</th><th>Avg Dur</th><th>Errors</th></tr></thead>
               <tbody>
-                <tr v-for="e in overview.plugin_errors" :key="e.plugin + e.phase">
+                <tr v-for="e in overview.plugin_perf" :key="e.plugin + e.phase">
                   <td>{{ e.plugin }}</td>
                   <td>{{ e.phase }}</td>
-                  <td><span :style="{color: e.count > 0 ? '#ef4444' : ''}">{{ formatNumber(e.count) }}</span></td>
+                  <td :style="{color: e.avg_ms > 50 ? '#f97316' : ''}">{{ e.avg_ms.toFixed(1) }}ms</td>
+                  <td><span :style="{color: e.errors > 0 ? '#ef4444' : ''}">{{ formatNumber(e.errors) }}</span></td>
                 </tr>
               </tbody>
             </table>
-            <div v-else class="empty">No errors</div>
+            <div v-else class="empty">No data</div>
           </div>
         </div>
       </div>
@@ -1149,6 +1150,20 @@ const app = Vue.createApp({
               const lb = JSON.parse(labels);
               o.plugin_errors.push({ plugin: lb.plugin || '?', phase: lb.phase || '?', count: val });
             }
+          } else if (key === 'plugin_duration_seconds_count') {
+            for (const [labels, val] of Object.entries(vals)) {
+              const lb = JSON.parse(labels);
+              o._plugin_dur_count = o._plugin_dur_count || {};
+              const k = (lb.plugin || '?') + '|' + (lb.phase || '?');
+              o._plugin_dur_count[k] = val;
+            }
+          } else if (key === 'plugin_duration_seconds_sum') {
+            for (const [labels, val] of Object.entries(vals)) {
+              const lb = JSON.parse(labels);
+              o._plugin_dur_sum = o._plugin_dur_sum || {};
+              const k = (lb.plugin || '?') + '|' + (lb.phase || '?');
+              o._plugin_dur_sum[k] = val;
+            }
           } else if (key === 'vn_requests_total') {
             o.req_rate = Math.round(Object.values(vals)[0] || 0);
           }
@@ -1177,6 +1192,25 @@ const app = Vue.createApp({
       } catch (e) {
         console.warn('Overview load error:', e.message);
       }
+      // Merge plugin errors with duration into plugin_perf
+      const perfMap = {};
+      for (const e of (o.plugin_errors || [])) {
+        const k = e.plugin + '|' + e.phase;
+        perfMap[k] = { plugin: e.plugin, phase: e.phase, errors: e.count, avg_ms: 0, count: 0 };
+      }
+      for (const [k, cnt] of Object.entries(o._plugin_dur_count || {})) {
+        if (!perfMap[k]) perfMap[k] = { plugin: k.split('|')[0], phase: k.split('|')[1], errors: 0, avg_ms: 0, count: 0 };
+        perfMap[k].count = cnt;
+      }
+      for (const [k, sum] of Object.entries(o._plugin_dur_sum || {})) {
+        if (perfMap[k]) {
+          perfMap[k].avg_ms = perfMap[k].count > 0 ? (sum / perfMap[k].count) * 1000 : 0;
+        }
+      }
+      o.plugin_perf = Object.values(perfMap).sort((a, b) => b.avg_ms - a.avg_ms);
+      o.plugin_errors = undefined;
+      o._plugin_dur_count = undefined;
+      o._plugin_dur_sum = undefined;
       overview.value = o;
     }
 
