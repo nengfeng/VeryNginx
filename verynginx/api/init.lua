@@ -229,8 +229,21 @@ local function handle_list_waf_rules()
     local start_idx = (page - 1) * limit + 1
     local end_idx = math.min(start_idx + limit - 1, total)
     local page_rules = {}
+    local shared = ngx.shared.vn_config
     for i = start_idx, end_idx do
-        page_rules[#page_rules + 1] = rules[i]
+        local r = rules[i]
+        -- Read runtime stats from shared dict
+        if shared then
+            local stats_json = shared:get("waf_rule_stats:" .. r.id)
+            if stats_json then
+                local ok, stats = pcall(json.decode, stats_json)
+                if ok and stats then
+                    r.hit_count = stats.hit_count or r.hit_count
+                    r.last_triggered = stats.last_triggered or r.last_triggered
+                end
+            end
+        end
+        page_rules[#page_rules + 1] = r
     end
 
     return json.encode({
