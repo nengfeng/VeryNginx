@@ -395,6 +395,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div class="flex gap-8">
             <select v-model="statsType" style="width:auto" @change="loadStats">
               <option value="long">All</option>
+              <option value="medium">5 Minutes</option>
               <option value="short">Temporary</option>
             </select>
             <button class="outline small" @click="loadStats">Refresh</button>
