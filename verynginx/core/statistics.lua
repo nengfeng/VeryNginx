@@ -57,11 +57,14 @@ function _M.normalize_uri(uri)
     if qpos then
         uri = uri:sub(1, qpos - 1)
     end
-    -- Normalize numeric segments: /user/123 → /user/:id
-    -- skip gsub if no digits present (fast path for common URIs)
-    if uri:find("%d") then
-        uri = uri:gsub("/%d+", "/:id")
-        uri = uri:gsub("/[0-9a-fA-F]+", "/:hex")
+    -- Normalize parameterized segments: /user/123 → /user/:id, /hash/abc → /hash/:hex
+    -- single gsub with callback avoids two-pass interference (/123abc → /:idabc)
+    -- skip entirely if no hex chars present (fast path for common URIs)
+    if uri:find("[0-9a-fA-F]") then
+        uri = uri:gsub("/([0-9a-fA-F]+)", function(m)
+            if m:match("^%d+$") then return "/:id" end
+            return "/:hex"
+        end)
     end
     return uri
 end
