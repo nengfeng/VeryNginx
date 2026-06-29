@@ -468,9 +468,13 @@ show_help() {
   echo "VeryNginx v2 - LNMP Integration Install Script"
   echo ""
   echo "Usage: $0 [options]"
+  echo "       $0 reset-password"
   echo ""
   echo "Options:"
-  echo "  -h, --help    Show this help message"
+  echo "  -h, --help         Show this help message"
+  echo ""
+  echo "Commands:"
+  echo "  reset-password     Generate a new random admin password"
   echo ""
   echo "Environment:"
   echo "  VN_PREFIX     Install prefix (default: /opt/verynginx)"
@@ -480,9 +484,74 @@ show_help() {
   exit 0
 }
 
+# ----- reset admin password --------------------------------------------------
+reset_admin_password() {
+  # Generate a new random password, hash it, and write to config.json
+  local config_file="${VN_DIR}/configs/config.json"
+  if [ ! -f "$config_file" ]; then
+    die "config.json not found at $config_file. Run install first."
+  fi
+
+  local password
+  password=$(dd if=/dev/urandom bs=12 count=1 2>/dev/null | base64 | tr -dc 'A-Za-z0-9')
+  password="${password:0:12}"
+
+  export VN_PASSWORD="$password" VN_CONFIG="$config_file" VN_USER="verynginx"
+
+  local py_script
+  py_script=$(mktemp /tmp/vn_hash.XXXXXX.py)
+  cat > "$py_script" << 'PYEOF'
+import os, hashlib, hmac, base64, json
+
+password = os.environ['VN_PASSWORD'].encode('utf-8')
+salt = os.urandom(16)
+iterations = 12000
+
+init_msg = salt + b'\x00\x00\x00\x01'
+u = hmac.new(password, init_msg, 'sha256').digest()
+result = bytearray(u)
+for i in range(2, iterations + 1):
+    u = hmac.new(password, u, 'sha256').digest()
+    for j, b in enumerate(u):
+        result[j] ^= b
+result = bytes(result)
+b64 = lambda d: base64.b64encode(d).decode('ascii')
+hash_str = 'p1$%s$%s$%s' % (iterations, b64(salt), b64(result))
+
+config = json.load(open(os.environ['VN_CONFIG']))
+if 'admin' not in config or not config['admin']:
+    config['admin'] = [{'user': os.environ['VN_USER'], 'enable': True}]
+config['admin'][0]['password_hash'] = hash_str
+config['admin'][0]['password'] = None
+json.dump(config, open(os.environ['VN_CONFIG'], 'w'), indent=4)
+print('OK')
+PYEOF
+
+  local hash_result
+  hash_result=$(python3 "$py_script" 2>&1) || die "Failed to generate password hash (python3 required)"
+  rm -f "$py_script"
+
+  echo ""
+  echo "  ${BOLD}Admin password reset:${NC}"
+  echo "    Username: ${BOLD}verynginx${NC}"
+  echo "    New password: ${YELLOW}${BOLD}${password}${NC}"
+  echo ""
+  info "Password saved to ${VN_DIR}/configs/config.json"
+  info "Visit http://localhost/verynginx/index.html to login"
+}
+
 main() {
   for arg in "$@"; do
-    case "$arg" in -h|--help) show_help ;; esac
+    case "$arg" in
+      -h|--help) show_help ;;
+      reset-password|reset-admin-password)
+        require_root
+        VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
+        VN_DIR="${VN_PREFIX}/verynginx"
+        reset_admin_password
+        exit 0
+        ;;
+    esac
   done
 
   require_root
