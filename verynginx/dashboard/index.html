@@ -206,6 +206,18 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div class="stat-card"><div class="stat-label">Writing</div><div class="stat-value">{{ s.connections_writing || 0 }}</div></div>
           <div class="stat-card"><div class="stat-label">Waiting</div><div class="stat-value">{{ s.connections_waiting || 0 }}</div></div>
         </div>
+        <!-- Connection trend chart -->
+        <div class="card mb-16" v-if="connHistory.length > 1">
+          <strong>Connections Trend (last 3 min)</strong>
+          <svg width="100%" height="120" style="margin-top:8px">
+            <polyline :points="connLinePoints" fill="none" stroke="#4f8af0" stroke-width="2" />
+            <polyline :points="connFillPoints" fill="rgba(79,138,240,0.1)" stroke="none" />
+          </svg>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:2px">
+            <span>{{ connHistory.length * 3 }}s ago</span>
+            <span>now</span>
+          </div>
+        </div>
         <div class="card">
           <div class="flex flex-between mb-8">
             <strong>Status Info</strong>
@@ -766,6 +778,7 @@ const app = Vue.createApp({
     const loginPass = ref('');
     const loginError = ref('');
     const status = ref({});
+    const connHistory = ref([]);
     const cfg = ref({});
     const healthData = ref({});
     const overview = ref({});
@@ -813,6 +826,23 @@ const app = Vue.createApp({
     const wafTestResults = ref(null);
 
     const s = computed(() => status.value);
+
+    const connLinePoints = computed(() => {
+      const pts = connHistory.value;
+      if (pts.length < 2) return '';
+      const max = Math.max(...pts, 1);
+      const w = 100 / (pts.length - 1);
+      return pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
+    });
+
+    const connFillPoints = computed(() => {
+      const pts = connHistory.value;
+      if (pts.length < 2) return '';
+      const max = Math.max(...pts, 1);
+      const w = 100 / (pts.length - 1);
+      const line = pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
+      return `0,100 ` + line + ` 100,100`;
+    });
 
     // ---- Auto-login on page load (check existing session cookie) ----
     async function checkSession() {
@@ -869,7 +899,15 @@ const app = Vue.createApp({
     }
 
     async function loadStatus() {
-      try { status.value = await api('GET', '/verynginx/status'); } catch {}
+      try {
+        const s = await api('GET', '/verynginx/status');
+        status.value = s;
+        // Push to connection history ring buffer (max 60 points, 3s each = 3 min)
+        const h = connHistory.value;
+        h.push(s.connections_active || 0);
+        if (h.length > 60) h.shift();
+        connHistory.value = [...h];
+      } catch {}
     }
 
     async function loadConfig() {
@@ -1427,7 +1465,7 @@ const app = Vue.createApp({
 
     return {
       store, page, loading, loginUser, loginPass, loginError,
-      status, s, cfg, healthData, overview, cfgTab, rawJson, jsonSaving, jsonError,
+      status, s, cfg, healthData, overview, connHistory, connLinePoints, connFillPoints, cfgTab, rawJson, jsonSaving, jsonError,
       statsData, statsType, statsError, expandedUri,
       matcherKeys, respKeys, editMatcherModal,
       doLogin, doLogout, loadStatus, loadConfig, loadData, loadOverview,
