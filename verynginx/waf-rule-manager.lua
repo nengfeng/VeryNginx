@@ -738,6 +738,62 @@ function _M.get_recent_hits(limit)
 end
 
 -- ---------------------------------------------------------------------------
+-- persist_recent_hits  — write the ring buffer to disk so it survives
+--                        nginx restart.  Called by ngx.timer.every.
+-- ---------------------------------------------------------------------------
+function _M.persist_recent_hits()
+    local hits = _M.get_recent_hits(100)
+    if #hits == 0 then return end
+    local path = ensure_writable_dir() .. "waf-recent-hits.json"
+    local tmp_path = path .. ".tmp"
+    local f = io.open(tmp_path, "w")
+    if not f then return end
+    local encoded, err = json.encode(hits)
+    if not encoded then
+        ngx.log(ngx.WARN, "waf-rule-manager: persist encode failed: ", tostring(err))
+        f:close()
+        os.remove(tmp_path)
+        return
+    end
+    f:write(encoded)
+    f:close()
+    os.rename(tmp_path, path)
+end
+
+-- ---------------------------------------------------------------------------
+-- restore_recent_hits  — re-populate the ring buffer from disk after a
+--                        restart.  Only the first worker actually loads.
+-- ---------------------------------------------------------------------------
+function _M.restore_recent_hits()
+    local shared = ngx.shared.vn_config
+    if not shared then return end
+
+    -- Only restore once across all workers
+    if not shared:add("waf_recent_hits:restored", 1) then return end
+
+    local path = ensure_writable_dir() .. "waf-recent-hits.json"
+    local f = io.open(path, "r")
+    if not f then return end
+    local content = f:read("*all")
+    f:close()
+    if not content or content == "" then return end
+    local ok, hits = pcall(json.decode, content)
+    if not ok or type(hits) ~= "table" then return end
+
+    for _, h in ipairs(hits) do
+        local hit_data = table.concat({
+            h.rule_id or "",
+            tostring(h.time or ""),
+            h.uri or "",
+            h.ip or "",
+            h.method or "GET"
+        }, "|")
+        local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
+        shared:set("waf_recent_hits:data:" .. ring_idx, hit_data)
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- flush_hit_stats  — consume the hit buffer and aggregate into persistent
 --                    rule stats.  Called by ngx.timer.every.
 -- ---------------------------------------------------------------------------
@@ -802,14 +858,17 @@ function _M.flush_hit_stats()
 end
 
 -- ---------------------------------------------------------------------------
--- init_worker  — set up the periodic stats flush timer
+-- init_worker  — restore hits from disk, set up periodic timers
 -- ---------------------------------------------------------------------------
 function _M.init_worker()
+    _M.restore_recent_hits()
+
     local ok, err = ngx.timer.every(30, function()
         _M.flush_hit_stats()
+        _M.persist_recent_hits()
     end)
     if not ok then
-        ngx.log(ngx.ERR, "waf-rule-manager: failed to create flush timer: ", tostring(err))
+        ngx.log(ngx.ERR, "waf-rule-manager: failed to create timer: ", tostring(err))
     end
 end
 
