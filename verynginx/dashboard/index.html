@@ -69,6 +69,13 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .actions button{padding:4px 8px;font-size:11px}
 /* Empty state */
 .empty{color:var(--muted);font-size:14px;padding:24px;text-align:center}
+/* Health dots */
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle}
+.dot.green{background:#22c55e}
+.dot.yellow{background:#eab308}
+.dot.orange{background:#f97316}
+.dot.red{background:#ef4444}
+.dot.gray{background:#9ca3af}
 /* Modal overlay */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:200}
 .modal{background:var(--card);border-radius:12px;padding:24px;width:90%;max-width:500px;max-height:80vh;overflow-y:auto}
@@ -207,10 +214,26 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div v-for="(up, name) in cfg.backend_upstream || {}" :key="name" class="card" style="padding:16px">
             <strong>{{ name }}</strong>
             <table style="font-size:13px;margin-top:8px">
-              <thead><tr><th>Host</th><th>Port</th><th>Weight</th></tr></thead>
+              <thead><tr><th>Health</th><th>Host</th><th>Port</th><th>Weight</th><th>Info</th></tr></thead>
               <tbody>
                 <tr v-for="(node,ni) in up.nodes || []" :key="ni">
+                  <td>
+                    <span v-if="!healthData[name] || !healthData[name][ni]" class="dot gray" title="unknown"></span>
+                    <span v-else-if="healthData[name][ni].circuit_open" class="dot orange" title="circuit open"></span>
+                    <span v-else-if="!healthData[name][ni].healthy" class="dot red" :title="healthData[name][ni].last_error || 'unhealthy'"></span>
+                    <span v-else-if="healthData[name][ni].failures > 0" class="dot yellow" :title="healthData[name][ni].failures + ' failure(s)'"></span>
+                    <span v-else class="dot green" title="healthy"></span>
+                  </td>
                   <td>{{ node.host }}</td><td>{{ node.port }}</td><td>{{ node.weight || 1 }}</td>
+                  <td style="font-size:11px;color:var(--muted)">
+                    <template v-if="healthData[name] && healthData[name][ni]">
+                      <span v-if="healthData[name][ni].circuit_open">CB open</span>
+                      <span v-else-if="!healthData[name][ni].healthy">{{ healthData[name][ni].last_error || 'down' }}</span>
+                      <span v-else-if="healthData[name][ni].failures > 0">{{ healthData[name][ni].failures }} fails</span>
+                      <span v-else>ok</span>
+                    </template>
+                    <span v-else>---</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -658,6 +681,7 @@ const app = Vue.createApp({
     const loginError = ref('');
     const status = ref({});
     const cfg = ref({});
+    const healthData = ref({});
     const cfgTab = ref('matchers');
     const rawJson = ref('');
     watch(rawJson, (val) => {
@@ -753,6 +777,7 @@ const app = Vue.createApp({
     // ---- Load ----
     async function loadData() {
       await Promise.all([loadStatus(), loadConfig()]);
+      loadHealth();
     }
 
     async function loadStatus() {
@@ -764,6 +789,13 @@ const app = Vue.createApp({
         const d = await api('GET', '/verynginx/config');
         cfg.value = d;
         rawJson.value = JSON.stringify(d, null, 2);
+      } catch {}
+    }
+
+    async function loadHealth() {
+      try {
+        const d = await api('GET', '/verynginx/upstreams/health');
+        if (d.ret === 'success') healthData.value = d.data || {};
       } catch {}
     }
 
@@ -852,6 +884,18 @@ const app = Vue.createApp({
     });
     // Kick off on first mount if already on status page
     Vue.nextTick(() => { if (page.value === 'status' && store.loggedIn) startStatusRefresh(); });
+
+    // Auto-refresh health every 10s when on Upstreams tab
+    let healthTimer;
+    function startHealthRefresh() {
+      clearInterval(healthTimer);
+      loadHealth();
+      healthTimer = setInterval(loadHealth, 10000);
+    }
+    watch(cfgTab, (tab) => {
+      if (tab === 'upstreams') startHealthRefresh();
+      else clearInterval(healthTimer);
+    });
 
     // ---- Stats ----
     async function loadStats() {
@@ -1182,7 +1226,7 @@ const app = Vue.createApp({
 
     return {
       store, page, loading, loginUser, loginPass, loginError,
-      status, s, cfg, cfgTab, rawJson, jsonSaving, jsonError,
+      status, s, cfg, healthData, cfgTab, rawJson, jsonSaving, jsonError,
       statsData, statsType, statsError,
       matcherKeys, respKeys, editMatcherModal,
       doLogin, doLogout, loadStatus, loadConfig, loadData,

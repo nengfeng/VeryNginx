@@ -608,6 +608,39 @@ local function handle_waf_rule_stats()
     return json.encode({ ret = "success", data = stats })
 end
 
+--- GET /upstreams/health - return runtime health status for all upstream nodes
+local function handle_get_upstream_health()
+    local upstreams_data = {}
+    local health_shared = ngx.shared.healthcheck
+
+    for name, upstream in pairs(config and config.backend_upstream or {}) do
+        local nodes_status = {}
+        for _, node in ipairs(upstream.nodes or {}) do
+            local n = { host = node.host, port = node.port }
+            if health_shared then
+                local sk = "hc:" .. name .. ":" .. node.host .. ":" .. tostring(node.port)
+                local state = health_shared:get(sk .. ":state")
+                local failures = tonumber(health_shared:get(sk .. ":failures") or 0)
+                local last_error = health_shared:get(sk .. ":last_error")
+                n.healthy = (state ~= "unhealthy")
+                n.failures = failures
+                n.last_error = last_error
+                local cb_key = "cb:" .. name .. ":" .. node.host .. ":" .. tostring(node.port)
+                n.circuit_open = (health_shared:get(cb_key) == "open")
+            else
+                n.healthy = true
+                n.failures = 0
+                n.last_error = nil
+                n.circuit_open = false
+            end
+            nodes_status[#nodes_status + 1] = n
+        end
+        upstreams_data[name] = nodes_status
+    end
+
+    return json.encode({ ret = "success", data = upstreams_data })
+end
+
 -- ---------------------------------------------------------------------------
 -- Register default routes
 -- ---------------------------------------------------------------------------
@@ -619,6 +652,7 @@ _M.register("GET", "/status", handle_get_status, true)
 _M.register("GET", "/metrics", handle_get_metrics, false)
 _M.register("GET", "/summary", handle_get_summary, true)
 _M.register("GET", "/csrf", handle_get_csrf, true)
+_M.register("GET", "/upstreams/health", handle_get_upstream_health, true)
 
 -- WAF rule management routes
 -- Exact routes must be registered before parameterized ones so the
