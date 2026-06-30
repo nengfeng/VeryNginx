@@ -60,7 +60,9 @@ function _M.apply(ctx, phase)
         if phase == "rewrite" then
             return
         end
-        return _no_backend_error()
+        -- No rule matched — clear proxy vars so the balancer skips
+        ngx.var.vn_proxy_host = ""
+        return
     end
 
     if action.type == RESULT.BLOCK then
@@ -89,10 +91,15 @@ function _M.apply(ctx, phase)
             ngx.log(ngx.ERR, "rule_engine: proxy action missing host data")
             return _no_backend_error()
         end
-        ngx.var.vn_proxy_scheme = action.data.scheme or "http"
-        ngx.var.vn_proxy_host = action.data.host
-        ngx.var.vn_proxy_port = action.data.port or "80"
-        ngx.var.vn_proxy_sni = action.data.sni or action.data.host or ""
+        ngx.ctx.vn_proxy_target = {
+            host       = action.data.host,
+            port       = action.data.port or "80",
+            scheme     = action.data.scheme or "http",
+            proxy_host = action.data.proxy_host or action.data.host,
+            sni        = action.data.sni or action.data.host or "",
+            websocket  = action.data.websocket == true,
+        }
+        return ngx.exec("@vn_proxy")
     elseif action.type == RESULT.STATIC then
         if not static_file or not static_file.serve then
             ngx.log(ngx.ERR, "rule_engine: static_file plugin not loaded")

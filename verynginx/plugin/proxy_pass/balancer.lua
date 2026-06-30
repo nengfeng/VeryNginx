@@ -149,12 +149,15 @@ end
 -- balancer_by_lua phase: read pre-selected target and set peer
 -- ---------------------------------------------------------------------------
 function _M.run()
-    local host = ngx.var.vn_proxy_host
-    local port = tonumber(ngx.var.vn_proxy_port)
+    local target = ngx.ctx.vn_proxy_target
+    if not target then
+        return
+    end
 
+    local host = target.host
+    local port = tonumber(target.port)
     if not host or host == "" then
-        ngx.log(ngx.ERR, "balancer: vn_proxy_host is empty")
-        return ngx.exit(500)
+        return
     end
     if not port then
         port = 80
