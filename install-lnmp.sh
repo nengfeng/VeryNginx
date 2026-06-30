@@ -379,8 +379,10 @@ else:
     print("ERROR: unmatched braces in server block")
     sys.exit(1)
 
-before = text[:idx]
-server_inner = text[idx+1:server_end]
+# Find position of '{' after 'server'
+brace_pos = text.find('{', idx)
+before = text[:brace_pos]
+server_inner = text[brace_pos+1:server_end]
 after = text[server_end:]
 
 # --- Clean old VeryNginx Lua handlers from the server block ---
@@ -457,7 +459,7 @@ vn_new = (
     + INDENT + '}\n'
 )
 
-result = before + '{' + server_inner + vn_new + after
+result = text[:brace_pos+1] + server_inner + vn_new + after
 
 with open(nginx_conf, 'w') as f:
     f.write(result)
