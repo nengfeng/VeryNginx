@@ -60,8 +60,9 @@ function _M.apply(ctx, phase)
         if phase == "rewrite" then
             return
         end
-        -- No rule matched — clear proxy vars so the balancer skips
-        ngx.var.vn_proxy_host = ""
+        -- No rule matched — clear proxy vars so the balancer skips.
+        -- Wrap in pcall in case $vn_proxy_host is not defined in nginx.conf.
+        pcall(function() ngx.var.vn_proxy_host = "" end)
         return
     end
 
@@ -99,6 +100,13 @@ function _M.apply(ctx, phase)
             sni        = action.data.sni or action.data.host or "",
             websocket  = action.data.websocket == true,
         }
+        -- Set nginx variables for @vn_proxy location (proxy_set_header, etc.)
+        pcall(function()
+            ngx.var.vn_proxy_host   = action.data.proxy_host or action.data.host
+            ngx.var.vn_proxy_port   = action.data.port or "80"
+            ngx.var.vn_proxy_scheme = action.data.scheme or "http"
+            ngx.var.vn_proxy_sni    = action.data.sni or action.data.host or ""
+        end)
         return ngx.exec("@vn_proxy")
     elseif action.type == RESULT.STATIC then
         if not static_file or not static_file.serve then
@@ -111,7 +119,8 @@ function _M.apply(ctx, phase)
         end
         return static_file.serve(action.data.root, action.data.path, action.data.expires)
     elseif action.type == RESULT.ACCEPT then
-        if not ngx.var.vn_proxy_host or ngx.var.vn_proxy_host == "" then
+        local ok, host = pcall(function() return ngx.var.vn_proxy_host end)
+        if not ok or not host or host == "" then
             return _no_backend_error()
         end
         return

@@ -169,6 +169,12 @@ function _M.run()
         ngx.log(ngx.ERR, "balancer: set_current_peer failed: ", err)
         return ngx.exit(502)
     end
+
+    -- Set Host header from proxy config (fallback in case @vn_proxy's
+    -- proxy_set_header doesn't pick up the variable after ngx.exec)
+    if target.proxy_host then
+        ngx.req.set_header("Host", target.proxy_host)
+    end
 end
 
 return _M
