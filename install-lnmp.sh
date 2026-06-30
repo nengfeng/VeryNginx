@@ -329,76 +329,138 @@ patch_nginx_conf() {
   fi
 
   # 4) server block directives
-  if ! grep -q 'rewrite_by_lua_file.*on_rewrite' "$NGINX_CONF" 2>/dev/null; then
-    replace_server_block
+  # Check for NEW server-level format (unique comment marker in vn block)
+  if grep -q 'VeryNginx v2 - server-level handlers' "$NGINX_CONF" 2>/dev/null; then
+    info "Server-level VeryNginx handlers already present, skipping ✓"
   else
-    info "Server block Lua directives already present, skipping ✓"
+    replace_server_block
   fi
 
 
 }
 
 replace_server_block() {
-  # Use python3 to parse nginx.conf and insert location blocks
-  # inside the first server {} block, before its closing }
+  # Use python3 to parse nginx.conf and insert server-level Lua handlers
+  # inside the first server {} block, so WAF covers ALL requests.
   local py_script
   py_script=$(mktemp /tmp/vn_replace.XXXXXX.py)
-  cat > "$py_script" << PYEOF
+  cat > "$py_script" << 'PYEOF'
 import re, sys
 
 nginx_conf = sys.argv[1]
 vn_dir = sys.argv[2]
 
 with open(nginx_conf) as f:
-    lines = f.read().split('\n')
+    text = f.read()
+
+# Check if new server-level format already exists
+marker = '# VeryNginx v2 - server-level handlers (WAF for all requests)'
+if marker in text:
+    print("ALREADY_PRESENT")
+    sys.exit(0)
 
 # Find the first server { block
-server_start = None
-for i, line in enumerate(lines):
-    if re.match(r'^\s*server\s*\{', line):
-        server_start = i
-        break
-
-if server_start is None:
+idx = text.find('server {')
+if idx == -1:
     print("ERROR: no server block found")
     sys.exit(1)
 
-# Count braces to find matching closing }
-bc = 0
-server_end = None
-for i in range(server_start, len(lines)):
-    o = lines[i].count('{')
-    c = lines[i].count('}')
-    bc += o - c
-    if bc == 0:
-        server_end = i
-        break
-
-if server_end is None:
+# Find matching closing } for the server block
+stack = []
+for i in range(idx, len(text)):
+    if text[i] == '{':
+        stack.append(i)
+    elif text[i] == '}':
+        stack.pop()
+        if not stack:
+            server_end = i
+            break
+else:
     print("ERROR: unmatched braces in server block")
     sys.exit(1)
 
-# Build the location blocks to insert
-vn_block = [
-    '',
-    '        # VeryNginx v2 - API & dashboard',
-    '        location /verynginx/ {',
-    '            rewrite_by_lua_file ' + vn_dir + '/on_rewrite.lua;',
-    '            access_by_lua_file ' + vn_dir + '/on_access.lua;',
-    '            log_by_lua_file ' + vn_dir + '/on_log.lua;',
-    '        }',
-    '        location /verynginx/static/ {',
-    '            alias ' + vn_dir + '/dashboard/;',
-    '            expires epoch;',
-    '            add_header X-Content-Type-Options "nosniff" always;',
-    '            add_header X-Frame-Options "SAMEORIGIN" always;',
-    '            add_header X-XSS-Protection "1; mode=block" always;',
-    '        }',
-]
+before = text[:idx]
+server_inner = text[idx+1:server_end]
+after = text[server_end:]
 
-result = lines[:server_end] + vn_block + lines[server_end:]
+# --- Clean old VeryNginx Lua handlers from the server block ---
+# (handles both location-level and server-level from previous installs)
+lua_pattern = re.compile(
+    r'^\s*(rewrite|access|log)_by_lua_file\s+' + re.escape(vn_dir) + r'/on_\w+\.lua\s*;\s*$',
+    re.MULTILINE
+)
+server_inner = lua_pattern.sub('', server_inner)
+
+# Remove empty location /verynginx/ { } blocks left after cleanup
+server_inner = re.sub(
+    r'^\s*location /verynginx/\s*\{\s*\}\s*\n?',
+    '',
+    server_inner,
+    flags=re.MULTILINE
+)
+
+# Remove entire location /verynginx/static/ blocks (will be re-added)
+# Match from "location /verynginx/static/ {" to matching "}"
+def remove_loc(m):
+    block = m.group(0)
+    # Remove only if this is the old format (with alias but no Lua skip)
+    # We'll always re-add, so just remove it.
+    return ''
+server_inner = re.sub(
+    r'^\s*location /verynginx/static/ \{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}',
+    '',
+    server_inner,
+    flags=re.MULTILINE
+)
+
+# Also remove location /verynginx/ { ... } blocks that contain old
+# lua directives (may still have content_by_lua_file or other refs)
+def remove_vn_loc(m):
+    return ''
+server_inner = re.sub(
+    r'^\s*location /verynginx/ \{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}',
+    '',
+    server_inner,
+    flags=re.MULTILINE
+)
+
+# --- Build new server-level directives ---
+INDENT = '    '
+vn_new = (
+    '\n'
+    + INDENT + '# VeryNginx v2 - server-level handlers (WAF for all requests)\n'
+    + INDENT + 'rewrite_by_lua_file ' + vn_dir + '/on_rewrite.lua;\n'
+    + INDENT + 'access_by_lua_file ' + vn_dir + '/on_access.lua;\n'
+    + INDENT + 'log_by_lua_file ' + vn_dir + '/on_log.lua;\n'
+    + '\n'
+    + INDENT + '# VeryNginx dashboard static files (bypass Lua for performance)\n'
+    + INDENT + 'location /verynginx/static/ {\n'
+    + INDENT + '    alias ' + vn_dir + '/dashboard/;\n'
+    + INDENT + '    access_by_lua_block { }\n'
+    + INDENT + '    log_by_lua_block { }\n'
+    + INDENT + '    expires epoch;\n'
+    + INDENT + '    add_header X-Content-Type-Options "nosniff" always;\n'
+    + INDENT + '    add_header X-Frame-Options "SAMEORIGIN" always;\n'
+    + INDENT + '    add_header X-XSS-Protection "1; mode=block" always;\n'
+    + INDENT + '    add_header Content-Security-Policy "default-src '
+    + "'self' 'unsafe-inline' https://unpkg.com; "
+    + "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+    + "style-src 'self' 'unsafe-inline'; "
+    + "img-src 'self' data:; "
+    + "connect-src 'self'; "
+    + "frame-ancestors 'self'\" always;\n"
+    + INDENT + '}\n'
+    + '\n'
+    + INDENT + '# VeryNginx v2 - API & dashboard (handled by router plugin)\n'
+    + INDENT + 'location /verynginx/ {\n'
+    + INDENT + '    # Managed by VeryNginx router plugin\n'
+    + INDENT + '}\n'
+)
+
+result = before + '{' + server_inner + vn_new + after
+
 with open(nginx_conf, 'w') as f:
-    f.write('\n'.join(result))
+    f.write(result)
 print("OK")
 PYEOF
 
@@ -407,8 +469,11 @@ PYEOF
   rm -f "$py_script"
 
   if [ "$out" = "OK" ]; then
-    info "Server block patched with VeryNginx locations ✓"
+    info "Server block patched with server-level VeryNginx handlers ✓"
+    info "→ WAF now protects all requests in this server block"
     info "→ Dashboard: http://your-ip/verynginx/index.html"
+  elif [ "$out" = "ALREADY_PRESENT" ]; then
+    info "Server-level VeryNginx handlers already present, skipping ✓"
   else
     die "Server block patch failed: $out"
   fi
@@ -478,11 +543,8 @@ show_summary() {
   echo "    Your current PHP-FPM handling is unchanged."
   echo ""
   echo "  ${BOLD}To enable WAF for a site:${NC}"
-  echo "    Add this inside the site's server {} block:"
-  echo '      rewrite_by_lua_file  '"${VN_DIR}"'/on_rewrite.lua;'
-  echo '      access_by_lua_file   '"${VN_DIR}"'/on_access.lua;'
-  echo '      log_by_lua_file      '"${VN_DIR}"'/on_log.lua;'
-  echo "    Then configure an upstream in Dashboard → Settings → Upstreams"
+  echo "    Include this inside the site's server {} block:"
+  echo "      include ${VN_DIR}/nginx_conf/in_server_block.conf;"
   echo ""
   echo "  ${BOLD}Useful commands:${NC}"
   echo "    nginx -t              # test configuration"

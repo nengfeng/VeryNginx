@@ -10,10 +10,17 @@ _M.priority = 100
 _M.default_enable = true
 _M.critical = true
 
+local config = require "core.config"
 local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 
 function _M.on_access(ctx)
+    -- Skip WAF for management paths (handled by router plugin instead)
+    local base_uri = (config and config.base_uri) or "/verynginx"
+    if ctx.request.uri:find(base_uri, 1, true) == 1 then
+        return
+    end
+
     local rules_obj = waf_manager.load_rules()
     local rules
     if rules_obj and rules_obj.rules and #rules_obj.rules > 0 then
