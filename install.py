@@ -98,18 +98,18 @@ def install_verynginx():
         exec_sys_cmd('mkdir -p ' + VN_PREFIX)
 
     # Copy v2 source code (configs/config.json is gitignored, not overwritten)
-    exec_sys_cmd('cp -r -f ./verynginx ' + VN_PREFIX)
+    exec_sys_cmd('cp -r -f ./verynginx/. ' + VN_PREFIX + '/')
 
     # Fix hardcoded /opt/verynginx paths if prefix is custom
     if VN_PREFIX != '/opt/verynginx':
-        for root, dirs, files in os.walk(VN_PREFIX + '/verynginx'):
+        for root, dirs, files in os.walk(VN_PREFIX):
             for f in files:
                 if f.endswith('.conf') or f.endswith('.lua'):
                     fix_prefix(os.path.join(root, f))
 
     # Bootstrap config: create config.json from template if not exists
-    config_json = VN_PREFIX + '/verynginx/configs/config.json'
-    config_default = VN_PREFIX + '/verynginx/configs/config.default.json'
+    config_json = VN_PREFIX + '/configs/config.json'
+    config_default = VN_PREFIX + '/configs/config.default.json'
     if not os.path.exists(config_json):
         if os.path.exists(config_default):
             print('### bootstrap config: copy config.default.json -> config.json')
@@ -119,7 +119,7 @@ def install_verynginx():
             print('### WARNING: no config.default.json found, will use built-in defaults')
 
     # Ensure backups directory exists
-    backups_dir = VN_PREFIX + '/verynginx/configs/backups'
+    backups_dir = VN_PREFIX + '/configs/backups'
     if not os.path.exists(backups_dir):
         os.makedirs(backups_dir)
 
@@ -139,22 +139,22 @@ def install_verynginx():
         print('### openresty not found, so not copying nginx.conf')
 
     # Set permissions for config storage
-    exec_sys_cmd('chmod -R 755 ' + VN_PREFIX + '/verynginx/configs')
+    exec_sys_cmd('chmod -R 755 ' + VN_PREFIX + '/configs')
 
     print('### create nginx user/group if not exist')
     exec_sys_cmd('id -u nginx > /dev/null 2>&1 || useradd -r -s /sbin/nologin nginx', accept_failed=True)
 
 def update_verynginx():
     print('### WARNING: update will keep existing config.json')
-    print('### Backup your config:\n    cp ' + VN_PREFIX + '/verynginx/configs/config.json ~/')
+    print('### Backup your config:\n    cp ' + VN_PREFIX + '/configs/config.json ~/')
     ans = common_input('Continue? (y/n): ')
     if ans != 'y':
         print('Update cancelled.')
         return
 
     # Backup config
-    config_json = VN_PREFIX + '/verynginx/configs/config.json'
-    config_backup = VN_PREFIX + '/verynginx/configs/config.json.update_backup'
+    config_json = VN_PREFIX + '/configs/config.json'
+    config_backup = VN_PREFIX + '/configs/config.json.update_backup'
     if os.path.exists(config_json):
         shutil.copyfile(config_json, config_backup)
         print('### backup saved to ' + config_backup)

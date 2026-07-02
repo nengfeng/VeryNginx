@@ -17,7 +17,7 @@ set -euo pipefail
 
 # ----- constants -----------------------------------------------------------
 VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
-VN_DIR="${VN_PREFIX}/verynginx"
+VN_DIR="${VN_PREFIX}"
 BACKUP_DIR="${VN_DIR}/configs/backups"
 VN_ADMIN_PASSWORD=""
 
@@ -650,7 +650,7 @@ main() {
       reset-password|reset-admin-password)
         require_root
         VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
-        VN_DIR="${VN_PREFIX}/verynginx"
+        VN_DIR="${VN_PREFIX}"
         reset_admin_password
         exit 0
         ;;

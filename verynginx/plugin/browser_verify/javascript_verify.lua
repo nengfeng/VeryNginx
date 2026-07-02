@@ -70,7 +70,7 @@ end
 function _M.challenge(ctx)
     if not verify_html then
         local path = require("core.config").resolve_path():match("(.+/)lua_script/")
-            or "/opt/verynginx/verynginx/"
+            or "/opt/verynginx/"
         path = path:gsub("lua_script/", "") .. "support/verify_javascript.html"
         local f = io.open(path, "r")
         if f then

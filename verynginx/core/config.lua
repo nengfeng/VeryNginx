@@ -79,7 +79,7 @@ end
 
 -- Determine module root at load time from file path
 local MODULE_ROOT = (debug.getinfo(1, "S").source or ""):match("^@(.+/)core/config%.lua$")
-    or "/opt/verynginx/verynginx/"
+    or "/opt/verynginx/"
 
 -- ---------------------------------------------------------------------------
 -- Path helpers

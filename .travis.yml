@@ -23,7 +23,7 @@ cache:
 
 before_install:
   - if [ ! -d /opt/verynginx/openresty ]; then python3 install.py install openresty ; fi
-  - sudo rm -rf /opt/verynginx/verynginx  
+  - sudo find /opt/verynginx -maxdepth 1 -not -name 'openresty' -not -name '.' -not -name '..' -exec rm -rf {} + 2>/dev/null; sudo rm -f /opt/verynginx/*.lua /opt/verynginx/*.so 2>/dev/null; true
   - sudo adduser --system --no-create-home --group nginx
 
 install:

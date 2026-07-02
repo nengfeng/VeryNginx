@@ -352,7 +352,7 @@ end
 function _M._json_path()
     local base = require("core.config").resolve_path()
     if base:match("/$") then
-        base = base:match("(.+)/$") or "/opt/verynginx/verynginx"
+        base = base:match("(.+)/$") or "/opt/verynginx"
     end
     return base .. "/configs/statistics.json"
 end
