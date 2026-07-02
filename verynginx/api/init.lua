@@ -725,11 +725,18 @@ local function handle_toggle_plugin()
         return json.encode({ ret = "failed", message = "plugin name required" })
     end
     local config_mod = require "core.config"
-    -- Determine current effective state
+    -- Ensure plugin config table exists (schema default is always {} but guard)
+    local plugins = config_mod.plugin
+    if not plugins then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "config plugin table missing" })
+    end
+    if not plugins[name] then plugins[name] = {} end
+    local entry = plugins[name]
+    -- Determine current effective state from entry or plugin default
     local current = true
-    local plugin_cfg = config_mod.plugin and config_mod.plugin[name]
-    if plugin_cfg and plugin_cfg.enable ~= nil then
-        current = plugin_cfg.enable == true
+    if entry.enable ~= nil then
+        current = entry.enable == true
     else
         local plugin_mod = require "core.plugin"
         for _, p in ipairs(plugin_mod.plugins) do
@@ -739,19 +746,18 @@ local function handle_toggle_plugin()
             end
         end
     end
-    -- Apply toggle and save the module table.
+    -- Apply toggle to live config_data, then save the module table.
     -- save() internal deep_copy (via __pairs) captures the mutation.
     -- If save fails we revert the in-memory change.
-    if not config_mod.plugin[name] then config_mod.plugin[name] = {} end
-    local old_enable = config_mod.plugin[name].enable
-    config_mod.plugin[name].enable = not current
+    local old = entry.enable
+    entry.enable = not current
     local ok, err = config_mod.save(config_mod)
     if not ok then
-        config_mod.plugin[name].enable = old_enable
+        entry.enable = old
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
-    return json.encode({ ret = "success", data = { name = name, enable = config_mod.plugin[name].enable } })
+    return json.encode({ ret = "success", data = { name = name, enable = entry.enable } })
 end
 
 -- ============================================================
