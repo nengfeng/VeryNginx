@@ -862,10 +862,12 @@ end
 -- ---------------------------------------------------------------------------
 function _M.init_worker()
     _M.restore_recent_hits()
+    _M.restore_rule_stats()
 
     local ok, err = ngx.timer.every(30, function()
         _M.flush_hit_stats()
         _M.persist_recent_hits()
+        _M.persist_rule_stats()
     end)
     if not ok then
         ngx.log(ngx.ERR, "waf-rule-manager: failed to create timer: ", tostring(err))
@@ -873,7 +875,75 @@ function _M.init_worker()
 end
 
 -- ---------------------------------------------------------------------------
--- rollback  — restore rules from a previous version in history
+-- persist_rule_stats  — save per-rule stats to disk so total/today hits
+--                       survive nginx restart.  Called by ngx.timer.every.
+-- ---------------------------------------------------------------------------
+function _M.persist_rule_stats()
+    local shared = ngx.shared.vn_config
+    if not shared then return end
+
+    local keys = shared:get_keys(0)
+    local stats = {}
+    for _, k in ipairs(keys) do
+        if k:sub(1, #STATS_PREFIX) == STATS_PREFIX then
+            local rule_id = k:sub(#STATS_PREFIX + 1)
+            local raw = shared:get(k)
+            if raw then
+                local ok, decoded = pcall(json.decode, raw)
+                if ok and type(decoded) == "table" then
+                    stats[rule_id] = decoded
+                end
+            end
+        end
+    end
+    if next(stats) == nil then return end
+
+    local path = ensure_writable_dir() .. "waf-rule-stats.json"
+    local tmp_path = path .. ".tmp"
+    local f = io.open(tmp_path, "w")
+    if not f then return end
+    local encoded, err = json.encode(stats)
+    if not encoded then
+        ngx.log(ngx.WARN, "waf-rule-manager: stats persist encode failed: ", tostring(err))
+        f:close()
+        os.remove(tmp_path)
+        return
+    end
+    f:write(encoded)
+    f:close()
+    os.rename(tmp_path, path)
+end
+
+-- ---------------------------------------------------------------------------
+-- restore_rule_stats  — re-populate per-rule stats from disk after restart.
+--                        Only the first worker actually loads.
+-- ---------------------------------------------------------------------------
+function _M.restore_rule_stats()
+    local shared = ngx.shared.vn_config
+    if not shared then return end
+
+    -- Only restore once across all workers
+    if not shared:add("waf_rule_stats:restored", 1) then return end
+
+    local path = ensure_writable_dir() .. "waf-rule-stats.json"
+    local f = io.open(path, "r")
+    if not f then return end
+    local content = f:read("*all")
+    f:close()
+    if not content or content == "" then return end
+    local ok, stats = pcall(json.decode, content)
+    if not ok or type(stats) ~= "table" then return end
+
+    local count = 0
+    for rule_id, data in pairs(stats) do
+        shared:set(STATS_PREFIX .. rule_id, json.encode(data))
+        count = count + 1
+    end
+    ngx.log(ngx.NOTICE, "waf-rule-manager: restored stats for ", count, " rules")
+end
+
+-- ---------------------------------------------------------------------------
+-- rollback  -- restore rules from a previous version in history
 -- ---------------------------------------------------------------------------
 function _M.rollback(rule_id, target_version)
     local history = _M.get_history(100)
