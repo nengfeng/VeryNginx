@@ -725,13 +725,12 @@ local function handle_toggle_plugin()
         return json.encode({ ret = "failed", message = "plugin name required" })
     end
     local config_mod = require "core.config"
-    local cfg = config_mod.data
-    if not cfg.plugin then cfg.plugin = {} end
-    if not cfg.plugin[name] then cfg.plugin[name] = {} end
+    local plugins = config_mod.plugin
+    if not plugins[name] then plugins[name] = {} end
     -- Determine current state
     local current = true
-    if cfg.plugin[name].enable ~= nil then
-        current = cfg.plugin[name].enable == true
+    if plugins[name].enable ~= nil then
+        current = plugins[name].enable == true
     else
         local plugin_mod = require "core.plugin"
         for _, p in ipairs(plugin_mod.plugins) do
@@ -741,13 +740,13 @@ local function handle_toggle_plugin()
             end
         end
     end
-    cfg.plugin[name].enable = not current
-    local ok, err = config_mod.save(cfg)
+    plugins[name].enable = not current
+    local ok, err = config_mod.save(config_mod)
     if not ok then
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
-    return json.encode({ ret = "success", data = { name = name, enable = cfg.plugin[name].enable } })
+    return json.encode({ ret = "success", data = { name = name, enable = plugins[name].enable } })
 end
 
 -- ============================================================
