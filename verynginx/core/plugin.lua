@@ -64,7 +64,7 @@ function _M.init_all()
 end
 
 --- Terminal actions that end the request immediately after apply.
-local TERMINAL_ACTIONS = { block = true, redirect = true, response = true }
+local TERMINAL_ACTIONS = { block = true, redirect = true, response = true, challenge = true }
 
 --- Check if the current decision is terminal (stops further plugin execution).
 function _M._is_terminal(ctx)

@@ -18,6 +18,10 @@ function _M.init()
     _M.register_matchers()
     _M.register_plugins()
     plugin.init_all()
+
+    -- Restore persisted IP reputation data
+    local ip_reputation = require "core.ip_reputation"
+    ip_reputation.restore()
 end
 
 function _M._validate_config()
@@ -83,6 +87,14 @@ function _M.init_worker()
     statistics.init()
     health_check.init()
     waf_manager.init_worker()
+
+    -- Start ip_reputation persist timer (only worker 0 does I/O)
+    local ip_reputation = require "core.ip_reputation"
+    if ngx.worker.id() == 0 then
+        ngx.timer.every(600, function()
+            ip_reputation.persist()
+        end)
+    end
 end
 
 return _M

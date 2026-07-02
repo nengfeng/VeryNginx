@@ -45,6 +45,27 @@ function _M.check(ctx)
     return false
 end
 
+local function js_string_escape(s)
+    if not s then return "" end
+    return (s:gsub('[\\"\'<>/\r\n]', {
+        ['\\'] = '\\\\',
+        ['"'] = '\\x22',
+        ["'"] = '\\x27',
+        ['<'] = '\\x3C',
+        ['>'] = '\\x3E',
+        ['/'] = '\\x2F',
+        ['\r'] = '\\r',
+        ['\n'] = '\\n',
+    }))
+end
+
+local function sanitize_redirect_url(url)
+    if url:match("^https?://") or url:match("^/") then
+        return url
+    end
+    return "/"
+end
+
 --- Issue a JavaScript challenge: serve verification page that sets cookie on JS execution.
 function _M.challenge(ctx)
     if not verify_html then
@@ -56,17 +77,23 @@ function _M.challenge(ctx)
             verify_html = f:read("*all")
             f:close()
         else
-            verify_html = "<html><body><script>document.cookie='{{COOKIE}}';location='{{URI}}';</script></body></html>"
+            verify_html = "<html><body><script>document.cookie='INFOCOOKIE';location='INFOURI';</script></body></html>"
         end
     end
 
     local js_sign = sign(ctx, "javascript")
     local prefix = (config and config.cookie_prefix) or "verynginx"
 
-    local target = ctx.request.scheme .. "://" .. ngx.var.http_host .. ctx.request.uri
+    local host = ngx.var.http_host or ""
+    if host == "" or not host:match("^[a-zA-Z0-9.:_-]+$") then
+        host = "localhost"
+    end
+    local target = ctx.request.scheme .. "://" .. host .. ctx.request.uri
     if ngx.var.query_string and ngx.var.query_string ~= "" then
         target = target .. "?" .. ngx.var.query_string
     end
+    target = sanitize_redirect_url(target)
+    target = js_string_escape(target)
 
     local html = verify_html
     html = html:gsub("INFOCOOKIE", js_sign)
@@ -77,8 +104,9 @@ function _M.challenge(ctx)
     ngx.header["Cache-Control"] = "no-cache, no-store, must-revalidate"
     ngx.header["Pragma"] = "no-cache"
     ngx.header["Expires"] = "0"
+    ngx.header["X-Content-Type-Options"] = "nosniff"
     ngx.say(html)
-    ngx.exit(200)
+    -- ngx.exit(200) is called by rule_engine.apply() outside pcall
 end
 
 return _M

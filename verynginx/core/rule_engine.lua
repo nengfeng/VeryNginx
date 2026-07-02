@@ -24,6 +24,7 @@ local RESULT = {
     RESPONSE = "response",
     PROXY = "proxy",
     STATIC = "static",
+    CHALLENGE = "challenge",
 }
 
 function _M.execute(rules, ctx)
@@ -118,6 +119,11 @@ function _M.apply(ctx, phase)
             return _no_backend_error()
         end
         return static_file.serve(action.data.root, action.data.path, action.data.expires)
+    elseif action.type == RESULT.CHALLENGE then
+        local javascript_verify = action.data.javascript_verify
+            or require "plugin.browser_verify.javascript_verify"
+        javascript_verify.challenge(ctx)
+        return ngx.exit(200)
     elseif action.type == RESULT.ACCEPT then
         local ok, host = pcall(function() return ngx.var.vn_proxy_host end)
         if not ok or not host or host == "" then

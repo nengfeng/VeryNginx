@@ -29,6 +29,22 @@ _M.schema = {
         proxy = { type = "table", default = { health_check_interval = 5 } },
         config_save_lock_ttl = { type = "number", default = 60 },
         waf_rules = { type = "table", default = {} },
+        ip_reputation = { type = "table", default = {
+            enable = false,
+            threshold = 25,
+            flag_duration = 600,
+            window_size = 300,
+            slot_size = 60,
+            min_requests = 3,
+            pending_ttl = 600,
+            whitelist = {},
+            signals = {
+                waf_challenge = 3,
+                waf_block = 5,
+                not_found = 1,
+                challenge_fail = 5,
+            },
+        } },
     }
 }
 

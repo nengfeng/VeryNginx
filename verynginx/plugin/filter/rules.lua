@@ -57,7 +57,7 @@ _M.default_rules = {
     { enable = true, matcher = "attack_sqli", action = "block", code = 403, response = "forbidden_json" },
     { enable = true, matcher = "attack_backup", action = "block", code = 403, response = "forbidden_json" },
     { enable = true, matcher = "attack_scanner", action = "block", code = 429, response = "forbidden_json" },
-    { enable = true, matcher = "attack_code_leak", action = "block", code = 403, response = "forbidden_json" },
+    { enable = true, matcher = "attack_code_leak", action = "challenge", code = 403, response = "forbidden_json" },
     { enable = true, matcher = "attack_path_traversal", action = "block", code = 403, response = "forbidden_json" },
     { enable = true, matcher = "attack_rce", action = "block", code = 403, response = "forbidden_json" },
 }

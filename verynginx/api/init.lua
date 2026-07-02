@@ -761,6 +761,86 @@ local function handle_top_paths()
 end
 
 -- ---------------------------------------------------------------------------
+-- Reputation API handlers
+-- ---------------------------------------------------------------------------
+
+local function handle_reputation_stats()
+    local rep = require "core.ip_reputation"
+    local stats = rep.get_stats()
+    return json.encode({ ret = "success", data = stats })
+end
+
+local function handle_reputation_flagged()
+    local rep = require "core.ip_reputation"
+    local list = rep.list_flagged()
+    return json.encode({ ret = "success", data = list })
+end
+
+local function handle_reputation_whitelist()
+    local rep = require "core.ip_reputation"
+    local list = rep.list_whitelist()
+    return json.encode({ ret = "success", data = list })
+end
+
+local function handle_reputation_score()
+    local ip = ngx.var.arg_ip
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ip parameter required" })
+    end
+    local rep = require "core.ip_reputation"
+    return json.encode({
+        ret = "success",
+        data = {
+            score = rep.get_score(ip),
+            flagged = rep.is_flagged(ip),
+            pending = rep.has_pending(ip),
+            whitelisted = rep.is_whitelisted(ip),
+        }
+    })
+end
+
+local function handle_reputation_clear()
+    local ip = ngx.var.arg_ip
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ip parameter required" })
+    end
+    local rep = require "core.ip_reputation"
+    rep.clear_ip(ip)
+    return json.encode({ ret = "success" })
+end
+
+local function handle_reputation_whitelist_add()
+    local args = util.get_request_args()
+    local ip = args.ip
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ip parameter required" })
+    end
+    local rep = require "core.ip_reputation"
+    rep.add_whitelist(ip)
+    return json.encode({ ret = "success" })
+end
+
+local function handle_reputation_whitelist_remove()
+    local ip = ngx.var.arg_ip
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ip parameter required" })
+    end
+    local rep = require "core.ip_reputation"
+    rep.remove_whitelist(ip)
+    return json.encode({ ret = "success" })
+end
+
+local function handle_reputation_persist()
+    local rep = require "core.ip_reputation"
+    rep.persist()
+    return json.encode({ ret = "success" })
+end
+
+-- ---------------------------------------------------------------------------
 -- Register default routes
 -- ---------------------------------------------------------------------------
 _M.register("POST", "/login", handle_login, false)
@@ -798,6 +878,15 @@ _M.register("GET",    "/plugins",                handle_list_plugins,        tru
 _M.register("POST",   "/plugins/:id/toggle",     handle_toggle_plugin,       true)
 
 _M.register("GET",    "/stats/top-paths",        handle_top_paths,           true)
+
+_M.register("GET",    "/reputation/stats",        handle_reputation_stats,        true)
+_M.register("GET",    "/reputation/flagged",      handle_reputation_flagged,      true)
+_M.register("GET",    "/reputation/whitelist",    handle_reputation_whitelist,    true)
+_M.register("GET",    "/reputation/score",        handle_reputation_score,        true)
+_M.register("POST",   "/reputation/clear",        handle_reputation_clear,        true)
+_M.register("POST",   "/reputation/whitelist",    handle_reputation_whitelist_add, true)
+_M.register("DELETE", "/reputation/whitelist",    handle_reputation_whitelist_remove, true)
+_M.register("POST",   "/reputation/persist",      handle_reputation_persist,      true)
 
 -- ---------------------------------------------------------------------------
 -- Router plugin hook: dispatched from plugin/router/init.lua
