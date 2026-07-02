@@ -28,6 +28,22 @@ end
 local DEFAULT_ITERATIONS = 12000
 local SALT_BYTES = 16
 
+--- Constant-time string comparison to prevent timing attacks.
+local function constant_time_compare(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then
+        return false
+    end
+    if #a ~= #b then
+        return false
+    end
+    local result = 0
+    for i = 1, #a do
+        local ab, bb = a:byte(i), b:byte(i)
+        result = result + (ab + bb) * (ab - bb)
+    end
+    return result == 0
+end
+
 --- PBKDF2-HMAC-SHA256 (single block, dkLen <= 32).
 -- Format: "p1$iterations$salt_b64$hash_b64"
 local function pbkdf2_hmac_sha256(password, salt, iterations)
@@ -75,7 +91,7 @@ local function verify_builtin(password, encoded)
     if not derived then
         return false
     end
-    return ngx.encode_base64(derived) == hash_b64
+    return constant_time_compare(ngx.encode_base64(derived), hash_b64)
 end
 
 --- External library detection: bcrypt > argon2
