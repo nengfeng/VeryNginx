@@ -83,10 +83,24 @@ function _M.init()
     ngx.timer.every(3600, function()
         _M._flush_bucket("1h", "all")
     end)
-    ngx.timer.every(persist_interval, function()
-        _M.persist()
-    end)
-    -- Restore from disk on startup
+    if ngx.worker.id() == 0 then
+        ngx.timer.every(persist_interval, function()
+            _M.persist()
+        end)
+        -- Persist on worker shutdown (flush short-term buckets into "all" first)
+        local function persist_on_exit(premature)
+            if premature then return end
+            if ngx.worker.exiting() then
+                _M._flush_bucket("1m", "5m")
+                _M._flush_bucket("5m", "1h")
+                _M._flush_bucket("1h", "all")
+                _M.persist()
+                return
+            end
+            ngx.timer.at(1, persist_on_exit)
+        end
+        ngx.timer.at(1, persist_on_exit)
+    end
     _M.restore()
 end
 

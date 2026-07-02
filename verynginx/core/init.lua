@@ -88,12 +88,22 @@ function _M.init_worker()
     health_check.init()
     waf_manager.init_worker()
 
-    -- Start ip_reputation persist timer (only worker 0 does I/O)
+    -- Only worker 0 does I/O for persistence
     local ip_reputation = require "core.ip_reputation"
     if ngx.worker.id() == 0 then
         ngx.timer.every(600, function()
             ip_reputation.persist()
         end)
+        -- Persist ip_reputation on worker shutdown
+        local function ip_rep_persist_on_exit(premature)
+            if premature then return end
+            if ngx.worker.exiting() then
+                ip_reputation.persist()
+                return
+            end
+            ngx.timer.at(1, ip_rep_persist_on_exit)
+        end
+        ngx.timer.at(1, ip_rep_persist_on_exit)
     end
 end
 
