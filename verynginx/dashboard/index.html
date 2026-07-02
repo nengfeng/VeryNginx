@@ -86,11 +86,14 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 /* Inline JSON */
 .json-inline{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}#topnav{padding:0 12px;flex-wrap:wrap;height:auto;padding:8px 12px}#topnav nav{gap:2px}#topnav nav a{padding:6px 10px;font-size:12px}#main{padding:12px}}
+.toast{position:fixed;top:20px;right:20px;z-index:9999;padding:12px 20px;border-radius:8px;color:#fff;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.2);opacity:0;transform:translateY(-10px);transition:all .3s ease;pointer-events:none;max-width:360px}
+.toast.show{opacity:1;transform:translateY(0)}.toast.success{background:var(--success)}.toast.error{background:var(--danger)}.toast.info{background:var(--primary)}
 </style>
 </head>
 <body>
 
 <div id="app">
+  <div class="toast" :class="[toastType, { show: toastVisible }]">{{ toastMsg }}</div>
   <!-- Login -->
   <div id="login-page" v-if="!store.loggedIn">
     <div class="login-box">
@@ -1125,6 +1128,17 @@ const app = Vue.createApp({
 
     const plugins = ref([]);
     const pluginsError = ref('');
+    const toastMsg = ref('');
+    const toastType = ref('info');
+    const toastVisible = ref(false);
+    let toastTimer = null;
+    function showToast(msg, type) {
+      toastMsg.value = msg;
+      toastType.value = type || 'info';
+      toastVisible.value = true;
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toastVisible.value = false; }, 2500);
+    }
     const configImportError = ref('');
     const configImportOk = ref('');
     const topPaths = ref([]);
@@ -2073,6 +2087,7 @@ const app = Vue.createApp({
         if (d.ret === 'success') {
           p.enable = d.data.enable;
           if (p.enable !== !old) loadPlugins();
+          showToast(p.enable ? '已启用 ' + p.name : '已停用 ' + p.name, p.enable ? 'success' : 'info');
         } else {
           p.enable = old;
           pluginsError.value = d.message || 'Toggle failed';
@@ -2202,6 +2217,7 @@ const app = Vue.createApp({
       wafRollback, wafRunTest,
       wafHits, wafHitsError, wafHitsTime, loadWafHits,
       plugins, pluginsError, loadPlugins, togglePlugin,
+      toastMsg, toastType, toastVisible,
       configImportError, configImportOk, importFileInput,
       exportConfig, importConfig, onImportFile,
       topPaths, loadTopPaths,
