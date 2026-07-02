@@ -49,7 +49,7 @@ end
 function _M.challenge(ctx)
     local cookie_sign = sign(ctx, "cookie")
     local prefix = (config and config.cookie_prefix) or "verynginx"
-    local cookie_str = prefix .. "_sign_cookie=" .. cookie_sign .. "; Path=/; HttpOnly; SameSite=Lax"
+    local cookie_str = prefix .. "_sign_cookie=" .. cookie_sign .. "; Path=/; Max-Age=600; HttpOnly; SameSite=Lax"
     ngx.header["Set-Cookie"] = cookie_str
 
     local target = ctx.request.scheme .. "://" .. ngx.var.http_host .. ctx.request.uri

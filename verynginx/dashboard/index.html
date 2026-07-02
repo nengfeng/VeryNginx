@@ -119,6 +119,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <a :class="{active:page==='config'}" @click="page='config'">Config</a>
         <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">Stats</a>
         <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
+        <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">Reputation</a>
         <a :class="{active:page==='about'}" @click="page='about'">About</a>
       </nav>
       <div class="user-area">
@@ -153,6 +154,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div class="stat-card">
             <div class="stat-label">WAF Hits (last min)</div>
             <div class="stat-value" :style="{color: (overview.waf_hits||0) > 100 ? '#f97316' : ''}">{{ formatNumber(overview.waf_hits || 0) }}</div>
+          </div>
+          <div class="stat-card" v-if="overview.flagged !== undefined">
+            <div class="stat-label">Flagged IPs</div>
+            <div class="stat-value" :style="{color: (overview.flagged||0) > 0 ? '#ef4444' : ''}">{{ overview.flagged }}</div>
           </div>
         </div>
         <!-- Second row: memory + errors -->
@@ -703,6 +708,86 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
       </div>
 
+      <!-- Reputation -->
+      <div v-if="page==='reputation'">
+        <div class="flex flex-between mb-16">
+          <h2 class="page-title" style="margin-bottom:0">IP Reputation</h2>
+          <div class="flex gap-8">
+            <button class="outline small" @click="loadRepData">Refresh</button>
+            <button class="outline small" @click="repPersist">Persist Now</button>
+          </div>
+        </div>
+        <div v-if="repError" class="error" style="margin-bottom:8px">{{ repError }}</div>
+        <!-- Stats -->
+        <div v-if="repStats" class="grid grid-4 mb-16">
+          <div class="stat-card"><div class="stat-label">Flagged IPs</div><div class="stat-value">{{ repStats.flagged }}</div></div>
+          <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value">{{ repStats.pending }}</div></div>
+          <div class="stat-card"><div class="stat-label">Flagged Today</div><div class="stat-value">{{ repStats.flagged_today }}</div></div>
+          <div class="stat-card"><div class="stat-label">Whitelist</div><div class="stat-value">{{ repWhitelist.length }}</div></div>
+        </div>
+        <!-- Flagged IPs -->
+        <div class="card mb-16">
+          <div class="flex flex-between mb-8">
+            <strong>Flagged IPs</strong>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>IP</th><th>Flagged At</th><th>Expires At</th><th>Remaining</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="ip in repFlagged" :key="ip.ip">
+                  <td><code>{{ ip.ip }}</code></td>
+                  <td>{{ fmtTime(ip.flagged_at) }}</td>
+                  <td>{{ fmtTime(ip.expires_at) }}</td>
+                  <td>{{ remaining(ip.expires_at) }}</td>
+                  <td><button class="danger small" @click="repClear(ip.ip)">Clear</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!repFlagged.length" class="empty">No flagged IPs.</div>
+        </div>
+        <!-- Whitelist -->
+        <div class="card mb-16">
+          <div class="flex flex-between mb-8">
+            <strong>Whitelist</strong>
+            <div class="flex gap-8">
+              <input v-model="repNewWhitelist" placeholder="IP or CIDR" style="width:180px;font-size:13px" @keyup.enter="repAddWhitelist">
+              <button class="primary small" @click="repAddWhitelist" :disabled="!repNewWhitelist">Add</button>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Entry</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="e in repWhitelist" :key="e">
+                  <td><code>{{ e }}</code></td>
+                  <td><button class="danger small" @click="repRemoveWhitelist(e)">Remove</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!repWhitelist.length" class="empty">No whitelist entries.</div>
+        </div>
+        <!-- Score Lookup -->
+        <div class="card">
+          <div class="flex flex-between mb-8">
+            <strong>Score Lookup</strong>
+            <div class="flex gap-8">
+              <input v-model="repLookupIP" placeholder="IP address" style="width:180px;font-size:13px" @keyup.enter="repLookup">
+              <button class="primary small" @click="repLookup" :disabled="!repLookupIP">Lookup</button>
+            </div>
+          </div>
+          <div v-if="repLookupResult" style="font-size:13px">
+            <div class="flex gap-16" style="flex-wrap:wrap">
+              <span><strong>Score:</strong> <code>{{ repLookupResult.score }}</code></span>
+              <span><strong>Flagged:</strong> <code>{{ repLookupResult.flagged ? 'Yes' : 'No' }}</code></span>
+              <span><strong>Pending:</strong> <code>{{ repLookupResult.pending ? 'Yes' : 'No' }}</code></span>
+              <span><strong>Whitelisted:</strong> <code>{{ repLookupResult.whitelisted ? 'Yes' : 'No' }}</code></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- About -->
       <div v-if="page==='about'" style="text-align:center;padding-top:60px">
         <h1>VeryNginx</h1>
@@ -913,6 +998,15 @@ const app = Vue.createApp({
     const wafHits = ref([]);
     const wafHitsError = ref('');
     const wafHitsTime = ref('');
+
+    // ---- Reputation State ----
+    const repStats = ref(null);
+    const repFlagged = ref([]);
+    const repWhitelist = ref([]);
+    const repError = ref('');
+    const repNewWhitelist = ref('');
+    const repLookupIP = ref('');
+    const repLookupResult = ref(null);
 
     const plugins = ref([]);
     const pluginsError = ref('');
@@ -1259,6 +1353,14 @@ const app = Vue.createApp({
             o.waf_hits = Object.values(w.data).reduce((s, r) => s + (r.hits || 0), 0);
           }
         } catch {}
+
+        // Reputation summary
+        try {
+          const r = await api('GET', '/verynginx/reputation/stats');
+          if (r.ret === 'success' && r.data) {
+            o.flagged = r.data.flagged || 0;
+          }
+        } catch {}
       } catch (e) {
         console.warn('Overview load error:', e.message);
       }
@@ -1420,6 +1522,79 @@ const app = Vue.createApp({
         }
       } catch (e) {
         wafHistError.value = e.message;
+      }
+    }
+
+    function remaining(expiresAt) {
+      if (!expiresAt) return '-';
+      const sec = Math.max(0, Math.floor((expiresAt * 1000 - Date.now()) / 1000));
+      if (sec === 0) return 'expired';
+      return `${sec}s`;
+    }
+
+    async function loadRepData() {
+      repError.value = '';
+      try {
+        const [sd, fd, wd] = await Promise.all([
+          api('GET', '/verynginx/reputation/stats'),
+          api('GET', '/verynginx/reputation/flagged'),
+          api('GET', '/verynginx/reputation/whitelist'),
+        ]);
+        repStats.value = sd.data;
+        repFlagged.value = fd.data || [];
+        repWhitelist.value = wd.data || [];
+      } catch (e) {
+        repError.value = e.message;
+      }
+    }
+
+    async function repClear(ip) {
+      try {
+        await api('POST', '/verynginx/reputation/clear?ip=' + encodeURIComponent(ip));
+        loadRepData();
+      } catch (e) {
+        repError.value = e.message;
+      }
+    }
+
+    async function repAddWhitelist() {
+      const ip = repNewWhitelist.value.trim();
+      if (!ip) return;
+      try {
+        await api('POST', '/verynginx/reputation/whitelist', { ip });
+        repNewWhitelist.value = '';
+        loadRepData();
+      } catch (e) {
+        repError.value = e.message;
+      }
+    }
+
+    async function repRemoveWhitelist(ip) {
+      try {
+        await api('DELETE', '/verynginx/reputation/whitelist?ip=' + encodeURIComponent(ip));
+        loadRepData();
+      } catch (e) {
+        repError.value = e.message;
+      }
+    }
+
+    async function repPersist() {
+      try {
+        await api('POST', '/verynginx/reputation/persist');
+      } catch (e) {
+        repError.value = e.message;
+      }
+    }
+
+    async function repLookup() {
+      const ip = repLookupIP.value.trim();
+      if (!ip) return;
+      repLookupResult.value = null;
+      try {
+        const d = await api('GET', '/verynginx/reputation/score?ip=' + encodeURIComponent(ip));
+        repLookupResult.value = d.data;
+      } catch (e) {
+        repError.value = e.message;
       }
     }
 
@@ -1763,6 +1938,10 @@ const app = Vue.createApp({
       configImportError, configImportOk, importFileInput,
       exportConfig, importConfig, onImportFile,
       topPaths, loadTopPaths,
+      // Reputation
+      repStats, repFlagged, repWhitelist, repError,
+      repNewWhitelist, repLookupIP, repLookupResult,
+      remaining, loadRepData, repClear, repAddWhitelist, repRemoveWhitelist, repPersist, repLookup,
     };
   }
 });

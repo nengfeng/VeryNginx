@@ -150,6 +150,7 @@ function _M.set_pending(ip)
     if not s then return end
     local ttl = cfg_val("pending_ttl")
     s:set("ip_rep:pending:" .. ip, ngx.time(), ttl)
+    s:incr("ip_rep:pending_count", 1, 0, 0)
 end
 
 function _M.has_pending(ip)
@@ -161,7 +162,10 @@ end
 function _M.clear_pending(ip)
     local s = shared()
     if not s then return end
-    s:delete("ip_rep:pending:" .. ip)
+    if s:get("ip_rep:pending:" .. ip) then
+        s:delete("ip_rep:pending:" .. ip)
+        s:incr("ip_rep:pending_count", -1, 0, 0)
+    end
 end
 
 local function add_to_flagged_index(ip, duration, now)
@@ -359,13 +363,7 @@ function _M.get_stats()
     local s = shared()
     if not s then return { flagged = 0, pending = 0, flagged_today = 0 } end
     local flagged_count = #_M.list_flagged()
-    local pending_count = 0
-    local keys = s:get_keys(0)
-    for _, k in ipairs(keys) do
-        if k:find("^ip_rep:pending:") == 1 then
-            pending_count = pending_count + 1
-        end
-    end
+    local pending_count = tonumber(s:get("ip_rep:pending_count") or 0)
     local flagged_today = s:get("ip_rep:flagged_today") or 0
     return {
         flagged = flagged_count,

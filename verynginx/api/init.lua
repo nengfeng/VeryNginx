@@ -812,8 +812,15 @@ local function handle_reputation_clear()
 end
 
 local function handle_reputation_whitelist_add()
-    local args = util.get_request_args()
-    local ip = args.ip
+    local ip = ngx.var.arg_ip
+    if not ip or ip == "" then
+        ngx.req.read_body()
+        local raw = ngx.req.get_body_data()
+        if raw then
+            local ok, parsed = pcall(json.decode, raw)
+            if ok and parsed then ip = parsed.ip end
+        end
+    end
     if not ip or ip == "" then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip parameter required" })
