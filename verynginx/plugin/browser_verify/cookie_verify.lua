@@ -52,7 +52,7 @@ function _M.challenge(ctx)
     local cookie_str = prefix .. "_sign_cookie=" .. cookie_sign .. "; Path=/; Max-Age=600; HttpOnly; SameSite=Lax"
     ngx.header["Set-Cookie"] = cookie_str
 
-    local target = ctx.request.scheme .. "://" .. ngx.var.http_host .. ctx.request.uri
+    local target = ctx.request.scheme .. "://" .. ctx:get_safe_host() .. ctx.request.uri
     if ngx.var.query_string and ngx.var.query_string ~= "" then
         target = target .. "?" .. ngx.var.query_string
     end

@@ -30,7 +30,7 @@ function _M.run(ctx)
             local current_scheme = ctx.request.scheme
 
             if target_scheme and target_scheme ~= current_scheme then
-                local target_url = target_scheme .. "://" .. ctx.request.host .. ctx.request.uri
+                local target_url = target_scheme .. "://" .. ctx:get_safe_host() .. ctx.request.uri
                 if ngx.var.query_string and ngx.var.query_string ~= "" then
                     target_url = target_url .. "?" .. ngx.var.query_string
                 end

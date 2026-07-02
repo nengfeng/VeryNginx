@@ -27,10 +27,11 @@ describe("security: challenge XSS prevention", function()
                 uri = '/"><script>alert(1)</script>',
                 remote_addr = "127.0.0.1",
                 user_agent = "test",
-            }
+            },
+            get_safe_host = function() return ngx.var.server_name or "example.com" end,
         }
         ngx.var = {
-            http_host = "example.com",
+            server_name = "example.com",
             http_user_agent = "test",
             query_string = "",
             http_cookie = "",
@@ -48,10 +49,11 @@ describe("security: challenge XSS prevention", function()
                 uri = '/<script>alert(1)</script>',
                 remote_addr = "127.0.0.1",
                 user_agent = "test",
-            }
+            },
+            get_safe_host = function() return ngx.var.server_name or "example.com" end,
         }
         ngx.var = {
-            http_host = "example.com",
+            server_name = "example.com",
             http_user_agent = "test",
             query_string = "",
             http_cookie = "",
@@ -71,10 +73,11 @@ describe("security: challenge XSS prevention", function()
                 uri = "/test",
                 remote_addr = "127.0.0.1",
                 user_agent = "test",
-            }
+            },
+            get_safe_host = function() return ngx.var.server_name or "example.com" end,
         }
         ngx.var = {
-            http_host = "example.com",
+            server_name = "example.com",
             http_user_agent = "test",
             query_string = "q=\"><script>alert(1)</script>",
             http_cookie = "",
@@ -94,10 +97,11 @@ describe("security: challenge XSS prevention", function()
                 uri = '/\\";alert(1)//',
                 remote_addr = "127.0.0.1",
                 user_agent = "test",
-            }
+            },
+            get_safe_host = function() return ngx.var.server_name or "example.com" end,
         }
         ngx.var = {
-            http_host = "example.com",
+            server_name = "example.com",
             http_user_agent = "test",
             query_string = "",
             http_cookie = "",
@@ -116,10 +120,11 @@ describe("security: challenge XSS prevention", function()
                 uri = "/test",
                 remote_addr = "127.0.0.1",
                 user_agent = "test",
-            }
+            },
+            get_safe_host = function() return ngx.var.server_name or "example.com" end,
         }
         ngx.var = {
-            http_host = "javascript:alert(1)",
+            server_name = "example.com",
             http_user_agent = "test",
             query_string = "",
             http_cookie = "",

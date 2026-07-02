@@ -150,4 +150,18 @@ function _M.get_data(ctx, key)
     return ctx.data[key]
 end
 
+--- Get a safe host for redirects (prevents Host header injection).
+-- Priority: config.dashboard_host > ngx.var.server_name > ngx.var.host
+function _M.get_safe_host(_)
+    local cfg_host = config.dashboard_host
+    if cfg_host and cfg_host ~= "" then
+        return cfg_host
+    end
+    local server_name = ngx.var.server_name
+    if server_name and server_name ~= "" then
+        return server_name
+    end
+    return ngx.var.host
+end
+
 return _M

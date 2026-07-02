@@ -84,11 +84,7 @@ function _M.challenge(ctx)
     local js_sign = sign(ctx, "javascript")
     local prefix = (config and config.cookie_prefix) or "verynginx"
 
-    local host = ngx.var.http_host or ""
-    if host == "" or not host:match("^[a-zA-Z0-9.:_-]+$") then
-        host = "localhost"
-    end
-    local target = ctx.request.scheme .. "://" .. host .. ctx.request.uri
+    local target = ctx.request.scheme .. "://" .. ctx:get_safe_host() .. ctx.request.uri
     if ngx.var.query_string and ngx.var.query_string ~= "" then
         target = target .. "?" .. ngx.var.query_string
     end
