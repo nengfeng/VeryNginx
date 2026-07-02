@@ -746,17 +746,19 @@ local function handle_toggle_plugin()
             end
         end
     end
-    -- Apply toggle to live config_data, then save the module table.
-    -- save() internal deep_copy (via __pairs) captures the mutation.
-    -- If save fails we revert the in-memory change.
-    local old = entry.enable
-    entry.enable = not current
-    local ok, err = config_mod.save(config_mod)
+    -- Build a plain save table from config.report(): avoids metatable /
+    -- __pairs edge cases in some LuaJIT builds.
+    local save_tbl = json.decode(config_mod.report())
+    save_tbl.plugin = save_tbl.plugin or {}
+    save_tbl.plugin[name] = save_tbl.plugin[name] or {}
+    save_tbl.plugin[name].enable = not current
+    local ok, err = config_mod.save(save_tbl)
     if not ok then
-        entry.enable = old
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
+    -- Mirror into live config_data so subsequent reads see the new state
+    entry.enable = save_tbl.plugin[name].enable
     return json.encode({ ret = "success", data = { name = name, enable = entry.enable } })
 end
 
@@ -1051,7 +1053,12 @@ function _M.dispatch(ctx)
                 "frame-ancestors 'self'",
             }, " ")
 
-            local response = route.handler()
+            local ok, response = pcall(route.handler)
+            if not ok then
+                ngx.log(ngx.ERR, "api dispatch error: ", tostring(response))
+                ngx.status = 500
+                response = json.encode({ ret = "failed", message = "internal error: " .. tostring(response) })
+            end
             if not ngx.status or ngx.status == 0 then
                 ngx.status = 200
             end
