@@ -494,7 +494,7 @@ end
 function _M.save(config)
     local shared = ngx.shared.vn_config
     local lock_key = "config_save_lock"
-    local lock_ttl = math.max((config and config.config_save_lock_ttl) or 60, 30)
+    local lock_ttl = math.max((config and config.config_save_lock_ttl) or 10, 5)
     local lock_token = random.bytes(16)
 
     if shared then

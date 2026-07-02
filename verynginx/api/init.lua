@@ -725,12 +725,11 @@ local function handle_toggle_plugin()
         return json.encode({ ret = "failed", message = "plugin name required" })
     end
     local config_mod = require "core.config"
-    local plugins = config_mod.plugin
-    if not plugins[name] then plugins[name] = {} end
-    -- Determine current state
+    -- Determine current effective state (read-only, does NOT mutate config_data)
     local current = true
-    if plugins[name].enable ~= nil then
-        current = plugins[name].enable == true
+    local plugin_saved = config_mod.plugin and config_mod.plugin[name]
+    if plugin_saved and plugin_saved.enable ~= nil then
+        current = plugin_saved.enable == true
     else
         local plugin_mod = require "core.plugin"
         for _, p in ipairs(plugin_mod.plugins) do
@@ -740,13 +739,28 @@ local function handle_toggle_plugin()
             end
         end
     end
-    plugins[name].enable = not current
-    local ok, err = config_mod.save(config_mod)
+    -- Build a save-able config table: take all current fields from the
+    -- module (via __pairs) but override "plugin" with the toggle applied.
+    -- save() deep-copies internally, so shared refs are safe.
+    local save_cfg = { plugin = {} }
+    for k, v in pairs(config_mod) do
+        if k ~= "plugin" then
+            save_cfg[k] = v
+        end
+    end
+    -- Copy existing plugin configs and apply the toggle
+    local old_plugins = config_mod.plugin or {}
+    for pk, pv in pairs(old_plugins) do
+        save_cfg.plugin[pk] = pv
+    end
+    save_cfg.plugin[name] = save_cfg.plugin[name] or {}
+    save_cfg.plugin[name].enable = not current
+    local ok, err = config_mod.save(save_cfg)
     if not ok then
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
-    return json.encode({ ret = "success", data = { name = name, enable = plugins[name].enable } })
+    return json.encode({ ret = "success", data = { name = name, enable = save_cfg.plugin[name].enable } })
 end
 
 -- ============================================================
