@@ -10,6 +10,7 @@ local auth = require "api.auth"
 local json = require "dkjson"
 local util = require "util"
 local waf_manager = require "waf-rule-manager"
+local audit = require "core.audit"
 
 -- ---------------------------------------------------------------------------
 -- Route table: { method, path, auth_required, handler }
@@ -48,13 +49,13 @@ local function handle_login()
     local ok, result = strategy.login(user, password)
     if not ok then
         ngx.status = 401
-        ngx.log(ngx.NOTICE, "audit: login failed for user=", user, " reason=", result)
+        audit.log("login_failed", result, user)
         return json.encode({ ret = "failed", message = result })
     end
 
     auth.set_session_cookie(result)
     ngx.status = 200
-    ngx.log(ngx.NOTICE, "audit: login success user=", user)
+    audit.log("login_success", "", user)
     return json.encode({ ret = "success", token = result })
 end
 
@@ -68,7 +69,7 @@ local function handle_logout()
             local token = fields[prefix .. "_session"]
             if token then
                 require("core.session").revoke(token)
-                ngx.log(ngx.NOTICE, "audit: logout success")
+                audit.log("logout", "")
             end
         end
     end
@@ -286,7 +287,7 @@ local function handle_create_waf_rule()
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(result) })
     end
-    ngx.log(ngx.NOTICE, "audit: waf rule created id=", result.id, " name=", result.name)
+    audit.log("waf_rule_created", "id=" .. result.id .. " name=" .. result.name)
     return json.encode({
         ret = "success",
         data = {
@@ -347,7 +348,7 @@ local function handle_reload_waf_rules()
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
-    ngx.log(ngx.NOTICE, "audit: waf rules reloaded")
+    audit.log("waf_rules_reloaded", "")
     return json.encode({ ret = "success", message = "rules reloaded" })
 end
 
@@ -393,7 +394,7 @@ local function handle_rollback_waf_rules()
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
-    ngx.log(ngx.NOTICE, "audit: waf rules rolled back to version ", version)
+    audit.log("waf_rules_rollback", "version=" .. tostring(version))
     return json.encode({ ret = "success", message = "Rolled back to version " .. tostring(version) })
 end
 
@@ -540,7 +541,7 @@ local function handle_update_waf_rule()
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(result) })
     end
-    ngx.log(ngx.NOTICE, "audit: waf rule updated id=", rule_id, " version=", result.version)
+    audit.log("waf_rule_updated", "id=" .. rule_id .. " version=" .. result.version)
     return json.encode({ ret = "success",
         data = { id = rule_id, version = result.version, updated_at = result.updated_at } })
 end
@@ -556,7 +557,7 @@ local function handle_delete_waf_rule()
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
-    ngx.log(ngx.NOTICE, "audit: waf rule deleted id=", rule_id)
+    audit.log("waf_rule_deleted", "id=" .. rule_id)
     return json.encode({ ret = "success", message = "rule deleted" })
 end
 
@@ -571,7 +572,7 @@ local function handle_enable_waf_rule()
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(result) })
     end
-    ngx.log(ngx.NOTICE, "audit: waf rule enabled id=", rule_id)
+    audit.log("waf_rule_enabled", "id=" .. rule_id)
     return json.encode({ ret = "success", message = "rule enabled" })
 end
 
@@ -586,7 +587,7 @@ local function handle_disable_waf_rule()
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(result) })
     end
-    ngx.log(ngx.NOTICE, "audit: waf rule disabled id=", rule_id)
+    audit.log("waf_rule_disabled", "id=" .. rule_id)
     return json.encode({ ret = "success", message = "rule disabled" })
 end
 
@@ -847,6 +848,16 @@ local function handle_reputation_persist()
     return json.encode({ ret = "success" })
 end
 
+-- ============================================================
+-- GET /audit - recent audit log entries
+-- ============================================================
+local function handle_get_audit()
+    local limit = tonumber(ngx.var.arg_limit) or 100
+    if limit > 200 then limit = 200 end
+    local entries = audit.get_recent(limit)
+    return json.encode({ ret = "success", data = entries })
+end
+
 -- ---------------------------------------------------------------------------
 -- Register default routes
 -- ---------------------------------------------------------------------------
@@ -859,6 +870,7 @@ _M.register("GET", "/metrics", handle_get_metrics, false)
 _M.register("GET", "/summary", handle_get_summary, true)
 _M.register("GET", "/csrf", handle_get_csrf, true)
 _M.register("GET", "/upstreams/health", handle_get_upstream_health, true)
+_M.register("GET", "/audit", handle_get_audit, true)
 
 -- WAF rule management routes
 -- Exact routes must be registered before parameterized ones so the
@@ -1044,7 +1056,7 @@ function _M.dispatch(ctx)
             -- Audit log for mutating operations
             if method ~= "GET" and method ~= "HEAD" and method ~= "OPTIONS" then
                 local user = ctx and ctx.get_data and ctx.get_data(ctx, "auth:user") or "-"
-                ngx.log(ngx.NOTICE, "audit: user=", user, " method=", method, " path=", path, " status=", ngx.status)
+                audit.log(method, path .. " status=" .. tostring(ngx.status), user)
             end
 
             ctx.set_action(ctx, "response", {

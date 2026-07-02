@@ -120,6 +120,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">Stats</a>
         <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
         <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">Reputation</a>
+        <a :class="{active:page==='audit'}" @click="page='audit';loadAudit()">Audit</a>
         <a :class="{active:page==='about'}" @click="page='about'">About</a>
       </nav>
       <div class="user-area">
@@ -286,18 +287,25 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div v-for="(rules, group) in cfg.rule || {}" :key="group" class="card" style="padding:16px">
             <div class="flex flex-between mb-8">
               <strong style="font-size:14px">{{ group }}</strong>
-              <span class="tag tag-ok" v-if="rules && rules.length">{{ rules.length }} rules</span>
-              <span class="tag tag-warn" v-else>empty</span>
+              <div class="flex gap-4">
+                <span class="tag tag-ok" v-if="rules && rules.length">{{ rules.length }} rules</span>
+                <span class="tag tag-warn" v-else>empty</span>
+                <button class="primary small" @click="ruleOpenCreate(group)">+ Add</button>
+              </div>
             </div>
             <table v-if="rules && rules.length" style="font-size:13px">
-              <thead><tr><th>#</th><th>Enable</th><th>Matcher</th><th>Action</th><th>Detail</th></tr></thead>
+              <thead><tr><th>#</th><th>Enable</th><th>Matcher</th><th>Action</th><th>Detail</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="(r,i) in rules" :key="i">
                   <td>{{ i }}</td>
-                  <td>{{ r.enable ? '✓' : '✗' }}</td>
+                  <td><input type="checkbox" :checked="r.enable!==false" @change="ruleToggle(r, group)"></td>
                   <td>{{ typeof r.matcher === 'string' ? r.matcher : '(inline)' }}</td>
                   <td><span class="tag" :class="actionClass(r.action)">{{ r.action }}</span></td>
                   <td><span class="json-inline">{{ summarizeRule(r) }}</span></td>
+                  <td class="actions">
+                    <button class="outline small" @click="ruleOpenEdit(r, group, i)">Edit</button>
+                    <button class="danger small" @click="ruleDelete(r, group)">Del</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -788,6 +796,29 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
       </div>
 
+      <!-- Audit -->
+      <div v-if="page==='audit'">
+        <div class="flex flex-between mb-16">
+          <h2 class="page-title" style="margin-bottom:0">Audit Log</h2>
+          <button class="outline small" @click="loadAudit">Refresh</button>
+        </div>
+        <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+            <tbody>
+              <tr v-for="e in auditEntries" :key="e.time + e.action">
+                <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
+                <td><code>{{ e.user }}</code></td>
+                <td><span class="tag" :class="auditActionClass(e.action)">{{ e.action }}</span></td>
+                <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.detail }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="!auditEntries.length" class="empty">No audit entries.</div>
+        </div>
+      </div>
+
       <!-- About -->
       <div v-if="page==='about'" style="text-align:center;padding-top:60px">
         <h1>VeryNginx</h1>
@@ -894,6 +925,76 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     </div>
   </div>
 
+  <!-- Rule Editor Modal -->
+  <div class="modal-overlay" v-if="ruleEditModal.show" @click.self="ruleEditModal.show=false">
+    <div class="modal" style="max-width:600px">
+      <h3>{{ ruleEditModal._isNew ? 'Add Rule' : 'Edit Rule' }} <small style="color:var(--muted)">group: {{ ruleEditModal._group }}</small></h3>
+      <div class="field">
+        <label><input type="checkbox" v-model="ruleEditModal.enable"> Enabled</label>
+      </div>
+      <div class="field">
+        <label>Matcher</label>
+        <select v-model="ruleEditModal.matcherType" @change="ruleEditModalChanged" style="width:100%">
+          <option value="inline">Inline JSON</option>
+          <option v-for="m in matcherKeys" :key="m" :value="m">{{ m }}</option>
+        </select>
+        <textarea v-if="ruleEditModal.matcherType==='inline'" v-model="ruleEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:80px;margin-top:4px"></textarea>
+      </div>
+      <div class="field">
+        <label>Action</label>
+        <select v-model="ruleEditModal.action" @change="ruleEditModalChanged" style="width:100%">
+          <option value="block">block</option>
+          <option value="redirect">redirect</option>
+          <option value="response">response</option>
+          <option value="rewrite">rewrite</option>
+          <option value="proxy">proxy</option>
+          <option value="static">static</option>
+          <option value="accept">accept</option>
+          <option value="challenge">challenge</option>
+        </select>
+      </div>
+      <!-- block fields -->
+      <template v-if="ruleEditModal.action==='block'">
+        <div class="field"><label>HTTP Code</label><input v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
+        <div class="field"><label>Response</label><input v-model="ruleEditModal.response" placeholder="template name or JSON" style="width:100%"></div>
+      </template>
+      <!-- redirect fields -->
+      <template v-if="ruleEditModal.action==='redirect'">
+        <div class="field"><label>To URI</label><input v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
+        <div class="field"><label>HTTP Code</label><select v-model.number="ruleEditModal.code" style="width:100px"><option :value="301">301</option><option :value="302">302</option><option :value="307">307</option><option :value="308">308</option></select></div>
+      </template>
+      <!-- response fields -->
+      <template v-if="ruleEditModal.action==='response'">
+        <div class="field"><label>HTTP Code</label><input v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
+        <div class="field"><label>Response</label><input v-model="ruleEditModal.response" placeholder="template name e.g. forbidden_json" style="width:100%"></div>
+      </template>
+      <!-- rewrite fields -->
+      <template v-if="ruleEditModal.action==='rewrite'">
+        <div class="field"><label>To URI</label><input v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
+      </template>
+      <!-- proxy fields -->
+      <template v-if="ruleEditModal.action==='proxy'">
+        <div class="field">
+          <label>Upstream</label>
+          <select v-model="ruleEditModal.upstream" style="width:100%">
+            <option value="" disabled>Select upstream</option>
+            <option v-for="u in upstreamKeys" :key="u" :value="u">{{ u }}</option>
+          </select>
+        </div>
+      </template>
+      <!-- static fields -->
+      <template v-if="ruleEditModal.action==='static'">
+        <div class="field"><label>Root</label><input v-model="ruleEditModal.root" placeholder="/var/www" style="width:100%"></div>
+        <div class="field"><label>Path (optional)</label><input v-model="ruleEditModal.path" placeholder="/index.html" style="width:100%"></div>
+        <div class="field"><label>Expires</label><input v-model="ruleEditModal.expires" placeholder="epoch / max / off" style="width:100%"></div>
+      </template>
+      <div class="modal-actions">
+        <button class="outline" @click="ruleEditModal.show=false">Cancel</button>
+        <button class="primary" :disabled="ruleSaving" @click="ruleSave">{{ ruleSaving ? 'Saving…' : 'Save' }}</button>
+      </div>
+    </div>
+  </div>
+
   </template>
 </div>
 
@@ -968,6 +1069,16 @@ const app = Vue.createApp({
     const expandedUri = ref(null);
     const editMatcherModal = reactive({ show: false, name: '', conditions: '' });
 
+    // ---- Config Rule Editor State ----
+    const ruleEditModal = reactive({
+      show: false, _isNew: false, _group: '', _index: -1,
+      enable: true, matcherType: 'inline', matcherJson: '{}',
+      action: 'block', code: 403, to_uri: '', upstream: '',
+      root: '', path: '', expires: '', response: '',
+    });
+    const ruleSaving = ref(false);
+    const upstreamKeys = computed(() => Object.keys(cfg.value.backend_upstream || {}).sort());
+
     // ---- WAF State ----
     const wafTab = ref('rules');
     const wafError = ref('');
@@ -1007,6 +1118,10 @@ const app = Vue.createApp({
     const repNewWhitelist = ref('');
     const repLookupIP = ref('');
     const repLookupResult = ref(null);
+
+    // ---- Audit State ----
+    const auditEntries = ref([]);
+    const auditError = ref('');
 
     const plugins = ref([]);
     const pluginsError = ref('');
@@ -1151,6 +1266,133 @@ const app = Vue.createApp({
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       delete newCfg.matcher[name];
       commitConfig(newCfg);
+    }
+
+    // ---- Config Rules CRUD ----
+    function ruleEditReset() {
+      ruleEditModal.enable = true;
+      ruleEditModal.matcherType = 'inline';
+      ruleEditModal.matcherJson = '{}';
+      ruleEditModal.action = 'block';
+      ruleEditModal.code = 403;
+      ruleEditModal.to_uri = '';
+      ruleEditModal.upstream = '';
+      ruleEditModal.root = '';
+      ruleEditModal.path = '';
+      ruleEditModal.expires = '';
+      ruleEditModal.response = '';
+    }
+
+    function ruleOpenCreate(group) {
+      ruleEditReset();
+      ruleEditModal._isNew = true;
+      ruleEditModal._group = group;
+      ruleEditModal.show = true;
+    }
+
+    function ruleOpenEdit(rule, group, idx) {
+      ruleEditReset();
+      ruleEditModal._isNew = false;
+      ruleEditModal._group = group;
+      ruleEditModal._index = idx;
+      ruleEditModal.enable = rule.enable !== false;
+      if (typeof rule.matcher === 'string') {
+        ruleEditModal.matcherType = rule.matcher;
+        ruleEditModal.matcherJson = '{}';
+      } else {
+        ruleEditModal.matcherType = 'inline';
+        ruleEditModal.matcherJson = JSON.stringify(rule.matcher, null, 2);
+      }
+      ruleEditModal.action = rule.action || 'block';
+      ruleEditModal.code = rule.code || 403;
+      ruleEditModal.to_uri = rule.to_uri || '';
+      ruleEditModal.upstream = rule.upstream || '';
+      ruleEditModal.root = rule.root || '';
+      ruleEditModal.path = rule.path || '';
+      ruleEditModal.expires = rule.expires || '';
+      ruleEditModal.response = typeof rule.response === 'string' ? rule.response : '';
+      ruleEditModal.show = true;
+    }
+
+    function ruleEditModalChanged() {
+      // Clear stale fields when action changes
+      if (ruleEditModal.action !== 'block') { ruleEditModal.response = ''; }
+      if (ruleEditModal.action !== 'redirect' && ruleEditModal.action !== 'block') { ruleEditModal.code = 403; }
+      if (ruleEditModal.action !== 'redirect' && ruleEditModal.action !== 'rewrite') { ruleEditModal.to_uri = ''; }
+      if (ruleEditModal.action !== 'proxy') { ruleEditModal.upstream = ''; }
+      if (ruleEditModal.action !== 'static') { ruleEditModal.root = ''; ruleEditModal.path = ''; ruleEditModal.expires = ''; }
+      if (ruleEditModal.action !== 'response') { ruleEditModal.response = ''; }
+    }
+
+    function ruleBuildRule() {
+      const rule = { enable: ruleEditModal.enable };
+      if (ruleEditModal.matcherType === 'inline') {
+        try { rule.matcher = JSON.parse(ruleEditModal.matcherJson); } catch { rule.matcher = {}; }
+      } else {
+        rule.matcher = ruleEditModal.matcherType;
+      }
+      rule.action = ruleEditModal.action;
+      if (ruleEditModal.action === 'block' || ruleEditModal.action === 'response') {
+        if (ruleEditModal.code) rule.code = ruleEditModal.code;
+        if (ruleEditModal.response) {
+          try { rule.response = JSON.parse(ruleEditModal.response); } catch { rule.response = ruleEditModal.response; }
+        }
+      }
+      if (ruleEditModal.action === 'redirect' || ruleEditModal.action === 'rewrite') {
+        if (ruleEditModal.to_uri) rule.to_uri = ruleEditModal.to_uri;
+      }
+      if (ruleEditModal.action === 'redirect') {
+        if (ruleEditModal.code) rule.code = ruleEditModal.code;
+      }
+      if (ruleEditModal.action === 'proxy') {
+        if (ruleEditModal.upstream) rule.upstream = ruleEditModal.upstream;
+      }
+      if (ruleEditModal.action === 'static') {
+        if (ruleEditModal.root) rule.root = ruleEditModal.root;
+        if (ruleEditModal.path) rule.path = ruleEditModal.path;
+        if (ruleEditModal.expires) rule.expires = ruleEditModal.expires;
+      }
+      return rule;
+    }
+
+    function ruleSave() {
+      ruleSaving.value = true;
+      try {
+        const newCfg = JSON.parse(JSON.stringify(cfg.value));
+        const group = ruleEditModal._group;
+        if (!newCfg.rule) newCfg.rule = {};
+        if (!newCfg.rule[group]) newCfg.rule[group] = [];
+        const rule = ruleBuildRule();
+        if (ruleEditModal._isNew) {
+          newCfg.rule[group].push(rule);
+        } else {
+          newCfg.rule[group][ruleEditModal._index] = rule;
+        }
+        commitConfig(newCfg);
+        ruleEditModal.show = false;
+      } catch (e) {
+        alert('Error: ' + e.message);
+      } finally {
+        ruleSaving.value = false;
+      }
+    }
+
+    function ruleDelete(rule, group) {
+      if (!confirm('Delete this rule?')) return;
+      const newCfg = JSON.parse(JSON.stringify(cfg.value));
+      if (!newCfg.rule || !newCfg.rule[group]) return;
+      newCfg.rule[group] = newCfg.rule[group].filter(r => r !== rule);
+      commitConfig(newCfg);
+    }
+
+    function ruleToggle(rule, group) {
+      const newCfg = JSON.parse(JSON.stringify(cfg.value));
+      if (!newCfg.rule || !newCfg.rule[group]) return;
+      const r = newCfg.rule[group].find(r => r === rule);
+      if (r) {
+        r.enable = r.enable === false ? true : false;
+        commitConfig(newCfg);
+      }
     }
 
     // ---- Save ----
@@ -1598,6 +1840,28 @@ const app = Vue.createApp({
       }
     }
 
+    function auditActionClass(a) {
+      if (!a) return '';
+      if (a.startsWith('login')) return a === 'login_success' ? 'tag-ok' : 'tag-err';
+      if (a.startsWith('waf_rule')) return 'tag-warn';
+      if (a === 'POST' || a === 'PUT' || a === 'DELETE') return 'tag-warn';
+      return '';
+    }
+
+    async function loadAudit() {
+      auditError.value = '';
+      try {
+        const d = await api('GET', '/verynginx/audit?limit=100');
+        if (d.ret === 'success') {
+          auditEntries.value = d.data || [];
+        } else {
+          auditError.value = d.message || 'Failed to load audit';
+        }
+      } catch (e) {
+        auditError.value = e.message;
+      }
+    }
+
     async function loadWafData() {
       await loadWafRules();
       if (wafTab.value === 'hits') await loadWafHits();
@@ -1922,6 +2186,9 @@ const app = Vue.createApp({
       editMatcher, saveMatcher, deleteMatcher,
       commitConfig, saveRawConfig, loadStats,
       formatTime, formatBytes, formatNumber, calcSuccess, successClass, summarizeRule, actionClass,
+      // Config Rules CRUD
+      ruleEditModal, ruleSaving, upstreamKeys,
+      ruleOpenCreate, ruleOpenEdit, ruleEditModalChanged, ruleSave, ruleDelete, ruleToggle,
       // WAF
       wafTab, wafError, wafRules, wafCategories, wafPagination,
       wafFilterCat, wafFilterSev, wafStatsData, wafStatsError,
@@ -1942,6 +2209,8 @@ const app = Vue.createApp({
       repStats, repFlagged, repWhitelist, repError,
       repNewWhitelist, repLookupIP, repLookupResult,
       remaining, loadRepData, repClear, repAddWhitelist, repRemoveWhitelist, repPersist, repLookup,
+      // Audit
+      auditEntries, auditError, auditActionClass, loadAudit,
     };
   }
 });
