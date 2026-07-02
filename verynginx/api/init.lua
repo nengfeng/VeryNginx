@@ -739,15 +739,15 @@ local function handle_toggle_plugin()
             end
         end
     end
-    -- Save the module table with toggle applied.
+    -- Apply toggle and save the module table.
     -- save() internal deep_copy (via __pairs) captures the mutation.
     -- If save fails we revert the in-memory change.
-    local old_enable = config_mod.plugin[name] and config_mod.plugin[name].enable
+    if not config_mod.plugin[name] then config_mod.plugin[name] = {} end
+    local old_enable = config_mod.plugin[name].enable
     config_mod.plugin[name].enable = not current
     local ok, err = config_mod.save(config_mod)
     if not ok then
-        if old_enable == nil then config_mod.plugin[name] = nil
-        else config_mod.plugin[name].enable = old_enable end
+        config_mod.plugin[name].enable = old_enable
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
