@@ -87,7 +87,9 @@ function _M.execute_access(ctx)
             break
         end
         if plugin.on_access then
+            local t0 = ngx.now()
             local ok, err = pcall(plugin.on_access, ctx)
+            metrics.observe("plugin_duration", ngx.now() - t0, { plugin = plugin.name })
             if not ok then
                 _M.handle_error(plugin, ctx, "access", err)
             end

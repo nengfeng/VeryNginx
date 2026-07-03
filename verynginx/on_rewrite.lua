@@ -12,6 +12,10 @@ config.check_update()
 
 -- 2. Create request context
 local ctx = context.new()
+
+-- Record start time for WAF latency tracking
+ctx.request.waf_start_time = ngx.now()
+
 ngx.ctx.vn_ctx = ctx
 
 -- 3. Execute rewrite-phase actions

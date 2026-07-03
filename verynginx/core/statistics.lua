@@ -5,6 +5,7 @@
 
 local _M = {}
 local config = require "core.config"
+local cjson = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
 -- ---------------------------------------------------------------------------
 -- LRU index helpers (stored in shared dict)
@@ -13,7 +14,7 @@ local function lru_add(shared, index_key, uri, max_keys)
     local data = shared:get(index_key)
     local list = {}
     if data then
-        local ok, decoded = pcall(require("dkjson").decode, data)
+        local ok, decoded = pcall(cjson.decode, data)
         if ok then
             list = decoded
         end
@@ -30,7 +31,7 @@ local function lru_add(shared, index_key, uri, max_keys)
     while #list > max_keys do
         table.remove(list)
     end
-    shared:set(index_key, require("dkjson").encode(list))
+    shared:set(index_key, cjson.encode(list))
 end
 
 local function lru_list(shared, index_key)
@@ -284,7 +285,7 @@ function _M.report(period)
         end
     end
 
-    return require("dkjson").encode(report)
+    return cjson.encode(report)
 end
 
 -- ---------------------------------------------------------------------------

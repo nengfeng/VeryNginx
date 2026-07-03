@@ -4,6 +4,7 @@
 -- @Disc    : matcher registry - register, resolve, and execute matchers
 
 local _M = {}
+local cjson = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
 _M.registry = {}
 
@@ -31,7 +32,10 @@ function _M.test(matcher_def, ctx)
         return true
     end
 
-    local cache_key = ngx and ngx.crc32_short and ngx.crc32_short(require("dkjson").encode(matcher_def))
+    local cache_key = matcher_def and matcher_def._matcher_crc
+    if not cache_key then
+        cache_key = ngx and ngx.crc32_short and ngx.crc32_short(cjson.encode(matcher_def))
+    end
     if cache_key and ctx and ctx.match_cache and ctx.match_cache[cache_key] ~= nil then
         return ctx.match_cache[cache_key]
     end
