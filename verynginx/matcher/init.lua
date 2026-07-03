@@ -8,6 +8,20 @@ local cjson = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
 _M.registry = {}
 
+-- Condition evaluation priority: lighter checks first for early short-circuit
+local _CONDITION_ORDER = {
+    Method = 1,
+    URI = 2,
+    Host = 3,
+    UA = 4,
+    Referer = 5,
+    IP = 6,
+    Header = 7,
+    Cookie = 8,
+    Args = 9,
+    Composite = 10,
+}
+
 function _M.register(name, handler)
     _M.registry[name] = handler
 end
@@ -41,10 +55,17 @@ function _M.test(matcher_def, ctx)
     end
 
     local result = true
+    -- Collect conditions and sort by priority for early short-circuit
+    local sorted = {}
     for condition_type, condition in pairs(matcher_def) do
-        local handler = _M.registry[condition_type]
+        sorted[#sorted + 1] = { type = condition_type, cond = condition,
+                                order = _CONDITION_ORDER[condition_type] or 50 }
+    end
+    table.sort(sorted, function(a, b) return a.order < b.order end)
+    for _, entry in ipairs(sorted) do
+        local handler = _M.registry[entry.type]
         if handler then
-            local ok = handler(condition, ctx)
+            local ok = handler(entry.cond, ctx)
             if not ok then
                 result = false
                 break

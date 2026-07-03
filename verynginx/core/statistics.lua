@@ -7,6 +7,10 @@ local _M = {}
 local config = require "core.config"
 local cjson = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
+-- LRU update sample rate: only update LRU index every N requests to
+-- avoid JSON encode/decode hot path. Counter increments stay per-request.
+local LRU_SAMPLE_RATE = 10
+
 -- ---------------------------------------------------------------------------
 -- LRU index helpers (stored in shared dict)
 -- ---------------------------------------------------------------------------
@@ -127,7 +131,10 @@ function _M.log_request(_)
     local code_idx = status
     shared:incr(key .. ":status_" .. code_idx, 1, 0)
     _M._record_seen_code(shared, key, code_idx)
-    lru_add(shared, "index:1m", uri, max_keys)
+    -- Only update LRU index on sampled requests to reduce JSON overhead
+    if math.random(1, LRU_SAMPLE_RATE) == 1 then
+        lru_add(shared, "index:1m", uri, max_keys)
+    end
 end
 
 -- ---------------------------------------------------------------------------
