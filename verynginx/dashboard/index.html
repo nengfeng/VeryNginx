@@ -1164,7 +1164,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
   <!-- Hit Detail Modal -->
   <div class="modal-overlay" v-if="wafHitDetailModal.show" @click.self="wafHitDetailModal.show=false">
     <div class="modal" style="max-width:700px">
-      <h3>命中详情 <small style="color:var(--muted)">{{ wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id }}</small></h3>
+      <h3>命中详情 <small style="color:var(--muted)">{{ wafHitDetailModal.data ? (wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id) : '' }}</small></h3>
       <div v-if="wafHitDetailModal.loading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
       <div v-else-if="wafHitDetailModal.data">
         <div class="grid grid-2 mb-8">
