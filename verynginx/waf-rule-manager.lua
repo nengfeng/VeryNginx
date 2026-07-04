@@ -714,7 +714,7 @@ function _M.record_hit(rule_id, ctx, action)
     local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
     shared:set("waf_recent_hits:data:" .. ring_idx, hit_data)
 
-    -- Store full hit details separately for drill-down
+    -- Store full hit details separately for drill-down (no TTL — persists with ring buffer)
     local detail = {
         rule_id = rule_id,
         action = hit_action,
@@ -750,7 +750,7 @@ function _M.record_hit(rule_id, ctx, action)
             detail.ja3_fingerprint = ja3
         end
     end)
-    shared:set("waf_hit_detail:" .. ring_idx, json.encode(detail), 3600)
+    shared:set("waf_hit_detail:" .. ring_idx, json.encode(detail))
 end
 
 -- ---------------------------------------------------------------------------
