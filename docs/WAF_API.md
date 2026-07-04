@@ -181,7 +181,185 @@ GET /verynginx/waf/stats
 GET /verynginx/waf/stats/{id}
 ```
 
-Returns runtime stats for a single rule.
+Returns runtime stats for a single rule (hit_count, block_count, challenge_count).
+
+---
+
+## Analytics
+
+### Rule Effectiveness Scoring
+
+```
+GET /verynginx/waf/analytics
+```
+
+Returns per-rule effectiveness grades, hit/challenge/pass counts, and dead rule detection.
+
+**Response**:
+```json
+{
+  "ret": "success",
+  "data": {
+    "rules": [
+      {
+        "id": "attack_sqli",
+        "name": "SQL Injection",
+        "action": "block",
+        "hits": 1420,
+        "blocks": 1420,
+        "challenges": 0,
+        "challenge_passes": 0,
+        "challenge_pass_rate": "-",
+        "grade": "A+",
+        "dead": false,
+        "last_triggered": 1719000000,
+        "last_triggered_ago": 3600
+      }
+    ],
+    "dead_rules": [
+      { "id": "attack_xxe", "name": "XXE", "enable": false, "hits": 0 }
+    ]
+  }
+}
+```
+
+**Grades**: A+ (pure block) / A (low pass rate) / B (medium) / C (high pass rate, possible false positives) / N/A (no data).
+
+### Attack Timeline
+
+```
+GET /verynginx/waf/timeline?hours=1&bucket=5
+```
+
+Aggregated blocked hits by time bucket and category.
+
+**Query Parameters**:
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `hours` | number | 1 | Time window (1-24) |
+| `bucket` | number | 5 | Bucket size in minutes (1-30) |
+
+**Response**:
+```json
+{
+  "ret": "success",
+  "data": {
+    "buckets": [{ "time": 1719000000, "counts": { "sqli": 5, "scanner": 2 } }],
+    "categories": ["sqli", "scanner"],
+    "bucket_minutes": 5,
+    "hours": 1
+  }
+}
+```
+
+### Hit Detail (Drill-down)
+
+```
+GET /verynginx/waf/hits/{ring_idx}
+```
+
+Returns full request context for a specific hit, enriched with rule metadata and IP reputation.
+
+**Response**:
+```json
+{
+  "ret": "success",
+  "data": {
+    "rule_id": "attack_sqli",
+    "rule_name": "SQL Injection",
+    "rule_category": "sqli",
+    "timestamp": 1719000000,
+    "ip": "1.2.3.4",
+    "method": "GET",
+    "uri": "/api/user?id=1' OR '1'='1",
+    "user_agent": "Mozilla/5.0...",
+    "headers": { "Accept": "application/json", "Cookie": "..." },
+    "body_snippet": "",
+    "action": "block",
+    "ip_score": 30,
+    "ip_flagged": true,
+    "ip_whitelisted": false,
+    "ip_hit_count": 23,
+    "ja3_fingerprint": "ja3:abc123..."
+  }
+}
+```
+
+### Hits by IP
+
+```
+GET /verynginx/waf/hits/by-ip?ip=1.2.3.4
+```
+
+Returns all recent hits from a specific IP address.
+
+### Test History
+
+```
+GET /verynginx/waf/test-history
+```
+
+Returns the last 20 test runs with rule name, pass/fail counts, and individual results.
+
+```
+DELETE /verynginx/waf/test-history
+```
+
+Clears all test history.
+
+---
+
+## Frequency Limit
+
+### List Rules
+
+```
+GET /verynginx/frequency/rules
+```
+
+Returns all frequency limit rules from config.
+
+### Save Rule
+
+```
+POST /verynginx/frequency/rules
+Content-Type: application/json
+
+{ "id": "freq_login", "key": "ip", "limit": 60, "window": 60, "code": 429 }
+```
+
+### Delete Rule
+
+```
+DELETE /verynginx/frequency/rules/{freq_login}
+```
+
+### Active Counters
+
+```
+GET /verynginx/frequency/stats
+```
+
+Returns active rate limit counters (top 200 by count).
+
+---
+
+## Audit
+
+```
+GET /verynginx/audit?user=&action=&since=&until=&limit=500
+```
+
+Returns audit log entries, filterable by user, action type, and time range.
+
+**Query Parameters**:
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `user` | string | - | Filter by username |
+| `action` | string | - | Filter by action type |
+| `since` | number | - | Unix timestamp, start of range |
+| `until` | number | - | Unix timestamp, end of range |
+| `limit` | number | 200 | Max results (max 1000) |
 
 ---
 

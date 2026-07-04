@@ -596,6 +596,46 @@ VeryNginx 的配置保存后**立即生效**，无需重启 Nginx。如果是跨
 2. 设置 `dashboard_host` 限制特定域名访问
 3. 使用 `scheme_lock` 规则强制 HTTPS
 4. 在 Nginx 层面增加 IP 白名单限制 `/verynginx/` 路径
+5. 修改 `base_uri`（如 `/nvx7k2`）避免被自动化扫描器探测
+
+### Dashboard 功能概览
+
+| 标签页 | 功能 |
+|--------|------|
+| Overview | 系统概览：连接数、请求速率、WAF 命中、上游健康、共享字典使用率 |
+| Status | Nginx 连接状态趋势图 |
+| Config | 配置管理：匹配器、规则、上游、响应模板、插件、IP 频率限制、系统设置、原始 JSON |
+| Stats | 请求统计：按 URI 统计、Top 路径 |
+| WAF | WAF 规则管理：规则列表、暂存审批流、分析（效果评级 + 死规则）、时间线、命中记录、规则测试器 |
+| Frequency | 频率限制：规则管理 + 活跃计数器 |
+| Reputation | IP 信誉：被标记 IP、白名单、分数查询、持久化 |
+| Audit | 操作审计：按用户/操作类型/时间筛选 |
+
+### WAF 规则分析
+
+**效果评级**：
+| 评级 | 含义 |
+|------|------|
+| A+ | 纯 block 规则，有效拦截 |
+| A | Challenge 规则通过率低（<50%），说明拦截有效 |
+| B | Challenge 规则通过率中等（50-80%） |
+| C | Challenge 规则通过率高（>80%），可能存在误伤 |
+| N/A | 无命中数据 |
+
+**攻击时间线**：堆叠柱状图按攻击类别（SQLi=红色、XSS=橙色、扫描器=蓝色等）分色展示，时间范围可选 1-24 小时，桶粒度 1-30 分钟。
+
+**命中详情**：点击任意命中记录可查看完整请求上下文（UA、URI、Query String、Body 片段、Headers、IP 信誉分数/标记状态/白名单状态、同 IP 其他命中）。
+
+### 频率管理
+
+限流规则支持按 IP / URI / User / Host 维度，可配置限制窗口（秒）和最大命中次数。Dashboard 显示当前活跃的计数器 Top 50。
+
+### 会话安全
+
+- 默认会话 TTL：**8 小时**（`config.json` → `security.session_ttl`）
+- 账户锁定：5 次连续登录失败后锁定 15 分钟
+- 登录速率限制：IP 级 30 次/分钟，用户名级 5 次/分钟
+- 管理员操作连续失败 5 次后账户自动锁定
 
 ### 性能建议
 
@@ -603,6 +643,7 @@ VeryNginx 的配置保存后**立即生效**，无需重启 Nginx。如果是跨
 - 共享字典大小根据实际流量调整（`in_http_block.conf` 中的 `lua_shared_dict`）
 - `max_uri_keys` 限制统计追踪的 URI 数量，避免内存溢出
 - 开启 `gzip` 压缩减少管理面板响应体积
+- `statistics` 共享字典 20MB 默认足够千 QPS 级别使用
 
 ---
 
@@ -610,4 +651,6 @@ VeryNginx 的配置保存后**立即生效**，无需重启 Nginx。如果是跨
 
 - [INSTALL_zh.md](INSTALL_zh.md) — 安装手册
 - [DESIGN_V2.md](DESIGN_V2.md) — v2 架构设计
+- [IP 信誉调优](IP_REPUTATION_TUNING_GUIDE.md) — 生产环境阈值配置与误报排查
+- [WAF API 参考](WAF_API.md) — 规则管理 REST API
 - [VeryNginx Issues](https://github.com/nengfeng/VeryNginx/issues)

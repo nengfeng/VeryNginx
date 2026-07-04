@@ -16,6 +16,15 @@
 - **预置 WAF 规则** — SQL 注入、路径遍历、扫描器检测、Git/SVN 泄露
 - **浏览器验证** — Cookie + JavaScript 挑战，防御 CC 攻击和机器人流量
 - **频率限制** — 支持按 IP、URI、自定义键的精细化限流
+- **规则审批流** — 规则修改可先暂存为 "pending"，确认后再生效
+- **规则效果评分** — 根据 challenge 通过率和命中数自动评级（A+/A/B/C/D）
+- **死规则检测** — 30 天内零命中的规则自动标灰，提示清理
+- **攻击时间线** — 堆叠柱状图，按攻击类别分色展示攻击趋势
+- **命中详情钻取** — 点击任意命中记录查看完整请求上下文（UA、Headers、Body、IP 信誉）
+- **规则测试历史** — 自动保存最近 20 次测试，方便对比调试
+- **内置规则测试器** — 请求样本 + 匹配结果，即时验证规则
+- **IP 信誉引擎** — 基于 WAF 阻断/Challenge/404 信号评分，自动标记、白名单、Challenge 流程
+- **TLS 指纹（JA3）** — 通过 TLS 握手指纹识别客户端（降级到简单 TLS 参数）
 
 ### 反向代理
 
@@ -28,17 +37,25 @@
 
 ### 管理
 
-- **Web 管理面板** — 通过 `/verynginx/index.html` 完成所有配置
+- **Web 管理面板** — 通过 `/verynginx/index.html` 完成所有配置（`base_uri` 可自定义）
+- **暗黑模式** — 内置深色主题，自动跟随系统偏好，localStorage 记忆
 - **热更新** — 配置保存后立即生效（零 I/O MD5 哈希比对）
 - **原子写入** — `tmp + rename` 策略，自动备份（保留最近 10 份）
-- **Prometheus 指标** — `/verynginx/metrics` 端点，方便接入监控系统
+- **Prometheus 指标** — `/verynginx/metrics` 端点（per-rule 命中/拦截/Challenge、插件耗时、IP 信誉）
 - **请求统计** — 按 URI 细分，支持 1 分钟 / 5 分钟 / 1 小时 / 全部 四个时间窗口
+- **审计日志** — 环形缓冲区（1000 条），支持按用户、操作类型、时间范围搜索
+- **告警引擎** — Webhook 通知：命中率飙升、误报率变化、未知攻击模式、JA3 跨 IP 关联
+- **频率限制管理** — 独立 Dashboard 页面管理限流规则和活跃计数器
 
 ### 安全
 
-- **会话认证** — PBKDF2-HMAC-SHA256 密码哈希（可选升级到 bcrypt 或 argon2）
+- **会话认证** — PBKDF2-HMAC-SHA256 密码哈希（可选升级到 bcrypt 或 argon2），默认 8 小时过期
 - **CSRF 保护** — 默认开启，覆盖所有配置接口
 - **请求体限制** — 可配置大小上限、参数数量上限、异常策略（fail-closed / match / skip）
+- **账户锁定** — 5 次登录失败后锁定 15 分钟
+- **登录速率限制** — IP 级（30次/分钟）+ 用户名级（5次/分钟）
+- **审计日志筛选** — 按用户、操作类型、时间范围搜索，便于安全排查
+- **SSRF 防护** — Webhook URL 双重校验（仅 HTTPS、禁止内网 IP），存储时 + 运行时双重拦截
 
 ---
 
@@ -97,8 +114,10 @@ docker run -d --name=verynginx -p 8080:80 verynginx
 | 文档 | 说明 |
 |---|---|
 | [安装手册](docs/INSTALL_zh.md) | install.py 一键安装、手动 Nginx 编译、Docker、安装后配置 |
-| [使用手册](docs/USAGE_zh.md) | 匹配器、规则、上游配置、插件系统、统计、安全 |
+| [使用手册](docs/USAGE_zh.md) | 匹配器、规则、上游配置、插件系统、统计、安全、Dashboard 功能 |
 | [架构设计](docs/DESIGN_V2.md) | v2 设计文档：插件系统、配置管理、请求生命周期 |
+| [IP 信誉调优](docs/IP_REPUTATION_TUNING_GUIDE.md) | 生产调优：阈值推荐、误报排查、pending TTL 协同 |
+| [WAF API 参考](docs/WAF_API.md) | 规则管理、测试、统计、分析的 REST API |
 
 ---
 

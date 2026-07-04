@@ -16,6 +16,15 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **Pre-built WAF rules** — SQL injection, path traversal, scanner detection, Git/SVN exposure
 - **Browser verification** — cookie + JavaScript challenge against bots and CC attacks
 - **Rate limiting** — per-IP, per-URI, or custom key with configurable time windows
+- **Rule staging / approval flow** — changes can be staged as "pending" before activation
+- **Rule effectiveness scoring** — grades (A+/A/B/C/D) based on challenge pass rates and hit counts
+- **Dead rule detection** — flags rules with zero hits in 30 days for review or cleanup
+- **Attack timeline** — stacked bar chart of blocked attacks by category over time (color-coded)
+- **Hit detail drill-down** — click any hit to see full request context (UA, headers, body, IP reputation)
+- **Rule test history** — automatic save of last 20 test runs for comparison and debugging
+- **Test rule against cases** — built-in tester with request samples and match results
+- **IP reputation engine** — scoring based on signals (WAF block/challenge/404), auto-flagging, whitelist, challenge flow
+- **TLS fingerprinting (JA3)** — client identification via TLS handshake fingerprint (graceful fallback to simple TLS params)
 
 ### Reverse Proxy
 
@@ -28,17 +37,25 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 
 ### Management
 
-- **Web dashboard** — full configuration at `/verynginx/index.html`
+- **Web dashboard** — full configuration at `/verynginx/index.html` (configurable `base_uri`)
+- **Dark mode** — built-in dark theme with system preference detection and localStorage persistence
 - **Hot-reload** — config changes take effect immediately (zero-I/O MD5 hash comparison)
 - **Atomic saves** — `tmp + rename` strategy with automatic backups (keeps last 10)
-- **Prometheus metrics** — `/verynginx/metrics` endpoint for monitoring
+- **Prometheus metrics** — `/verynginx/metrics` endpoint for monitoring (per-rule hits/blocks/challenges, plugin duration, IP reputation)
 - **Request statistics** — per-URI tracking across 1m/5m/1h/all time windows
+- **Audit log** — ring buffer (1000 entries) with search by user, action type, and time range
+- **Alerting engine** — webhook notifications for hit rate spikes, false positive changes, unknown attack patterns, JA3 cross-IP correlation
+- **Frequency limit management** — dedicated dashboard page for rate limit rules and active counters
 
 ### Security
 
-- **Session authentication** — PBKDF2-HMAC-SHA256 password hashing (optional bcrypt/argon2)
+- **Session authentication** — PBKDF2-HMAC-SHA256 password hashing (optional bcrypt/argon2), 8h default TTL
 - **CSRF protection** — enabled by default for all configuration endpoints
 - **Configurable request body limits** — size, argument count, error policy (fail-closed/match/skip)
+- **Account lockout** — 5 failed logins locks the account for 15 minutes
+- **Rate limiting** — IP-based (30/min) and per-user (5/min) login protection
+- **Audit log filtering** — search by user, action type, and time range for security investigations
+- **SSRF protection** — webhook URLs validated (HTTPS-only, no internal IPs) at storage and runtime
 
 ---
 
@@ -97,8 +114,10 @@ All other Nginx workers detect the change via MD5 hash in shared memory (zero fi
 | Document | Description |
 |---|---|
 | [Installation Guide](docs/INSTALL_zh.md) | install.py, manual Nginx, Docker, and post-install setup |
-| [Usage Manual](docs/USAGE_zh.md) | matchers, rules, upstreams, plugins, statistics, security |
+| [Usage Manual](docs/USAGE_zh.md) | matchers, rules, upstreams, plugins, statistics, security, dashboard features |
 | [Architecture Design](docs/DESIGN_V2.md) | v2 design: plugin system, config management, request lifecycle |
+| [IP Reputation Tuning](docs/IP_REPUTATION_TUNING_GUIDE.md) | production tuning: thresholds, false positive troubleshooting, pending TTL coordination |
+| [WAF API Reference](docs/WAF_API.md) | REST API for rule management, testing, statistics, and analytics |
 
 ---
 
