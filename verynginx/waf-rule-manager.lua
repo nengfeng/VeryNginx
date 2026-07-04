@@ -680,7 +680,7 @@ end
 -- ---------------------------------------------------------------------------
 -- record_hit  — push a hit event into the async buffer (O(1), non-blocking)
 -- ---------------------------------------------------------------------------
-function _M.record_hit(rule_id, ctx)
+function _M.record_hit(rule_id, ctx, action)
     local shared = ngx.shared.vn_config
     if not shared then return end
 
@@ -692,8 +692,10 @@ function _M.record_hit(rule_id, ctx)
         return
     end
 
+    local hit_action = action or "log"
     local hit_data = table.concat({
         rule_id,
+        hit_action,
         tostring(ngx.time()),
         ctx.request.uri or "",
         ctx.request.remote_addr or "",
@@ -813,16 +815,22 @@ function _M.flush_hit_stats()
         local hit_data = shared:get(key)
         if hit_data then
             shared:delete(key)
-            -- Format: rule_id|timestamp|uri|ip|method
-            -- URI may contain | so parse greedily from the right for ip and method
-            local rule_id, ts_str, uri = hit_data:match("^([^|]*)|([^|]*)|(.*)|([^|]*)|([^|]*)$")
+            -- Format: rule_id|action|timestamp|uri|ip|method
+            local rule_id, action, ts_str, rest = hit_data:match("^([^|]*)|([^|]*)|([^|]*)|(.*)$")
+            -- Parse uri|ip|method from rest (URI may contain | so greedy from right)
+            local uri, ip, method
+            if rest then
+                uri, ip, method = rest:match("^(.-)|([^|]*)|([^|]*)$")
+            end
             if rule_id and #rule_id > 0 then
                 local ts = tonumber(ts_str)
                 if not stats_agg[rule_id] then
-                    stats_agg[rule_id] = { hit_count = 0, last_triggered = 0, last_matched_uri = "" }
+                    stats_agg[rule_id] = { hit_count = 0, block_count = 0, challenge_count = 0, last_triggered = 0, last_matched_uri = "" }
                 end
                 local agg = stats_agg[rule_id]
                 agg.hit_count = agg.hit_count + 1
+                if action == "block" then agg.block_count = (agg.block_count or 0) + 1 end
+                if action == "challenge" then agg.challenge_count = (agg.challenge_count or 0) + 1 end
                 if ts and ts > agg.last_triggered then
                     agg.last_triggered = ts
                     agg.last_matched_uri = uri or ""
@@ -848,6 +856,8 @@ function _M.flush_hit_stats()
 
         -- Accumulate
         agg.hit_count = (existing.hit_count or 0) + agg.hit_count
+        agg.block_count = (existing.block_count or 0) + (agg.block_count or 0)
+        agg.challenge_count = (existing.challenge_count or 0) + (agg.challenge_count or 0)
         if agg.last_triggered < (existing.last_triggered or 0) then
             agg.last_triggered   = existing.last_triggered
             agg.last_matched_uri = existing.last_matched_uri or ""

@@ -48,9 +48,9 @@ local function evaluate_rules(rules, ctx, ip)
             goto continue
         end
 
-        waf_manager.record_hit(rule.id, ctx)
-
         local action = rule.action or "log"
+
+        waf_manager.record_hit(rule.id, ctx, action)
 
         if action == "accept" then
             ip_reputation.clear_pending(ip)
@@ -67,6 +67,12 @@ local function evaluate_rules(rules, ctx, ip)
                 return true
             end
             ip_reputation.set_pending(ip)
+            -- Track which rule triggered the challenge for pass-rate analytics
+            local pending_rules = ngx.shared.ip_reputation:get("ip_rep:pending_rules:" .. ip) or ""
+            if not pending_rules:find(rule.id, 1, true) then
+                pending_rules = pending_rules ~= "" and (pending_rules .. "," .. rule.id) or rule.id
+                ngx.shared.ip_reputation:set("ip_rep:pending_rules:" .. ip, pending_rules, 600)
+            end
             -- Increment challenge served counter
             local metrics = require "core.metrics"
             metrics.incr("ip_reputation_challenge_served_total", 1, {})
@@ -133,6 +139,17 @@ function _M.on_access(ctx)
     local cookie_verified = javascript_verify.check(ctx)
     if cookie_verified then
         ip_reputation.clear_score(ip)
+        -- Record challenge pass for rules that issued this challenge
+        local ctx_ip = ctx.request.remote_addr
+        local pending_rules = ngx.shared.ip_reputation:get("ip_rep:pending_rules:" .. ctx_ip)
+        if pending_rules and pending_rules ~= "" then
+            local s = ngx.shared.vn_config
+            for rule_id in pending_rules:gmatch("[^,]+") do
+                local pass_key = "waf_rule_challenge_pass:" .. rule_id
+                s:incr(pass_key, 1, 0, 86400)
+            end
+            ngx.shared.ip_reputation:delete("ip_rep:pending_rules:" .. ctx_ip)
+        end
         ctx.set_data(ctx, "reputation:challenge_passed", true)
         return
     end

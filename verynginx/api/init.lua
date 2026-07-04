@@ -609,6 +609,96 @@ local function handle_waf_rule_stats()
     return json.encode({ ret = "success", data = stats })
 end
 
+--- GET /waf/analytics - rule effectiveness scoring + dead rule detection
+local function handle_waf_analytics()
+    local shared = ngx.shared.vn_config
+    local waf_manager = require "waf-rule-manager"
+    local rules_obj = waf_manager.load_rules()
+    local rules = {}
+    if rules_obj and rules_obj.rules then
+        rules = rules_obj.rules
+    end
+
+    local now = ngx.time()
+    local thirty_days = 30 * 86400
+    local analytics = {}
+    local dead_rules = {}
+
+    for _, rule in ipairs(rules) do
+        local stat_json = shared:get("waf_rule_stats:" .. rule.id)
+        local stat = {}
+        if stat_json then
+            local ok, decoded = pcall(json.decode, stat_json)
+            if ok then stat = decoded end
+        end
+
+        local hits = stat.hit_count or 0
+        local blocks = stat.block_count or 0
+        local challenges = stat.challenge_count or 0
+        local last_triggered = stat.last_triggered or 0
+
+        -- Challenge pass count
+        local passes = tonumber(shared:get("waf_rule_challenge_pass:" .. rule.id) or 0)
+
+        -- Calculate challenge pass rate
+        local pass_rate = "-"
+        if challenges > 0 then
+            pass_rate = string.format("%.0f%%", (passes / challenges) * 100)
+        end
+
+        -- Effectiveness grade (A+/A/B/C/D)
+        local grade = "N/A"
+        if hits > 0 then
+            if challenges > 0 then
+                -- Challenge-based: high pass rate = possible false positives
+                local ratio = passes / challenges
+                if ratio >= 0.8 then grade = "C"
+                elseif ratio >= 0.5 then grade = "B"
+                else grade = "A"
+                end
+            elseif blocks == hits then
+                -- Always blocks: check if any user recovery
+                grade = "A+"
+            else
+                grade = "B"
+            end
+        end
+
+        -- Dead rule: 30 days since last hit
+        local is_dead = false
+        if last_triggered > 0 and (now - last_triggered) > thirty_days then
+            is_dead = true
+            dead_rules[#dead_rules + 1] = { id = rule.id, name = rule.name, enable = rule.enable,
+                                             last_triggered = last_triggered, hits = hits }
+        elseif last_triggered == 0 and #rules > 0 then
+            local rule_age = now - (rule._created or now)
+            if rule_age > thirty_days then
+                is_dead = true
+                dead_rules[#dead_rules + 1] = { id = rule.id, name = rule.name, enable = rule.enable,
+                                                 last_triggered = 0, hits = 0 }
+            end
+        end
+
+        analytics[#analytics + 1] = {
+            id = rule.id,
+            name = rule.name,
+            enable = rule.enable,
+            action = rule.action or "log",
+            hits = hits,
+            blocks = blocks,
+            challenges = challenges,
+            challenge_passes = passes,
+            challenge_pass_rate = pass_rate,
+            last_triggered = last_triggered,
+            last_triggered_ago = last_triggered > 0 and (now - last_triggered) or nil,
+            grade = grade,
+            dead = is_dead,
+        }
+    end
+
+    return json.encode({ ret = "success", data = { rules = analytics, dead_rules = dead_rules } })
+end
+
 --- GET /upstreams/health - return runtime health status for all upstream nodes
 local function handle_get_upstream_health()
     local upstreams_data = {}
@@ -901,6 +991,7 @@ _M.register("POST",   "/waf/rules/:id/enable",   handle_enable_waf_rule,   true)
 _M.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,  true)
 _M.register("GET",    "/waf/stats/:id",          handle_waf_rule_stats,     true)
 _M.register("GET",    "/waf/hits",               handle_list_waf_hits,      true)
+_M.register("GET",    "/waf/analytics",           handle_waf_analytics,      true)
 
 _M.register("GET",    "/config/export",          handle_export_config,       true)
 _M.register("POST",   "/config/import",          handle_import_config,       true)

@@ -1,41 +1,41 @@
 {
-  "admin":[],
-  "backend_upstream":[],
-  "config_save_lock_ttl":60,
+  "rule":[],
+  "dashboard_host":"",
   "statistics":[],
-  "cookie_prefix":"verynginx",
-  "plugin":[],
-  "observability":[],
-  "body":{
-    "on_error":"fail_closed",
-    "max_size":1048576,
-    "max_args":100
-  },
-  "ip_reputation":{
-    "threshold":25,
-    "whitelist":[],
-    "window_size":300,
-    "min_requests":3,
-    "enable":false,
-    "flag_duration":600,
-    "slot_size":60,
-    "pending_ttl":600,
-    "signals":{
-      "waf_challenge":3,
-      "waf_block":5,
-      "not_found":1,
-      "challenge_fail":5
-    }
-  },
-  "waf_rules":[],
   "response":[],
   "base_uri":"/verynginx",
+  "security":[],
+  "waf_rules":[],
+  "cookie_prefix":"verynginx",
+  "plugin":[],
+  "body":{
+    "max_args":100,
+    "max_size":1048576,
+    "on_error":"fail_closed"
+  },
+  "backend_upstream":[],
+  "ip_reputation":{
+    "signals":{
+      "waf_challenge":3,
+      "not_found":1,
+      "challenge_fail":5,
+      "waf_block":5
+    },
+    "pending_ttl":600,
+    "threshold":25,
+    "flag_duration":600,
+    "enable":false,
+    "whitelist":[],
+    "min_requests":3,
+    "slot_size":60,
+    "window_size":300
+  },
+  "matcher":[],
+  "observability":[],
   "proxy":{
     "health_check_interval":5
   },
-  "security":[],
-  "version":"2.0",
-  "matcher":[],
-  "dashboard_host":"",
-  "rule":[]
+  "config_save_lock_ttl":60,
+  "admin":[],
+  "version":"2.0"
 }

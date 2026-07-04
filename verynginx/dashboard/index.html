@@ -540,9 +540,49 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div class="config-tabs">
           <a :class="{active:wafTab==='rules'}" @click="wafTab='rules'">Rules</a>
           <a :class="{active:wafTab==='stats'}" @click="wafTab='stats';loadWafStats()">Stats</a>
+          <a :class="{active:wafTab==='analytics'}" @click="wafTab='analytics';loadWafAnalytics()">Analytics</a>
           <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">History</a>
           <a :class="{active:wafTab==='hits'}" @click="wafTab='hits';loadWafHits()">Hits</a>
           <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">Tester</a>
+        </div>
+
+        <!-- Analytics Panel -->
+        <div v-if="wafTab==='analytics'">
+          <div v-if="wafAnalytics.dead_rules && wafAnalytics.dead_rules.length" class="warn" style="margin-bottom:8px; padding:10px 14px; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; font-size:13px">
+            ⚠ 以下规则 30 天内未命中：
+            <span v-for="dr in wafAnalytics.dead_rules" :key="dr.id" style="margin-right:8px">
+              <strong>{{ dr.name || dr.id }}</strong>
+              <span v-if="dr.enable !== false" style="color:#92400e">(启用中)</span>
+              <span v-else style="color:#9ca3af">(已禁用)</span>
+            </span>
+            <span style="color:#6b7280">建议：检查正则是否需要更新，或删除无用规则</span>
+          </div>
+          <table class="table">
+            <thead>
+              <tr><th>规则</th><th>动作</th><th>命中</th><th>拦截</th><th>Challenge</th><th>通过率</th><th>效果评级</th><th>最后触发</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in wafAnalytics.rules || []" :key="r.id" :style="{opacity: r.dead ? 0.5 : 1}">
+                <td>
+                  <strong>{{ r.name || r.id }}</strong>
+                  <span v-if="r.dead" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px;font-size:10px">休眠</span>
+                  <span v-if="r.enable === false" class="tag" style="background:#f3f4f6;color:#6b7280;margin-left:4px;font-size:10px">禁用</span>
+                </td>
+                <td>{{ r.action }}</td>
+                <td>{{ r.hits }}</td>
+                <td>{{ r.blocks }}</td>
+                <td>{{ r.challenges }}</td>
+                <td>{{ r.challenge_pass_rate }}</td>
+                <td>
+                  <span :class="'grade-' + r.grade" class="tag" :style="gradeStyle(r.grade)">{{ r.grade }}</span>
+                </td>
+                <td style="font-size:12px;color:#6b7280">{{ r.last_triggered_ago ? formatAgo(r.last_triggered_ago) : '从未' }}</td>
+              </tr>
+              <tr v-if="!(wafAnalytics.rules || []).length">
+                <td colspan="8" class="empty">暂无分析数据</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         <!-- Rule List -->
@@ -1112,6 +1152,7 @@ const app = Vue.createApp({
     const wafHits = ref([]);
     const wafHitsError = ref('');
     const wafHitsTime = ref('');
+    const wafAnalytics = ref({ rules: [], dead_rules: [] });
 
     // ---- Reputation State ----
     const repStats = ref(null);
@@ -1753,6 +1794,13 @@ const app = Vue.createApp({
       return Number(n).toLocaleString();
     }
 
+    function formatAgo(seconds) {
+      if (seconds < 60) return seconds + 's ago';
+      if (seconds < 3600) return math.floor(seconds / 60) + 'm ago';
+      if (seconds < 86400) return math.floor(seconds / 3600) + 'h ago';
+      return math.floor(seconds / 86400) + 'd ago';
+    }
+
     async function loadWafStats() {
       wafStatsError.value = '';
       try {
@@ -1880,6 +1928,7 @@ const app = Vue.createApp({
       await loadWafRules();
       if (wafTab.value === 'hits') await loadWafHits();
       if (wafTab.value === 'stats') await loadWafStats();
+      if (wafTab.value === 'analytics') await loadWafAnalytics();
       if (wafTab.value === 'history') await loadWafHistory();
     }
 
@@ -2063,6 +2112,23 @@ const app = Vue.createApp({
       }
     }
 
+    // ---- WAF Analytics ----
+    async function loadWafAnalytics() {
+      try {
+        const d = await api('GET', '/verynginx/waf/analytics');
+        if (d.ret === 'success') {
+          wafAnalytics.value = d.data || { rules: [], dead_rules: [] };
+        }
+      } catch (e) {
+        // silent fail
+      }
+    }
+
+    function gradeStyle(g) {
+      const colors = { 'A+': '#16a34a', A: '#22c55e', B: '#f59e0b', C: '#f97316', D: '#ef4444' };
+      return { background: colors[g] || '#6b7280', color: '#fff' };
+    }
+
     // ---- Plugins ----
     async function loadPlugins() {
       pluginsError.value = '';
@@ -2216,8 +2282,9 @@ const app = Vue.createApp({
       wafDeleteRule, wafToggleRule, wafPage, wafRefreshAll,
       wafRollback, wafRunTest,
       wafHits, wafHitsError, wafHitsTime, loadWafHits,
+      wafAnalytics, loadWafAnalytics, gradeStyle,
       plugins, pluginsError, loadPlugins, togglePlugin,
-      toastMsg, toastType, toastVisible,
+      toastMsg, toastType, toastVisible, formatAgo,
       configImportError, configImportOk, importFileInput,
       exportConfig, importConfig, onImportFile,
       topPaths, loadTopPaths,
