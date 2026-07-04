@@ -28,6 +28,15 @@ _M.schema = {
         body = { type = "table", default = { max_size = 1048576, max_args = 100, on_error = "fail_closed" } },
         proxy = { type = "table", default = { health_check_interval = 5 } },
         config_save_lock_ttl = { type = "number", default = 60 },
+        alerting = { type = "table", default = {
+            enabled = false,
+            webhook_url = "",
+            hit_spike_multiplier = 3.0,
+            hit_spike_min_hits = 10,
+            fp_pass_rate_threshold = 0.3,
+            fp_min_challenges = 5,
+            window_seconds = 360,
+        } },
         waf_rules = { type = "table", default = {} },
         ip_reputation = { type = "table", default = {
             enable = false,

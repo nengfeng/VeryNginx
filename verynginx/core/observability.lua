@@ -4,12 +4,14 @@
 -- @Disc    : observability - trace, plugin timing, health status
 
 local _M = {}
+local json = require "dkjson"
 
 function _M.init()
     -- Register worker-level state collection timer (every 60 seconds)
     ngx.timer.every(60, function()
         _M._collect_worker_stats()
         _M._collect_ip_reputation_stats()
+        _M._collect_waf_rule_stats()
     end)
 end
 
@@ -61,6 +63,41 @@ function _M._collect_ip_reputation_stats()
     table.sort(scored, function(a, b) return a.score > b.score end)
     for i = 1, math.min(5, #scored) do
         metrics.gauge("ip_reputation_score", scored[i].score, { ip = scored[i].ip })
+    end
+end
+
+--- Collect per-rule WAF metrics for Prometheus.
+function _M._collect_waf_rule_stats()
+    local metrics = require "core.metrics"
+    local shared = ngx.shared.vn_config
+    if not shared then return end
+
+    local waf_manager = require "waf-rule-manager"
+    local rules_obj = waf_manager.load_rules()
+    local rules = rules_obj and rules_obj.rules or {}
+    local rule_meta = {}
+    for _, r in ipairs(rules) do
+        rule_meta[r.id] = { category = r.category or "", action = r.action or "log", name = r.name or "" }
+    end
+
+    local keys = shared:get_keys(200)
+    for _, k in ipairs(keys) do
+        if k:sub(1, 16) == "waf_rule_stats:" then
+            local rule_id = k:sub(17)
+            local meta = rule_meta[rule_id] or { category = "", action = "log", name = rule_id }
+            local data = shared:get(k)
+            if data then
+                local ok, stat = pcall(json.decode, data)
+                if ok and stat then
+                    metrics.gauge("waf_rule_hits_total", stat.hit_count or 0,
+                        { rule_id = rule_id, category = meta.category, action = meta.action })
+                    metrics.gauge("waf_rule_blocks_total", stat.block_count or 0,
+                        { rule_id = rule_id, category = meta.category, action = meta.action })
+                    metrics.gauge("waf_rule_challenges_total", stat.challenge_count or 0,
+                        { rule_id = rule_id, category = meta.category, action = meta.action })
+                end
+            end
+        end
     end
 end
 

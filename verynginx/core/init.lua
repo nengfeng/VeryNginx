@@ -87,6 +87,8 @@ function _M.init_worker()
     statistics.init()
     health_check.init()
     waf_manager.init_worker()
+    local alerting = require "core.alerting"
+    alerting.init()
 
     -- Only worker 0 does I/O for persistence
     local ip_reputation = require "core.ip_reputation"
