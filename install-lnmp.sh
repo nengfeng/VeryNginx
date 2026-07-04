@@ -210,16 +210,10 @@ if 'admin' not in config or not config['admin']:
     config['admin'] = [{'user': os.environ['VN_USER'], 'enable': True}]
 config['admin'][0]['password_hash'] = hash_str
 config['admin'][0]['password'] = None
-if not isinstance(config.get('security'), dict) or not config['security'].get('session_secret'):
-    config['security'] = {
-        'session_secret': secrets.token_hex(32),
-        'session_ttl': 28800,
-        'csrf': True,
-        'rate_limit': {
-            'login': '10/m',
-            'config_save': '30/m'
-        }
-    }
+if not isinstance(config.get('security'), dict):
+    config['security'] = {}
+if not config['security'].get('session_secret'):
+    config['security']['session_secret'] = secrets.token_hex(32)
 json.dump(config, open(os.environ['VN_CONFIG'], 'w'), indent=4)
 print('OK')
 PYEOF
@@ -615,16 +609,10 @@ if 'admin' not in config or not config['admin']:
     config['admin'] = [{'user': os.environ['VN_USER'], 'enable': True}]
 config['admin'][0]['password_hash'] = hash_str
 config['admin'][0]['password'] = None
-if not isinstance(config.get('security'), dict) or not config['security'].get('session_secret'):
-    config['security'] = {
-        'session_secret': secrets.token_hex(32),
-        'session_ttl': 28800,
-        'csrf': True,
-        'rate_limit': {
-            'login': '10/m',
-            'config_save': '30/m'
-        }
-    }
+if not isinstance(config.get('security'), dict):
+    config['security'] = {}
+if not config['security'].get('session_secret'):
+    config['security']['session_secret'] = secrets.token_hex(32)
 json.dump(config, open(os.environ['VN_CONFIG'], 'w'), indent=4)
 print('OK')
 PYEOF
