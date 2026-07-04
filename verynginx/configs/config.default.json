@@ -4,7 +4,7 @@
     "cookie_prefix": "verynginx",
     "config_save_lock_ttl": 60,
     "security": {
-        "session_ttl": 3600,
+        "session_ttl": 28800,
         "csrf": true,
         "rate_limit": {
             "login": "10/m",
