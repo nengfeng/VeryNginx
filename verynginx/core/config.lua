@@ -387,10 +387,11 @@ function _M.load_from_file()
         local lock_token = random.bytes(16)
         local lock_ttl = 30
 
+        local got_lock = false
         local do_write = true
         if shared then
-            do_write = shared:add(lock_key, lock_token, lock_ttl)
-            if do_write then
+            got_lock = shared:add(lock_key, lock_token, lock_ttl)
+            if got_lock then
                 -- Re-check: another worker may have persisted the file while we computed
                 local re_f = io.open(path, "r")
                 if re_f then
@@ -419,6 +420,24 @@ function _M.load_from_file()
                 f:close()
                 os.rename(tmp, path)
                 data = encoded
+            end
+        elseif not got_lock then
+            -- Lost the lock race: re-read the persisted file so our in-memory
+            -- password_hash matches what was actually written to disk.
+            local re_f = io.open(path, "r")
+            if re_f then
+                local re_data = re_f:read("*all")
+                re_f:close()
+                local re_config = json.decode(re_data)
+                if re_config and re_config.admin then
+                    for _, a in ipairs(re_config.admin) do
+                        for _, ca in ipairs(config.admin) do
+                            if ca.user == a.user and a.password_hash and a.password_hash ~= "" then
+                                ca.password_hash = a.password_hash
+                            end
+                        end
+                    end
+                end
             end
         end
 
