@@ -945,6 +945,93 @@ local function handle_list_waf_hits()
 end
 
 -- ============================================================
+-- GET /waf/hits/:idx - full hit detail for drill-down
+-- ============================================================
+local function handle_waf_hit_detail()
+    local idx = ngx.ctx.waf_rule_id
+    if not idx then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "hit index required" })
+    end
+    local shared = ngx.shared.vn_config
+    local detail_json
+    if shared then
+        detail_json = shared:get("waf_hit_detail:" .. idx)
+    end
+    if not detail_json then
+        ngx.status = 404
+        return json.encode({ ret = "failed", message = "hit detail expired or not found" })
+    end
+    local ok, detail = pcall(json.decode, detail_json)
+    if not ok then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "corrupted detail data" })
+    end
+
+    -- Enrich with rule metadata and IP reputation
+    local waf_manager = require "waf-rule-manager"
+    local rules_obj = waf_manager.load_rules()
+    if rules_obj and rules_obj.rules then
+        for _, r in ipairs(rules_obj.rules) do
+            if r.id == detail.rule_id then
+                detail.rule_name = r.name or r.id
+                detail.rule_category = r.category or ""
+                detail.rule_severity = r.severity or ""
+                break
+            end
+        end
+    end
+
+    -- Add IP reputation info
+    local rep = require "core.ip_reputation"
+    detail.ip_score = rep.get_score(detail.ip)
+    detail.ip_flagged = rep.is_flagged(detail.ip)
+    detail.ip_whitelisted = rep.is_whitelisted(detail.ip)
+
+    -- Count other hits from same IP
+    detail.ip_hit_count = 0
+    if shared then
+        for ri = 1, 100 do
+            local d = shared:get("waf_hit_detail:" .. ri)
+            if d then
+                local ok2, det = pcall(json.decode, d)
+                if ok2 and det.ip == detail.ip then
+                    detail.ip_hit_count = detail.ip_hit_count + 1
+                end
+            end
+        end
+    end
+
+    return json.encode({ ret = "success", data = detail })
+end
+
+-- ============================================================
+-- GET /waf/hits/by-ip - all recent hits from a specific IP
+-- ============================================================
+local function handle_waf_hits_by_ip()
+    local ip = ngx.var.arg_ip
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ip parameter required" })
+    end
+    local shared = ngx.shared.vn_config
+    local hits = {}
+    if shared then
+        for ri = 1, 100 do
+            local d = shared:get("waf_hit_detail:" .. ri)
+            if d then
+                local ok, det = pcall(json.decode, d)
+                if ok and det.ip == ip then
+                    hits[#hits + 1] = det
+                end
+            end
+        end
+    end
+    table.sort(hits, function(a, b) return (a.timestamp or 0) > (b.timestamp or 0) end)
+    return json.encode({ ret = "success", data = hits })
+end
+
+-- ============================================================
 -- GET /waf/timeline - attack timeline aggregated by time bucket + category
 -- ============================================================
 local function handle_waf_timeline()
@@ -1273,6 +1360,8 @@ _M.register("POST",   "/waf/rules/:id/enable",   handle_enable_waf_rule,   true)
 _M.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,  true)
 _M.register("GET",    "/waf/stats/:id",          handle_waf_rule_stats,     true)
 _M.register("GET",    "/waf/hits",               handle_list_waf_hits,      true)
+_M.register("GET",    "/waf/hits/by-ip",          handle_waf_hits_by_ip,     true)
+_M.register("GET",    "/waf/hits/:id",            handle_waf_hit_detail,     true)
 _M.register("GET",    "/waf/timeline",            handle_waf_timeline,       true)
 _M.register("GET",    "/waf/test-history",        handle_test_history,       true)
 _M.register("DELETE", "/waf/test-history",        handle_clear_test_history, true)

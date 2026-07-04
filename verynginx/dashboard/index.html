@@ -732,7 +732,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <table>
               <thead><tr><th>Time</th><th>Rule ID</th><th>Method</th><th>URI</th><th>Source IP</th></tr></thead>
               <tbody>
-                <tr v-for="h in wafHits" :key="h.time + h.rule_id + h.uri">
+                <tr v-for="(h, i) in wafHits" :key="h.time + h.rule_id + h.uri + i" @click="openHitDetail(h, i)" style="cursor:pointer">
                   <td style="white-space:nowrap">{{ fmtTime(h.time) }}</td>
                   <td><code style="font-size:11px">{{ h.rule_id }}</code></td>
                   <td><span class="tag">{{ h.method }}</span></td>
@@ -1057,6 +1057,68 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     </div>
   </div>
 
+  <!-- Hit Detail Modal -->
+  <div class="modal-overlay" v-if="wafHitDetailModal.show" @click.self="wafHitDetailModal.show=false">
+    <div class="modal" style="max-width:700px">
+      <h3>命中详情 <small style="color:var(--muted)">{{ wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id }}</small></h3>
+      <div v-if="wafHitDetailModal.loading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
+      <div v-else-if="wafHitDetailModal.data">
+        <div class="grid grid-2 mb-8">
+          <div class="field"><label>规则</label><code>{{ wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id }}</code></div>
+          <div class="field"><label>类别</label><span class="tag">{{ wafHitDetailModal.data.rule_category || '-' }}</span></div>
+          <div class="field"><label>时间</label>{{ new Date((wafHitDetailModal.data.timestamp || 0) * 1000).toLocaleString() }}</div>
+          <div class="field"><label>方法</label><span class="tag">{{ wafHitDetailModal.data.method }}</span></div>
+        </div>
+        <div class="field">
+          <label>来源 IP</label>
+          <div>
+            <code>{{ wafHitDetailModal.data.ip }}</code>
+            <span v-if="wafHitDetailModal.data.ip_whitelisted" class="tag" style="background:#d1fae5;color:#065f46;margin-left:4px">白名单</span>
+            <span v-else-if="wafHitDetailModal.data.ip_flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px">已标记</span>
+            <span class="tag" style="margin-left:4px">分数: {{ wafHitDetailModal.data.ip_score || 0 }}</span>
+            <span class="tag" style="margin-left:4px;color:#6b7280">该 IP 共 {{ wafHitDetailModal.data.ip_hit_count || 0 }} 条命中</span>
+          </div>
+        </div>
+        <div class="field"><label>URI</label><code style="word-break:break-all">{{ wafHitDetailModal.data.uri }}</code></div>
+        <div class="field" v-if="wafHitDetailModal.data.query_string"><label>Query String</label><code style="word-break:break-all">{{ wafHitDetailModal.data.query_string }}</code></div>
+        <div class="field"><label>User-Agent</label><div style="font-size:12px;color:#374151;word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
+        <div class="field" v-if="wafHitDetailModal.data.body_snippet"><label>Body (前 1KB)</label><pre style="background:#f9fafb;padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
+        <div class="field" v-if="wafHitDetailModal.data.headers && Object.keys(wafHitDetailModal.data.headers).length">
+          <label>Headers</label>
+          <table style="font-size:11px">
+            <tbody>
+              <tr v-for="(v, k) in wafHitDetailModal.data.headers" :key="k">
+                <td style="font-weight:600;padding-right:12px;white-space:nowrap">{{ k }}</td>
+                <td style="word-break:break-all">{{ v }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="modal-actions">
+          <button class="outline" @click="wafHitDetailModal.show=false">关闭</button>
+          <button class="outline" @click="addToWhitelist(wafHitDetailModal.data.ip)">加入白名单</button>
+          <button class="outline" @click="viewIpHits(wafHitDetailModal.data.ip)">查看该 IP 命中</button>
+          <button class="primary" @click="editRuleById(wafHitDetailModal.data.rule_id)">调整此规则</button>
+        </div>
+        <!-- IP Hits List (shown after clicking view) -->
+        <div v-if="wafIpHits.length" style="margin-top:16px;border-top:1px solid #e0e3eb;padding-top:12px">
+          <h4 style="font-size:13px;margin-bottom:8px">IP {{ wafIpHitsIp }} 的最近命中 ({{ wafIpHits.length }})</h4>
+          <table style="font-size:12px">
+            <thead><tr><th>时间</th><th>规则</th><th>方法</th><th>URI</th></tr></thead>
+            <tbody>
+              <tr v-for="(ih, ii) in wafIpHits.slice(0, 20)" :key="ii" @click="openHitDetail(ih, 0)" style="cursor:pointer">
+                <td style="white-space:nowrap">{{ fmtTime(ih.timestamp) }}</td>
+                <td><code style="font-size:10px">{{ ih.rule_id }}</code></td>
+                <td><span class="tag" style="font-size:10px;padding:1px 5px">{{ ih.method }}</span></td>
+                <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="ih.uri">{{ ih.uri }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Rule Editor Modal -->
   <div class="modal-overlay" v-if="ruleEditModal.show" @click.self="ruleEditModal.show=false">
     <div class="modal" style="max-width:600px">
@@ -1247,6 +1309,9 @@ const app = Vue.createApp({
     const wafTimelineHours = ref(1);
     const wafTimelineBucket = ref(5);
     const wafTestHistory = ref([]);
+    const wafHitDetailModal = reactive({ show: false, loading: false, data: null });
+    const wafIpHits = ref([]);
+    const wafIpHitsIp = ref('');
 
     // ---- Reputation State ----
     const repStats = ref(null);
@@ -2272,6 +2337,64 @@ const app = Vue.createApp({
       }
     }
 
+    // ---- Hit Detail Drill-down ----
+    async function openHitDetail(hit, idx) {
+      wafHitDetailModal.show = true
+      wafHitDetailModal.loading = true
+      wafHitDetailModal.data = null
+      try {
+        const d = await api('GET', '/verynginx/waf/hits/' + idx)
+        if (d.ret === 'success') {
+          wafHitDetailModal.data = d.data
+        } else {
+          wafHitDetailModal.data = {
+            rule_id: hit.rule_id, ip: hit.ip, uri: hit.uri,
+            method: hit.method, timestamp: hit.time,
+            user_agent: '', headers: {}, body_snippet: '',
+            rule_name: hit.rule_id, rule_category: '',
+            ip_score: 0, ip_flagged: false, ip_whitelisted: false, ip_hit_count: 0,
+          }
+        }
+      } catch (e) {
+        wafHitDetailModal.data = {
+          rule_id: hit.rule_id, ip: hit.ip, uri: hit.uri,
+          method: hit.method, timestamp: hit.time,
+          user_agent: '', headers: {}, body_snippet: '',
+          rule_name: hit.rule_id, rule_category: '',
+          ip_score: 0, ip_flagged: false, ip_whitelisted: false, ip_hit_count: 0,
+        }
+      }
+      wafHitDetailModal.loading = false
+    }
+
+    async function addToWhitelist(ip) {
+      try {
+        await api('POST', '/verynginx/stats/ip-reputation/whitelist/add?ip=' + encodeURIComponent(ip))
+        showToast('已加入白名单: ' + ip, 'success')
+        if (wafHitDetailModal.data) wafHitDetailModal.data.ip_whitelisted = true
+      } catch (e) {
+        showToast(e.message || 'Failed to add whitelist', 'error')
+      }
+    }
+
+    async function viewIpHits(ip) {
+      try {
+        const d = await api('GET', '/verynginx/waf/hits/by-ip?ip=' + encodeURIComponent(ip))
+        if (d.ret === 'success') {
+          wafIpHits.value = d.data || []
+          wafIpHitsIp.value = ip
+        }
+      } catch (e) {
+        wafIpHits.value = []
+      }
+    }
+
+    function editRuleById(ruleId) {
+      // Find the rule in the loaded list and open edit modal
+      // Navigate to Rules tab and open edit
+      showToast('请在 Rules 标签中编辑规则: ' + ruleId, 'info')
+    }
+
     async function wafDeleteRule(rule) {
       if (!confirm('Delete rule "' + rule.name + '"? This cannot be undone.')) return;
       try {
@@ -2520,6 +2643,8 @@ const app = Vue.createApp({
       wafPendingChanges, loadPendingRules, confirmPendingChange, discardPendingChange,
       wafTimeline, wafTimelineHours, wafTimelineBucket, loadWafTimeline,
       wafTestHistory, loadTestHistory, clearTestHistory,
+      wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
+      wafIpHits, wafIpHitsIp,
       plugins, pluginsError, loadPlugins, togglePlugin,
       toastMsg, toastType, toastVisible, formatAgo,
       configImportError, configImportOk, importFileInput,

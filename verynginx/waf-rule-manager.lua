@@ -713,6 +713,36 @@ function _M.record_hit(rule_id, ctx, action)
     -- Ring buffer for recent hits display (keep last 100)
     local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
     shared:set("waf_recent_hits:data:" .. ring_idx, hit_data)
+
+    -- Store full hit details separately for drill-down
+    local detail = {
+        rule_id = rule_id,
+        action = hit_action,
+        timestamp = ngx.time(),
+        uri = ctx.request.uri or "",
+        ip = ctx.request.remote_addr or "",
+        method = ctx.request.method or "GET",
+        user_agent = ctx.request.user_agent or "",
+        query_string = ngx.var.query_string or "",
+        headers = {},
+        body_snippet = "",
+    }
+    -- Capture headers
+    local headers = ngx.req.get_headers()
+    for k, v in pairs(headers) do
+        if type(v) == "string" and #v < 500 then
+            detail.headers[k] = v
+        end
+    end
+    -- Capture body snippet (first 1KB)
+    pcall(function()
+        ngx.req.read_body()
+        local body = ngx.req.get_body_data()
+        if body and #body > 0 then
+            detail.body_snippet = body:sub(1, 1024)
+        end
+    end)
+    shared:set("waf_hit_detail:" .. ring_idx, json.encode(detail), 3600)
 end
 
 -- ---------------------------------------------------------------------------
