@@ -101,7 +101,7 @@ _M.strategies["session"] = {
                     end
                     local payload = {
                         user = user,
-                        expire_at = ngx.time() + ((config.security and config.security.session_ttl) or 3600),
+                        expire_at = ngx.time() + ((config.security and config.security.session_ttl) or 28800),
                         nonce = require("core.random").bytes(16)
                     }
                     local secret = config.security and config.security.session_secret

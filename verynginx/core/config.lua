@@ -22,7 +22,7 @@ _M.schema = {
         backend_upstream = { type = "table", default = {} },
         response = { type = "table", default = {} },
         plugin = { type = "table", default = {} },
-        security = { type = "table", default = {} },
+        security = { type = "table", default = { session_ttl = 28800 } },
         statistics = { type = "table", default = {} },
         observability = { type = "table", default = {} },
         body = { type = "table", default = { max_size = 1048576, max_args = 100, on_error = "fail_closed" } },
