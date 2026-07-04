@@ -10,3 +10,4 @@ verynginx/configs/waf-rules.json
 verynginx/configs/waf-rules-history.json
 verynginx/configs/waf-rules-backup-*.json
 !verynginx/configs/waf-rules.default.json
+node_modules/
