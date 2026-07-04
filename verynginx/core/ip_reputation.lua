@@ -21,6 +21,7 @@ local DEFAULTS = {
 
 local SHARED_DICT_NAME = "ip_reputation"
 local CACHE_TTL = 10
+local SCORE_CACHE_TTL = 2
 local MAX_UA_DISTINCT = 20
 
 local function shared()
@@ -101,6 +102,8 @@ function _M.record_signal(ip, signal_type)
     local slot = current_slot()
     local key = "ip_rep:waf:" .. ip .. ":" .. slot
     s:incr(key, weight, 0, window_size())
+    -- Invalidate score cache since weights changed
+    s:delete("ip_rep:score_cache:" .. ip)
 end
 
 function _M.increment_req(ip)
@@ -136,13 +139,24 @@ local function distinct_ua_count(ip)
 end
 
 function _M.get_score(ip)
+    local s = shared()
+    if s then
+        local cached = s:get("ip_rep:score_cache:" .. ip)
+        if cached ~= nil then
+            return cached
+        end
+    end
     local score = sum_slots("ip_rep:waf:" .. ip .. ":")
     local duc = distinct_ua_count(ip)
     local df = 1.0
     if duc > 1 then
         df = math.max(0.5, 1.0 - (math.min(duc, MAX_UA_DISTINCT) - 1) * 0.1)
     end
-    return math.floor(score * df + 0.5)
+    local result = math.floor(score * df + 0.5)
+    if s then
+        s:set("ip_rep:score_cache:" .. ip, result, SCORE_CACHE_TTL)
+    end
+    return result
 end
 
 function _M.set_pending(ip)
@@ -329,11 +343,25 @@ local function ip_in_cidr(ip, cidr)
 end
 
 function _M.is_whitelisted(ip)
+    local s = shared()
+    -- Fast path: O(1) exact-match cache for /32 entries
+    if s then
+        local cached = s:get("ip_rep:wl_cache:" .. ip)
+        if cached ~= nil then
+            return cached == 1
+        end
+    end
     local wl = get_whitelist()
     for _, entry in ipairs(wl) do
         if ip_in_cidr(ip, entry) then
+            if s then
+                s:set("ip_rep:wl_cache:" .. ip, 1, 60)
+            end
             return true
         end
+    end
+    if s then
+        s:set("ip_rep:wl_cache:" .. ip, 0, 60)
     end
     return false
 end
