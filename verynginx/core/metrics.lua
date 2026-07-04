@@ -83,37 +83,26 @@ function _M.export_prometheus()
     local seen_names = {}
     local samples = {}
 
-    local cursor = 0
-    local chunk_size = 100
-    while true do
-        local keys, next_cursor = shared:get_keys(cursor, chunk_size)
-        if not keys or #keys == 0 then
-            break
+    local keys = shared:get_keys(1000)
+    for _, key in ipairs(keys) do
+        if key == "__metrics_index" then
+            goto skip
         end
-        for _, key in ipairs(keys) do
-            if key == "__metrics_index" then
-                goto skip
-            end
-            local val = shared:get(key)
-            if val then
-                local name, labels = parse_key(key)
-                seen_names[name] = true
-                local ls = ""
-                if labels and next(labels) then
-                    local parts = {}
-                    for lk, lv in pairs(labels) do
-                        table.insert(parts, lk .. "=\"" .. lv .. "\"")
-                    end
-                    ls = "{" .. table.concat(parts, ",") .. "}"
+        local val = shared:get(key)
+        if val then
+            local name, labels = parse_key(key)
+            seen_names[name] = true
+            local ls = ""
+            if labels and next(labels) then
+                local parts = {}
+                for lk, lv in pairs(labels) do
+                    table.insert(parts, lk .. "=\"" .. lv .. "\"")
                 end
-                table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
+                ls = "{" .. table.concat(parts, ",") .. "}"
             end
+            table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
         end
         ::skip::
-        if next_cursor == cursor then
-            break
-        end
-        cursor = next_cursor
     end
 
     -- Build HELP/TYPE lines for all seen metrics
