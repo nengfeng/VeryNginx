@@ -132,12 +132,12 @@ local function send_webhook(url, payload)
     end
     local httpc = require "resty.http".new()
     httpc:set_timeout(5000)
-    local res, err = httpc:request_uri(url, {
+    local res, werr = httpc:request_uri(url, {
         method = "POST",
         body = json.encode(payload),
         headers = { ["Content-Type"] = "application/json" },
     })
-    if not res then return false, err end
+    if not res then return false, werr end
     if res.status >= 400 then return false, "HTTP " .. res.status end
     return true
 end
@@ -317,21 +317,27 @@ end
 -- ---------------------------------------------------------------
 -- Pattern collection from recent blocked hits
 -- ---------------------------------------------------------------
-function _M._collect_blocked_patterns(shared)
+function _M._collect_blocked_patterns(s)
     local patterns = {}
     for ri = 1, 100 do
-        local d = shared:get("waf_hit_detail:" .. ri)
+        local d = s:get("waf_hit_detail:" .. ri)
         if d then
             local ok, detail = pcall(json.decode, d)
             if ok and detail.action == "block" and detail.uri then
-                -- Normalize URI into pattern: /api/user/123 → /api/user/:id
+                -- Normalize URI: /api/user/123 -> /api/user/:id
                 local pattern = _M._normalize_uri(detail.uri)
                 if not patterns[pattern] then
-                    patterns[pattern] = { count = 0, first_seen = detail.timestamp, sample_uri = detail.uri, sample_ip = detail.ip }
+                local entry = {
+                    count = 0,
+                    first_seen = detail.timestamp or 0,
+                    sample_uri = detail.uri,
+                    sample_ip = detail.ip,
+                }
+                patterns[pattern] = entry
                 end
                 local p = patterns[pattern]
                 p.count = p.count + 1
-                if detail.timestamp > (p.first_seen or 0) then
+                if (detail.timestamp or 0) > (p.first_seen or 0) then
                     p.sample_uri = detail.uri
                     p.sample_ip = detail.ip
                 end
@@ -349,11 +355,11 @@ function _M._normalize_uri(uri)
     return p
 end
 
-function _M._collect_ja3_ip_mapping(shared)
+function _M._collect_ja3_ip_mapping(s)
     local ja3_ips = {}
     local seen = {} -- track unique ip+ja3 combos
     for ri = 1, 100 do
-        local d = shared:get("waf_hit_detail:" .. ri)
+        local d = s:get("waf_hit_detail:" .. ri)
         if d then
             local ok, detail = pcall(json.decode, d)
             if ok and detail.ja3_fingerprint and detail.ip then

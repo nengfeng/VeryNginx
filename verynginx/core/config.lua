@@ -256,13 +256,14 @@ local function compile_runtime_snapshot(config)
     end
 
     -- Pre-compute matcher cache CRCs to avoid per-request dkjson.encode + crc32
-    local json = require("dkjson")
+    local cjson = require("dkjson")
     for _, rules in pairs(compiled.rule or {}) do
         if type(rules) == "table" then
             for _, rule in ipairs(rules) do
                 local md = rule._matcher_def
                 if md then
-                    rule._matcher_crc = ngx and ngx.crc32_short and ngx.crc32_short(json.encode(md))
+                    local crc = ngx and ngx.crc32_short and ngx.crc32_short(cjson.encode(md))
+                    rule._matcher_crc = crc
                 end
             end
         end
@@ -326,7 +327,10 @@ local function validate_config(config)
             if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
                 return false, "alerting.webhook_url must not target localhost"
             end
-            local ip_patterns = { "^10%.", "^172%.(1[6-9]%.)", "^172%.2%d%.", "^172%.3[01]%.", "^192%.168%.", "^169%.254%.", "^0%." }
+            local ip_patterns = {
+                "^10%.", "^172%.(1[6-9]%.)", "^172%.2%d%.", "^172%.3[01]%.",
+                "^192%.168%.", "^169%.254%.", "^0%.",
+            }
             for _, pat in ipairs(ip_patterns) do
                 if host:match(pat) then
                     return false, "alerting.webhook_url must not target internal IPs"
