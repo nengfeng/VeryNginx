@@ -67,6 +67,9 @@ local function evaluate_rules(rules, ctx, ip)
                 return true
             end
             ip_reputation.set_pending(ip)
+            -- Increment challenge served counter
+            local metrics = require "core.metrics"
+            metrics.incr("ip_reputation_challenge_served_total", 1, {})
             ctx.set_action(ctx, "challenge", {
                 javascript_verify = javascript_verify
             })

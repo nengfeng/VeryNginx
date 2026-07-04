@@ -9,6 +9,7 @@ function _M.init()
     -- Register worker-level state collection timer (every 60 seconds)
     ngx.timer.every(60, function()
         _M._collect_worker_stats()
+        _M._collect_ip_reputation_stats()
     end)
 end
 
@@ -20,7 +21,7 @@ function _M._collect_worker_stats()
     -- they are exposed via the /status API endpoint during request processing.
     -- Shared dict usage (approximate)
     local shared_dicts = {"vn_config", "vn_locks", "statistics",
-                          "metrics", "healthcheck", "dns_cache", "frequency_limit"}
+                          "metrics", "healthcheck", "dns_cache", "frequency_limit", "ip_reputation"}
     for _, name in ipairs(shared_dicts) do
         local shared = ngx.shared[name]
         if shared then
@@ -32,6 +33,34 @@ function _M._collect_worker_stats()
                 metrics.gauge("shared_dict_usage_pct", pct, { dict = name })
             end
         end
+    end
+end
+
+--- Collect IP reputation metrics.
+function _M._collect_ip_reputation_stats()
+    local metrics = require "core.metrics"
+    local ok, ip_rep = pcall(require, "core.ip_reputation")
+    if not ok or not ip_rep then return end
+
+    local stats = ip_rep.get_stats()
+    metrics.gauge("ip_reputation_flagged_total", stats.flagged or 0, {})
+    metrics.gauge("ip_reputation_pending_total", stats.pending or 0, {})
+    metrics.gauge("ip_reputation_flagged_today", stats.flagged_today or 0, {})
+
+    -- Top scored IPs (limited cardinality: top 5)
+    local flagged = ip_rep.list_flagged()
+    local scored = {}
+    for _, entry in ipairs(flagged) do
+        if entry.ip then
+            local s = ip_rep.get_score(entry.ip)
+            if s and s > 0 then
+                scored[#scored + 1] = { ip = entry.ip, score = s }
+            end
+        end
+    end
+    table.sort(scored, function(a, b) return a.score > b.score end)
+    for i = 1, math.min(5, #scored) do
+        metrics.gauge("ip_reputation_score", scored[i].score, { ip = scored[i].ip })
     end
 end
 
