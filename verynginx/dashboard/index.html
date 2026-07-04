@@ -8,6 +8,7 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#f5f6fa;--card:#fff;--border:#e0e3eb;--text:#1a1a2e;--muted:#6b7280;--primary:#4361ee;--primary-hover:#3a56d4;--danger:#e63946;--success:#2ec4b6;--warning:#f4a261}
+[data-theme="dark"]{--bg:#1a1a2e;--card:#2d2d44;--border:#3d3d5c;--text:#e0e0e0;--muted:#9ca3af;--primary:#6366f1;--primary-hover:#4f46e5;--danger:#ef4444;--success:#10b981;--warning:#f59e0b}
 body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
 a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
 input,select,textarea,button{font:inherit}
@@ -122,11 +123,15 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <a :class="{active:page==='config'}" @click="page='config'">Config</a>
         <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">Stats</a>
         <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
+        <a :class="{active:page==='frequency'}" @click="page='frequency';loadFrequencyData()">Frequency</a>
         <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">Reputation</a>
         <a :class="{active:page==='audit'}" @click="page='audit';loadAudit()">Audit</a>
         <a :class="{active:page==='about'}" @click="page='about'">About</a>
       </nav>
       <div class="user-area">
+        <button class="outline small" @click="toggleTheme" :title="theme==='dark'?'切换浅色':'切换深色'" style="padding:4px 8px">
+          {{ theme === 'dark' ? '☀' : '🌙' }}
+        </button>
         <span>{{ store.user }}</span>
         <button class="outline small" @click="doLogout">Logout</button>
       </div>
@@ -838,6 +843,84 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             </table>
           </div>
         </div>
+       </div>
+
+      <!-- Frequency Limit -->
+      <div v-if="page==='frequency'">
+        <div class="flex flex-between mb-16">
+          <h2 class="page-title" style="margin-bottom:0">Frequency Limit</h2>
+          <div class="flex gap-8">
+            <button class="outline small" @click="loadFrequencyData">Refresh</button>
+            <button class="primary small" @click="openFreqRuleCreate">+ New Rule</button>
+          </div>
+        </div>
+
+        <!-- Active Counters -->
+        <div class="card" style="padding:16px;margin-bottom:16px">
+          <h3 style="font-size:14px;margin-bottom:8px">当前活跃计数 (Top 50)</h3>
+          <div v-if="freqStats.length">
+            <table>
+              <thead><tr><th>Key</th><th>Count</th></tr></thead>
+              <tbody>
+                <tr v-for="s in freqStats.slice(0, 50)" :key="s.key">
+                  <td><code style="font-size:11px">{{ s.key }}</code></td>
+                  <td>{{ s.count }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="empty">No active counters.</div>
+        </div>
+
+        <!-- Rules -->
+        <div class="card" style="padding:16px">
+          <h3 style="font-size:14px;margin-bottom:8px">限流规则</h3>
+          <div v-if="freqRules.length">
+            <table>
+              <thead><tr><th>ID</th><th>Key</th><th>Limit</th><th>Window</th><th>Action</th><th>Enable</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="r in freqRules" :key="r.id">
+                  <td><code style="font-size:11px">{{ r.id }}</code></td>
+                  <td>{{ r.key || 'ip' }}</td>
+                  <td>{{ r.limit }}</td>
+                  <td>{{ r.window }}s</td>
+                  <td><span class="tag">{{ r.code || 429 }}</span></td>
+                  <td><input type="checkbox" :checked="r.enable !== false" @change="toggleFreqRule(r)" disabled></td>
+                  <td><button class="outline small" @click="deleteFreqRule(r)">Delete</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="empty">No frequency limit rules configured.</div>
+        </div>
+
+        <!-- Create Rule Modal -->
+        <div class="modal-overlay" v-if="freqRuleModal.show" @click.self="freqRuleModal.show=false">
+          <div class="modal">
+            <h3>{{ freqRuleModal._isNew ? 'Create Frequency Rule' : 'Edit Frequency Rule' }}</h3>
+            <div class="field"><label>Rule ID</label><input v-model="freqRuleModal.id" placeholder="freq_login" :disabled="!freqRuleModal._isNew"></div>
+            <div class="field"><label>Key Dimension</label>
+              <select v-model="freqRuleModal.key" style="width:100%">
+                <option value="ip">IP</option>
+                <option value="uri">URI</option>
+                <option value="user">User</option>
+                <option value="host">Host</option>
+              </select>
+            </div>
+            <div class="grid grid-2 mb-8">
+              <div class="field"><label>Limit (max hits)</label><input v-model.number="freqRuleModal.limit" type="number" min="1" placeholder="60"></div>
+              <div class="field"><label>Window (seconds)</label><input v-model.number="freqRuleModal.window" type="number" min="1" placeholder="60"></div>
+            </div>
+            <div class="grid grid-2 mb-8">
+              <div class="field"><label>Block Code</label><input v-model.number="freqRuleModal.code" type="number" min="200" max="599" placeholder="429"></div>
+              <div class="field"><label>Matcher JSON (optional)</label><input v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}'></div>
+            </div>
+            <div class="modal-actions">
+              <button class="outline" @click="freqRuleModal.show=false">Cancel</button>
+              <button class="primary" @click="saveFreqRule">Save</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Reputation -->
@@ -1103,6 +1186,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div class="field"><label>URI</label><code style="word-break:break-all">{{ wafHitDetailModal.data.uri }}</code></div>
         <div class="field" v-if="wafHitDetailModal.data.query_string"><label>Query String</label><code style="word-break:break-all">{{ wafHitDetailModal.data.query_string }}</code></div>
         <div class="field"><label>User-Agent</label><div style="font-size:12px;color:#374151;word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
+        <div class="field" v-if="wafHitDetailModal.data.ja3_fingerprint"><label>TLS Fingerprint</label><code style="font-size:11px;word-break:break-all">{{ wafHitDetailModal.data.ja3_fingerprint }}</code></div>
         <div class="field" v-if="wafHitDetailModal.data.body_snippet"><label>Body (前 1KB)</label><pre style="background:#f9fafb;padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
         <div class="field" v-if="wafHitDetailModal.data.headers && Object.keys(wafHitDetailModal.data.headers).length">
           <label>Headers</label>
@@ -1255,6 +1339,16 @@ async function refreshCsrf() {
 }
 
 // ---- App ----
+// Dark mode toggle (before app mount)
+;(function() {
+  try {
+    var saved = localStorage.getItem('vn_theme');
+    if (saved === 'dark' || (!saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  } catch(e) {}
+})();
+
 const app = Vue.createApp({
   setup() {
     const store = reactive({ loggedIn: false, user: null });
@@ -1269,7 +1363,15 @@ const app = Vue.createApp({
     const healthData = ref({});
     const overview = ref({});
     const dictUsage = ref([]);
-    const cfgTab = ref('matchers');
+     const cfgTab = ref('matchers');
+     const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+
+     function toggleTheme() {
+       const newTheme = theme.value === 'dark' ? 'light' : 'dark';
+       theme.value = newTheme;
+       document.documentElement.setAttribute('data-theme', newTheme);
+       try { localStorage.setItem('vn_theme', newTheme); } catch(e) {}
+     }
     const rawJson = ref('');
     watch(rawJson, (val) => {
       jsonError.value = '';
@@ -1333,6 +1435,9 @@ const app = Vue.createApp({
     const wafHitDetailModal = reactive({ show: false, loading: false, data: null });
     const wafIpHits = ref([]);
     const wafIpHitsIp = ref('');
+    const freqStats = ref([]);
+    const freqRules = ref([]);
+    const freqRuleModal = reactive({ show: false, _isNew: false, id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
 
     // ---- Reputation State ----
     const repStats = ref(null);
@@ -2439,6 +2544,74 @@ const app = Vue.createApp({
       showToast('请在 Rules 标签中编辑规则: ' + ruleId, 'info')
     }
 
+    // ---- Frequency Limit ----
+    async function loadFrequencyData() {
+      try {
+        const [statsRes, rulesRes] = await Promise.all([
+          api('GET', '/verynginx/frequency/stats'),
+          api('GET', '/verynginx/frequency/rules'),
+        ]);
+        if (statsRes.ret === 'success') freqStats.value = statsRes.data || [];
+        if (rulesRes.ret === 'success') freqRules.value = rulesRes.data || [];
+      } catch (e) {
+        // silent
+      }
+    }
+
+    function openFreqRuleCreate() {
+      freqRuleModal._isNew = true;
+      freqRuleModal.id = 'freq_' + Date.now();
+      freqRuleModal.key = 'ip';
+      freqRuleModal.limit = 60;
+      freqRuleModal.window = 60;
+      freqRuleModal.code = 429;
+      freqRuleModal.matcherJson = '{}';
+      freqRuleModal.show = true;
+    }
+
+    async function saveFreqRule() {
+      try {
+        let matcher = {};
+        if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
+          matcher = JSON.parse(freqRuleModal.matcherJson);
+        }
+        const rule = {
+          id: freqRuleModal.id,
+          key: freqRuleModal.key,
+          limit: freqRuleModal.limit,
+          window: freqRuleModal.window,
+          code: freqRuleModal.code,
+          enable: true,
+        };
+        if (Object.keys(matcher).length > 0) rule.matcher = matcher;
+        const d = await api('POST', '/verynginx/frequency/rules', rule);
+        if (d.ret === 'success') {
+          freqRuleModal.show = false;
+          showToast('规则已保存', 'success');
+          await loadFrequencyData();
+        } else {
+          showToast(d.message || '保存失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function deleteFreqRule(rule) {
+      if (!confirm('Delete frequency rule "' + rule.id + '"?')) return;
+      try {
+        const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
+        if (d.ret === 'success') {
+          showToast('规则已删除', 'success');
+          await loadFrequencyData();
+        } else {
+          showToast(d.message || '删除失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
     async function wafDeleteRule(rule) {
       if (!confirm('Delete rule "' + rule.name + '"? This cannot be undone.')) return;
       try {
@@ -2661,7 +2834,7 @@ const app = Vue.createApp({
 
     return {
       store, page, loading, loginUser, loginPass, loginError,
-      status, s, cfg, healthData, overview, dictUsage, connHistory, connLinePoints, connFillPoints, cfgTab, rawJson, jsonSaving, jsonError,
+      status, s, cfg, healthData, overview, dictUsage, connHistory, connLinePoints, connFillPoints, cfgTab, theme, toggleTheme, rawJson, jsonSaving, jsonError,
       statsData, statsType, statsError, expandedUri,
       matcherKeys, respKeys, editMatcherModal,
       doLogin, doLogout, loadStatus, loadConfig, loadData, loadOverview, loadDictUsage,
@@ -2689,6 +2862,8 @@ const app = Vue.createApp({
       wafTestHistory, loadTestHistory, clearTestHistory,
       wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
       wafIpHits, wafIpHitsIp,
+      freqStats, freqRules, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
+      freqRuleModal,
       plugins, pluginsError, loadPlugins, togglePlugin,
       toastMsg, toastType, toastVisible, formatAgo,
       configImportError, configImportOk, importFileInput,

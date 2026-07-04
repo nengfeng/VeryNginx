@@ -406,15 +406,14 @@ function _M.persist()
         return
     end
     local flagged = _M.list_flagged()
-    if #flagged == 0 then
-        local path = resolve_path() .. "ip-reputation-flagged.json"
-        local f = io.open(path, "w")
-        if f then
-            f:write("[]")
-            f:close()
-        end
-        return
-    end
+    -- Collect pending entries from shared dict
+    local pending = _M._collect_pending()
+    local payload = {
+        version = 2,
+        saved_at = ngx.time(),
+        flagged = flagged,
+        pending = pending,
+    }
     local path = resolve_path() .. "ip-reputation-flagged.json"
     local tmp = path .. ".tmp"
     local f = io.open(tmp, "w")
@@ -422,9 +421,33 @@ function _M.persist()
         ngx.log(ngx.WARN, "ip_reputation: cannot open temp file for persist: ", tmp)
         return
     end
-    f:write(require("dkjson").encode(flagged, { indent = true }))
+    f:write(require("dkjson").encode(payload, { indent = true }))
     f:close()
     os.rename(tmp, path)
+end
+
+-- Collect pending challenge state from shared dict (no-lru scan)
+function _M._collect_pending()
+    local s = shared()
+    if not s then return {} end
+    local pending = {}
+    local keys = s:get_keys(0)
+    local PENDING_KEY = "ip_rep:pending:"
+    for _, k in ipairs(keys) do
+        if k:sub(1, #PENDING_KEY) == PENDING_KEY and #k > #PENDING_KEY then
+            local ip = k:sub(#PENDING_KEY + 1)
+            local created = s:get(k)
+            if created then
+                local ttl = cfg_val("pending_ttl")
+                local elapsed = ngx.time() - created
+                local remaining = ttl - elapsed
+                if remaining > 0 then
+                    pending[#pending + 1] = { ip = ip, created_at = created, remaining = remaining }
+                end
+            end
+        end
+    end
+    return pending
 end
 
 function _M.restore()
@@ -439,14 +462,22 @@ function _M.restore()
     local data = f:read("*all")
     f:close()
     if not data or data == "" or data == "[]" then return end
-    local ok, flagged = pcall(require("dkjson").decode, data)
-    if not ok or type(flagged) ~= "table" then
+    local ok, payload = pcall(require("dkjson").decode, data)
+    if not ok or type(payload) ~= "table" then
         ngx.log(ngx.ERR, "ip_reputation: persist file decode error")
         return
     end
     local s = shared()
     if not s then return end
     local now = ngx.time()
+
+    -- Restore flagged IPs (both v1 plain array and v2 wrapped object)
+    local flagged = {}
+    if payload.flagged and type(payload.flagged) == "table" then
+        flagged = payload.flagged
+    elseif #payload > 0 then
+        flagged = payload
+    end
     local valid_entries = {}
     for _, entry in ipairs(flagged) do
         if entry.expires_at and entry.expires_at > now then
@@ -459,6 +490,16 @@ function _M.restore()
     end
     if #valid_entries > 0 then
         s:set("ip_rep:flagged_index", require("dkjson").encode(valid_entries))
+    end
+
+    -- Restore pending challenge state (v2 only)
+    if payload.pending and type(payload.pending) == "table" then
+        for _, p in ipairs(payload.pending) do
+            if p.ip and p.remaining and p.remaining > 0 then
+                s:set("ip_rep:pending:" .. p.ip, p.created_at or (now - 1), p.remaining)
+                ngx.log(ngx.WARN, "ip_reputation: restored pending IP ", p.ip, " (", p.remaining, "s remaining)")
+            end
+        end
     end
 end
 

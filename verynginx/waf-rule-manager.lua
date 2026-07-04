@@ -742,6 +742,14 @@ function _M.record_hit(rule_id, ctx, action)
             detail.body_snippet = body:sub(1, 1024)
         end
     end)
+    -- Capture TLS/JA3 fingerprint if available
+    pcall(function()
+        local ja3_mod = require "core.ja3"
+        local ja3 = ja3_mod.get_fingerprint()
+        if ja3 then
+            detail.ja3_fingerprint = ja3
+        end
+    end)
     shared:set("waf_hit_detail:" .. ring_idx, json.encode(detail), 3600)
 end
 
