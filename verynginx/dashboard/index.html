@@ -926,7 +926,28 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <h2 class="page-title" style="margin-bottom:0">Audit Log</h2>
           <button class="outline small" @click="loadAudit">Refresh</button>
         </div>
+        <!-- Filters -->
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <label style="font-size:11px;color:#6b7280">用户</label>
+            <input v-model="auditFilterUser" placeholder="all" style="width:100px" @keyup.enter="loadAudit">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#6b7280">操作类型</label>
+            <input v-model="auditFilterAction" placeholder="all" style="width:120px" @keyup.enter="loadAudit">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#6b7280">起始时间</label>
+            <input v-model="auditFilterSince" type="datetime-local" style="width:160px" @change="loadAudit">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#6b7280">结束时间</label>
+            <input v-model="auditFilterUntil" type="datetime-local" style="width:160px" @change="loadAudit">
+          </div>
+          <button class="outline small" @click="clearAuditFilters">清除筛选</button>
+        </div>
         <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
+        <div style="font-size:13px;color:#6b7280;margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
         <div style="overflow-x:auto">
           <table>
             <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
@@ -1325,6 +1346,10 @@ const app = Vue.createApp({
     // ---- Audit State ----
     const auditEntries = ref([]);
     const auditError = ref('');
+    const auditFilterUser = ref('');
+    const auditFilterAction = ref('');
+    const auditFilterSince = ref('');
+    const auditFilterUntil = ref('');
 
     const plugins = ref([]);
     const pluginsError = ref('');
@@ -2072,7 +2097,18 @@ const app = Vue.createApp({
     async function loadAudit() {
       auditError.value = '';
       try {
-        const d = await api('GET', '/verynginx/audit?limit=100');
+        let url = '/verynginx/audit?limit=500';
+        if (auditFilterUser.value) url += '&user=' + encodeURIComponent(auditFilterUser.value);
+        if (auditFilterAction.value) url += '&action=' + encodeURIComponent(auditFilterAction.value);
+        if (auditFilterSince.value) {
+          const sinceTs = Math.floor(new Date(auditFilterSince.value).getTime() / 1000);
+          url += '&since=' + sinceTs;
+        }
+        if (auditFilterUntil.value) {
+          const untilTs = Math.floor(new Date(auditFilterUntil.value).getTime() / 1000);
+          url += '&until=' + untilTs;
+        }
+        const d = await api('GET', url);
         if (d.ret === 'success') {
           auditEntries.value = d.data || [];
         } else {
@@ -2081,6 +2117,14 @@ const app = Vue.createApp({
       } catch (e) {
         auditError.value = e.message;
       }
+    }
+
+    function clearAuditFilters() {
+      auditFilterUser.value = '';
+      auditFilterAction.value = '';
+      auditFilterSince.value = '';
+      auditFilterUntil.value = '';
+      loadAudit();
     }
 
     async function loadWafData() {
@@ -2655,7 +2699,8 @@ const app = Vue.createApp({
       repNewWhitelist, repLookupIP, repLookupResult,
       remaining, loadRepData, repClear, repAddWhitelist, repRemoveWhitelist, repPersist, repLookup,
       // Audit
-      auditEntries, auditError, auditActionClass, loadAudit,
+      auditEntries, auditError, auditActionClass, loadAudit, clearAuditFilters,
+      auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil,
     };
   }
 });

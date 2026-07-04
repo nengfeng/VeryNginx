@@ -1323,9 +1323,13 @@ end
 -- GET /audit - recent audit log entries
 -- ============================================================
 local function handle_get_audit()
-    local limit = tonumber(ngx.var.arg_limit) or 100
-    if limit > 200 then limit = 200 end
-    local entries = audit.get_recent(limit)
+    local limit = tonumber(ngx.var.arg_limit) or 200
+    if limit > 1000 then limit = 1000 end
+    local user_filter = ngx.var.arg_user
+    local action_filter = ngx.var.arg_action
+    local since_ts = tonumber(ngx.var.arg_since)
+    local until_ts = tonumber(ngx.var.arg_until)
+    local entries = audit.get_filtered(user_filter, action_filter, since_ts, until_ts, limit)
     return json.encode({ ret = "success", data = entries })
 end
 
