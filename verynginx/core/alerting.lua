@@ -23,6 +23,10 @@ local DEFAULTS = {
     -- False positive: challenge pass rate drop
     fp_pass_rate_threshold = 0.3,   -- alert if pass rate drops below this
     fp_min_challenges = 5,          -- minimum challenges in period to evaluate
+    -- Unknown attack pattern detection
+    unknown_pattern_min_hits = 5,   -- min hits with same pattern to trigger alert
+    -- JA3 cross-IP correlation (distributed scanner detection)
+    ja3_cross_ip_threshold = 5,     -- min distinct IPs sharing same JA3 to trigger alert
     -- Detection window
     window_seconds = 360,           -- 1 hour evaluation window (6x per day)
 }
@@ -209,10 +213,52 @@ function _M.evaluate()
         end
     end
 
+    -- 3) Unknown attack pattern detection
+    --    Scan recent blocked hits for URI patterns not seen in the baseline
+    local blocked_patterns = _M._collect_blocked_patterns(s)
+    local known_patterns = state.known_patterns or {}
+    local new_patterns = {}
+    for pattern, info in pairs(blocked_patterns) do
+        if not known_patterns[pattern] and info.count >= (conf.unknown_pattern_min_hits or 5) then
+            new_patterns[pattern] = info
+        end
+    end
+    for pattern, info in pairs(new_patterns) do
+        fire_alert("unknown_attack_pattern", nil, {
+            pattern = pattern,
+            count = info.count,
+            sample_uri = info.sample_uri,
+            sample_ip = info.sample_ip,
+        })
+    end
+    -- Update known patterns (add new ones, decay old ones)
+    for pattern, info in pairs(blocked_patterns) do
+        known_patterns[pattern] = { first_seen = info.first_seen, last_seen = now }
+    end
+    -- Remove patterns not seen in last 24h to prevent unbounded growth
+    for p, meta in pairs(known_patterns) do
+        if meta.last_seen and (now - meta.last_seen) > 86400 then
+            known_patterns[p] = nil
+        end
+    end
+
+    -- 4) JA3 cross-IP correlation (distributed scanner detection)
+    local ja3_ips = _M._collect_ja3_ip_mapping(s)
+    for ja3, ips in pairs(ja3_ips) do
+        if #ips >= (conf.ja3_cross_ip_threshold or 5) then
+            fire_alert("ja3_cross_ip", nil, {
+                ja3_hash = ja3,
+                ip_count = #ips,
+                sample_ips = table.concat({ips[1] or "", ips[2] or "", ips[3] or ""}, ","),
+            })
+        end
+    end
+
     -- Save current state for next comparison
     local new_state = {
         prev_hits = {},
         prev_pass_rate = {},
+        known_patterns = known_patterns,
         updated_at = now,
     }
     for rule_id, stat in pairs(current_hits) do
@@ -225,6 +271,63 @@ function _M.evaluate()
         end
     end
     save_state(new_state)
+end
+
+-- ---------------------------------------------------------------
+-- Pattern collection from recent blocked hits
+-- ---------------------------------------------------------------
+function _M._collect_blocked_patterns(shared)
+    local patterns = {}
+    for ri = 1, 100 do
+        local d = shared:get("waf_hit_detail:" .. ri)
+        if d then
+            local ok, detail = pcall(json.decode, d)
+            if ok and detail.action == "block" and detail.uri then
+                -- Normalize URI into pattern: /api/user/123 → /api/user/:id
+                local pattern = _M._normalize_uri(detail.uri)
+                if not patterns[pattern] then
+                    patterns[pattern] = { count = 0, first_seen = detail.timestamp, sample_uri = detail.uri, sample_ip = detail.ip }
+                end
+                local p = patterns[pattern]
+                p.count = p.count + 1
+                if detail.timestamp > (p.first_seen or 0) then
+                    p.sample_uri = detail.uri
+                    p.sample_ip = detail.ip
+                end
+            end
+        end
+    end
+    return patterns
+end
+
+function _M._normalize_uri(uri)
+    -- Replace hex strings, digits, UUIDs with placeholders
+    local p = uri:gsub("%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x", ":uuid")
+    p = p:gsub("%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x", ":hex")
+    p = p:gsub("%d+", ":id")
+    return p
+end
+
+function _M._collect_ja3_ip_mapping(shared)
+    local ja3_ips = {}
+    local seen = {} -- track unique ip+ja3 combos
+    for ri = 1, 100 do
+        local d = shared:get("waf_hit_detail:" .. ri)
+        if d then
+            local ok, detail = pcall(json.decode, d)
+            if ok and detail.ja3_fingerprint and detail.ip then
+                local ja3 = detail.ja3_fingerprint
+                local ip = detail.ip
+                local key = ja3 .. "|" .. ip
+                if not seen[key] then
+                    seen[key] = true
+                    if not ja3_ips[ja3] then ja3_ips[ja3] = {} end
+                    ja3_ips[ja3][#ja3_ips[ja3] + 1] = ip
+                end
+            end
+        end
+    end
+    return ja3_ips
 end
 
 -- ---------------------------------------------------------------

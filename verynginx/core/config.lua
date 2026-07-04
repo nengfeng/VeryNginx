@@ -35,6 +35,8 @@ _M.schema = {
             hit_spike_min_hits = 10,
             fp_pass_rate_threshold = 0.3,
             fp_min_challenges = 5,
+            unknown_pattern_min_hits = 5,
+            ja3_cross_ip_threshold = 5,
             window_seconds = 360,
         } },
         waf_rules = { type = "table", default = {} },
