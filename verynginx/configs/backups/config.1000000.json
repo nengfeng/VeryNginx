@@ -1,52 +1,52 @@
 {
+  "ip_reputation":{
+    "enable":false,
+    "pending_ttl":600,
+    "min_requests":3,
+    "signals":{
+      "waf_block":5,
+      "challenge_fail":5,
+      "waf_challenge":3,
+      "not_found":1
+    },
+    "whitelist":[],
+    "window_size":300,
+    "flag_duration":600,
+    "slot_size":60,
+    "threshold":25
+  },
+  "base_uri":"/verynginx",
+  "plugin":[],
+  "rule":[],
+  "security":[],
+  "response":[],
+  "admin":[],
+  "dashboard_host":"",
+  "backend_upstream":[],
+  "matcher":[],
+  "config_save_lock_ttl":60,
+  "waf_rules":[],
+  "version":"2.0",
+  "cookie_prefix":"verynginx",
   "body":{
     "max_args":100,
-    "on_error":"fail_closed",
-    "max_size":1048576
+    "max_size":1048576,
+    "on_error":"fail_closed"
   },
-  "response":[],
-  "security":[],
-  "matcher":[],
   "statistics":[],
-  "rule":[],
-  "cookie_prefix":"verynginx",
-  "admin":[],
   "proxy":{
     "health_check_interval":5
   },
   "alerting":{
-    "fp_min_challenges":5,
-    "fp_pass_rate_threshold":0.3,
-    "hit_spike_multiplier":3.0,
-    "hit_spike_min_hits":10,
     "window_seconds":360,
-    "enabled":false,
-    "ja3_cross_ip_threshold":5,
+    "hit_spike_min_hits":10,
     "unknown_pattern_min_hits":5,
+    "hit_spike_multiplier":3.0,
+    "ja3_cross_ip_threshold":5,
+    "enabled":false,
+    "fp_pass_rate_threshold":0.3,
+    "fp_min_challenges":5,
     "webhook_url":""
   },
-  "waf_rules":[],
-  "plugin":[],
-  "base_uri":"/verynginx",
-  "dashboard_host":"",
-  "version":"2.0",
-  "observability":[],
-  "config_save_lock_ttl":60,
-  "ip_reputation":{
-    "slot_size":60,
-    "threshold":25,
-    "signals":{
-      "waf_challenge":3,
-      "challenge_fail":5,
-      "waf_block":5,
-      "not_found":1
-    },
-    "enable":false,
-    "window_size":300,
-    "min_requests":3,
-    "pending_ttl":600,
-    "whitelist":[],
-    "flag_duration":600
-  },
-  "backend_upstream":[]
+  "observability":[]
 }

@@ -954,11 +954,11 @@ local function handle_waf_hit_detail()
     local shared = ngx.shared.vn_config
     local detail_json
     if shared then
-        detail_json = shared:get("waf_hit_detail:" .. idx)
+        detail_json = shared:get("waf_recent_hits:data:" .. idx)
     end
     if not detail_json then
         ngx.status = 404
-        return json.encode({ ret = "failed", message = "hit detail expired or not found" })
+        return json.encode({ ret = "failed", message = "hit detail not found" })
     end
     local ok, detail = pcall(json.decode, detail_json)
     if not ok then
@@ -989,7 +989,7 @@ local function handle_waf_hit_detail()
     detail.ip_hit_count = 0
     if shared then
         for ri = 1, 100 do
-            local d = shared:get("waf_hit_detail:" .. ri)
+            local d = shared:get("waf_recent_hits:data:" .. ri)
             if d then
                 local ok2, det = pcall(json.decode, d)
                 if ok2 and det.ip == detail.ip then
@@ -1015,7 +1015,7 @@ local function handle_waf_hits_by_ip()
     local hits = {}
     if shared then
         for ri = 1, 100 do
-            local d = shared:get("waf_hit_detail:" .. ri)
+            local d = shared:get("waf_recent_hits:data:" .. ri)
             if d then
                 local ok, det = pcall(json.decode, d)
                 if ok and det.ip == ip then
@@ -1069,15 +1069,21 @@ local function handle_waf_timeline()
         if k:sub(1, 18) == "waf_recent_hits:data:" then
             local data = shared:get(k)
             if data then
-                local rule_id, ts_str = data:match("^([^|]*)|([^|]*)|")
-                local ts = tonumber(ts_str)
-                if ts and ts >= window_start and rule_id then
-                    local bucket_idx = math.floor((ts - window_start) / bucket_seconds)
-                    if bucket_idx >= 0 and bucket_idx < num_buckets then
-                        local cat = rule_cat[rule_id] or "other"
-                        local bucket = buckets[bucket_idx]
-                        bucket.counts[cat] = (bucket.counts[cat] or 0) + 1
-                    end
+                if not hit_cache then hit_cache = {} end
+                hit_cache[k] = data
+            end
+        end
+    end
+    for k, data in pairs(hit_cache) do
+        local ok, det = pcall(json.decode, data)
+        if ok and det and det.action == "block" then
+            local ts = det.timestamp or 0
+            if ts >= window_start and det.rule_id then
+                local bucket_idx = math.floor((ts - window_start) / bucket_seconds)
+                if bucket_idx >= 0 and bucket_idx < num_buckets then
+                    local cat = rule_cat[det.rule_id] or "other"
+                    local bucket = buckets[bucket_idx]
+                    bucket.counts[cat] = (bucket.counts[cat] or 0) + 1
                 end
             end
         end

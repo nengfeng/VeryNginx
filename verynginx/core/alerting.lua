@@ -320,7 +320,7 @@ end
 function _M._collect_blocked_patterns(s)
     local patterns = {}
     for ri = 1, 100 do
-        local d = s:get("waf_hit_detail:" .. ri)
+        local d = s:get("waf_recent_hits:data:" .. ri)
         if d then
             local ok, detail = pcall(json.decode, d)
             if ok and detail.action == "block" and detail.uri then
@@ -359,7 +359,7 @@ function _M._collect_ja3_ip_mapping(s)
     local ja3_ips = {}
     local seen = {} -- track unique ip+ja3 combos
     for ri = 1, 100 do
-        local d = s:get("waf_hit_detail:" .. ri)
+        local d = s:get("waf_recent_hits:data:" .. ri)
         if d then
             local ok, detail = pcall(json.decode, d)
             if ok and detail.ja3_fingerprint and detail.ip then

@@ -712,9 +712,8 @@ function _M.record_hit(rule_id, ctx, action)
 
     -- Ring buffer for recent hits display (keep last 100)
     local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
-    shared:set("waf_recent_hits:data:" .. ring_idx, hit_data)
 
-    -- Store full hit details separately for drill-down (no TTL — persists with ring buffer)
+    -- Build full detail object (stored directly in ring buffer for drill-down)
     local detail = {
         rule_id = rule_id,
         action = hit_action,
@@ -750,7 +749,8 @@ function _M.record_hit(rule_id, ctx, action)
             detail.ja3_fingerprint = ja3
         end
     end)
-    shared:set("waf_hit_detail:" .. ring_idx, json.encode(detail))
+    -- Store full detail JSON in ring buffer (summary fields are pre-parsed in get_recent_hits)
+    shared:set("waf_recent_hits:data:" .. ring_idx, json.encode(detail))
 end
 
 -- ---------------------------------------------------------------------------
@@ -768,14 +768,14 @@ function _M.get_recent_hits(limit)
         local idx = ((tail - 1 - i) % 100) + 1
         local data = shared:get("waf_recent_hits:data:" .. idx)
         if not data then break end
-        local rule_id, ts_str, uri, ip, method = data:match("^([^|]*)|([^|]*)|(.*)|([^|]*)|([^|]*)$")
-        if rule_id and #rule_id > 0 then
+        local ok, detail = pcall(json.decode, data)
+        if ok and detail then
             hits[#hits + 1] = {
-                rule_id = rule_id,
-                time = tonumber(ts_str),
-                uri = uri,
-                ip = ip,
-                method = method,
+                rule_id = detail.rule_id or "",
+                time = detail.timestamp or 0,
+                uri = detail.uri or "",
+                ip = detail.ip or "",
+                method = detail.method or "GET",
                 ring_idx = idx,
             }
         end
