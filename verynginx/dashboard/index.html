@@ -710,6 +710,27 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- History -->
         <div v-if="wafTab==='history'">
           <div v-if="wafHistError" class="error" style="margin-bottom:8px">{{ wafHistError }}</div>
+          <!-- Pending Changes -->
+          <div v-if="wafPendingChanges.length" class="card" style="padding:16px;margin-bottom:16px;border-color:#f59e0b">
+            <h4 style="font-size:14px;margin-bottom:8px;color:#92400e">⏳ 待确认变更 ({{ wafPendingChanges.length }})</h4>
+            <table style="font-size:13px">
+              <thead><tr><th>Rule ID</th><th>Staged At</th><th>Action</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="p in wafPendingChanges" :key="p.rule_id">
+                  <td><code>{{ p.rule_id }}</code></td>
+                  <td style="color:#6b7280">{{ new Date(p.staged_at * 1000).toLocaleString() }}</td>
+                  <td>
+                    <span class="tag" style="background:#fef3c7;color:#92400e">{{ p.proposed.action || 'edit' }}</span>
+                  </td>
+                  <td>
+                    <button class="primary small" @click="confirmPendingChange(p.rule_id)">发布</button>
+                    <button class="outline small" style="margin-left:4px" @click="discardPendingChange(p.rule_id)">丢弃</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- History -->
           <div v-if="wafHistory.length">
             <table>
               <thead><tr><th>Version</th><th>Timestamp</th><th>Action</th><th>Rules</th><th></th></tr></thead>
@@ -942,6 +963,14 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
       </div>
       <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
+      <div v-if="!wafEditModal._isNew && wafDiffLines().length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
+        <div style="background:#f9fafb;padding:6px 12px;font-size:12px;font-weight:600;color:#374151;border-bottom:1px solid #e0e3eb">变更预览 (Diff)</div>
+        <div style="max-height:200px;overflow-y:auto;font-family:ui-monospace,monospace;font-size:12px;background:#fff">
+          <div v-for="(d,i) in wafDiffLines()" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',white-space:pre-wrap,word-break:break-all}">
+            {{ d.type === 'added' ? '+' : '-' }} {{ d.text }}
+          </div>
+        </div>
+      </div>
       <div class="modal-actions">
         <button class="outline" @click="wafEditModal.show=false">Cancel</button>
         <button class="primary" :disabled="wafSaving" @click="wafSaveRule">{{ wafSaving ? 'Saving…' : 'Save' }}</button>
@@ -1153,6 +1182,7 @@ const app = Vue.createApp({
     const wafHitsError = ref('');
     const wafHitsTime = ref('');
     const wafAnalytics = ref({ rules: [], dead_rules: [] });
+    const wafPendingChanges = ref([]);
 
     // ---- Reputation State ----
     const repStats = ref(null);
@@ -1929,7 +1959,7 @@ const app = Vue.createApp({
       if (wafTab.value === 'hits') await loadWafHits();
       if (wafTab.value === 'stats') await loadWafStats();
       if (wafTab.value === 'analytics') await loadWafAnalytics();
-      if (wafTab.value === 'history') await loadWafHistory();
+      if (wafTab.value === 'history') { await loadWafHistory(); await loadPendingRules(); }
     }
 
     function wafOpenCreate() {
@@ -1970,8 +2000,51 @@ const app = Vue.createApp({
       } else {
         wafEditModal.rateLimitEnabled = false;
       }
+      wafEditModal._originalRule = JSON.stringify({
+        name: rule.name, description: rule.description || '',
+        category: rule.category, severity: rule.severity,
+        action: rule.action, code: rule.code || 403,
+        matcher: rule.matcher, tags: rule.tags || [],
+        rate_limit: rule.rate_limit || {}
+      }, null, 2);
       wafEditError.value = '';
       wafEditModal.show = true;
+    }
+
+    function wafDiffLines() {
+      if (wafEditModal._isNew) return [];
+      try {
+        const orig = JSON.parse(wafEditModal._originalRule);
+        const changed = {
+          name: wafEditModal.name,
+          description: wafEditModal.description || '',
+          category: wafEditModal.category,
+          severity: wafEditModal.severity,
+          action: wafEditModal.action,
+          code: wafEditModal.code || 403,
+          matcher: JSON.parse(wafEditModal.matcherJson),
+          tags: wafEditModal.tagsStr.split(',').map(t => t.trim()).filter(t => t),
+          rate_limit: wafEditModal.rateLimitEnabled ? {
+            enable: true, max_hits: wafEditModal.rateLimitMax,
+            window: wafEditModal.rateLimitWindow, action: wafEditModal.rateLimitAction
+          } : {}
+        };
+        const a = JSON.stringify(orig, null, 2).split('\n');
+        const b = JSON.stringify(changed, null, 2).split('\n');
+        const diff = [];
+        const maxLen = Math.max(a.length, b.length);
+        for (let i = 0; i < maxLen; i++) {
+          const left = a[i] || '';
+          const right = b[i] || '';
+          if (left !== right) {
+            if (left) diff.push({ type: 'removed', text: left });
+            if (right) diff.push({ type: 'added', text: right });
+          }
+        }
+        return diff;
+      } catch (e) {
+        return [];
+      }
     }
 
     const VALID_CATEGORIES = ['sqli', 'xss', 'rce', 'lfi', 'path_traversal', 'scanner', 'bot', 'brute', 'spam', 'custom'];
@@ -2025,11 +2098,16 @@ const app = Vue.createApp({
         if (m._isNew) {
           d = await api('POST', '/verynginx/waf/rules', rule);
         } else {
-          d = await api('PUT', '/verynginx/waf/rules/' + m.id, rule);
+          // Stage the change (requires confirmation via History tab)
+          d = await api('POST', '/verynginx/waf/rules/' + m.id + '/stage', rule);
         }
         if (d.ret === 'success') {
           wafEditModal.show = false;
+          if (!m._isNew) {
+            showToast('规则变更已暂存，请在 History 标签中确认发布', 'info');
+          }
           await loadWafRules();
+          loadWafHistory();
         } else {
           wafEditError.value = d.message || 'Save failed';
         }
@@ -2037,6 +2115,46 @@ const app = Vue.createApp({
         wafEditError.value = e.message;
       }
       wafSaving.value = false;
+    }
+
+    // ---- Pending Rule Changes ----
+    async function loadPendingRules() {
+      try {
+        const d = await api('GET', '/verynginx/waf/rules/pending');
+        if (d.ret === 'success') {
+          wafPendingChanges.value = d.data || [];
+        }
+      } catch (e) {
+        wafPendingChanges.value = [];
+      }
+    }
+
+    async function confirmPendingChange(ruleId) {
+      try {
+        const d = await api('POST', '/verynginx/waf/rules/' + ruleId + '/confirm');
+        if (d.ret === 'success') {
+          showToast('规则变更已发布', 'success');
+          await Promise.all([loadWafRules(), loadWafHistory(), loadPendingRules()]);
+        } else {
+          showToast(d.message || '发布失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function discardPendingChange(ruleId) {
+      try {
+        const d = await api('DELETE', '/verynginx/waf/rules/' + ruleId + '/pending');
+        if (d.ret === 'success') {
+          showToast('规则变更已丢弃', 'info');
+          await loadPendingRules();
+        } else {
+          showToast(d.message || '丢弃失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
     }
 
     async function wafDeleteRule(rule) {
@@ -2283,6 +2401,7 @@ const app = Vue.createApp({
       wafRollback, wafRunTest,
       wafHits, wafHitsError, wafHitsTime, loadWafHits,
       wafAnalytics, loadWafAnalytics, gradeStyle,
+      wafPendingChanges, loadPendingRules, confirmPendingChange, discardPendingChange,
       plugins, pluginsError, loadPlugins, togglePlugin,
       toastMsg, toastType, toastVisible, formatAgo,
       configImportError, configImportOk, importFileInput,

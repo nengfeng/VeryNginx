@@ -323,6 +323,11 @@ function _M.save_rules(rules, action)
     return true
 end
 
+--- _save_rules_through_config — save rules via approval flow (used by confirm endpoint)
+function _M._save_rules_through_config(rules)
+    return _M.save_rules(rules, "confirm_pending")
+end
+
 -- ---------------------------------------------------------------------------
 -- record_history  — append a snapshot to the history file
 -- ---------------------------------------------------------------------------

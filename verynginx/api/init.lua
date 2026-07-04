@@ -699,6 +699,153 @@ local function handle_waf_analytics()
     return json.encode({ ret = "success", data = { rules = analytics, dead_rules = dead_rules } })
 end
 
+-- ============================================================
+-- Rule change staging / approval flow
+-- ============================================================
+
+local PENDING_PREFIX = "waf_pending_rule:"
+
+local function util_get_request_args()
+    ngx.req.read_body()
+    local content_type = ngx.var.content_type or ""
+    if content_type:lower():find("application/json", 1, true) then
+        local body = ngx.req.get_body_data()
+        if body and body ~= "" then
+            local ok, parsed = pcall(json.decode, body)
+            if ok then return parsed end
+        end
+    end
+    return ngx.req.get_post_args()
+end
+
+--- POST /waf/rules/:id/stage — save a rule change as pending (not yet active)
+local function handle_stage_waf_rule()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    local shared = ngx.shared.vn_config
+    if not shared then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "shared dict not available" })
+    end
+
+    local args = util_get_request_args()
+    if not args or type(args) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid request body" })
+    end
+
+    local pending = {
+        rule_id = rule_id,
+        staged_at = ngx.time(),
+        staged_by = "-",
+        proposed = args,
+    }
+    shared:set(PENDING_PREFIX .. rule_id, json.encode(pending))
+    audit.log("rule_staged", rule_id, "-")
+    return json.encode({ ret = "success", data = pending })
+end
+
+--- POST /waf/rules/:id/confirm — activate a staged rule change
+local function handle_confirm_waf_rule()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    local shared = ngx.shared.vn_config
+    if not shared then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "shared dict not available" })
+    end
+
+    local pending_json = shared:get(PENDING_PREFIX .. rule_id)
+    if not pending_json then
+        ngx.status = 404
+        return json.encode({ ret = "failed", message = "no pending change for this rule" })
+    end
+
+    local ok, pending = pcall(json.decode, pending_json)
+    if not ok or not pending then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "corrupted pending data" })
+    end
+
+    -- Apply the change by updating the actual rule
+    local waf_manager = require "waf-rule-manager"
+    local rules_obj = waf_manager.load_rules()
+    local rules = rules_obj and rules_obj.rules or {}
+    local updated = false
+    for _, rule in ipairs(rules) do
+        if rule.id == rule_id then
+            for k, v in pairs(pending.proposed) do
+                if k ~= "id" then
+                    rule[k] = v
+                end
+            end
+            updated = true
+            break
+        end
+    end
+
+    if not updated then
+        shared:delete(PENDING_PREFIX .. rule_id)
+        ngx.status = 404
+        return json.encode({ ret = "failed", message = "rule not found" })
+    end
+
+    -- Save the updated rules via config
+    waf_manager._save_rules_through_config(rules)
+    shared:delete(PENDING_PREFIX .. rule_id)
+    audit.log("rule_change_confirmed", rule_id, "-")
+    return json.encode({ ret = "success", message = "rule change applied" })
+end
+
+--- DELETE /waf/rules/:id/pending — discard a staged rule change
+local function handle_discard_waf_rule()
+    local rule_id = ngx.ctx.waf_rule_id
+    if not rule_id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "rule id required" })
+    end
+    local shared = ngx.shared.vn_config
+    if not shared then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "shared dict not available" })
+    end
+
+    local existed = shared:get(PENDING_PREFIX .. rule_id) ~= nil
+    shared:delete(PENDING_PREFIX .. rule_id)
+    if existed then
+        audit.log("rule_change_discarded", rule_id, "-")
+    end
+    local msg = existed and "pending change discarded" or "no pending change"
+    return json.encode({ ret = "success", message = msg })
+end
+
+--- GET /waf/rules/pending — list all pending rule changes
+local function handle_list_pending_rules()
+    local shared = ngx.shared.vn_config
+    local result = {}
+    if shared then
+        local keys = shared:get_keys(200)
+        for _, k in ipairs(keys) do
+            if k:sub(1, #PENDING_PREFIX) == PENDING_PREFIX then
+                local data = shared:get(k)
+                if data then
+                    local ok, decoded = pcall(json.decode, data)
+                    if ok and decoded then
+                        result[#result + 1] = decoded
+                    end
+                end
+            end
+        end
+    end
+    return json.encode({ ret = "success", data = result })
+end
+
 --- GET /upstreams/health - return runtime health status for all upstream nodes
 local function handle_get_upstream_health()
     local upstreams_data = {}
@@ -992,6 +1139,10 @@ _M.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,  true)
 _M.register("GET",    "/waf/stats/:id",          handle_waf_rule_stats,     true)
 _M.register("GET",    "/waf/hits",               handle_list_waf_hits,      true)
 _M.register("GET",    "/waf/analytics",           handle_waf_analytics,      true)
+_M.register("POST",   "/waf/rules/:id/stage",    handle_stage_waf_rule,     true)
+_M.register("POST",   "/waf/rules/:id/confirm",  handle_confirm_waf_rule,   true)
+_M.register("DELETE", "/waf/rules/:id/pending",  handle_discard_waf_rule,   true)
+_M.register("GET",    "/waf/rules/pending",      handle_list_pending_rules, true)
 
 _M.register("GET",    "/config/export",          handle_export_config,       true)
 _M.register("POST",   "/config/import",          handle_import_config,       true)
