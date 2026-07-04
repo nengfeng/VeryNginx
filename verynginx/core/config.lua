@@ -103,6 +103,10 @@ local function config_json_path()
     return home_path() .. "configs/config.json"
 end
 
+local function config_default_json_path()
+    return home_path() .. "configs/config.default.json"
+end
+
 -- ---------------------------------------------------------------------------
 -- Normalize defaults: fill missing fields with schema defaults
 -- ---------------------------------------------------------------------------
@@ -336,8 +340,31 @@ function _M.load_from_file()
 
     local config = json.decode(data)
     if not config then
-        ngx.log(ngx.ERR, "config.json decode error")
-        return false
+        -- Try config.default.json as fallback
+        ngx.log(ngx.ERR, "config.json decode error, trying config.default.json")
+        local default_path = config_default_json_path()
+        local default_file = io.open(default_path, "r")
+        if default_file then
+            local default_data = default_file:read("*all")
+            default_file:close()
+            config = json.decode(default_data)
+            if config then
+                ngx.log(ngx.WARN, "config.json invalid, loaded config.default.json as fallback")
+                -- Persist the valid default config
+                local tmp = path .. ".tmp"
+                local out = io.open(tmp, "w")
+                if out then
+                    out:write(default_data)
+                    out:close()
+                    os.rename(tmp, path)
+                    data = default_data
+                end
+            end
+        end
+        if not config then
+            ngx.log(ngx.ERR, "config.json and config.default.json both invalid, using schema defaults")
+            return false
+        end
     end
 
     -- Auto-generate password_hash for admin entries with empty hash
