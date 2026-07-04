@@ -1064,26 +1064,19 @@ local function handle_waf_timeline()
         buckets[i] = { start = window_start + i * bucket_seconds, counts = {} }
     end
 
-    local keys = shared:get_keys(200)
-    for _, k in ipairs(keys) do
-        if k:sub(1, 18) == "waf_recent_hits:data:" then
-            local data = shared:get(k)
-            if data then
-                if not hit_cache then hit_cache = {} end
-                hit_cache[k] = data
-            end
-        end
-    end
-    for k, data in pairs(hit_cache) do
-        local ok, det = pcall(json.decode, data)
-        if ok and det and det.action == "block" then
-            local ts = det.timestamp or 0
-            if ts >= window_start and det.rule_id then
-                local bucket_idx = math.floor((ts - window_start) / bucket_seconds)
-                if bucket_idx >= 0 and bucket_idx < num_buckets then
-                    local cat = rule_cat[det.rule_id] or "other"
-                    local bucket = buckets[bucket_idx]
-                    bucket.counts[cat] = (bucket.counts[cat] or 0) + 1
+    for ri = 1, 100 do
+        local data = shared:get("waf_recent_hits:data:" .. ri)
+        if data then
+            local ok, det = pcall(json.decode, data)
+            if ok and det and det.action == "block" then
+                local ts = det.timestamp or 0
+                if ts >= window_start and det.rule_id then
+                    local bucket_idx = math.floor((ts - window_start) / bucket_seconds)
+                    if bucket_idx >= 0 and bucket_idx < num_buckets then
+                        local cat = rule_cat[det.rule_id] or "other"
+                        local bucket = buckets[bucket_idx]
+                        bucket.counts[cat] = (bucket.counts[cat] or 0) + 1
+                    end
                 end
             end
         end
