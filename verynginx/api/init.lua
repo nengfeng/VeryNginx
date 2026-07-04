@@ -667,7 +667,6 @@ end
 --- GET /waf/analytics - rule effectiveness scoring + dead rule detection
 local function handle_waf_analytics()
     local shared = ngx.shared.vn_config
-    local waf_manager = require "waf-rule-manager"
     local rules_obj = waf_manager.load_rules()
     local rules = {}
     if rules_obj and rules_obj.rules then
@@ -829,7 +828,6 @@ local function handle_confirm_waf_rule()
     end
 
     -- Apply the change by updating the actual rule
-    local waf_manager = require "waf-rule-manager"
     local rules_obj = waf_manager.load_rules()
     local rules = rules_obj and rules_obj.rules or {}
     local updated = false
@@ -969,7 +967,6 @@ local function handle_waf_hit_detail()
     end
 
     -- Enrich with rule metadata and IP reputation
-    local waf_manager = require "waf-rule-manager"
     local rules_obj = waf_manager.load_rules()
     if rules_obj and rules_obj.rules then
         for _, r in ipairs(rules_obj.rules) do
@@ -1053,7 +1050,6 @@ local function handle_waf_timeline()
     local num_buckets = math.ceil((hours * 3600) / bucket_seconds)
 
     -- Build rule_id -> category mapping
-    local waf_manager = require "waf-rule-manager"
     local rules_obj = waf_manager.load_rules()
     local rule_cat = {}
     if rules_obj and rules_obj.rules then
