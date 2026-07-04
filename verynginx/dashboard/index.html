@@ -2844,7 +2844,7 @@ const app = Vue.createApp({
       commitConfig, saveRawConfig, loadStats,
       formatTime, formatBytes, formatNumber, calcSuccess, successClass, summarizeRule, actionClass,
       // Config Rules CRUD
-      ruleEditModal, ruleSaving, upstreamKeys,
+      ruleEditModal, ruleSaving, upstreamKeys, ruleEditReset, ruleBuildRule,
       ruleOpenCreate, ruleOpenEdit, ruleEditModalChanged, ruleSave, ruleDelete, ruleToggle,
       // WAF
       wafTab, wafError, wafRules, wafCategories, wafPagination,
@@ -2857,6 +2857,7 @@ const app = Vue.createApp({
       wafOpenCreate, wafOpenEdit, wafSaveRule,
       wafDeleteRule, wafToggleRule, wafPage, wafRefreshAll,
       wafRollback, wafRunTest,
+      startStatusRefresh, startHealthRefresh,
       wafHits, wafHitsError, wafHitsTime, loadWafHits,
       wafAnalytics, loadWafAnalytics, gradeStyle,
       wafPendingChanges, loadPendingRules, confirmPendingChange, discardPendingChange,
@@ -2868,7 +2869,7 @@ const app = Vue.createApp({
       freqStats, freqRules, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
       freqRuleModal,
       plugins, pluginsError, loadPlugins, togglePlugin,
-      toastMsg, toastType, toastVisible, formatAgo,
+      toastMsg, toastType, toastVisible, formatAgo, showToast, parsePrometheus,
       configImportError, configImportOk, importFileInput,
       exportConfig, importConfig, onImportFile,
       topPaths, loadTopPaths,
