@@ -540,6 +540,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div class="config-tabs">
           <a :class="{active:wafTab==='rules'}" @click="wafTab='rules'">Rules</a>
           <a :class="{active:wafTab==='stats'}" @click="wafTab='stats';loadWafStats()">Stats</a>
+          <a :class="{active:wafTab==='timeline'}" @click="wafTab='timeline';loadWafTimeline()">Timeline</a>
           <a :class="{active:wafTab==='analytics'}" @click="wafTab='analytics';loadWafAnalytics()">Analytics</a>
           <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">History</a>
           <a :class="{active:wafTab==='hits'}" @click="wafTab='hits';loadWafHits()">Hits</a>
@@ -683,6 +684,43 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           </div>
         </div>
 
+        <!-- Timeline -->
+        <div v-if="wafTab==='timeline'">
+          <div style="margin-bottom:12px">
+            <select v-model="wafTimelineHours" @change="loadWafTimeline" style="width:auto;display:inline-block;margin-right:8px">
+              <option value="1">1 小时</option>
+              <option value="3">3 小时</option>
+              <option value="6">6 小时</option>
+              <option value="12">12 小时</option>
+              <option value="24">24 小时</option>
+            </select>
+            <select v-model="wafTimelineBucket" @change="loadWafTimeline" style="width:auto;display:inline-block">
+              <option value="1">1 分钟桶</option>
+              <option value="5">5 分钟桶</option>
+              <option value="15">15 分钟桶</option>
+              <option value="30">30 分钟桶</option>
+            </select>
+          </div>
+          <div class="card" style="padding:16px">
+            <div v-if="wafTimeline.buckets && wafTimeline.buckets.length" style="display:flex;align-items:flex-end;gap:2px;height:160px;margin-bottom:8px">
+              <div v-for="(b, i) in wafTimeline.buckets" :key="i" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+                <div v-for="(count, cat) in b.counts" :key="cat"
+                     :style="{height: timelineBarHeight(b.counts, cat), backgroundColor: categoryColor(cat)}"
+                     :title="cat + ': ' + count"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px">
+              <span v-for="cat in wafTimeline.categories" :key="cat">
+                <span :style="{display:'inline-block',width:10px,height:10px,backgroundColor:categoryColor(cat),borderRadius:2,margin-right:4,verticalAlign:'middle'}"></span>
+                {{ cat }}
+              </span>
+            </div>
+            <div v-if="!(wafTimeline.buckets || []).length || !hasTimelineData" style="color:#6b7280;font-size:13px;text-align:center;padding:20px">
+              暂无攻击数据
+            </div>
+          </div>
+        </div>
+
         <!-- Hits -->
         <div v-if="wafTab==='hits'">
           <div v-if="wafHitsError" class="error" style="margin-bottom:8px">{{ wafHitsError }}</div>
@@ -763,7 +801,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <div class="error" v-if="wafTestError" style="margin-bottom:8px">{{ wafTestError }}</div>
             <button class="primary small" :disabled="wafTesting" @click="wafRunTest">{{ wafTesting ? 'Testing…' : 'Run Test' }}</button>
           </div>
-          <div v-if="wafTestResults" class="card mt-16">
+           <div v-if="wafTestResults" class="card mt-16">
             <h3 style="font-size:14px;margin-bottom:8px">Results: {{ wafTestResults.passed }}/{{ wafTestResults.total }} passed</h3>
             <table>
               <thead><tr><th>Name</th><th>URI</th><th>Matched</th><th>Passed</th></tr></thead>
@@ -773,6 +811,28 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                   <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis">{{ res.uri }}</td>
                   <td>{{ res.matched ? '✓' : '✗' }}</td>
                   <td>{{ res.passed ? '✓' : '✗' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- Test History -->
+          <div v-if="wafTestHistory.length" class="card mt-16">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <h3 style="font-size:14px">测试历史 ({{ wafTestHistory.length }})</h3>
+              <button class="outline small" @click="clearTestHistory">清除</button>
+            </div>
+            <table>
+              <thead><tr><th>时间</th><th>规则</th><th>通过/总数</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="(h, i) in wafTestHistory" :key="i">
+                  <td style="font-size:12px;color:#6b7280;white-space:nowrap">{{ new Date(h.timestamp * 1000).toLocaleString() }}</td>
+                  <td>{{ h.rule_name }}</td>
+                  <td>
+                    <span :style="{color:h.failed===0?'#16a34a':'#f59e0b'}">{{ h.passed }}/{{ h.total }}</span>
+                  </td>
+                  <td>
+                    <button class="outline small" style="font-size:11px" @click="wafTestRuleJson = JSON.stringify(h.results[0] && h.results[0]._rule || {}, null, 2)">载入规则</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1183,6 +1243,10 @@ const app = Vue.createApp({
     const wafHitsTime = ref('');
     const wafAnalytics = ref({ rules: [], dead_rules: [] });
     const wafPendingChanges = ref([]);
+    const wafTimeline = ref({ buckets: [], categories: [], bucket_minutes: 5, hours: 1 });
+    const wafTimelineHours = ref(1);
+    const wafTimelineBucket = ref(5);
+    const wafTestHistory = ref([]);
 
     // ---- Reputation State ----
     const repStats = ref(null);
@@ -1959,6 +2023,7 @@ const app = Vue.createApp({
       if (wafTab.value === 'hits') await loadWafHits();
       if (wafTab.value === 'stats') await loadWafStats();
       if (wafTab.value === 'analytics') await loadWafAnalytics();
+      if (wafTab.value === 'timeline') await loadWafTimeline();
       if (wafTab.value === 'history') { await loadWafHistory(); await loadPendingRules(); }
     }
 
@@ -2152,6 +2217,56 @@ const app = Vue.createApp({
         } else {
           showToast(d.message || '丢弃失败', 'error');
         }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    // ---- WAF Timeline ----
+    async function loadWafTimeline() {
+      try {
+        const d = await api('GET', '/verynginx/waf/timeline?hours=' + wafTimelineHours.value + '&bucket=' + wafTimelineBucket.value);
+        if (d.ret === 'success') {
+          wafTimeline.value = d.data || { buckets: [], categories: [] };
+        }
+      } catch (e) {
+        wafTimeline.value = { buckets: [], categories: [] };
+      }
+    }
+
+    function timelineBarHeight(counts, cat) {
+      let max = 1;
+      for (const b of wafTimeline.value.buckets) {
+        for (const c in b.counts) {
+          if (b.counts[c] > max) max = b.counts[c];
+        }
+      }
+      return Math.round((counts[cat] || 0) / max * 100) + '%';
+    }
+
+    function categoryColor(cat) {
+      const colors = { sqli: '#ef4444', xss: '#f97316', scanner: '#3b82f6', rce: '#dc2626',
+                       path_traversal: '#f59e0b', injection: '#e11d48', other: '#6b7280' };
+      return colors[cat] || '#6b7280';
+    }
+
+    // ---- Test History ----
+    async function loadTestHistory() {
+      try {
+        const d = await api('GET', '/verynginx/waf/test-history');
+        if (d.ret === 'success') {
+          wafTestHistory.value = d.data || [];
+        }
+      } catch (e) {
+        wafTestHistory.value = [];
+      }
+    }
+
+    async function clearTestHistory() {
+      try {
+        await api('DELETE', '/verynginx/waf/test-history');
+        wafTestHistory.value = [];
+        showToast('测试历史已清除', 'info');
       } catch (e) {
         showToast(e.message, 'error');
       }
@@ -2367,6 +2482,7 @@ const app = Vue.createApp({
         const d = await api('POST', '/verynginx/waf/rules/test', { rule, test_cases: cases });
         if (d.ret === 'success') {
           wafTestResults.value = d.data;
+          await loadTestHistory();
         } else {
           wafTestError.value = d.message || 'Test failed';
         }
@@ -2402,6 +2518,8 @@ const app = Vue.createApp({
       wafHits, wafHitsError, wafHitsTime, loadWafHits,
       wafAnalytics, loadWafAnalytics, gradeStyle,
       wafPendingChanges, loadPendingRules, confirmPendingChange, discardPendingChange,
+      wafTimeline, wafTimelineHours, wafTimelineBucket, loadWafTimeline,
+      wafTestHistory, loadTestHistory, clearTestHistory,
       plugins, pluginsError, loadPlugins, togglePlugin,
       toastMsg, toastType, toastVisible, formatAgo,
       configImportError, configImportOk, importFileInput,

@@ -330,6 +330,17 @@ local function handle_test_waf_rule()
             failed = failed + 1
         end
     end
+    -- Save to test history (keep last 20)
+    local test_entry = {
+        timestamp = ngx.time(),
+        rule_name = body.rule.name or body.rule.id or "unnamed",
+        total = #results,
+        passed = passed,
+        failed = failed,
+        results = results,
+    }
+    save_test_history(test_entry)
+
     return json.encode({
         ret = "success",
         data = {
@@ -339,6 +350,50 @@ local function handle_test_waf_rule()
             results = results
         }
     })
+end
+
+-- Store test result in ring buffer (max 20 entries)
+function save_test_history(entry)
+    local shared = ngx.shared.vn_config
+    if not shared then return end
+    local idx = (shared:incr("waf_test_history:idx", 1, 0) - 1) % 20 + 1
+    shared:set("waf_test_history:data:" .. idx, json.encode(entry), 86400 * 7)
+end
+
+-- ============================================================
+-- GET /waf/test-history - retrieve recent test results
+-- ============================================================
+local function handle_test_history()
+    local shared = ngx.shared.vn_config
+    local history = {}
+    if shared then
+        for i = 1, 20 do
+            local data = shared:get("waf_test_history:data:" .. i)
+            if data then
+                local ok, entry = pcall(json.decode, data)
+                if ok then
+                    history[#history + 1] = entry
+                end
+            end
+        end
+    end
+    -- Sort by timestamp descending
+    table.sort(history, function(a, b) return (a.timestamp or 0) > (b.timestamp or 0) end)
+    return json.encode({ ret = "success", data = history })
+end
+
+-- ============================================================
+-- DELETE /waf/test-history - clear test history
+-- ============================================================
+local function handle_clear_test_history()
+    local shared = ngx.shared.vn_config
+    if shared then
+        shared:delete("waf_test_history:idx")
+        for i = 1, 20 do
+            shared:delete("waf_test_history:data:" .. i)
+        end
+    end
+    return json.encode({ ret = "success" })
 end
 
 --- POST /waf/rules/reload - force reload rules from file
@@ -890,6 +945,86 @@ local function handle_list_waf_hits()
 end
 
 -- ============================================================
+-- GET /waf/timeline - attack timeline aggregated by time bucket + category
+-- ============================================================
+local function handle_waf_timeline()
+    local bucket_minutes = tonumber(ngx.var.arg_bucket) or 5
+    if bucket_minutes < 1 then bucket_minutes = 1 end
+    if bucket_minutes > 60 then bucket_minutes = 60 end
+    local hours = tonumber(ngx.var.arg_hours) or 1
+    if hours < 1 then hours = 1 end
+    if hours > 24 then hours = 24 end
+
+    local shared = ngx.shared.vn_config
+    if not shared then
+        return json.encode({ ret = "success", data = {} })
+    end
+
+    local now = ngx.time()
+    local window_start = now - (hours * 3600)
+    local bucket_seconds = bucket_minutes * 60
+    local num_buckets = math.ceil((hours * 3600) / bucket_seconds)
+
+    -- Build rule_id -> category mapping
+    local waf_manager = require "waf-rule-manager"
+    local rules_obj = waf_manager.load_rules()
+    local rule_cat = {}
+    if rules_obj and rules_obj.rules then
+        for _, r in ipairs(rules_obj.rules) do
+            rule_cat[r.id] = r.category or "other"
+        end
+    end
+
+    -- Aggregate hits into buckets
+    local buckets = {}
+    for i = 0, num_buckets - 1 do
+        buckets[i] = { start = window_start + i * bucket_seconds, counts = {} }
+    end
+
+    local keys = shared:get_keys(200)
+    for _, k in ipairs(keys) do
+        if k:sub(1, 18) == "waf_recent_hits:data:" then
+            local data = shared:get(k)
+            if data then
+                local rule_id, ts_str = data:match("^([^|]*)|([^|]*)|")
+                local ts = tonumber(ts_str)
+                if ts and ts >= window_start and rule_id then
+                    local bucket_idx = math.floor((ts - window_start) / bucket_seconds)
+                    if bucket_idx >= 0 and bucket_idx < num_buckets then
+                        local cat = rule_cat[rule_id] or "other"
+                        local bucket = buckets[bucket_idx]
+                        bucket.counts[cat] = (bucket.counts[cat] or 0) + 1
+                    end
+                end
+            end
+        end
+    end
+
+    -- Format response
+    local result = {}
+    for i = 0, num_buckets - 1 do
+        local b = buckets[i]
+        result[#result + 1] = {
+            time = b.start,
+            counts = b.counts,
+        }
+    end
+
+    return json.encode({ ret = "success", data = {
+        buckets = result,
+        bucket_minutes = bucket_minutes,
+        hours = hours,
+        categories = (function()
+            local cats = {}
+            for _, c in pairs(rule_cat) do cats[c] = true end
+            local list = {}
+            for c in pairs(cats) do list[#list + 1] = c end
+            return list
+        end)(),
+    }})
+end
+
+-- ============================================================
 -- GET /config/export - download config.json
 -- ============================================================
 local function handle_export_config()
@@ -1138,6 +1273,9 @@ _M.register("POST",   "/waf/rules/:id/enable",   handle_enable_waf_rule,   true)
 _M.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,  true)
 _M.register("GET",    "/waf/stats/:id",          handle_waf_rule_stats,     true)
 _M.register("GET",    "/waf/hits",               handle_list_waf_hits,      true)
+_M.register("GET",    "/waf/timeline",            handle_waf_timeline,       true)
+_M.register("GET",    "/waf/test-history",        handle_test_history,       true)
+_M.register("DELETE", "/waf/test-history",        handle_clear_test_history, true)
 _M.register("GET",    "/waf/analytics",           handle_waf_analytics,      true)
 _M.register("POST",   "/waf/rules/:id/stage",    handle_stage_waf_rule,     true)
 _M.register("POST",   "/waf/rules/:id/confirm",  handle_confirm_waf_rule,   true)
