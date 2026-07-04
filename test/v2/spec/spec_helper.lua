@@ -126,8 +126,8 @@ local function make_shared_dict(name)
         capacity = function() return 1024 end,
         free_space = function() return 512 end,
         flush_all = function()
-            store = {}
-            counters = {}
+            for k in pairs(store) do store[k] = nil end
+            for k in pairs(counters) do counters[k] = nil end
         end,
     }
 end
