@@ -315,6 +315,26 @@ local function validate_config(config)
         end
     end
 
+    -- Alerting webhook URL validation (prevent SSRF)
+    if config.alerting and config.alerting.webhook_url and config.alerting.webhook_url ~= "" then
+        if not config.alerting.webhook_url:match("^https://") then
+            return false, "alerting.webhook_url must use https"
+        end
+        local host = config.alerting.webhook_url:match("^https://([^/]+)")
+        if host then
+            host = host:match("^([^:]+)") or host
+            if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
+                return false, "alerting.webhook_url must not target localhost"
+            end
+            local ip_patterns = { "^10%.", "^172%.(1[6-9]%.)", "^172%.2%d%.", "^172%.3[01]%.", "^192%.168%.", "^169%.254%.", "^0%." }
+            for _, pat in ipairs(ip_patterns) do
+                if host:match(pat) then
+                    return false, "alerting.webhook_url must not target internal IPs"
+                end
+            end
+        end
+    end
+
     return true
 end
 

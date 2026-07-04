@@ -85,10 +85,51 @@ local function set_cooldown(key, ttl)
 end
 
 -- ---------------------------------------------------------------
+-- Webhook URL validation (prevent SSRF)
+-- ---------------------------------------------------------------
+local function validate_webhook_url(url)
+    if not url or url == "" then return false, "empty URL" end
+    -- Only allow https
+    if not url:match("^https://") then
+        return false, "only https URLs allowed"
+    end
+    -- Extract hostname
+    local host = url:match("^https://([^/]+)")
+    if not host then return false, "invalid URL" end
+    -- Strip port if present
+    host = host:match("^([^:]+)") or host
+    -- Block localhost
+    if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
+        return false, "localhost not allowed"
+    end
+    -- Block private IP ranges
+    local ip_patterns = {
+        "^10%.",
+        "^172%.(1[6-9]%.)",
+        "^172%.2%d%.",
+        "^172%.3[01]%.",
+        "^192%.168%.",
+        "^169%.254%.",
+        "^0%.",
+    }
+    for _, pat in ipairs(ip_patterns) do
+        if host:match(pat) then
+            return false, "internal IP not allowed"
+        end
+    end
+    return true
+end
+
+-- ---------------------------------------------------------------
 -- Webhook notification
 -- ---------------------------------------------------------------
 local function send_webhook(url, payload)
     if not url or url == "" then return false, "no webhook url" end
+    local ok, err = validate_webhook_url(url)
+    if not ok then
+        ngx.log(ngx.WARN, "alerting: invalid webhook URL: ", err)
+        return false, err
+    end
     local httpc = require "resty.http".new()
     httpc:set_timeout(5000)
     local res, err = httpc:request_uri(url, {
