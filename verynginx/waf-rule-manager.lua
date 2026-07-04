@@ -788,13 +788,19 @@ end
 --                        nginx restart.  Called by ngx.timer.every.
 -- ---------------------------------------------------------------------------
 function _M.persist_recent_hits()
-    local hits = _M.get_recent_hits(100)
-    if #hits == 0 then return end
+    local shared = ngx.shared.vn_config
+    if not shared then return end
+    local entries = {}
+    for ri = 1, 100 do
+        local data = shared:get("waf_recent_hits:data:" .. ri)
+        if data then entries[#entries + 1] = data end
+    end
+    if #entries == 0 then return end
     local path = ensure_writable_dir() .. "waf-recent-hits.json"
     local tmp_path = path .. ".tmp"
     local f = io.open(tmp_path, "w")
     if not f then return end
-    local encoded, err = json.encode(hits)
+    local encoded, err = json.encode(entries)
     if not encoded then
         ngx.log(ngx.WARN, "waf-rule-manager: persist encode failed: ", tostring(err))
         f:close()
@@ -823,19 +829,12 @@ function _M.restore_recent_hits()
     local content = f:read("*all")
     f:close()
     if not content or content == "" then return end
-    local ok, hits = pcall(json.decode, content)
-    if not ok or type(hits) ~= "table" then return end
+    local ok, entries = pcall(json.decode, content)
+    if not ok or type(entries) ~= "table" then return end
 
-    for _, h in ipairs(hits) do
-        local hit_data = table.concat({
-            h.rule_id or "",
-            tostring(h.time or ""),
-            h.uri or "",
-            h.ip or "",
-            h.method or "GET"
-        }, "|")
+    for _, data in ipairs(entries) do
         local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
-        shared:set("waf_recent_hits:data:" .. ring_idx, hit_data)
+        shared:set("waf_recent_hits:data:" .. ring_idx, data)
     end
 end
 
