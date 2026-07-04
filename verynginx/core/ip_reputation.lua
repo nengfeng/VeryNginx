@@ -503,13 +503,8 @@ function _M.restore()
     if not s then return end
     local now = ngx.time()
 
-    -- Restore flagged IPs (both v1 plain array and v2 wrapped object)
-    local flagged = {}
-    if payload.flagged and type(payload.flagged) == "table" then
-        flagged = payload.flagged
-    elseif #payload > 0 then
-        flagged = payload
-    end
+    -- Restore flagged IPs
+    local flagged = payload.flagged or {}
     local valid_entries = {}
     for _, entry in ipairs(flagged) do
         if entry.expires_at and entry.expires_at > now then
