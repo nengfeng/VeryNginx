@@ -1,54 +1,54 @@
 {
-  "admin":[],
-  "plugin":[],
-  "rule":[],
-  "ip_reputation":{
-    "whitelist":[],
-    "enable":false,
-    "min_requests":3,
-    "flag_duration":600,
-    "threshold":25,
-    "window_size":300,
-    "signals":{
-      "waf_block":5,
-      "not_found":1,
-      "waf_challenge":3,
-      "challenge_fail":5
-    },
-    "slot_size":60,
-    "pending_ttl":600
-  },
-  "observability":[],
-  "cookie_prefix":"verynginx",
-  "alerting":{
-    "window_seconds":360,
-    "fp_min_challenges":5,
-    "fp_pass_rate_threshold":0.3,
-    "ja3_cross_ip_threshold":5,
-    "enabled":false,
-    "unknown_pattern_min_hits":5,
-    "webhook_url":"",
-    "hit_spike_min_hits":10,
-    "hit_spike_multiplier":3.0
-  },
-  "config_save_lock_ttl":60,
-  "version":"2.0",
-  "statistics":[],
-  "dashboard_host":"",
   "base_uri":"/verynginx",
-  "response":[],
-  "matcher":[],
+  "dashboard_host":"",
   "security":{
     "session_ttl":28800
   },
-  "body":{
-    "max_size":1048576,
-    "on_error":"fail_closed",
-    "max_args":100
-  },
+  "response":[],
+  "cookie_prefix":"verynginx",
+  "backend_upstream":[],
   "proxy":{
     "health_check_interval":5
   },
+  "plugin":[],
   "waf_rules":[],
-  "backend_upstream":[]
+  "rule":[],
+  "version":"2.0",
+  "observability":[],
+  "statistics":[],
+  "matcher":[],
+  "config_save_lock_ttl":60,
+  "admin":[],
+  "ip_reputation":{
+    "slot_size":60,
+    "threshold":25,
+    "enable":false,
+    "whitelist":[],
+    "min_requests":3,
+    "pending_ttl":600,
+    "flag_duration":600,
+    "window_size":300,
+    "signals":{
+      "challenge_fail":5,
+      "not_found":1,
+      "waf_challenge":3,
+      "waf_block":5
+    }
+  },
+  "body":{
+    "max_size":1048576,
+    "max_args":100,
+    "on_error":"fail_closed"
+  },
+  "alerting":{
+    "fp_pass_rate_threshold":0.3,
+    "hit_spike_multiplier":3.0,
+    "hit_spike_min_hits":10,
+    "fp_min_challenges":5,
+    "enabled":false,
+    "window_seconds":360,
+    "unknown_pattern_min_hits":5,
+    "webhook_url":"",
+    "ja3_cross_ip_threshold":5
+  }
 }

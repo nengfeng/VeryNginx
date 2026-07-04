@@ -213,7 +213,7 @@ config['admin'][0]['password'] = None
 if not isinstance(config.get('security'), dict) or not config['security'].get('session_secret'):
     config['security'] = {
         'session_secret': secrets.token_hex(32),
-        'session_ttl': 3600,
+        'session_ttl': 28800,
         'csrf': True,
         'rate_limit': {
             'login': '10/m',
@@ -618,7 +618,7 @@ config['admin'][0]['password'] = None
 if not isinstance(config.get('security'), dict) or not config['security'].get('session_secret'):
     config['security'] = {
         'session_secret': secrets.token_hex(32),
-        'session_ttl': 3600,
+        'session_ttl': 28800,
         'csrf': True,
         'rate_limit': {
             'login': '10/m',
