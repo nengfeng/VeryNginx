@@ -716,7 +716,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             </div>
             <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px">
               <span v-for="cat in wafTimeline.categories" :key="cat">
-                <span :style="{display:'inline-block',width:10px,height:10px,backgroundColor:categoryColor(cat),borderRadius:2,margin-right:4,verticalAlign:'middle'}"></span>
+                <span :style="{display:'inline-block',width:'10px',height:'10px',backgroundColor:categoryColor(cat),borderRadius:'2px',marginRight:'4px',verticalAlign:'middle'}"></span>
                 {{ cat }}
               </span>
             </div>
@@ -1130,7 +1130,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <div v-if="!wafEditModal._isNew && wafDiffLines().length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
         <div style="background:#f9fafb;padding:6px 12px;font-size:12px;font-weight:600;color:#374151;border-bottom:1px solid #e0e3eb">变更预览 (Diff)</div>
         <div style="max-height:200px;overflow-y:auto;font-family:ui-monospace,monospace;font-size:12px;background:#fff">
-          <div v-for="(d,i) in wafDiffLines()" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',white-space:pre-wrap,word-break:break-all}">
+          <div v-for="(d,i) in wafDiffLines()" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
             {{ d.type === 'added' ? '+' : '-' }} {{ d.text }}
           </div>
         </div>
