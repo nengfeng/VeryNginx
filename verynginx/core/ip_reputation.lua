@@ -2,7 +2,7 @@ local _M = {}
 
 local config = require "core.config"
 local bit = require "bit"
-
+local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local DEFAULTS = {
     slot_size = 60,
     window_size = 300,
@@ -186,7 +186,7 @@ local function add_to_flagged_index(ip, duration, now)
     local s = shared()
     if not s then return end
     local index_raw = s:get("ip_rep:flagged_index") or "[]"
-    local ok, index = pcall(require("dkjson").decode, index_raw)
+    local ok, index = pcall(json.decode, index_raw)
     if not ok or type(index) ~= "table" then index = {} end
     for _, entry in ipairs(index) do
         if entry.ip == ip then return end
@@ -196,14 +196,14 @@ local function add_to_flagged_index(ip, duration, now)
         flagged_at = now or ngx.time(),
         expires_at = (now or ngx.time()) + duration,
     })
-    s:set("ip_rep:flagged_index", require("dkjson").encode(index))
+    s:set("ip_rep:flagged_index", json.encode(index))
 end
 
 local function remove_from_flagged_index(ip)
     local s = shared()
     if not s then return end
     local index_raw = s:get("ip_rep:flagged_index") or "[]"
-    local ok, index = pcall(require("dkjson").decode, index_raw)
+    local ok, index = pcall(json.decode, index_raw)
     if not ok or type(index) ~= "table" then return end
     local filtered = {}
     for _, entry in ipairs(index) do
@@ -211,7 +211,7 @@ local function remove_from_flagged_index(ip)
             table.insert(filtered, entry)
         end
     end
-    s:set("ip_rep:flagged_index", require("dkjson").encode(filtered))
+    s:set("ip_rep:flagged_index", json.encode(filtered))
 end
 
 function _M.flag_ip(ip, duration)
@@ -371,7 +371,7 @@ function _M.list_flagged()
     if not s then return {} end
     local index_raw = s:get("ip_rep:flagged_index")
     if not index_raw or index_raw == "" or index_raw == "[]" then return {} end
-    local ok, index = pcall(require("dkjson").decode, index_raw)
+    local ok, index = pcall(json.decode, index_raw)
     if not ok or type(index) ~= "table" then return {} end
     local now = ngx.time()
     local valid = {}
@@ -421,7 +421,7 @@ function _M.persist()
         ngx.log(ngx.WARN, "ip_reputation: cannot open temp file for persist: ", tmp)
         return
     end
-    f:write(require("dkjson").encode(payload, { indent = true }))
+    f:write(json.encode(payload, { indent = true }))
     f:close()
     os.rename(tmp, path)
 end
@@ -462,7 +462,7 @@ function _M.restore()
     local data = f:read("*all")
     f:close()
     if not data or data == "" or data == "[]" then return end
-    local ok, payload = pcall(require("dkjson").decode, data)
+    local ok, payload = pcall(json.decode, data)
     if not ok or type(payload) ~= "table" then
         ngx.log(ngx.ERR, "ip_reputation: persist file decode error")
         return
@@ -489,7 +489,7 @@ function _M.restore()
         end
     end
     if #valid_entries > 0 then
-        s:set("ip_rep:flagged_index", require("dkjson").encode(valid_entries))
+        s:set("ip_rep:flagged_index", json.encode(valid_entries))
     end
 
     -- Restore pending challenge state (v2 only)

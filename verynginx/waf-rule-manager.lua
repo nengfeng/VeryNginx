@@ -775,7 +775,8 @@ function _M.get_recent_hits(limit)
                 time = tonumber(ts_str),
                 uri = uri,
                 ip = ip,
-                method = method
+                method = method,
+                ring_idx = idx,
             }
         end
     end

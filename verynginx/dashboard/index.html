@@ -737,7 +737,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <table>
               <thead><tr><th>Time</th><th>Rule ID</th><th>Method</th><th>URI</th><th>Source IP</th></tr></thead>
               <tbody>
-                <tr v-for="(h, i) in wafHits" :key="h.time + h.rule_id + h.uri + i" @click="openHitDetail(h, i)" style="cursor:pointer">
+                <tr v-for="h in wafHits" :key="h.time + h.rule_id + h.uri + (h.ring_idx || '')" @click="openHitDetail(h)" style="cursor:pointer">
                   <td style="white-space:nowrap">{{ fmtTime(h.time) }}</td>
                   <td><code style="font-size:11px">{{ h.rule_id }}</code></td>
                   <td><span class="tag">{{ h.method }}</span></td>
@@ -1211,7 +1211,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <table style="font-size:12px">
             <thead><tr><th>时间</th><th>规则</th><th>方法</th><th>URI</th></tr></thead>
             <tbody>
-              <tr v-for="(ih, ii) in wafIpHits.slice(0, 20)" :key="ii" @click="openHitDetail(ih, 0)" style="cursor:pointer">
+                <tr v-for="(ih, ii) in wafIpHits.slice(0, 20)" :key="ii" @click="openHitDetail(ih)" style="cursor:pointer">
                 <td style="white-space:nowrap">{{ fmtTime(ih.timestamp) }}</td>
                 <td><code style="font-size:10px">{{ ih.rule_id }}</code></td>
                 <td><span class="tag" style="font-size:10px;padding:1px 5px">{{ ih.method }}</span></td>
@@ -2487,12 +2487,13 @@ const app = Vue.createApp({
     }
 
     // ---- Hit Detail Drill-down ----
-    async function openHitDetail(hit, idx) {
+    async function openHitDetail(hit) {
       wafHitDetailModal.show = true
       wafHitDetailModal.loading = true
       wafHitDetailModal.data = null
       try {
-        const d = await api('GET', '/verynginx/waf/hits/' + idx)
+        const ringIdx = hit.ring_idx != null ? hit.ring_idx : 0
+        const d = await api('GET', '/verynginx/waf/hits/' + ringIdx)
         if (d.ret === 'success') {
           wafHitDetailModal.data = d.data
         } else {
