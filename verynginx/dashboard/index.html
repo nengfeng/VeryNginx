@@ -1303,7 +1303,7 @@ const { reactive, ref, computed, watch } = Vue;
 // ---- API ----
 let csrfToken = null;
 
-async function api(method, path, body) {
+async function api(method, path, body, opts2) {
   const opts = { method, credentials: 'same-origin' };
   if (body) {
     if (body instanceof URLSearchParams) {
@@ -1326,6 +1326,7 @@ async function api(method, path, body) {
     try { const j = JSON.parse(text); msg = j.message || j.err || text; } catch { msg = text || `HTTP ${res.status}`; }
     throw new Error(msg);
   }
+  if (opts2 && opts2.text) return res.text();
   return res.json();
 }
 
@@ -1802,7 +1803,7 @@ const app = Vue.createApp({
     // ---- Dict Usage ----
     async function loadDictUsage() {
       try {
-        const text = await api('GET', '/verynginx/metrics');
+        const text = await api('GET', '/verynginx/metrics', null, { text: true });
         const parsed = parsePrometheus(typeof text === 'string' ? text : '');
         const dicts = [];
         const pctMap = {}, usedMap = {}, capMap = {};
@@ -1880,7 +1881,7 @@ const app = Vue.createApp({
         }
 
         // Metrics: shared dict usage, plugin errors, request total
-        const m = await api('GET', '/verynginx/metrics');
+        const m = await api('GET', '/verynginx/metrics', null, { text: true });
         const parsed = parsePrometheus(typeof m === 'string' ? m : '');
 
         for (const [key, vals] of Object.entries(parsed)) {
