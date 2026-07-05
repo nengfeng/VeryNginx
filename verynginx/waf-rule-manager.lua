@@ -858,16 +858,15 @@ function _M.flush_hit_stats()
         if hit_data then
             shared:delete(key)
             -- Format: rule_id|action|timestamp|uri|ip|method
-            local rule_id, action, ts_str, rest = hit_data:match("^([^|]*)|([^|]*)|([^|]*)|(.*)$")
-            -- Parse uri|ip|method from rest (URI may contain | so greedy from right)
-            local uri, ip, method
-            if rest then
-                uri, ip, method = rest:match("^(.-)|([^|]*)|([^|]*)$")
-            end
+            local rule_id, action, ts_str, rest = hit_data:match(
+                "^([^|]*)|([^|]*)|([^|]*)|(.*)$")
+            -- Parse uri from rest (URI may contain | so greedy from right)
+            local uri = rest and rest:match("^(.-)|[^|]*|[^|]*$") or rest
             if rule_id and #rule_id > 0 then
                 local ts = tonumber(ts_str)
                 if not stats_agg[rule_id] then
-                    stats_agg[rule_id] = { hit_count = 0, block_count = 0, challenge_count = 0, last_triggered = 0, last_matched_uri = "" }
+                    stats_agg[rule_id] = { hit_count = 0, block_count = 0, challenge_count = 0,
+                        last_triggered = 0, last_matched_uri = "" }
                 end
                 local agg = stats_agg[rule_id]
                 agg.hit_count = agg.hit_count + 1

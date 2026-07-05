@@ -25,6 +25,12 @@ function _M.get_recent(limit)
     return _M.get_filtered(nil, nil, nil, nil, limit)
 end
 
+-- Check if a request is a mutating (non-GET) request
+function _M.is_mutating_request(ctx)
+    local method = (ctx and ctx.request and ctx.request.method) or ngx.req.get_method()
+    return method ~= "GET" and method ~= "HEAD" and method ~= "OPTIONS"
+end
+
 function _M.get_filtered(user_filter, action_filter, since_ts, until_ts, limit)
     local shared = ngx.shared.vn_config
     if not shared then return {} end
