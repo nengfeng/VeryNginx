@@ -1415,7 +1415,7 @@ local function handle_geoip_lookup()
     local ip = ngx.var.arg_ip
     if not ip or ip == "" then
         ngx.status = 400
-        return json.encode({ ret = "failed", message: "ip parameter required" })
+        return json.encode({ ret = "failed", message = "ip parameter required" })
     end
     local geoip_mod = require "core.geoip"
     local result = geoip_mod.lookup(ip)
