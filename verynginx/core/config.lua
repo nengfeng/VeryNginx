@@ -40,6 +40,18 @@ _M.schema = {
             window_seconds = 360,
         } },
         waf_rules = { type = "table", default = {} },
+        geoip = { type = "table", default = {
+            enable = false,
+            db_path = "",
+            whitelist = {},
+            blocklist = {},
+            block_continents = {},
+        } },
+        fingerprints = { type = "table", default = {
+            enable = true,
+            auto_block_scanners = true,
+            entries = {},
+        } },
         ip_reputation = { type = "table", default = {
             enable = false,
             threshold = 25,

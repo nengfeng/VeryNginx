@@ -124,8 +124,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">Stats</a>
         <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
         <a :class="{active:page==='frequency'}" @click="page='frequency';loadFrequencyData()">Frequency</a>
-        <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">Reputation</a>
-        <a :class="{active:page==='audit'}" @click="page='audit';loadAudit()">Audit</a>
+         <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">Reputation</a>
+         <a :class="{active:page==='geoip'}" @click="page='geoip';loadGeoIP()">GeoIP</a>
+         <a :class="{active:page==='fingerprints'}" @click="page='fingerprints';loadFingerprints()">Fingerprints</a>
+         <a :class="{active:page==='audit'}" @click="page='audit';loadAudit()">Audit</a>
         <a :class="{active:page==='about'}" @click="page='about'">About</a>
       </nav>
       <div class="user-area">
@@ -1003,6 +1005,98 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
       </div>
 
+      <!-- GeoIP -->
+      <div v-if="page==='geoip'">
+        <div class="flex flex-between mb-16">
+          <h2 class="page-title" style="margin-bottom:0">GeoIP</h2>
+          <button class="outline small" @click="loadGeoIP">Refresh</button>
+        </div>
+        <!-- Lookup -->
+        <div class="card" style="padding:16px;margin-bottom:16px">
+          <h3 style="font-size:14px;margin-bottom:8px">IP 查询</h3>
+          <div style="display:flex;gap:8px;align-items:flex-end">
+            <div>
+              <label style="font-size:11px;color:#6b7280">IP 地址</label>
+              <input v-model="geoipLookupIP" placeholder="8.8.8.8" style="width:150px" @keyup.enter="lookupGeoIP">
+            </div>
+            <button class="primary small" @click="lookupGeoIP">查询</button>
+          </div>
+          <div v-if="geoipLookupResult" style="margin-top:12px;font-size:13px">
+            <div v-if="geoipLookupResult.data">
+              <table>
+                <tr><td>Country</td><td><code>{{ geoipLookupResult.data.country_code }}</code> {{ geoipLookupResult.data.country_name }}</td></tr>
+                <tr><td>City</td><td>{{ geoipLookupResult.data.city_name || '-' }}</td></tr>
+                <tr><td>Continent</td><td>{{ geoipLookupResult.data.continent || '-' }}</td></tr>
+                <tr><td>Location</td><td>{{ geoipLookupResult.data.latitude }}, {{ geoipLookupResult.data.longitude }}</td></tr>
+                <tr><td>ASN</td><td>{{ geoipLookupResult.data.asn || '-' }} {{ geoipLookupResult.data.asn_org }}</td></tr>
+              </table>
+            </div>
+            <div v-else style="color:#6b7280">{{ geoipLookupResult.message || '未找到' }}</div>
+          </div>
+        </div>
+        <!-- Stats -->
+        <div class="card" style="padding:16px;margin-bottom:16px">
+          <h3 style="font-size:14px;margin-bottom:8px">国家/地区分布 (Top 20)</h3>
+          <div v-if="geoipStats.length">
+            <table>
+              <thead><tr><th>Country</th><th>Hits</th></tr></thead>
+              <tbody>
+                <tr v-for="s in geoipStats" :key="s.code">
+                  <td><code>{{ s.code }}</code></td>
+                  <td>{{ s.count }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="empty">No GeoIP data available. Ensure MaxMind DB is configured.</div>
+        </div>
+        <!-- Config -->
+        <div class="card" style="padding:16px">
+          <h3 style="font-size:14px;margin-bottom:8px">GeoIP 配置</h3>
+          <table>
+            <tr><td>Enable</td><td><input type="checkbox" v-model="geoipConfig.enable" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>DB Path</td><td><input v-model="geoipConfig.db_path" placeholder="/opt/verynginx/geoip/GeoLite2-City.mmdb" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>Whitelist</td><td><input v-model="geoipConfig.whitelistStr" placeholder="US,GB,DE (comma-separated)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>Blocklist</td><td><input v-model="geoipConfig.blocklistStr" placeholder="CN,RU,KP (comma-separated)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Fingerprints -->
+      <div v-if="page==='fingerprints'">
+        <div class="flex flex-between mb-16">
+          <h2 class="page-title" style="margin-bottom:0">TLS Fingerprints</h2>
+          <div class="flex gap-8">
+            <button class="outline small" @click="loadFingerprints">Refresh</button>
+            <button class="primary small" @click="openFpAdd">+ Add</button>
+          </div>
+        </div>
+        <!-- Stats -->
+        <div class="grid grid-2 mb-16">
+          <div class="stat-card"><div class="stat-label">Total Fingerprints</div><div class="stat-value">{{ fingerprints.length }}</div></div>
+          <div class="stat-card"><div class="stat-label">Categories</div><div class="stat-value">{{ Object.keys(fpCategories).length }}</div></div>
+        </div>
+        <!-- Table -->
+        <div class="card" style="padding:16px">
+          <table>
+            <thead><tr><th>JA3 Hash</th><th>Name</th><th>Category</th><th>Action</th><th>Enable</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="fp in fingerprints" :key="fp.hash">
+                <td><code style="font-size:10px">{{ fp.hash }}</code></td>
+                <td>{{ fp.name }}</td>
+                <td><span class="tag">{{ fp.category }}</span></td>
+                <td><span class="tag" :style="{background:fp.action==='block'?'#fee2e2':'#fef3c7'}">{{ fp.action }}</span></td>
+                <td><input type="checkbox" :checked="fp.enabled" @change="toggleFp(fp)"></td>
+                <td><button class="outline small" @click="deleteFp(fp)">Delete</button></td>
+              </tr>
+              <tr v-if="!fingerprints.length">
+                <td colspan="6" class="empty">No fingerprints configured.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Audit -->
       <div v-if="page==='audit'">
         <div class="flex flex-between mb-16">
@@ -1439,6 +1533,13 @@ const app = Vue.createApp({
     const freqStats = ref([]);
     const freqRules = ref([]);
     const freqRuleModal = reactive({ show: false, _isNew: false, id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
+    const geoipLookupIP = ref('');
+    const geoipLookupResult = ref(null);
+    const geoipStats = ref([]);
+    const geoipConfig = ref({ enable: false, db_path: '', whitelistStr: '', blocklistStr: '' });
+    const fingerprints = ref([]);
+    const fpCategories = ref({});
+    const fpEditModal = reactive({ show: false, _isNew: true, hash: '', name: '', category: 'scanner', action: 'block' });
 
     // ---- Reputation State ----
     const repStats = ref(null);
@@ -2560,6 +2661,111 @@ const app = Vue.createApp({
       }
     }
 
+    // ---- GeoIP ----
+    async function loadGeoIP() {
+      try {
+        const [cfgRes, statsRes] = await Promise.all([
+          api('GET', '/verynginx/geoip/config'),
+          api('GET', '/verynginx/geoip/stats'),
+        ]);
+        if (cfgRes.ret === 'success') {
+          const cfg = cfgRes.data || {};
+          geoipConfig.value = {
+            enable: cfg.enable || false,
+            db_path: cfg.db_path || '',
+            whitelistStr: (cfg.whitelist || []).join(','),
+            blocklistStr: (cfg.blocklist || []).join(','),
+          };
+        }
+        if (statsRes.ret === 'success') geoipStats.value = Object.entries(statsRes.data || {}).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count).slice(0, 20);
+      } catch (e) {
+        // silent
+      }
+    }
+
+    async function lookupGeoIP() {
+      if (!geoipLookupIP.value) return;
+      try {
+        const d = await api('GET', '/verynginx/geoip/lookup?ip=' + encodeURIComponent(geoipLookupIP.value));
+        geoipLookupResult.value = d;
+      } catch (e) {
+        showToast(e.message || 'Lookup failed', 'error');
+      }
+    }
+
+    async function saveGeoIPConfig() {
+      try {
+        const cfg = {
+          enable: !!geoipConfig.value.enable,
+          db_path: geoipConfig.value.db_path || '',
+          whitelist: geoipConfig.value.whitelistStr.split(',').map(s => s.trim()).filter(s => s),
+          blocklist: geoipConfig.value.blocklistStr.split(',').map(s => s.trim()).filter(s => s),
+        };
+        const d = await api('PUT', '/verynginx/geoip/config', cfg);
+        if (d.ret === 'success') showToast('GeoIP config saved', 'success');
+        else showToast(d.message || 'Save failed', 'error');
+      } catch (e) {
+        showToast(e.message || 'Save failed', 'error');
+      }
+    }
+
+    // ---- Fingerprints ----
+    async function loadFingerprints() {
+      try {
+        const d = await api('GET', '/verynginx/fingerprints');
+        if (d.ret === 'success') {
+          fingerprints.value = d.data || [];
+          const cats = {};
+          for (const fp of fingerprints.value) {
+            if (fp.enabled) cats[fp.category] = (cats[fp.category] || 0) + 1;
+          }
+          fpCategories.value = cats;
+        }
+      } catch (e) {
+        // silent
+      }
+    }
+
+    function openFpAdd() {
+      fpEditModal._isNew = true;
+      fpEditModal.hash = '';
+      fpEditModal.name = '';
+      fpEditModal.category = 'scanner';
+      fpEditModal.action = 'block';
+      fpEditModal.show = true;
+    }
+
+    async function toggleFp(fp) {
+      fp.enabled = !fp.enabled;
+      await saveFp(fp);
+    }
+
+    async function saveFp(fp) {
+      try {
+        const d = await api('PUT', '/verynginx/fingerprints', fp);
+        if (d.ret === 'success') {
+          await loadFingerprints();
+        } else {
+          showToast(d.message || 'Save failed', 'error');
+        }
+      } catch (e) {
+        showToast(e.message || 'Save failed', 'error');
+      }
+    }
+
+    async function deleteFp(fp) {
+      if (!confirm('Delete fingerprint "' + fp.hash + '"?')) return;
+      try {
+        const d = await api('DELETE', '/verynginx/fingerprints/' + fp.hash);
+        if (d.ret === 'success') {
+          showToast('Fingerprint deleted', 'success');
+          await loadFingerprints();
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
     function openFreqRuleCreate() {
       freqRuleModal._isNew = true;
       freqRuleModal.id = 'freq_' + Date.now();
@@ -2867,6 +3073,8 @@ const app = Vue.createApp({
       wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
       wafIpHits, wafIpHitsIp,
       freqStats, freqRules, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
+      geoipLookupIP, geoipLookupResult, geoipStats, geoipConfig, loadGeoIP, lookupGeoIP, saveGeoIPConfig,
+      fingerprints, fpCategories, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
       freqRuleModal,
       plugins, pluginsError, loadPlugins, togglePlugin,
       toastMsg, toastType, toastVisible, formatAgo, showToast, parsePrometheus,

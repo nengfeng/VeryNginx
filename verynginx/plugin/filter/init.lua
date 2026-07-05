@@ -10,6 +10,8 @@ local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 local ip_reputation = require "core.ip_reputation"
 local javascript_verify = require "plugin.browser_verify.javascript_verify"
+local geoip = require "core.geoip"
+local fingerprint_db = require "core.fingerprint_db"
 
 local function split_rules(all_rules)
     local hard_block, challenge = {}, {}
@@ -106,6 +108,34 @@ function _M.on_access(ctx)
     -- 【前置-1.5】静态 IP 白名单 → 直接放行
     if ip_reputation.is_whitelisted(ip) then
         return
+    end
+
+    -- 【前置-1.6】GeoIP 检查（如果在数据库中）
+    if geoip.is_available() then
+        local blocked, reason = geoip.check_block(ip)
+        if blocked then
+            ip_reputation.record_signal(ip, "geoip_block")
+            ctx.set_action(ctx, "block", { code = 403, response = "forbidden_json" })
+            return
+        end
+        -- Track country for stats
+        geoip.track(ip, ngx.shared.vn_config)
+    end
+
+    -- 【前置-1.7】TLS 指纹检查
+    local ja3 = ctx.request.ja3_fingerprint
+    if ja3 then
+        local match = fingerprint_db.match(ja3)
+        if match then
+            if match.action == "block" and (config.fingerprints.auto_block_scanners ~= false) then
+                ip_reputation.record_signal(ip, "fingerprint_block")
+                ctx.set_action(ctx, "block", { code = 403, response = "forbidden_json" })
+                return
+            elseif match.action == "challenge" then
+                ip_reputation.record_signal(ip, "fingerprint_challenge")
+            end
+            ctx.set_data(ctx, "fingerprint:match", match)
+        end
     end
 
     -- 【前置-3】IP 已被标记为扫描器 → 直接封禁

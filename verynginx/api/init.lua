@@ -1407,6 +1407,121 @@ local function handle_frequency_rule_delete()
     return json.encode({ ret = "success", message = "rule deleted" })
 end
 
+-- ============================================================
+-- GeoIP handlers
+-- ============================================================
+
+local function handle_geoip_lookup()
+    local ip = ngx.var.arg_ip
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message: "ip parameter required" })
+    end
+    local geoip_mod = require "core.geoip"
+    local result = geoip_mod.lookup(ip)
+    if not result then
+        return json.encode({ ret = "success", data = nil, message: "IP not found in GeoIP database" })
+    end
+    return json.encode({ ret = "success", data = result })
+end
+
+local function handle_geoip_stats()
+    local geoip_mod = require "core.geoip"
+    local stats = geoip_mod.get_stats(ngx.shared.vn_config)
+    return json.encode({ ret = "success", data = stats })
+end
+
+local function handle_geoip_config()
+    local c = require "core.config"
+    return json.encode({ ret = "success", data = c.geoip or {} })
+end
+
+local function handle_geoip_config_set()
+    ngx.req.read_body()
+    local raw = ngx.req.get_body_data()
+    if not raw or raw == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message: "request body required" })
+    end
+    local ok, new_config = pcall(json.decode, raw)
+    if not ok or type(new_config) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message: "invalid JSON" })
+    end
+    local c = require "core.config"
+    local cfg_data = c.report and json.decode(c.report()) or {}
+    cfg_data.geoip = new_config
+    local cfg_mod = require "core.config"
+    cfg_mod.save(cfg_data)
+    return json.encode({ ret = "success", message: "GeoIP config updated" })
+end
+
+-- ============================================================
+-- Fingerprint database handlers
+-- ============================================================
+
+local function handle_fingerprint_list()
+    local fp = require "core.fingerprint_db"
+    fp.reload()
+    return json.encode({ ret = "success", data = fp.list() })
+end
+
+local function handle_fingerprint_add()
+    ngx.req.read_body()
+    local raw = ngx.req.get_body_data()
+    if not raw or raw == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message: "request body required" })
+    end
+    local ok, entry = pcall(json.decode, raw)
+    if not ok or type(entry) ~= "table" or not entry.hash or not entry.name then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message: "hash and name are required" })
+    end
+    local fp = require "core.fingerprint_db"
+    fp.reload()
+    fp.add(entry)
+    return json.encode({ ret = "success", data = fp.get(entry.hash) })
+end
+
+local function handle_fingerprint_update()
+    ngx.req.read_body()
+    local raw = ngx.req.get_body_data()
+    if not raw or raw == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message: "request body required" })
+    end
+    local ok, entry = pcall(json.decode, raw)
+    if not ok or type(entry) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message: "invalid JSON" })
+    end
+    local fp = require "core.fingerprint_db"
+    fp.reload()
+    if entry.hash then
+        fp.add(entry)
+    end
+    return json.encode({ ret = "success", data = entry.hash and fp.get(entry.hash) or fp.list() })
+end
+
+local function handle_fingerprint_delete()
+    local hash = ngx.ctx.waf_rule_id
+    if not hash then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message: "fingerprint hash required" })
+    end
+    local fp = require "core.fingerprint_db"
+    fp.reload()
+    local removed = fp.remove(hash)
+    return json.encode({ ret = "success", removed = removed })
+end
+
+local function handle_fingerprint_stats()
+    local fp = require "core.fingerprint_db"
+    fp.reload()
+    return json.encode({ ret = "success", data = { total = #fp.list(), categories = fp.categories() } })
+end
+
 -- ---------------------------------------------------------------------------
 -- Register default routes
 -- ---------------------------------------------------------------------------
@@ -1450,6 +1565,19 @@ _M.register("DELETE", "/waf/rules/:id/pending",  handle_discard_waf_rule,   true
 _M.register("GET",    "/waf/rules/pending",      handle_list_pending_rules, true)
 
 _M.register("GET",    "/config/export",          handle_export_config,       true)
+
+-- GeoIP routes
+_M.register("GET",    "/geoip/lookup",           handle_geoip_lookup,        true)
+_M.register("GET",    "/geoip/stats",            handle_geoip_stats,         true)
+_M.register("GET",    "/geoip/config",           handle_geoip_config,        true)
+_M.register("PUT",    "/geoip/config",           handle_geoip_config_set,    true)
+
+-- Fingerprint database routes
+_M.register("GET",    "/fingerprints",           handle_fingerprint_list,    true)
+_M.register("POST",   "/fingerprints",           handle_fingerprint_add,     true)
+_M.register("PUT",    "/fingerprints",           handle_fingerprint_update,  true)
+_M.register("DELETE", "/fingerprints/:id",       handle_fingerprint_delete,  true)
+_M.register("GET",    "/fingerprints/stats",      handle_fingerprint_stats,   true)
 _M.register("POST",   "/config/import",          handle_import_config,       true)
 
 _M.register("GET",    "/plugins",                handle_list_plugins,        true)

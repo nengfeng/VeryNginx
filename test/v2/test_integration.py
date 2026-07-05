@@ -241,6 +241,24 @@ def test_waf_rules():
     print(f"  [PASS] GET deleted rule returns 404")
 
 
+def test_geoip():
+    """Test GeoIP lookup endpoint."""
+    status, body = curl("GET", "/verynginx/geoip/lookup?ip=8.8.8.8")
+    assert status == 200, f"GeoIP lookup failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"GeoIP response: {body[:200]}"
+    print(f"  [PASS] GeoIP lookup: country={resp.get('data',{}).get('country_code','N/A')}")
+
+def test_fingerprints():
+    """Test fingerprint database endpoint."""
+    status, body = curl("GET", "/verynginx/fingerprints")
+    assert status == 200, f"GET fingerprints failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Fingerprint response: {body[:200]}"
+    assert isinstance(resp.get("data"), list), f"Expected list: {body[:200]}"
+    print(f"  [PASS] Fingerprints: {len(resp.get('data',[]))} entries")
+
+
 def test_routes():
     """Test that all API routes respond correctly."""
     tests = [
@@ -261,6 +279,8 @@ def main():
         ("Config CRUD", test_config),
         ("Status", test_status),
         ("WAF Rules", test_waf_rules),
+        ("GeoIP", test_geoip),
+        ("Fingerprints", test_fingerprints),
     ]
 
     passed = 0

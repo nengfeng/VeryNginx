@@ -56,5 +56,17 @@
             "password_hash": "",
             "enable": true
         }
-    ]
+    ],
+    "geoip": {
+        "enable": false,
+        "db_path": "",
+        "whitelist": [],
+        "blocklist": [],
+        "block_continents": []
+    },
+    "fingerprints": {
+        "enable": true,
+        "auto_block_scanners": true,
+        "entries": []
+    }
 }
