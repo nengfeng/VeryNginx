@@ -4,7 +4,6 @@
 -- @Disc    : DNS cache - A/AAAA record caching with TTL coverage and stale-if-error
 
 local _M = {}
-local resolver = require "resty.dns.resolver"
 local json = require "dkjson"
 
 --- Generate a DNS cache key.
@@ -39,9 +38,10 @@ function _M.resolve(host, record_type, dns_conf)
         end
     end
 
-    -- Resolve via DNS
+    -- Resolve via DNS (defensive require: not all OpenResty images include lua-resty-dns)
+    local dns_mod = require "resty.dns.resolver"
     local nameservers = dns_conf.nameservers or { "8.8.8.8", "1.1.1.1" }
-    local r, err = resolver:new({
+    local r, err = dns_mod:new({
         nameservers = nameservers,
         retrans = 5,
         timeout = 2000
