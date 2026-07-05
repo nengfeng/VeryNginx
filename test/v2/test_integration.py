@@ -241,9 +241,19 @@ def test_waf_rules():
     print(f"  [PASS] GET deleted rule returns 404")
 
 
+def _get_auth():
+    """Login and return session cookies."""
+    import base64
+    status, body = curl("POST", "/verynginx/login", data="user=verynginx&password=verynginx")
+    assert status == 200, f"Login failed: {status}"
+    resp = json.loads(body)
+    token = resp.get("token", "")
+    return {"verynginx_session": token}
+
 def test_geoip():
     """Test GeoIP lookup endpoint."""
-    status, body = curl("GET", "/verynginx/geoip/lookup?ip=8.8.8.8")
+    cookies = _get_auth()
+    status, body = curl("GET", "/verynginx/geoip/lookup?ip=8.8.8.8", cookies=cookies)
     assert status == 200, f"GeoIP lookup failed: {status}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"GeoIP response: {body[:200]}"
@@ -251,7 +261,8 @@ def test_geoip():
 
 def test_fingerprints():
     """Test fingerprint database endpoint."""
-    status, body = curl("GET", "/verynginx/fingerprints")
+    cookies = _get_auth()
+    status, body = curl("GET", "/verynginx/fingerprints", cookies=cookies)
     assert status == 200, f"GET fingerprints failed: {status}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Fingerprint response: {body[:200]}"
