@@ -112,7 +112,7 @@ function _M.on_access(ctx)
 
     -- 【前置-1.6】GeoIP 检查（如果在数据库中）
     if geoip.is_available() then
-        local blocked, reason = geoip.check_block(ip)
+        local blocked = geoip.check_block(ip)
         if blocked then
             ip_reputation.record_signal(ip, "geoip_block")
             ctx.set_action(ctx, "block", { code = 403, response = "forbidden_json" })
