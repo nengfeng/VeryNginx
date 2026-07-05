@@ -5,7 +5,7 @@
 
 local _M = {}
 local config = require "core.config"
-local cjson = pcall(require, "cjson") and require("cjson") or require("dkjson")
+local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
 -- LRU update sample rate: only update LRU index every N requests to
 -- avoid JSON encode/decode hot path. Counter increments stay per-request.
@@ -18,7 +18,7 @@ local function lru_add(shared, index_key, uri, max_keys)
     local data = shared:get(index_key)
     local list = {}
     if data then
-        local ok, decoded = pcall(cjson.decode, data)
+        local ok, decoded = pcall(json.decode, data)
         if ok then
             list = decoded
         end
@@ -35,7 +35,7 @@ local function lru_add(shared, index_key, uri, max_keys)
     while #list > max_keys do
         table.remove(list)
     end
-    shared:set(index_key, cjson.encode(list))
+    shared:set(index_key, json.encode(list))
 end
 
 local function lru_list(shared, index_key)
@@ -292,7 +292,7 @@ function _M.report(period)
         end
     end
 
-    return cjson.encode(report)
+    return json.encode(report)
 end
 
 -- ---------------------------------------------------------------------------

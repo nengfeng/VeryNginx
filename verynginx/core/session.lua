@@ -5,7 +5,7 @@
 
 local _M = {}
 local hmac = require "core.hmac"
-local cjson = pcall(require, "cjson") and require("cjson") or require("dkjson")
+local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
 -- ---------------------------------------------------------------------------
 -- Session revocation blacklist via shared dict
@@ -38,7 +38,7 @@ function _M.revoke(token)
     if not data then
         return false, "invalid token encoding"
     end
-    local ok, payload = pcall(cjson.decode, data)
+    local ok, payload = pcall(json.decode, data)
     if not ok or not payload then
         return false, "invalid payload"
     end
@@ -93,7 +93,7 @@ function _M.sign(payload, secret)
     if not payload or not secret then
         return nil, "payload and secret required"
     end
-    local data = cjson.encode(payload)
+    local data = json.encode(payload)
     local sig = hmac.hmac_sha256(secret, data)
     local token = ngx.encode_base64(data) .. "." .. ngx.encode_base64(sig)
     return token
@@ -133,7 +133,7 @@ function _M.verify(token, secret)
     end
 
     -- Decode payload (with pcall to catch malformed JSON)
-    local ok, payload = pcall(cjson.decode, data)
+    local ok, payload = pcall(json.decode, data)
     if not ok or not payload then
         return false, "invalid payload"
     end

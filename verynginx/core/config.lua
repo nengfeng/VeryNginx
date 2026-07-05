@@ -255,15 +255,14 @@ local function compile_runtime_snapshot(config)
         end
     end
 
-    -- Pre-compute matcher cache CRCs to avoid per-request dkjson.encode + crc32
-    local cjson = require("dkjson")
+    -- Pre-compute matcher cache CRCs to avoid per-request JSON encode + crc32
+    local json = require("dkjson")
     for _, rules in pairs(compiled.rule or {}) do
         if type(rules) == "table" then
             for _, rule in ipairs(rules) do
                 local md = rule._matcher_def
                 if md then
-                    local crc = ngx and ngx.crc32_short and ngx.crc32_short(cjson.encode(md))
-                    rule._matcher_crc = crc
+                    rule._matcher_crc = ngx and ngx.crc32_short and ngx.crc32_short(json.encode(md))
                 end
             end
         end
