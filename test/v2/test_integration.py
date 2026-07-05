@@ -56,12 +56,27 @@ def test_login():
     assert resp.get("ret") == "success", f"Login response: {body[:200]}"
     print(f"  [PASS] Valid login: {resp.get('ret')}")
 
+def _get_auth():
+    """Login and return session cookies."""
+    status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")
+    assert status == 200, f"Login failed: {status}"
+    resp = json.loads(body)
+    token = resp.get("token", "")
+    return {"verynginx_session": token}
+
+# Session cache to avoid rate limiting across tests
+_session_cookies = None
+
+def get_shared_session():
+    """Get cached session cookies (login once, reuse everywhere)."""
+    global _session_cookies
+    if _session_cookies is None:
+        _session_cookies = _get_auth()
+    return _session_cookies
+
 def test_config():
     """Test config endpoint (requires auth)."""
-    # First login to get session
-    status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")
-    resp = json.loads(body)
-    cookies = {"verynginx_session": resp.get("token")}
+    cookies = get_shared_session()
 
     # Get CSRF token
     status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
@@ -86,9 +101,7 @@ def test_config():
 
 def test_status():
     """Test status endpoint."""
-    status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")
-    resp = json.loads(body)
-    cookies = {"verynginx_session": resp.get("token")}
+    cookies = get_shared_session()
 
     status, body = curl("GET", "/verynginx/status", cookies=cookies)
     assert status == 200, f"GET status failed: {status}"
@@ -96,12 +109,7 @@ def test_status():
 
 def test_waf_rules():
     """Test WAF rule management API."""
-    # Login
-    status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")
-    resp = json.loads(body)
-    assert status == 200, f"Login failed: {status}"
-    token = resp.get("token")
-    cookies = {"verynginx_session": token}
+    cookies = get_shared_session()
 
     # Get CSRF token for mutating requests
     status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
@@ -242,17 +250,12 @@ def test_waf_rules():
 
 
 def _get_auth():
-    """Login and return session cookies."""
-    import base64
-    status, body = curl("POST", "/verynginx/login", data="user=verynginx&password=verynginx")
-    assert status == 200, f"Login failed: {status}"
-    resp = json.loads(body)
-    token = resp.get("token", "")
-    return {"verynginx_session": token}
+    """Login and return session cookies (backward compat wrapper)."""
+    return get_shared_session()
 
 def test_geoip():
     """Test GeoIP lookup endpoint."""
-    cookies = _get_auth()
+    cookies = get_shared_session()
     status, body = curl("GET", "/verynginx/geoip/lookup?ip=8.8.8.8", cookies=cookies)
     assert status == 200, f"GeoIP lookup failed: {status}"
     resp = json.loads(body)
@@ -261,7 +264,7 @@ def test_geoip():
 
 def test_fingerprints():
     """Test fingerprint database endpoint."""
-    cookies = _get_auth()
+    cookies = get_shared_session()
     status, body = curl("GET", "/verynginx/fingerprints", cookies=cookies)
     assert status == 200, f"GET fingerprints failed: {status}"
     resp = json.loads(body)
