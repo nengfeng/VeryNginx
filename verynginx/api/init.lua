@@ -1179,12 +1179,7 @@ local function handle_toggle_plugin()
         return json.encode({ ret = "failed", message = "plugin name required" })
     end
     local config_mod = require "core.config"
-    -- Ensure plugin config table exists (schema default is always {} but guard)
     local plugins = config_mod.plugin
-    if not plugins then
-        ngx.status = 500
-        return json.encode({ ret = "failed", message = "config plugin table missing" })
-    end
     if not plugins[name] then plugins[name] = {} end
     local entry = plugins[name]
     -- Determine current effective state from entry or plugin default
