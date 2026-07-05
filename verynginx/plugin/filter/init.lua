@@ -10,8 +10,8 @@ local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 local ip_reputation = require "core.ip_reputation"
 local javascript_verify = require "plugin.browser_verify.javascript_verify"
-local geoip = require "core.geoip"
-local fingerprint_db = require "core.fingerprint_db"
+local geoip = nil -- lazy loaded in on_access()
+local fingerprint_db = nil -- lazy loaded in on_access()
 
 local function split_rules(all_rules)
     local hard_block, challenge = {}, {}
@@ -111,6 +111,7 @@ function _M.on_access(ctx)
     end
 
     -- 【前置-1.6】GeoIP 检查（如果在数据库中）
+    if not geoip then geoip = require "core.geoip" end
     if geoip.is_available() then
         local blocked = geoip.check_block(ip)
         if blocked then
@@ -123,6 +124,7 @@ function _M.on_access(ctx)
     end
 
     -- 【前置-1.7】TLS 指纹检查
+    if not fingerprint_db then fingerprint_db = require "core.fingerprint_db" end
     local ja3 = ctx.request.ja3_fingerprint
     if ja3 then
         local match = fingerprint_db.match(ja3)
