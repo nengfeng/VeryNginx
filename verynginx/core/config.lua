@@ -256,7 +256,6 @@ local function compile_runtime_snapshot(config)
     end
 
     -- Pre-compute matcher cache CRCs to avoid per-request JSON encode + crc32
-    local json = require("dkjson")
     for _, rules in pairs(compiled.rule or {}) do
         if type(rules) == "table" then
             for _, rule in ipairs(rules) do
