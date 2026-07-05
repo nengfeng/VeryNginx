@@ -132,6 +132,89 @@ local function make_shared_dict(name)
     }
 end
 
+-- Stub core.config with schema defaults so plugins can access config.rule.*,
+-- config.security.*, config.response.*, etc. without nil errors.
+local _default_config = {
+    version = "2.0",
+    base_uri = "/verynginx",
+    cookie_prefix = "verynginx",
+    admin = {},
+    matcher = {},
+    rule = {},
+    backend_upstream = {},
+    response = {},
+    plugin = {},
+    security = { session_ttl = 28800, csrf = true },
+    statistics = {},
+    observability = {},
+    body = {},
+    proxy = {},
+    waf_rules = {},
+    ip_reputation = {},
+    alerting = { enabled = false },
+    config_save_lock_ttl = 60,
+}
+package.preload["core.config"] = function()
+    local json = require "dkjson"
+    local M = {}
+    M.schema = {
+    version = "2.0",
+    fields = {
+        base_uri = { type = "string", default = "/verynginx" },
+        dashboard_host = { type = "string", default = "" },
+        cookie_prefix = { type = "string", default = "verynginx" },
+        admin = { type = "table", default = {} },
+        matcher = { type = "table", default = {} },
+        rule = { type = "table", default = {} },
+        backend_upstream = { type = "table", default = {} },
+        response = { type = "table", default = {} },
+        plugin = { type = "table", default = {} },
+        security = { type = "table", default = { session_ttl = 28800 } },
+        statistics = { type = "table", default = {} },
+        observability = { type = "table", default = {} },
+        body = { type = "table", default = {} },
+        proxy = { type = "table", default = {} },
+        waf_rules = { type = "table", default = {} },
+        ip_reputation = { type = "table", default = {} },
+        config_save_lock_ttl = { type = "number", default = 60 },
+    }
+}
+    M.validate_config = function(cfg)
+        if type(cfg) ~= "table" then return false, "config must be a table" end
+        if cfg.version and cfg.version ~= "2.0" then return false, "unexpected config version: " .. tostring(cfg.version) end
+        if cfg.admin then
+            for i, a in ipairs(cfg.admin) do
+                if not a.password_hash or a.password_hash == "" then
+                    if not a.password or a.password == "" then
+                        return false, string.format("admin[%d]: password_hash is required", i)
+                    end
+                    if #a.password < 8 then
+                        return false, "admin password must be at least 8 characters"
+                    end
+                end
+                if a.password and a.password == a.password_hash then
+                    return false, string.format("admin[%d]: password must not be stored as password_hash directly", i)
+                end
+            end
+        end
+        return true
+    end
+    M.load_from_file = function() end
+    M.report = function() return "{}" end
+    M.save = function(cfg)
+        return M.validate_config(cfg)
+    end
+    M.rollback = function() return true end
+    M.check_update = function() end
+    M.resolve_path = function() return "/opt/verynginx/" end
+    setmetatable(M, {
+        __index = function(_, k) return _default_config[k] end,
+        __newindex = function(_, k, v) _default_config[k] = v end,
+        __pairs = function() return pairs(_default_config) end,
+    })
+    return M
+end
+
 ngx.shared = setmetatable({}, {
     __index = function(_, name)
         return make_shared_dict(name)

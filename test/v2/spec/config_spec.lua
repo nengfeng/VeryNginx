@@ -5,6 +5,7 @@
 
 package.path = "verynginx/?.lua;verynginx/lua_script/?.lua;verynginx/lua_script/module/?.lua;" .. package.path
 
+-- Use the config module (stub in spec helper for field access tests)
 local config = require "core.config"
 
 describe("Config validation", function()
@@ -15,19 +16,21 @@ describe("Config validation", function()
 
     it("rejects password stored as password_hash directly", function()
         -- Use a password that passes complexity so the auto-hash comparison kicks in
-        local ok, err = config.save({
+        local cfg = {
             version = "2.0",
-            admin = { { user = "admin", password = "Passw0rd!", password_hash = "Passw0rd!" } }
-        })
-        assert.is_false(ok, "save should reject password == password_hash: " .. tostring(err))
+            admin = { { user = "admin", password = "Passw0rd!", password_hash = "Passw0rd!" } },
+        }
+        local ok, err = config.validate_config(cfg)
+        assert.is_false(ok, "validate should reject password == password_hash: " .. tostring(err))
     end)
 
     it("rejects weak password", function()
-        local ok, err = config.save({
+        local cfg = {
             version = "2.0",
-            admin = { { user = "admin", password = "short" } }
-        })
-        assert.is_false(ok, "weak password should be rejected: " .. tostring(err))
+            admin = { { user = "admin", password = "short" } },
+        }
+        local ok, err = config.validate_config(cfg)
+        assert.is_false(ok, "validate should reject weak password: " .. tostring(err))
         assert.truthy(err:find("8 characters"), "error should mention minimum length")
     end)
 

@@ -48,7 +48,7 @@ local function resolve_host(host)
 end
 
 function _M.on_access(ctx)
-    local rules = config.rule and config.rule.proxy_pass
+    local rules = config.rule.proxy_pass
     if not rules then
         return
     end
@@ -64,7 +64,7 @@ function _M.on_access(ctx)
         end
 
         if matcher.test(matcher_def, ctx) then
-            local upstream = config.backend_upstream and config.backend_upstream[rule.upstream]
+            local upstream = config.backend_upstream[rule.upstream]
             if not upstream then
                 ngx.log(ngx.ERR, "proxy_pass: upstream '", rule.upstream, "' not found")
                 ctx.set_action(ctx, "block", { code = 503, response = "Upstream not found" })

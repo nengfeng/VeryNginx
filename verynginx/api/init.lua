@@ -1347,7 +1347,7 @@ local function handle_frequency_stats()
 end
 
 local function handle_frequency_rules()
-    local rules = config.rule and config.rule.frequency_limit or {}
+    local rules = config.rule.frequency_limit or {}
     return json.encode({ ret = "success", data = rules })
 end
 
@@ -1392,7 +1392,7 @@ local function handle_frequency_rule_delete()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "rule id required" })
     end
-    local rules = config.rule and config.rule.frequency_limit or {}
+    local rules = config.rule.frequency_limit or {}
     local filtered = {}
     for _, r in ipairs(rules) do
         if r.id ~= rule_id then

@@ -41,7 +41,7 @@ _M.strategies["session"] = {
             return false
         end
 
-        local secret = config and config.security and config.security.session_secret
+        local secret = config.security.session_secret
         if not secret then
             ngx.log(ngx.ERR, "auth: session_secret not configured")
             return false
@@ -101,10 +101,10 @@ _M.strategies["session"] = {
                     end
                     local payload = {
                         user = user,
-                        expire_at = ngx.time() + ((config.security and config.security.session_ttl) or 28800),
+                        expire_at = ngx.time() + ((config.security.session_ttl) or 28800),
                         nonce = require("core.random").bytes(16)
                     }
-                    local secret = config.security and config.security.session_secret
+                    local secret = config.security.session_secret
                     if not secret then
                         return false, "session_secret not configured"
                     end

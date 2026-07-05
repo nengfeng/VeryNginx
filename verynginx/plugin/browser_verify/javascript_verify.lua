@@ -12,7 +12,7 @@ local util = require "util"
 local verify_html = nil
 
 local function _get_seed()
-    local s = config.security and config.security.session_secret
+    local s = config.security.session_secret
     if s and s ~= "" then
         return s
     end
@@ -32,7 +32,7 @@ local _fallback_seed = _get_seed()
 --- Compute verification signature for JavaScript mark.
 local function sign(ctx, mark)
     local ua = ngx.var.http_user_agent or ""
-    local seed = (config.security and config.security.session_secret) or _fallback_seed
+    local seed = (config.security.session_secret) or _fallback_seed
     return ngx.md5("VN" .. ctx.request.remote_addr .. ua .. mark .. seed)
 end
 

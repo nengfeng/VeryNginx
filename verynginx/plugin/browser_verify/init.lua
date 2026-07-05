@@ -16,7 +16,7 @@ local cookie_verify = require "plugin.browser_verify.cookie_verify"
 local javascript_verify = require "plugin.browser_verify.javascript_verify"
 
 function _M.on_access(ctx)
-    local rules = config.rule and config.rule.browser_verify
+    local rules = config.rule.browser_verify
     if not rules then
         return
     end

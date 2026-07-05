@@ -183,7 +183,7 @@ local function validate_rule(rule, rule_idx, rule_group, config)
         if not rule.upstream then
             return false, string.format("rule.%s[%d]: proxy action requires 'upstream' field", rule_group, rule_idx)
         end
-        local upstream = config.backend_upstream and config.backend_upstream[rule.upstream]
+        local upstream = config.backend_upstream[rule.upstream]
         if not upstream then
             return false, string.format("rule.%s[%d]: upstream '%s' not found in config.backend_upstream",
                 rule_group, rule_idx, rule.upstream)
@@ -710,6 +710,11 @@ end
 -- ---------------------------------------------------------------------------
 function _M.report()
     return json.encode(config_data)
+end
+
+-- Exposed for testing (not part of public API)
+function _M.validate_config(config)
+    return validate_config(config)
 end
 
 -- Make config read-only (except for local_hash which is mutated at runtime)

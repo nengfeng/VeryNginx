@@ -11,7 +11,7 @@ local _M = {}
 function _M.resolve(response_def)
     if type(response_def) == "string" then
         local config = require "core.config"
-        local template = config.response and config.response[response_def]
+        local template = config.response[response_def]
         if not template then
             return { code = 500, content_type = "text/plain", body = "response template not found" }
         end

@@ -10,7 +10,7 @@ local matcher = require "matcher.init"
 
 --- Run URI rewrite: if rule matches, rewrite the request URI.
 function _M.run(ctx)
-    local rules = config.rule and config.rule.uri_rewrite
+    local rules = config.rule.uri_rewrite
     if not rules then
         return
     end

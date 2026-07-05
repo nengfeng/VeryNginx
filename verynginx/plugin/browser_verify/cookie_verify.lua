@@ -11,7 +11,7 @@ local random = require "core.random"
 -- Fallback seed: stored in shared dict so all workers use the same seed
 -- when session_secret is not configured.
 local function _get_seed()
-    local s = config.security and config.security.session_secret
+    local s = config.security.session_secret
     if s and s ~= "" then
         return s
     end
@@ -32,7 +32,7 @@ local _fallback_seed = _get_seed()
 -- Uses session_secret if configured, otherwise a random per-worker seed.
 local function sign(ctx, mark)
     local ua = ngx.var.http_user_agent or ""
-    local seed = (config.security and config.security.session_secret) or _fallback_seed
+    local seed = (config.security.session_secret) or _fallback_seed
     return ngx.md5("VN" .. ctx.request.remote_addr .. ua .. mark .. seed)
 end
 

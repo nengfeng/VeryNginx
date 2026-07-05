@@ -10,7 +10,7 @@ local matcher = require "matcher.init"
 
 --- Run redirect: if rule matches, issue a redirect to the target URI.
 function _M.run(ctx)
-    local rules = config.rule and config.rule.redirect
+    local rules = config.rule.redirect
     if not rules then
         return
     end

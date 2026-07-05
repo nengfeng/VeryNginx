@@ -10,7 +10,7 @@ local matcher = require "matcher.init"
 
 --- Run scheme lock: if rule matches, redirect to the target scheme.
 function _M.run(ctx)
-    local rules = config.rule and config.rule.scheme_lock
+    local rules = config.rule.scheme_lock
     if not rules then
         return
     end

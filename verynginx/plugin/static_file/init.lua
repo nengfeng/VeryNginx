@@ -14,7 +14,7 @@ local config = require "core.config"
 local matcher = require "matcher.init"
 
 function _M.on_access(ctx)
-    local rules = config.rule and config.rule.static_file
+    local rules = config.rule.static_file
     if not rules then
         return
     end

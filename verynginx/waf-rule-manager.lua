@@ -687,7 +687,6 @@ end
 -- ---------------------------------------------------------------------------
 function _M.record_hit(rule_id, ctx, action)
     local shared = ngx.shared.vn_config
-    if not shared then return end
 
     -- Drop hit if buffer is too large (prevents unbounded growth when
     -- flush cannot keep pace, e.g. burst >5000 hits per 30s cycle)

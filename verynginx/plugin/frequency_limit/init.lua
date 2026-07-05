@@ -15,7 +15,7 @@ local matcher = require "matcher.init"
 local limiter = require "plugin.frequency_limit.limiter"
 
 function _M.on_access(ctx)
-    local rules = config.rule and config.rule.frequency_limit
+    local rules = config.rule.frequency_limit
     if not rules then
         return
     end
