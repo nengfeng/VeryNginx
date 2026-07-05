@@ -17,7 +17,6 @@ do
 end
 
 local _db = nil
-local _db_path = nil
 
 -- Initialize GeoIP database
 function _M.init(db_path)
@@ -30,7 +29,8 @@ function _M.init(db_path)
     if not _db then
         return false, "failed to load GeoIP DB: " .. tostring(err)
     end
-    _db_path = db_path
+    -- store path for potential reloading
+    ngx.log(ngx.DEBUG, "geoip: loaded DB from ", db_path)
     return true
 end
 

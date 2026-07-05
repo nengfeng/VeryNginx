@@ -5,7 +5,6 @@
 
 local _M = {}
 
-local json = require "dkjson"
 local config = require "core.config"
 
 -- Default known bad fingerprints (JA3 hashes)
@@ -17,9 +16,12 @@ local DEFAULT_FINGERPRINTS = {
     { hash = "6734f37431670b3ab4292b8f60f29984", name = "Nmap", category = "scanner", action = "block" },
 
     -- Python requests (common in scrapers/bots)
-    { hash = "669d4b813ef83a5e21b629f479629a8e", name = "python-requests", category = "automation", action = "challenge" },
-    { hash = "b32309a26951912be7dba3763981b434", name = "Python urllib", category = "automation", action = "challenge" },
-    { hash = "bb00950074f0c5822be154c7e4de5f1b", name = "curl", category = "automation", action = "challenge" },
+    { hash = "669d4b813ef83a5e21b629f479629a8e", name = "python-requests",
+      category = "automation", action = "challenge" },
+    { hash = "b32309a26951912be7dba3763981b434", name = "Python urllib",
+      category = "automation", action = "challenge" },
+    { hash = "bb00950074f0c5822be154c7e4de5f1b", name = "curl",
+      category = "automation", action = "challenge" },
 
     -- Go net/http (commonly abused)
     { hash = "9060d6b8cf20b89f42c30d5977799e1b", name = "Go http", category = "automation", action = "challenge" },
