@@ -1420,7 +1420,7 @@ local function handle_geoip_lookup()
     local geoip_mod = require "core.geoip"
     local result = geoip_mod.lookup(ip)
     if not result then
-        return json.encode({ ret = "success", data = nil, message: "IP not found in GeoIP database" })
+        return json.encode({ ret = "success", data = nil, message = "IP not found in GeoIP database" })
     end
     return json.encode({ ret = "success", data = result })
 end
@@ -1441,19 +1441,19 @@ local function handle_geoip_config_set()
     local raw = ngx.req.get_body_data()
     if not raw or raw == "" then
         ngx.status = 400
-        return json.encode({ ret = "failed", message: "request body required" })
+        return json.encode({ ret = "failed", message = "request body required" })
     end
     local ok, new_config = pcall(json.decode, raw)
     if not ok or type(new_config) ~= "table" then
         ngx.status = 400
-        return json.encode({ ret = "failed", message: "invalid JSON" })
+        return json.encode({ ret = "failed", message = "invalid JSON" })
     end
     local c = require "core.config"
     local cfg_data = c.report and json.decode(c.report()) or {}
     cfg_data.geoip = new_config
     local cfg_mod = require "core.config"
     cfg_mod.save(cfg_data)
-    return json.encode({ ret = "success", message: "GeoIP config updated" })
+    return json.encode({ ret = "success", message = "GeoIP config updated" })
 end
 
 -- ============================================================
@@ -1471,12 +1471,12 @@ local function handle_fingerprint_add()
     local raw = ngx.req.get_body_data()
     if not raw or raw == "" then
         ngx.status = 400
-        return json.encode({ ret = "failed", message: "request body required" })
+        return json.encode({ ret = "failed", message = "request body required" })
     end
     local ok, entry = pcall(json.decode, raw)
     if not ok or type(entry) ~= "table" or not entry.hash or not entry.name then
         ngx.status = 400
-        return json.encode({ ret = "failed", message: "hash and name are required" })
+        return json.encode({ ret = "failed", message = "hash and name are required" })
     end
     local fp = require "core.fingerprint_db"
     fp.reload()
@@ -1489,12 +1489,12 @@ local function handle_fingerprint_update()
     local raw = ngx.req.get_body_data()
     if not raw or raw == "" then
         ngx.status = 400
-        return json.encode({ ret = "failed", message: "request body required" })
+        return json.encode({ ret = "failed", message = "request body required" })
     end
     local ok, entry = pcall(json.decode, raw)
     if not ok or type(entry) ~= "table" then
         ngx.status = 400
-        return json.encode({ ret = "failed", message: "invalid JSON" })
+        return json.encode({ ret = "failed", message = "invalid JSON" })
     end
     local fp = require "core.fingerprint_db"
     fp.reload()
@@ -1508,7 +1508,7 @@ local function handle_fingerprint_delete()
     local hash = ngx.ctx.waf_rule_id
     if not hash then
         ngx.status = 400
-        return json.encode({ ret = "failed", message: "fingerprint hash required" })
+        return json.encode({ ret = "failed", message = "fingerprint hash required" })
     end
     local fp = require "core.fingerprint_db"
     fp.reload()
