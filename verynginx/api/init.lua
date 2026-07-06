@@ -1534,13 +1534,12 @@ end
 
 local function handle_geoip_update()
     local updater = require "core.geoip_updater"
-    local ok, err = updater.check_update()
+    local ok, err, status = updater.check_update()
     if ok then
-        return json.encode({ ret = "success", message = err })
-    else
-        ngx.status = 400
-        return json.encode({ ret = "failed", message = tostring(err) })
+        return json.encode({ ret = "success", message: err })
     end
+    ngx.status = status or 400
+    return json.encode({ ret = "failed", message = tostring(err) })
 end
 
 -- ---------------------------------------------------------------------------

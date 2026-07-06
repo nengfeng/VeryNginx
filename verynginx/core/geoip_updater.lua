@@ -30,6 +30,15 @@ local function validate_mmdb(path)
     return true
 end
 
+-- Check if required modules are available
+local function check_deps()
+    local ok_http, http = pcall(require, "resty.http")
+    if not ok_http then
+        return false, "lua-resty-http not installed: " .. tostring(http)
+    end
+    return true, http
+end
+
 -- Download file from URL to destination
 local function download_file(url, dest, timeout)
     timeout = timeout or 30
@@ -100,6 +109,10 @@ end
 
 -- Perform update check and download
 function _M.check_update()
+    -- Pre-flight checks
+    local deps_ok, deps_err = check_deps()
+    if not deps_ok then return false, deps_err, 500 end
+
     local ucfg = get_update_config()
     if not ucfg.auto_update then return false, "auto_update disabled" end
     if not is_update_due(ucfg.interval_hours) then return false, "not due yet" end
@@ -164,16 +177,16 @@ function _M.check_update()
         end
 
         audit.log("geoip_auto_updated", "url=" .. url, "-")
-        return true, "updated successfully"
+        return true, "updated successfully", 200
     end)
 
     release_lock()
 
     if not ok then
         ngx.log(ngx.ERR, "geoip update error: ", tostring(err))
-        return false, tostring(err)
+        return false, tostring(err), 500
     end
-    return ok, err
+    return ok, err, 200
 end
 
 -- Get updater status
