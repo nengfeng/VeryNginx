@@ -1557,7 +1557,7 @@ const app = Vue.createApp({
     const geoipLookupResult = ref(null);
     const geoipStats = ref([]);
     const geoipConfig = ref({ enable: false, db_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, use_cdn: false });
-    const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0 });
+    const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, db_path: '' });
     const fingerprints = ref([]);
     const fpCategories = ref({});
     const fpEditModal = reactive({ show: false, _isNew: true, hash: '', name: '', category: 'scanner', action: 'block' });
@@ -3111,7 +3111,7 @@ const app = Vue.createApp({
       wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
       wafIpHits, wafIpHitsIp,
       freqStats, freqRules, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
-      geoipLookupIP, geoipLookupResult, geoipStats, geoipConfig, loadGeoIP, lookupGeoIP, saveGeoIPConfig,
+      geoipLookupIP, geoipLookupResult, geoipStats, geoipConfig, geoipStatus, loadGeoIP, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
       fingerprints, fpCategories, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
       freqRuleModal,
       plugins, pluginsError, loadPlugins, togglePlugin,
