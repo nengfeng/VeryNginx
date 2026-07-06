@@ -9,6 +9,7 @@ import json
 import time
 import sys
 import os
+import traceback
 
 BASE_URL = os.environ.get("VN2_TEST_URL", "http://127.0.0.1:8080")
 USER = "verynginx"
@@ -306,6 +307,7 @@ def main():
             passed += 1
         except Exception as e:
             print(f"  [FAIL] {e}")
+            traceback.print_exc()
             failed += 1
         print()
 
