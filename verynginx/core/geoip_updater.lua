@@ -99,7 +99,8 @@ local function get_update_config()
 end
 
 -- Check if update is due
-local function is_update_due(interval_hours)
+local function is_update_due(interval_hours, force)
+    if force then return true end
     local shared = ngx.shared[SHARED_DICT]
     if not shared then return true end
     local last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0)
@@ -108,14 +109,14 @@ local function is_update_due(interval_hours)
 end
 
 -- Perform update check and download
-function _M.check_update()
+function _M.check_update(force)
     -- Pre-flight checks
     local deps_ok, deps_err = check_deps()
     if not deps_ok then return false, deps_err, 500 end
 
     local ucfg = get_update_config()
     if not ucfg.auto_update then return false, "auto_update disabled" end
-    if not is_update_due(ucfg.interval_hours) then return false, "not due yet" end
+    if not is_update_due(ucfg.interval_hours, force) then return false, "not due yet" end
 
     -- Update last check time
     local shared = ngx.shared[SHARED_DICT]

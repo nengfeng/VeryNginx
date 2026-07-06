@@ -1534,7 +1534,7 @@ end
 
 local function handle_geoip_update()
     local updater = require "core.geoip_updater"
-    local ok, err, status = updater.check_update()
+    local ok, err, status = updater.check_update(true)
     if ok then
         return json.encode({ ret = "success", message = err })
     end
