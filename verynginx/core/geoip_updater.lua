@@ -5,9 +5,17 @@
 
 local _M = {}
 
-local geoip = require "core.geoip"
-local audit = require "core.audit"
-local config = require "core.config"
+-- Top-level requires wrapped in pcall to prevent module load failure
+local geoip, audit, config
+do
+    local ok
+    ok, geoip = pcall(require, "core.geoip")
+    if not ok then error("geoip_updater: failed to load core.geoip: " .. tostring(geoip)) end
+    ok, audit = pcall(require, "core.audit")
+    if not ok then error("geoip_updater: failed to load core.audit: " .. tostring(audit)) end
+    ok, config = pcall(require, "core.config")
+    if not ok then error("geoip_updater: failed to load core.config: " .. tostring(config)) end
+end
 
 local SHARED_DICT = "vn_config"
 local LOCK_KEY = "geoip_update_lock"
@@ -29,20 +37,10 @@ local function validate_mmdb(path)
     return true
 end
 
--- Check if required modules are available
-local function check_deps()
-    local ok_http, http = pcall(require, "resty.http")
-    if ok_http then return true, http end
-    local handle = io.popen("which curl 2>/dev/null")
-    local curl_path = handle:read("*a"):gsub("%s+", "")
-    handle:close()
-    if curl_path ~= "" then return true, nil end
-    return false, "neither lua-resty-http nor curl CLI is available"
-end
-
--- Download file from URL to destination (resty.http or curl CLI fallback)
+-- Download file from URL (resty.http or curl CLI fallback)
 local function download_file(url, dest, timeout)
     timeout = timeout or 30
+    -- Try resty.http first
     local ok_http, http = pcall(require, "resty.http")
     if ok_http then
         local httpc = http.new()
@@ -60,10 +58,10 @@ local function download_file(url, dest, timeout)
         return true
     end
     -- Fallback: curl CLI
-    local cmd = string.format("curl -fsSL --max-time %d -A 'VeryNginx-GeoIP-Updater/2.0' -o %s %s 2>&1",
+    local cmd = string.format('curl -fsSL --max-time %d -A "VeryNginx-GeoIP-Updater/2.0" -o "%s" "%s" 2>&1',
         timeout, dest, url)
     local handle = io.popen(cmd)
-    local output = handle:read("*a") or ""
+    local output = handle:read("*a") or "exit_code"
     local ok, _, exit_code = handle:close()
     if not ok and (exit_code or 0) ~= 0 then
         return false, "curl failed: " .. tostring(output):sub(0, 200)
@@ -81,7 +79,8 @@ local function get_remote_etag(url)
         if not res then return nil, tostring(err) end
         return res.headers["ETag"] or res.headers["Last-Modified"]
     end
-    local handle = io.popen(string.format("curl -fsSI --max-time 10 %s 2>&1", url))
+    -- Fallback: curl
+    local handle = io.popen(string.format('curl -fsSI --max-time 10 "%s" 2>&1', url))
     local output = handle:read("*a") or ""
     handle:close()
     local etag = output:match("ETag:[%s]*(.-)\r?\n")
@@ -109,11 +108,10 @@ local function get_update_config()
     return {
         auto_update = cfg.auto_update ~= false,
         interval_hours = cfg.update_interval_hours or 168,
-        license_key = cfg.license_key or "",
-        update_url = cfg.update_url or "https://download.maxmind.com/app/geoip_download",
-        cdn_url = cfg.cdn_url or "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
+        update_url = cfg.update_url,
+        cdn_url = cfg.cdn_url,
         use_cdn = cfg.use_cdn == true,
-        db_path = cfg.db_path or "/opt/verynginx/geoip/GeoLite2-City.mmdb",
+        db_path = cfg.db_path or "",
     }
 end
 
@@ -126,11 +124,30 @@ local function is_update_due(interval_hours, force)
     return (ngx.time() - last_check) >= (interval_hours * 3600)
 end
 
+-- Resolve download URL from config
+local function resolve_url(ucfg)
+    if ucfg.use_cdn and ucfg.cdn_url and ucfg.cdn_url ~= "" then
+        return ucfg.cdn_url
+    end
+    if ucfg.update_url and ucfg.update_url ~= "" then
+        return ucfg.update_url
+    end
+    -- Default CDN
+    return "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb"
+end
+
 -- Perform update check and download
 function _M.check_update(force)
-    -- Pre-flight
-    local deps_ok, deps_err = check_deps()
-    if not deps_ok then return false, deps_err, 500 end
+    -- Pre-flight: deps check
+    local ok_deps, deps_err = pcall(require, "resty.http")
+    if not ok_deps then
+        local handle = io.popen("which curl 2>/dev/null")
+        local curl_path = handle:read("*a"):gsub("%s+", "")
+        handle:close()
+        if curl_path == "" then
+            return false, "neither lua-resty-http nor curl available: " .. tostring(deps_err), 500
+        end
+    end
 
     local ucfg = get_update_config()
     if not ucfg.auto_update then return false, "auto_update disabled" end
@@ -143,8 +160,9 @@ function _M.check_update(force)
     -- Acquire lock
     if not acquire_lock() then return false, "update already in progress" end
 
-    local result = pcall(function()
-        local url = ucfg.use_cdn and ucfg.cdn_url or ucfg.update_url
+    local ok, err, status = pcall(function()
+        local url = resolve_url(ucfg)
+        local db_path = ucfg.db_path
 
         -- Check remote ETag
         local remote_etag = get_remote_etag(url)
@@ -156,11 +174,11 @@ function _M.check_update(force)
         end
 
         -- Download to temp file
-        local tmp_path = ucfg.db_path .. ".tmp"
+        local tmp_path = db_path .. ".tmp"
         local dl_ok, dl_err = download_file(url, tmp_path)
         if not dl_ok then return false, dl_err, 502 end
 
-        -- Validate
+        -- Validate MMDB magic
         local valid, valid_err = validate_mmdb(tmp_path)
         if not valid then
             os.remove(tmp_path)
@@ -168,13 +186,13 @@ function _M.check_update(force)
         end
 
         -- Atomic replace
-        local rename_ok, rename_err = os.rename(tmp_path, ucfg.db_path)
+        local rename_ok, rename_err = os.rename(tmp_path, db_path)
         if not rename_ok then
             os.remove(tmp_path)
             return false, "rename failed: " .. tostring(rename_err), 500
         end
 
-        -- Reload DB
+        -- Reload GeoIP DB
         local reload_ok, reload_err = geoip.reload()
         if not reload_ok then
             ngx.log(ngx.WARN, "geoip: DB replaced but reload failed: ", reload_err)
@@ -191,29 +209,41 @@ function _M.check_update(force)
     end)
 
     release_lock()
-
-    if result then
-        -- pcall returns ok, err, status when the function returns 3 values
-        -- Actually pcall returns ok, then the return values
-        return result, "", 500
-    end
-
-    -- If pcall succeeded, it returns true plus the function's return values
-    -- pcall returns: ok, result1, result2, result3, ...
-    -- But Lua multiple return values: we need to capture them
-    -- Actually the function inside pcall returns 3 values
-    -- pcall returns: true, val1, val2, val3
-    -- So 'result' will be true, and we need to capture the rest
-    -- Let me restructure this
-    return _M._handle_pcall(result, nil)
+    return ok, tostring(err or ""), status or 500
 end
 
--- Handle pcall result for 3-value returns
-function _M._handle_pcall(ok, ...)
+-- Get updater status
+function _M.get_status()
+    local ucfg = get_update_config()
+    local shared = ngx.shared[SHARED_DICT]
+    local status = {
+        auto_update = ucfg.auto_update,
+        interval_hours = ucfg.interval_hours,
+        use_cdn = ucfg.use_cdn,
+        db_path = ucfg.db_path,
+        last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0),
+        last_update = tonumber(shared:get(LAST_UPDATE_KEY) or 0),
+        remote_etag = shared:get(ETAG_KEY) or "",
+    }
+    -- Merge with DB file info
+    local db_info = geoip.get_status()
+    for k, v in pairs(db_info) do status[k] = v end
+    return status
+end
+
+-- Initialize auto-update timer (worker 0 only)
+function _M.init()
+    local ucfg = get_update_config()
+    if not ucfg.auto_update then return end
+    if ngx.worker.id() ~= 0 then return end
+
+    local interval = math.max(ucfg.interval_hours * 3600, 3600)
+    local ok, err = ngx.timer.every(interval, function()
+        _M.check_update(false)
+    end)
     if not ok then
-        return false, tostring(select(1, ...)), 500
+        ngx.log(ngx.ERR, "geoip_updater: failed to start timer: ", err)
     end
-    -- ok is true, then ... has the return values
-    local r1, r2, r3 = ...
-    return r1 or false, tostring(r2 or ""), r3 or 200
 end
+
+return _M
