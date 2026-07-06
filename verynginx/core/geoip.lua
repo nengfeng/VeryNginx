@@ -17,21 +17,38 @@ do
 end
 
 local _db = nil
+local _db_path = nil
 
 -- Initialize GeoIP database
 function _M.init(db_path)
     if not maxminddb then
         return false, "lua-resty-maxminddb not installed"
     end
-    db_path = db_path or "/opt/verynginx/geoip/GeoLite2-City.mmdb"
+    _db_path = db_path or "/opt/verynginx/geoip/GeoLite2-City.mmdb"
     local err
-    _db, err = maxminddb:new(db_path)
+    _db, err = maxminddb:new(_db_path)
     if not _db then
         return false, "failed to load GeoIP DB: " .. tostring(err)
     end
-    -- store path for potential reloading
-    ngx.log(ngx.DEBUG, "geoip: loaded DB from ", db_path)
+    ngx.log(ngx.DEBUG, "geoip: loaded DB from ", _db_path)
     return true
+end
+
+-- Reload GeoIP database (after auto-update)
+function _M.reload()
+    if not maxminddb then return false, "maxminddb not installed" end
+    if not _db_path then return false, "no db_path configured" end
+    local err
+    _db, err = maxminddb:new(_db_path)
+    if not _db then
+        return false, "reload failed: " .. tostring(err)
+    end
+    return true
+end
+
+-- Get current DB path
+function _M.get_db_path()
+    return _db_path
 end
 
 -- Check if GeoIP is available
@@ -183,6 +200,29 @@ function _M.track(ip, shared_dict)
         local key = "geo_ip:cc:" .. cc
         pcall(function() shared_dict:incr(key, 1, 0, 86400) end)
     end
+end
+
+--- Get DB file info for status display.
+-- @return table: { path, size, mtime, available }
+function _M.get_status()
+    local path = _db_path or ""
+    local info = { path = path, available = _db ~= nil, size = 0, mtime = 0 }
+    if path ~= "" then
+        local f = io.open(path, "rb")
+        if f then
+            -- Get file size
+            local size = f:seek("end")
+            f:close()
+            info.size = size
+            -- Try to get mtime via pcall
+            pcall(function()
+                local lfs = require "lfs"
+                local attr = lfs.attributes(path)
+                if attr then info.mtime = attr.modification end
+            end)
+        end
+    end
+    return info
 end
 
 return _M

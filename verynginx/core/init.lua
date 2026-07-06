@@ -92,6 +92,8 @@ function _M.init_worker()
 
     -- Only worker 0 does I/O for persistence
     local ip_reputation = require "core.ip_reputation"
+    local geoip_updater = require "core.geoip_updater"
+    geoip_updater.init()
     if ngx.worker.id() == 0 then
         ngx.timer.every(600, function()
             ip_reputation.persist()

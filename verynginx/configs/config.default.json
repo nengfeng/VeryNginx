@@ -62,7 +62,10 @@
         "db_path": "",
         "whitelist": [],
         "blocklist": [],
-        "block_continents": []
+        "block_continents": [],
+        "auto_update": true,
+        "update_interval_hours": 168,
+        "use_cdn": false
     },
     "fingerprints": {
         "enable": true,

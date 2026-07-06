@@ -1522,6 +1522,27 @@ local function handle_fingerprint_stats()
     return json.encode({ ret = "success", data = { total = #fp.list(), categories = fp.categories() } })
 end
 
+-- ============================================================
+-- GeoIP auto-updater handlers
+-- ============================================================
+
+local function handle_geoip_status()
+    local updater = require "core.geoip_updater"
+    local status = updater.get_status()
+    return json.encode({ ret = "success", data = status })
+end
+
+local function handle_geoip_update()
+    local updater = require "core.geoip_updater"
+    local ok, err = updater.check_update()
+    if ok then
+        return json.encode({ ret = "success", message = err })
+    else
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- Register default routes
 -- ---------------------------------------------------------------------------
@@ -1571,6 +1592,8 @@ _M.register("GET",    "/geoip/lookup",           handle_geoip_lookup,        tru
 _M.register("GET",    "/geoip/stats",            handle_geoip_stats,         true)
 _M.register("GET",    "/geoip/config",           handle_geoip_config,        true)
 _M.register("PUT",    "/geoip/config",           handle_geoip_config_set,    true)
+_M.register("GET",    "/geoip/status",           handle_geoip_status,        true)
+_M.register("POST",   "/geoip/update",           handle_geoip_update,        true)
 
 -- Fingerprint database routes
 _M.register("GET",    "/fingerprints",           handle_fingerprint_list,    true)

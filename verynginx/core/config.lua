@@ -46,6 +46,12 @@ _M.schema = {
             whitelist = {},
             blocklist = {},
             block_continents = {},
+            auto_update = true,
+            update_interval_hours = 168,
+            license_key = "",
+            update_url = "https://download.maxmind.com/app/geoip_download",
+            cdn_url = "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
+            use_cdn = false,
         } },
         fingerprints = { type = "table", default = {
             enable = true,
