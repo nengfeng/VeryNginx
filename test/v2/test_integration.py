@@ -65,6 +65,14 @@ def _get_auth():
     token = resp.get("token", "")
     return {"verynginx_session": token}
 
+def _get_auth():
+    """Login and return session cookies."""
+    status, body = curl("POST", "/verynginx/login", data="user=verynginx&password=verynginx")
+    assert status == 200, f"Login failed: status={status}, body={body[:200]}"
+    resp = json.loads(body)
+    token = resp.get("token", "")
+    return {"verynginx_session": token}
+
 # Session cache to avoid rate limiting across tests
 _session_cookies = None
 
