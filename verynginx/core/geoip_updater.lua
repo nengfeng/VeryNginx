@@ -5,7 +5,6 @@
 
 local _M = {}
 
-local json = require "dkjson"
 local geoip = require "core.geoip"
 local audit = require "core.audit"
 local config = require "core.config"
@@ -29,16 +28,6 @@ local function validate_mmdb(path)
         return false, "invalid MMDB magic"
     end
     return true
-end
-
--- Compute SHA256 hash of a file (for verification)
-local function file_hash(path)
-    local f = io.open(path, "rb")
-    if not f then return nil end
-    local content = f:read("*all")
-    f:close()
-    if not content then return nil end
-    return ngx.sha256_bin and ngx.sha256_bin(content) or ngx.md5(content)
 end
 
 -- Download file from URL to destination
@@ -127,7 +116,7 @@ function _M.check_update()
         local url = ucfg.use_cdn and ucfg.cdn_url or ucfg.update_url
 
         -- Check remote ETag
-        local remote_etag, etag_err = get_remote_etag(url)
+        local remote_etag = get_remote_etag(url)
         if shared and remote_etag then
             local local_etag = shared:get(ETAG_KEY)
             if local_etag and local_etag == remote_etag then
