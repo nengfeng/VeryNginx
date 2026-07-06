@@ -57,17 +57,10 @@ def test_login():
     assert resp.get("ret") == "success", f"Login response: {body[:200]}"
     print(f"  [PASS] Valid login: {resp.get('ret')}")
 
-def _get_auth():
+
+<longcat_arg_value>def _get_auth():
     """Login and return session cookies."""
     status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")
-    assert status == 200, f"Login failed: {status}"
-    resp = json.loads(body)
-    token = resp.get("token", "")
-    return {"verynginx_session": token}
-
-def _get_auth():
-    """Login and return session cookies."""
-    status, body = curl("POST", "/verynginx/login", data="user=verynginx&password=verynginx")
     assert status == 200, f"Login failed: status={status}, body={body[:200]}"
     resp = json.loads(body)
     token = resp.get("token", "")
@@ -257,10 +250,6 @@ def test_waf_rules():
     assert status == 404, f"Expected 404 after deletion, got: {status}"
     print(f"  [PASS] GET deleted rule returns 404")
 
-
-def _get_auth():
-    """Login and return session cookies (backward compat wrapper)."""
-    return get_shared_session()
 
 def test_geoip():
     """Test GeoIP lookup endpoint."""
