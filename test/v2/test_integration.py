@@ -58,7 +58,7 @@ def test_login():
     print(f"  [PASS] Valid login: {resp.get('ret')}")
 
 
-<longcat_arg_value>def _get_auth():
+def _get_auth():
     """Login and return session cookies."""
     status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")
     assert status == 200, f"Login failed: status={status}, body={body[:200]}"
