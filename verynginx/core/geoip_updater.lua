@@ -18,10 +18,10 @@ local LAST_UPDATE_KEY = "geoip_last_update"
 
 -- Community mirrors that host GeoLite2-City.mmdb (no API key required)
 -- Ordered by region accessibility: China-first, then global
+-- Loyalsoldier/geoip provides Country.mmdb with country+continent data
 local MIRRORS = {
-    "https://cdn.cfclk.com/P3TERX/GeoLite.mmdb@release/GeoLite2-City.mmdb",
-    "https://ghp.ci/https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/release/GeoLite2-City.mmdb",
-    "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/release/GeoLite2-City.mmdb",
+    "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb",
+    "https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb",
 }
 
 -- Validate MMDB file magic bytes
