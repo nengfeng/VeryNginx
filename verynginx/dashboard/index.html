@@ -1066,12 +1066,15 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <table>
             <tr><td>启用自动更新</td><td><input type="checkbox" v-model="geoipConfig.auto_update" @change="saveGeoIPConfig"></td></tr>
             <tr><td>更新间隔 (小时)</td><td><input v-model.number="geoipConfig.update_interval_hours" type="number" min="1" max="720" style="width:100px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>下载源</td><td>
+             <tr><td>下载源</td><td>
               <select v-model="geoipConfig.use_cdn" @change="saveGeoIPConfig" style="width:auto">
                 <option :value="false">MaxMind 官方</option>
                 <option :value="true">CDN (境内友好)</option>
               </select>
             </td></tr>
+            <tr><td>License Key</td><td><input v-model="geoipConfig.license_key" placeholder="(optional)" style="width:200px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>Custom Update URL</td><td><input v-model="geoipConfig.update_url" placeholder="https://..." style="width:300px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>Custom CDN URL</td><td><input v-model="geoipConfig.cdn_url" placeholder="https://..." style="width:300px" @change="saveGeoIPConfig"></td></tr>
             <tr><td>当前 DB</td><td><code>{{ geoipStatus.db_path || '-' }}</code></td></tr>
             <tr><td>DB 大小</td><td>{{ geoipStatus.size ? (geoipStatus.size / 1024 / 1024).toFixed(1) + ' MB' : '-' }}</td></tr>
             <tr><td>DB 状态</td><td><span :class="geoipStatus.available ? 'tag tag-ok' : 'tag tag-err'">{{ geoipStatus.available ? '可用' : '未加载' }}</span></td></tr>
@@ -1556,7 +1559,7 @@ const app = Vue.createApp({
     const geoipLookupIP = ref('');
     const geoipLookupResult = ref(null);
     const geoipStats = ref([]);
-    const geoipConfig = ref({ enable: false, db_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, use_cdn: false });
+    const geoipConfig = ref({ enable: false, db_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, use_cdn: false, license_key: '', update_url: '', cdn_url: '' });
     const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, db_path: '' });
     const fingerprints = ref([]);
     const fpCategories = ref({});
@@ -2699,6 +2702,9 @@ const app = Vue.createApp({
             auto_update: cfg.auto_update !== false,
             update_interval_hours: cfg.update_interval_hours || 168,
             use_cdn: cfg.use_cdn === true,
+            license_key: cfg.license_key || '',
+            update_url: cfg.update_url || '',
+            cdn_url: cfg.cdn_url || '',
           };
         }
         if (statsRes.ret === 'success') geoipStats.value = Object.entries(statsRes.data || {}).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count).slice(0, 20);
@@ -2724,6 +2730,12 @@ const app = Vue.createApp({
           db_path: geoipConfig.value.db_path || '',
           whitelist: geoipConfig.value.whitelistStr.split(',').map(s => s.trim()).filter(s => s),
           blocklist: geoipConfig.value.blocklistStr.split(',').map(s => s.trim()).filter(s => s),
+          auto_update: !!geoipConfig.value.auto_update,
+          update_interval_hours: geoipConfig.value.update_interval_hours || 168,
+          use_cdn: !!geoipConfig.value.use_cdn,
+          license_key: geoipConfig.value.license_key || '',
+          update_url: geoipConfig.value.update_url || '',
+          cdn_url: geoipConfig.value.cdn_url || '',
         };
         const d = await api('PUT', '/verynginx/geoip/config', cfg);
         if (d.ret === 'success') showToast('GeoIP config saved', 'success');
