@@ -125,7 +125,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
         <a :class="{active:page==='frequency'}" @click="page='frequency';loadFrequencyData()">Frequency</a>
          <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">Reputation</a>
-         <a :class="{active:page==='geoip'}" @click="page='geoip';loadGeoIP()">GeoIP</a>
+         <a :class="{active:page==='geoip'}" @click="page='geoip';loadGeoIP();loadGeoIPStatus()">GeoIP</a>
          <a :class="{active:page==='fingerprints'}" @click="page='fingerprints';loadFingerprints()">Fingerprints</a>
          <a :class="{active:page==='audit'}" @click="page='audit';loadAudit()">Audit</a>
         <a :class="{active:page==='about'}" @click="page='about'">About</a>
@@ -2686,6 +2686,15 @@ const app = Vue.createApp({
     }
 
     // ---- GeoIP ----
+    async function loadGeoIPStatus() {
+      try {
+        const d = await api('GET', '/verynginx/geoip/status');
+        if (d.ret === 'success') geoipStatus.value = d.data;
+      } catch (e) {
+        // silent
+      }
+    }
+
     async function loadGeoIP() {
       try {
         const [cfgRes, statsRes] = await Promise.all([
@@ -2751,6 +2760,9 @@ const app = Vue.createApp({
         if (d.ret === 'success') {
           showToast(d.message || 'Update successful', 'success');
           await loadGeoIP();
+          // Fetch fresh status (includes DB info)
+          const s = await api('GET', '/verynginx/geoip/status');
+          if (s.ret === 'success') geoipStatus.value = s.data;
         } else {
           showToast(d.message || 'Update failed', 'error');
         }
@@ -3123,7 +3135,7 @@ const app = Vue.createApp({
       wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
       wafIpHits, wafIpHitsIp,
       freqStats, freqRules, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
-      geoipLookupIP, geoipLookupResult, geoipStats, geoipConfig, geoipStatus, loadGeoIP, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
+      geoipLookupIP, geoipLookupResult, geoipStats, geoipConfig, geoipStatus, loadGeoIP, loadGeoIPStatus, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
       fingerprints, fpCategories, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
       freqRuleModal,
       plugins, pluginsError, loadPlugins, togglePlugin,
