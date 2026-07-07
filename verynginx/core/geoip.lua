@@ -68,16 +68,31 @@ function _M.get_geodb_path()
     return _geodb_path
 end
 
--- Check if GeoIP is available
+-- Check if GeoIP is available (in-memory or on-disk)
 function _M.is_available()
-    return _db ~= nil
+    if _db then return true end
+    -- Check if database file exists on disk (may have been downloaded after startup)
+    local path = _geodb_path or (config.geoip and config.geoip.geodb_path) or ""
+    if path ~= "" then
+        local f = io.open(path, "rb")
+        if f then
+            f:close()
+            return true
+        end
+    end
+    return false
 end
 
 --- Lookup GeoIP data for an IP address.
 -- @param ip string: IPv4 or IPv6 address
 -- @return table|nil: { country_code, country_name, city_name, continent, latitude, longitude, asn }
 function _M.lookup(ip)
-    if not _db or not ip then return nil end
+    if not ip then return nil end
+    -- Auto-reload if database was downloaded after startup (e.g. by updater)
+    if not _db then
+        local ok, err = _M.reload()
+        if not ok then return nil end
+    end
     local ok, result = pcall(_db.lookup, _db, ip)
     if not ok or not result then return nil end
 
