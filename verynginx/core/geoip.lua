@@ -29,7 +29,17 @@ function _M.init(db_path)
     pcall(function()
         local dir = _db_path:match("^(.-)/[^/]+$")
         if dir and dir ~= "" then
-            os.execute('mkdir -p "' .. dir .. '" 2>/dev/null')
+            local lfs_ok, lfs = pcall(require, "lfs")
+            local parts = {}
+            local current = dir
+            while current and current ~= "" do
+                if lfs_ok and lfs.attributes(current, "mode") == "directory" then break end
+                table.insert(parts, 1, current)
+                current = current:match("^(.-)/[^/]+$")
+            end
+            for _, d in ipairs(parts) do
+                if lfs_ok then lfs.mkdir(d) else os.execute("mkdir -p '" .. d .. "' 2>/dev/null") end
+            end
         end
     end)
     local err

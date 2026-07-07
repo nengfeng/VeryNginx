@@ -16,6 +16,28 @@ local ETAG_KEY = "geoip_remote_etag"
 local LAST_CHECK_KEY = "geoip_last_check"
 local LAST_UPDATE_KEY = "geoip_last_update"
 
+-- Ensure a directory exists, creating all parent directories as needed
+-- Uses lfs.mkdir (Lua-native) for reliability in nginx worker context
+local function ensure_dir(path)
+    if not path or path == "" then return end
+    local lfs_ok, lfs = pcall(require, "lfs")
+    -- Build list of directories to create (bottom-up)
+    local parts = {}
+    local current = path
+    while current and current ~= "" do
+        if lfs_ok and lfs.attributes(current, "mode") == "directory" then break end
+        table.insert(parts, 1, current)
+        current = current:match("^(.-)/[^/]+$")
+    end
+    for _, d in ipairs(parts) do
+        if lfs_ok then
+            lfs.mkdir(d)
+        else
+            os.execute("mkdir -p '" .. d .. "' 2>/dev/null")
+        end
+    end
+end
+
 -- Community mirrors that host MMDB-compatible files (no API key required)
 -- Ordered by speed/accessibility from testing
 local MIRRORS = {
@@ -49,6 +71,8 @@ end
 -- Download file from URL (resty.http or curl CLI fallback)
 local function download_file(url, dest, timeout)
     timeout = timeout or 30
+    -- Ensure parent directory exists
+    ensure_dir(dest:match("^(.-)/[^/]+$"))
     -- Try resty.http first
     local ok_http, http = pcall(require, "resty.http")
     if ok_http then
@@ -168,10 +192,7 @@ function _M.check_update(force)
         local db_path = ucfg.db_path
 
         -- Ensure parent directory exists
-        local dir = db_path:match("^(.+)/[^/]+$") or ""
-        if dir ~= "" then
-            os.execute("mkdir -p '" .. dir .. "' 2>/dev/null")
-        end
+        ensure_dir(db_path:match("^(.-)/[^/]+$"))
 
         -- Try each URL (user-configured first, then mirrors)
         local urls = {}
