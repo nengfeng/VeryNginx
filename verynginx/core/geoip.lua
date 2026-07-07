@@ -205,16 +205,15 @@ end
 --- Get DB file info for status display.
 -- @return table: { path, size, mtime, available }
 function _M.get_status()
-    local path = _db_path or ""
-    local info = { path = path, available = _db ~= nil, size = 0, mtime = 0 }
+    -- Prefer in-memory path, fall back to configured path
+    local path = _db_path or (config.geoip and config.geoip.db_path) or ""
+    local info = { path = path, available = false, size = 0, mtime = 0 }
     if path ~= "" then
         local f = io.open(path, "rb")
         if f then
-            -- Get file size
-            local size = f:seek("end")
+            info.available = true
+            info.size = f:seek("end")
             f:close()
-            info.size = size
-            -- Try to get mtime via pcall
             pcall(function()
                 local lfs = require "lfs"
                 local attr = lfs.attributes(path)
@@ -222,6 +221,8 @@ function _M.get_status()
             end)
         end
     end
+    -- Also expose whether maxminddb module is available
+    info.module_available = maxminddb ~= nil
     return info
 end
 

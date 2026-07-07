@@ -17,7 +17,7 @@ do
     if not ok then error("geoip_updater: failed to load core.config: " .. tostring(config)) end
 end
 
-local SHARED_DICT = "vn_config"
+local DEFAULT_DB_PATH = "/opt/verynginx/geoip/GeoLite2-City.mmdb"
 local LOCK_KEY = "geoip_update_lock"
 local ETAG_KEY = "geoip_remote_etag"
 local LAST_CHECK_KEY = "geoip_last_check"
@@ -111,7 +111,7 @@ local function get_update_config()
         update_url = cfg.update_url,
         cdn_url = cfg.cdn_url,
         use_cdn = cfg.use_cdn == true,
-        db_path = cfg.db_path or "",
+        db_path = cfg.db_path or default_db_path,
     }
 end
 
@@ -220,14 +220,23 @@ function _M.get_status()
         auto_update = ucfg.auto_update,
         interval_hours = ucfg.interval_hours,
         use_cdn = ucfg.use_cdn,
-        db_path = ucfg.db_path,
+        db_path = ucfg.db_path or default_db_path,
         last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0),
         last_update = tonumber(shared:get(LAST_UPDATE_KEY) or 0),
         remote_etag = shared:get(ETAG_KEY) or "",
+        db_path = ucfg.db_path,
     }
-    -- Merge with DB file info
+    -- Ensure db_path always has a default
+    if not status.db_path or status.db_path == "" then
+        status.db_path = default_db_path
+    end
+    -- Merge with DB file info (path, available, size, mtime)
     local db_info = geoip.get_status()
     for k, v in pairs(db_info) do status[k] = v end
+    -- Ensure db_path reflects actual on-disk path if geoip has one
+    if db_info.path and db_info.path ~= "" then
+        status.db_path = db_info.path
+    end
     return status
 end
 
