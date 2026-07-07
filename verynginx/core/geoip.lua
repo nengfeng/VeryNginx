@@ -24,7 +24,7 @@ function _M.init(geodb_path)
     if not maxminddb then
         return false, "lua-resty-maxminddb not installed"
     end
-    _geodb_path = geodb_path or "/opt/verynginx/geoip/GeoLite2-City.mmdb"
+    _geodb_path = geodb_path
     -- Ensure parent directory exists
     pcall(function()
         local dir = _geodb_path:match("^(.-)/[^/]+$")

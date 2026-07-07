@@ -328,6 +328,8 @@ patch_nginx_conf() {
     lua_shared_dict healthcheck 10m;\\
     lua_shared_dict dns_cache 4m;\\
     lua_shared_dict frequency_limit 10m;\\
+    # VeryNginx v2 - env vars for Lua\\
+    env VN_PREFIX;\\
 \\
     # VeryNginx v2 - main process initialization\\
     init_by_lua_block {\\

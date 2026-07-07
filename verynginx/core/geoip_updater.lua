@@ -10,7 +10,6 @@ local audit = require "core.audit"
 local config = require "core.config"
 
 local SHARED_DICT = "vn_config"
-local DEFAULT_DB_PATH = "/opt/verynginx/geoip/GeoLite2-City.mmdb"
 local LOCK_KEY = "geoip_update_lock"
 local ETAG_KEY = "geoip_remote_etag"
 local LAST_CHECK_KEY = "geoip_last_check"
@@ -152,7 +151,7 @@ local function get_update_config()
         update_url = cfg.update_url,
         cdn_url = cfg.cdn_url,
         use_cdn = cfg.use_cdn == true,
-        geodb_path = (cfg.geodb_path ~= "" and cfg.geodb_path) or DEFAULT_DB_PATH,
+        geodb_path = cfg.geodb_path,
     }
 end
 

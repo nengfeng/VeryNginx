@@ -22,8 +22,12 @@ function _M.init()
     -- Initialize GeoIP database
     local geoip = require "core.geoip"
     local geoip_cfg = config.geoip or {}
-    local geodb_path = (geoip_cfg.geodb_path ~= "" and geoip_cfg.geodb_path) or nil
-    geoip.init(geodb_path)
+    if not geoip_cfg.geodb_path or geoip_cfg.geodb_path == "" then
+        -- Auto-detect: use VN_PREFIX from nginx env, fallback to /opt/verynginx
+        local prefix = os.getenv("VN_PREFIX") or "/opt/verynginx"
+        geoip_cfg.geodb_path = prefix .. "/geoip/GeoLite2-City.mmdb"
+    end
+    geoip.init(geoip_cfg.geodb_path)
 
     -- Restore persisted IP reputation data
     local ip_reputation = require "core.ip_reputation"
