@@ -1067,14 +1067,15 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <tr><td>启用自动更新</td><td><input type="checkbox" v-model="geoipConfig.auto_update" @change="saveGeoIPConfig"></td></tr>
             <tr><td>更新间隔 (小时)</td><td><input v-model.number="geoipConfig.update_interval_hours" type="number" min="1" max="720" style="width:100px" @change="saveGeoIPConfig"></td></tr>
              <tr><td>下载源</td><td>
-              <select v-model="geoipConfig.use_cdn" @change="saveGeoIPConfig" style="width:auto">
-                <option :value="false">MaxMind 官方</option>
-                <option :value="true">CDN (境内友好)</option>
-              </select>
-            </td></tr>
-            <tr><td>License Key</td><td><input v-model="geoipConfig.license_key" placeholder="(optional)" style="width:200px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>Custom Update URL</td><td><input v-model="geoipConfig.update_url" placeholder="https://..." style="width:300px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>Custom CDN URL</td><td><input v-model="geoipConfig.cdn_url" placeholder="https://..." style="width:300px" @change="saveGeoIPConfig"></td></tr>
+               <select v-model="geoipConfig.mirror" @change="saveGeoIPConfig" style="width:350px">
+                 <option value="auto">自动 (依次尝试社区镜像)</option>
+                 <option value="metacubex">MetaCubeX (jsdelivr CDN, 推荐)</option>
+                 <option value="loyalsoldier_raw">Loyalsoldier (Raw GitHub)</option>
+                 <option value="loyalsoldier_release">Loyalsoldier (GitHub Release)</option>
+                 <option value="custom">自定义 URL</option>
+               </select>
+             </td></tr>
+             <tr v-if="geoipConfig.mirror === 'custom'"><td>Custom URL</td><td><input v-model="geoipConfig.custom_mirror_url" placeholder="https://..." style="width:350px" @change="saveGeoIPConfig"></td></tr>
             <tr><td>当前 DB</td><td><code>{{ geoipStatus.db_path || '-' }}</code></td></tr>
             <tr><td>DB 大小</td><td>{{ geoipStatus.size ? (geoipStatus.size / 1024 / 1024).toFixed(1) + ' MB' : '-' }}</td></tr>
             <tr><td>DB 状态</td><td><span :class="geoipStatus.available ? 'tag tag-ok' : 'tag tag-err'">{{ geoipStatus.available ? '可用' : '未加载' }}</span></td></tr>
@@ -1559,7 +1560,7 @@ const app = Vue.createApp({
     const geoipLookupIP = ref('');
     const geoipLookupResult = ref(null);
     const geoipStats = ref([]);
-    const geoipConfig = ref({ enable: false, db_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, use_cdn: false, license_key: '', update_url: '', cdn_url: '' });
+    const geoipConfig = ref({ enable: false, db_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
     const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, db_path: '' });
     const fingerprints = ref([]);
     const fpCategories = ref({});
@@ -2703,6 +2704,19 @@ const app = Vue.createApp({
         ]);
         if (cfgRes.ret === 'success') {
           const cfg = cfgRes.data || {};
+          // Determine mirror source from config
+          let mirror = 'auto';
+          let custom_mirror_url = '';
+          if (cfg.cdn_url || cfg.update_url) {
+            const url = cfg.cdn_url || cfg.update_url;
+            const MIRROR_MAP = {
+              'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb': 'metacubex',
+              'https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb': 'loyalsoldier_raw',
+              'https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb': 'loyalsoldier_release',
+            };
+            mirror = MIRROR_MAP[url] || 'custom';
+            if (mirror === 'custom') custom_mirror_url = url;
+          }
           geoipConfig.value = {
             enable: cfg.enable || false,
             db_path: cfg.db_path || '',
@@ -2710,10 +2724,8 @@ const app = Vue.createApp({
             blocklistStr: (cfg.blocklist || []).join(','),
             auto_update: cfg.auto_update !== false,
             update_interval_hours: cfg.update_interval_hours || 168,
-            use_cdn: cfg.use_cdn === true,
+            mirror, custom_mirror_url,
             license_key: cfg.license_key || '',
-            update_url: cfg.update_url || '',
-            cdn_url: cfg.cdn_url || '',
           };
         }
         if (statsRes.ret === 'success') geoipStats.value = Object.entries(statsRes.data || {}).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count).slice(0, 20);
@@ -2734,6 +2746,18 @@ const app = Vue.createApp({
 
     async function saveGeoIPConfig() {
       try {
+        const MIRROR_URLS = {
+          metacubex: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb',
+          loyalsoldier_raw: 'https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb',
+          loyalsoldier_release: 'https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb',
+        };
+        let cdn_url = '';
+        let update_url = '';
+        if (geoipConfig.value.mirror === 'custom') {
+          update_url = geoipConfig.value.custom_mirror_url || '';
+        } else if (geoipConfig.value.mirror !== 'auto') {
+          cdn_url = MIRROR_URLS[geoipConfig.value.mirror] || '';
+        }
         const cfg = {
           enable: !!geoipConfig.value.enable,
           db_path: geoipConfig.value.db_path || '',
@@ -2741,10 +2765,8 @@ const app = Vue.createApp({
           blocklist: geoipConfig.value.blocklistStr.split(',').map(s => s.trim()).filter(s => s),
           auto_update: !!geoipConfig.value.auto_update,
           update_interval_hours: geoipConfig.value.update_interval_hours || 168,
-          use_cdn: !!geoipConfig.value.use_cdn,
+          cdn_url, update_url,
           license_key: geoipConfig.value.license_key || '',
-          update_url: geoipConfig.value.update_url || '',
-          cdn_url: geoipConfig.value.cdn_url || '',
         };
         const d = await api('PUT', '/verynginx/geoip/config', cfg);
         if (d.ret === 'success') showToast('GeoIP config saved', 'success');

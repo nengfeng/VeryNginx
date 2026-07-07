@@ -16,26 +16,32 @@ local ETAG_KEY = "geoip_remote_etag"
 local LAST_CHECK_KEY = "geoip_last_check"
 local LAST_UPDATE_KEY = "geoip_last_update"
 
--- Community mirrors that host GeoLite2-City.mmdb (no API key required)
--- Ordered by region accessibility: China-first, then global
--- Loyalsoldier/geoip provides Country.mmdb with country+continent data
+-- Community mirrors that host MMDB-compatible files (no API key required)
+-- Ordered by speed/accessibility from testing
 local MIRRORS = {
+    "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb",
     "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb",
     "https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb",
 }
 
--- Validate MMDB file magic bytes
+-- Validate MMDB file (magic bytes at end of file in metadata section)
 local function validate_mmdb(path)
     local f = io.open(path, "rb")
     if not f then return false, "cannot open file" end
-    local magic = f:read(12)
     local size = f:seek("end")
+    if size < 1024 then
+        f:close()
+        return false, "file too small (" .. size .. " bytes)"
+    end
+    -- Read last 1KB to find MMDB magic marker \xAB\xCD\xEF followed by "MaxMind"
+    local scan_size = math.min(size, 1024)
+    f:seek("set", size - scan_size)
+    local tail = f:read(scan_size)
     f:close()
-    if not magic or #magic < 12 then return false, "file too small" end
-    if size < 1024 then return false, "file too small (" .. size .. " bytes), likely download failed" end
-    local a, b, c = magic:byte(1, 3)
-    if a ~= 0xAB or b ~= 0xCD or c ~= 0xEF then
-        return false, "invalid MMDB magic"
+    if not tail then return false, "cannot read file tail" end
+    local idx = tail:find("\xAB\xCD\xEFMaxMind", 1, true)
+    if not idx then
+        return false, "invalid MMDB magic (no \\xAB\\xCD\\xEFMaxMind marker found)"
     end
     return true
 end
@@ -131,22 +137,6 @@ local function is_update_due(interval_hours, force)
     if not shared then return true end
     local last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0)
     return (ngx.time() - last_check) >= (interval_hours * 3600)
-end
-
--- Resolve download URL from config
-local function resolve_url(ucfg, mirror_index)
-    -- User-configured URL takes priority
-    if ucfg.cdn_url and ucfg.cdn_url ~= "" then
-        return ucfg.cdn_url
-    end
-    if ucfg.update_url and ucfg.update_url ~= "" then
-        return ucfg.update_url
-    end
-    -- Try community mirrors
-    if mirror_index and mirror_index > 0 and mirror_index <= #MIRRORS then
-        return MIRRORS[mirror_index]
-    end
-    return MIRRORS[1]
 end
 
 -- Perform update check and download
