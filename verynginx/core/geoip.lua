@@ -68,19 +68,9 @@ function _M.get_geodb_path()
     return _geodb_path
 end
 
--- Check if GeoIP is available (in-memory or on-disk)
+-- Check if GeoIP is available (DB loaded in memory)
 function _M.is_available()
-    if _db then return true end
-    -- Check if database file exists on disk (may have been downloaded after startup)
-    local path = _geodb_path or (config.geoip and config.geoip.geodb_path) or ""
-    if path ~= "" then
-        local f = io.open(path, "rb")
-        if f then
-            f:close()
-            return true
-        end
-    end
-    return false
+    return _db ~= nil
 end
 
 --- Lookup GeoIP data for an IP address.
