@@ -158,7 +158,7 @@ install_files() {
   chmod 755 "$geoip_dir"
   info "Created GeoIP directory: ${geoip_dir}"
 
-  # Ensure config.json has geoip.db_path set
+  # Ensure config.json has geoip.geodb_path set
   if [ -f "${VN_DIR}/configs/config.json" ]; then
     python3 -c "
 import json, sys
@@ -166,12 +166,12 @@ cfg_path = '${VN_DIR}/configs/config.json'
 with open(cfg_path) as f:
     cfg = json.load(f)
 geoip = cfg.get('geoip', {})
-if not geoip.get('db_path'):
-    geoip['db_path'] = '${geoip_dir}/GeoLite2-City.mmdb'
+if not geoip.get('geodb_path'):
+    geoip['geodb_path'] = '${geoip_dir}/GeoLite2-City.mmdb'
     cfg['geoip'] = geoip
     with open(cfg_path, 'w') as f:
         json.dump(cfg, f, indent=4)
-    print('  Updated geoip.db_path in config.json')
+    print('  Updated geoip.geodb_path in config.json')
 " 2>/dev/null || true
   fi
 

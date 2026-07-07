@@ -22,8 +22,8 @@ function _M.init()
     -- Initialize GeoIP database
     local geoip = require "core.geoip"
     local geoip_cfg = config.geoip or {}
-    local db_path = (geoip_cfg.db_path ~= "" and geoip_cfg.db_path) or nil
-    geoip.init(db_path)
+    local geodb_path = (geoip_cfg.geodb_path ~= "" and geoip_cfg.geodb_path) or nil
+    geoip.init(geodb_path)
 
     -- Restore persisted IP reputation data
     local ip_reputation = require "core.ip_reputation"

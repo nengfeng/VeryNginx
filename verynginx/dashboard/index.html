@@ -1055,7 +1055,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <h3 style="font-size:14px;margin-bottom:8px">GeoIP 配置</h3>
           <table>
             <tr><td>Enable</td><td><input type="checkbox" v-model="geoipConfig.enable" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>DB Path</td><td><input v-model="geoipConfig.db_path" placeholder="/opt/verynginx/geoip/GeoLite2-City.mmdb" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>DB Path</td><td><input v-model="geoipConfig.geodb_path" placeholder="/opt/verynginx/geoip/GeoLite2-City.mmdb" style="width:350px" @change="saveGeoIPConfig"></td></tr>
             <tr><td>Whitelist</td><td><input v-model="geoipConfig.whitelistStr" placeholder="US,GB,DE (comma-separated)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
             <tr><td>Blocklist</td><td><input v-model="geoipConfig.blocklistStr" placeholder="CN,RU,KP (comma-separated)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
           </table>
@@ -1076,7 +1076,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                </select>
              </td></tr>
              <tr v-if="geoipConfig.mirror === 'custom'"><td>Custom URL</td><td><input v-model="geoipConfig.custom_mirror_url" placeholder="https://..." style="width:350px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>当前 DB</td><td><code>{{ geoipStatus.db_path || '-' }}</code></td></tr>
+            <tr><td>当前 DB</td><td><code>{{ geoipStatus.geodb_path || '-' }}</code></td></tr>
             <tr><td>DB 大小</td><td>{{ geoipStatus.size ? (geoipStatus.size / 1024 / 1024).toFixed(1) + ' MB' : '-' }}</td></tr>
             <tr><td>DB 状态</td><td><span :class="geoipStatus.available ? 'tag tag-ok' : 'tag tag-err'">{{ geoipStatus.available ? '可用' : '未加载' }}</span></td></tr>
             <tr><td>上次检查</td><td>{{ geoipStatus.last_check ? new Date(geoipStatus.last_check * 1000).toLocaleString() : '从未' }}</td></tr>
@@ -1560,8 +1560,8 @@ const app = Vue.createApp({
     const geoipLookupIP = ref('');
     const geoipLookupResult = ref(null);
     const geoipStats = ref([]);
-    const geoipConfig = ref({ enable: false, db_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
-    const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, db_path: '' });
+    const geoipConfig = ref({ enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
+    const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
     const fingerprints = ref([]);
     const fpCategories = ref({});
     const fpEditModal = reactive({ show: false, _isNew: true, hash: '', name: '', category: 'scanner', action: 'block' });
@@ -2719,7 +2719,7 @@ const app = Vue.createApp({
           }
           geoipConfig.value = {
             enable: cfg.enable || false,
-            db_path: cfg.db_path || '',
+            geodb_path: cfg.geodb_path || '',
             whitelistStr: (cfg.whitelist || []).join(','),
             blocklistStr: (cfg.blocklist || []).join(','),
             auto_update: cfg.auto_update !== false,
@@ -2760,7 +2760,7 @@ const app = Vue.createApp({
         }
         const cfg = {
           enable: !!geoipConfig.value.enable,
-          db_path: geoipConfig.value.db_path || '',
+          geodb_path: geoipConfig.value.geodb_path || '',
           whitelist: geoipConfig.value.whitelistStr.split(',').map(s => s.trim()).filter(s => s),
           blocklist: geoipConfig.value.blocklistStr.split(',').map(s => s.trim()).filter(s => s),
           auto_update: !!geoipConfig.value.auto_update,

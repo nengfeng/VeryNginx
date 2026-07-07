@@ -42,7 +42,7 @@ _M.schema = {
         waf_rules = { type = "table", default = {} },
         geoip = { type = "table", default = {
             enable = false,
-            db_path = "",
+            geodb_path = "",
             whitelist = {},
             blocklist = {},
             block_continents = {},

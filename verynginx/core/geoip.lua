@@ -17,17 +17,17 @@ do
 end
 
 local _db = nil
-local _db_path = nil
+local _geodb_path = nil
 
 -- Initialize GeoIP database
-function _M.init(db_path)
+function _M.init(geodb_path)
     if not maxminddb then
         return false, "lua-resty-maxminddb not installed"
     end
-    _db_path = db_path or "/opt/verynginx/geoip/GeoLite2-City.mmdb"
+    _geodb_path = geodb_path or "/opt/verynginx/geoip/GeoLite2-City.mmdb"
     -- Ensure parent directory exists
     pcall(function()
-        local dir = _db_path:match("^(.-)/[^/]+$")
+        local dir = _geodb_path:match("^(.-)/[^/]+$")
         if dir and dir ~= "" then
             local lfs_ok, lfs = pcall(require, "lfs")
             local parts = {}
@@ -43,20 +43,20 @@ function _M.init(db_path)
         end
     end)
     local err
-    _db, err = maxminddb:new(_db_path)
+    _db, err = maxminddb:new(_geodb_path)
     if not _db then
         return false, "failed to load GeoIP DB: " .. tostring(err)
     end
-    ngx.log(ngx.DEBUG, "geoip: loaded DB from ", _db_path)
+    ngx.log(ngx.DEBUG, "geoip: loaded DB from ", _geodb_path)
     return true
 end
 
 -- Reload GeoIP database (after auto-update)
 function _M.reload()
     if not maxminddb then return false, "maxminddb not installed" end
-    if not _db_path then return false, "no db_path configured" end
+    if not _geodb_path then return false, "no geodb_path configured" end
     local err
-    _db, err = maxminddb:new(_db_path)
+    _db, err = maxminddb:new(_geodb_path)
     if not _db then
         return false, "reload failed: " .. tostring(err)
     end
@@ -64,8 +64,8 @@ function _M.reload()
 end
 
 -- Get current DB path
-function _M.get_db_path()
-    return _db_path
+function _M.get_geodb_path()
+    return _geodb_path
 end
 
 -- Check if GeoIP is available
@@ -223,7 +223,7 @@ end
 -- @return table: { path, size, mtime, available }
 function _M.get_status()
     -- Prefer in-memory path, fall back to configured path
-    local path = _db_path or (config.geoip and config.geoip.db_path) or ""
+    local path = _geodb_path or (config.geoip and config.geoip.geodb_path) or ""
     local info = { path = path, available = false, size = 0, mtime = 0 }
     if path ~= "" then
         local f = io.open(path, "rb")

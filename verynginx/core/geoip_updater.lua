@@ -152,7 +152,7 @@ local function get_update_config()
         update_url = cfg.update_url,
         cdn_url = cfg.cdn_url,
         use_cdn = cfg.use_cdn == true,
-        db_path = (cfg.db_path ~= "" and cfg.db_path) or DEFAULT_DB_PATH,
+        geodb_path = (cfg.geodb_path ~= "" and cfg.geodb_path) or DEFAULT_DB_PATH,
     }
 end
 
@@ -191,10 +191,10 @@ function _M.check_update(force)
 
     -- Run update logic, capture all return values
     local results = { pcall(function()
-        local db_path = ucfg.db_path
+        local geodb_path = ucfg.geodb_path
 
         -- Ensure parent directory exists
-        ensure_dir(db_path:match("^(.-)/[^/]+$"))
+        ensure_dir(geodb_path:match("^(.-)/[^/]+$"))
 
         -- Try each URL (user-configured first, then mirrors)
         local urls = {}
@@ -225,7 +225,7 @@ function _M.check_update(force)
             end
 
             -- Download to temp file
-            local tmp_path = db_path .. ".tmp"
+            local tmp_path = geodb_path .. ".tmp"
             local dl_ok, dl_err = download_file(url, tmp_path)
             if not dl_ok then
                 last_err = "mirror " .. i .. " (" .. url .. "): " .. dl_err
@@ -243,7 +243,7 @@ function _M.check_update(force)
             end
 
             -- Atomic replace
-            local rename_ok, rename_err = os.rename(tmp_path, db_path)
+            local rename_ok, rename_err = os.rename(tmp_path, geodb_path)
             if not rename_ok then
                 os.remove(tmp_path)
                 last_err = "rename failed: " .. tostring(rename_err)
@@ -301,7 +301,7 @@ function _M.get_status()
         auto_update = ucfg.auto_update,
         interval_hours = ucfg.interval_hours,
         use_cdn = ucfg.use_cdn,
-        db_path = ucfg.db_path,
+        geodb_path = ucfg.geodb_path,
         last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0),
         last_update = tonumber(shared:get(LAST_UPDATE_KEY) or 0),
         remote_etag = shared:get(ETAG_KEY) or "",
