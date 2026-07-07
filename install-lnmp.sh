@@ -148,6 +148,33 @@ install_files() {
     chown -R "${nginx_user}:${nginx_user}" "${VN_DIR}/configs" 2>/dev/null || true
   fi
   chmod -R 755 "${VN_DIR}/configs"
+
+  # Create GeoIP directory with proper permissions for DB downloads
+  local geoip_dir="${VN_DIR}/geoip"
+  mkdir -p "$geoip_dir"
+  if [ -n "$nginx_user" ] && id "$nginx_user" &>/dev/null; then
+    chown -R "${nginx_user}:${nginx_user}" "$geoip_dir"
+  fi
+  chmod 755 "$geoip_dir"
+  info "Created GeoIP directory: ${geoip_dir}"
+
+  # Ensure config.json has geoip.db_path set
+  if [ -f "${VN_DIR}/configs/config.json" ]; then
+    python3 -c "
+import json, sys
+cfg_path = '${VN_DIR}/configs/config.json'
+with open(cfg_path) as f:
+    cfg = json.load(f)
+geoip = cfg.get('geoip', {})
+if not geoip.get('db_path'):
+    geoip['db_path'] = '${geoip_dir}/GeoLite2-City.mmdb'
+    cfg['geoip'] = geoip
+    with open(cfg_path, 'w') as f:
+        json.dump(cfg, f, indent=4)
+    print('  Updated geoip.db_path in config.json')
+" 2>/dev/null || true
+  fi
+
   info "Files installed to ${VN_DIR}"
 }
 

@@ -59,7 +59,7 @@
     ],
     "geoip": {
         "enable": false,
-        "db_path": "",
+        "db_path": "/opt/verynginx/geoip/GeoLite2-City.mmdb",
         "whitelist": [],
         "blocklist": [],
         "block_continents": [],
