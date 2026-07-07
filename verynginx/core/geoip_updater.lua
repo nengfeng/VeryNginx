@@ -17,9 +17,11 @@ local LAST_CHECK_KEY = "geoip_last_check"
 local LAST_UPDATE_KEY = "geoip_last_update"
 
 -- Community mirrors that host GeoLite2-City.mmdb (no API key required)
+-- Ordered by region accessibility: China-first, then global
 local MIRRORS = {
+    "https://cdn.cfclk.com/P3TERX/GeoLite.mmdb@release/GeoLite2-City.mmdb",
+    "https://ghp.ci/https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/release/GeoLite2-City.mmdb",
     "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/release/GeoLite2-City.mmdb",
-    "https://cdn.jsdelivr.net/gh/P3TERX/GeoLite.mmdb@release/GeoLite2-City.mmdb",
 }
 
 -- Validate MMDB file magic bytes
