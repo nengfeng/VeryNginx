@@ -196,13 +196,18 @@ function _M.check_update(force)
         end
 
         local last_err = "no URLs configured"
+        local success = false
+        local result_msg = ""
+        local result_status = 502
         for i, url in ipairs(urls) do
             -- Check remote ETag
             local remote_etag = get_remote_etag(url)
             if shared and remote_etag then
                 local local_etag = shared:get(ETAG_KEY)
                 if local_etag and local_etag == remote_etag then
-                    return false, "already up to date", 200
+                    result_msg = "already up to date"
+                    result_status = 200
+                    break
                 end
             end
 
@@ -212,7 +217,7 @@ function _M.check_update(force)
             if not dl_ok then
                 last_err = "mirror " .. i .. " (" .. url .. "): " .. dl_err
                 ngx.log(ngx.WARN, "geoip: ", last_err)
-                goto continue
+                goto next_mirror
             end
 
             -- Validate MMDB magic
@@ -221,7 +226,7 @@ function _M.check_update(force)
                 os.remove(tmp_path)
                 last_err = "mirror " .. i .. " invalid file: " .. valid_err
                 ngx.log(ngx.WARN, "geoip: ", last_err)
-                goto continue
+                goto next_mirror
             end
 
             -- Atomic replace
@@ -230,7 +235,7 @@ function _M.check_update(force)
                 os.remove(tmp_path)
                 last_err = "rename failed: " .. tostring(rename_err)
                 ngx.log(ngx.WARN, "geoip: ", last_err)
-                goto continue
+                goto next_mirror
             end
 
             -- Reload GeoIP DB
@@ -246,12 +251,18 @@ function _M.check_update(force)
             end
 
             audit.log("geoip_auto_updated", "url=" .. url, "-")
-            return true, "updated successfully from mirror " .. i, 200
+            success = true
+            result_msg = "updated successfully from mirror " .. i
+            result_status = 200
+            break
 
-            ::continue::
+            ::next_mirror::
         end
 
-        return false, "all mirrors failed: " .. last_err, 502
+        if success then
+            return true, result_msg, result_status
+        end
+        return result_status == 200 and false or false, result_msg ~= "" and result_msg or ("all mirrors failed: " .. last_err), result_status
     end) }
 
     release_lock()
