@@ -35,6 +35,8 @@ local function ensure_dir(path)
         else
             os.execute("mkdir -p '" .. d .. "' 2>/dev/null")
         end
+        -- Ensure worker process (www) can write; silent on failure
+        pcall(function() os.execute("chmod 777 '" .. d .. "' 2>/dev/null") end)
     end
 end
 

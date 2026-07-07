@@ -38,7 +38,7 @@ function _M.init(db_path)
                 current = current:match("^(.-)/[^/]+$")
             end
             for _, d in ipairs(parts) do
-                if lfs_ok then lfs.mkdir(d) else os.execute("mkdir -p '" .. d .. "' 2>/dev/null") end
+                os.execute("mkdir -p -m 777 '" .. d .. "' 2>/dev/null")
             end
         end
     end)
