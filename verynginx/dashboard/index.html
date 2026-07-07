@@ -1069,9 +1069,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
              <tr><td>下载源</td><td>
                <select v-model="geoipConfig.mirror" @change="saveGeoIPConfig" style="width:350px">
                  <option value="auto">自动 (依次尝试社区镜像)</option>
-                 <option value="metacubex">MetaCubeX (jsdelivr CDN, 推荐)</option>
-                 <option value="loyalsoldier_raw">Loyalsoldier (Raw GitHub)</option>
-                 <option value="loyalsoldier_release">Loyalsoldier (GitHub Release)</option>
+                 <option value="p3terx">P3TERX GeoLite2-City (GitHub, 推荐)</option>
+                 <option value="loyalsoldier_raw">Loyalsoldier Country (Raw GitHub)</option>
+                 <option value="loyalsoldier_release">Loyalsoldier Country (GitHub Release)</option>
                  <option value="custom">自定义 URL</option>
                </select>
              </td></tr>
@@ -2710,7 +2710,7 @@ const app = Vue.createApp({
           if (cfg.cdn_url || cfg.update_url) {
             const url = cfg.cdn_url || cfg.update_url;
             const MIRROR_MAP = {
-              'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb': 'metacubex',
+              'https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-City.mmdb': 'p3terx',
               'https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb': 'loyalsoldier_raw',
               'https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb': 'loyalsoldier_release',
             };
@@ -2747,7 +2747,7 @@ const app = Vue.createApp({
     async function saveGeoIPConfig() {
       try {
         const MIRROR_URLS = {
-          metacubex: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb',
+          p3terx: 'https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-City.mmdb',
           loyalsoldier_raw: 'https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb',
           loyalsoldier_release: 'https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb',
         };
