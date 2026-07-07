@@ -21,8 +21,10 @@ local function validate_mmdb(path)
     local f = io.open(path, "rb")
     if not f then return false, "cannot open file" end
     local magic = f:read(12)
+    local size = f:seek("end")
     f:close()
     if not magic or #magic < 12 then return false, "file too small" end
+    if size < 1024 then return false, "file too small (" .. size .. " bytes), likely download failed" end
     local a, b, c = magic:byte(1, 3)
     if a ~= 0xAB or b ~= 0xCD or c ~= 0xEF then
         return false, "invalid MMDB magic"
@@ -56,6 +58,12 @@ local function download_file(url, dest, timeout)
     local handle = io.popen(cmd)
     local output = handle:read("*a") or ""
     local ok, _, exit_code = handle:close()
+    -- Verify file was actually written (handle:close may not report exit code correctly in OpenResty)
+    local check = io.open(dest, "rb")
+    if not check then
+        return false, "curl did not create file: " .. tostring(output):sub(0, 200)
+    end
+    check:close()
     if not ok and (exit_code or 0) ~= 0 then
         return false, "curl failed: " .. tostring(output):sub(0, 200)
     end
@@ -156,6 +164,12 @@ function _M.check_update(force)
     local results = { pcall(function()
         local url = resolve_url(ucfg)
         local db_path = ucfg.db_path
+
+        -- Ensure parent directory exists
+        local dir = db_path:match("^(.+)/[^/]+$") or ""
+        if dir ~= "" then
+            os.execute("mkdir -p '" .. dir .. "' 2>/dev/null")
+        end
 
         -- Check remote ETag
         local remote_etag = get_remote_etag(url)
