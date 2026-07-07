@@ -90,7 +90,7 @@ end
 
 -- Acquire update lock
 local function acquire_lock(ttl)
-    local shared = ngx.shared[SHARED_DICT]
+    local shared = ngx.shared[SHARED_DICT] or {}
     if not shared then return true end
     local ok, _ = shared:add(LOCK_KEY, ngx.time(), ttl or 300)
     return ok
@@ -98,7 +98,7 @@ end
 
 -- Release update lock
 local function release_lock()
-    local shared = ngx.shared[SHARED_DICT]
+    local shared = ngx.shared[SHARED_DICT] or {}
     if shared then shared:delete(LOCK_KEY) end
 end
 
@@ -118,7 +118,7 @@ end
 -- Check if update is due
 local function is_update_due(interval_hours, force)
     if force then return true end
-    local shared = ngx.shared[SHARED_DICT]
+    local shared = ngx.shared[SHARED_DICT] or {}
     if not shared then return true end
     local last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0)
     return (ngx.time() - last_check) >= (interval_hours * 3600)
@@ -154,7 +154,7 @@ function _M.check_update(force)
     if not is_update_due(ucfg.interval_hours, force) then return false, "not due yet" end
 
     -- Update last check time
-    local shared = ngx.shared[SHARED_DICT]
+    local shared = ngx.shared[SHARED_DICT] or {}
     if shared then shared:set(LAST_CHECK_KEY, ngx.time()) end
 
     -- Acquire lock
@@ -215,7 +215,7 @@ end
 -- Get updater status
 function _M.get_status()
     local ucfg = get_update_config()
-    local shared = ngx.shared[SHARED_DICT]
+    local shared = ngx.shared[SHARED_DICT] or {}
     local status = {
         auto_update = ucfg.auto_update,
         interval_hours = ucfg.interval_hours,
