@@ -254,7 +254,7 @@ function _M.check_update(force)
             success = true
             result_msg = "updated successfully from mirror " .. i
             result_status = 200
-            break
+            do break end -- break must be last statement; wrap in do/end block
 
             ::next_mirror::
         end
@@ -262,7 +262,7 @@ function _M.check_update(force)
         if success then
             return true, result_msg, result_status
         end
-        return result_status == 200 and false or false, result_msg ~= "" and result_msg or ("all mirrors failed: " .. last_err), result_status
+        return false, (result_msg ~= "" and result_msg) or ("all mirrors failed: " .. last_err), result_status
     end) }
 
     release_lock()
