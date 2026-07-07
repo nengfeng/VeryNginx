@@ -104,7 +104,7 @@ local function get_update_config()
         update_url = cfg.update_url,
         cdn_url = cfg.cdn_url,
         use_cdn = cfg.use_cdn == true,
-        db_path = cfg.db_path or DEFAULT_DB_PATH,
+        db_path = (cfg.db_path ~= "" and cfg.db_path) or DEFAULT_DB_PATH,
     }
 end
 

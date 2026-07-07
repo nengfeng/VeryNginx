@@ -1453,6 +1453,12 @@ local function handle_geoip_config_set()
     cfg_data.geoip = new_config
     local cfg_mod = require "core.config"
     cfg_mod.save(cfg_data)
+    -- Reload GeoIP DB with new config (path may have changed)
+    pcall(function()
+        local geoip_mod = require "core.geoip"
+        local new_path = (new_config.db_path ~= "" and new_config.db_path) or nil
+        geoip_mod.init(new_path)
+    end)
     return json.encode({ ret = "success", message = "GeoIP config updated" })
 end
 

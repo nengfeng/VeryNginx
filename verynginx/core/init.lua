@@ -22,7 +22,7 @@ function _M.init()
     -- Initialize GeoIP database
     local geoip = require "core.geoip"
     local geoip_cfg = config.geoip or {}
-    local db_path = geoip_cfg.db_path or "/opt/verynginx/geoip/GeoLite2-City.mmdb"
+    local db_path = (geoip_cfg.db_path ~= "" and geoip_cfg.db_path) or nil
     geoip.init(db_path)
 
     -- Restore persisted IP reputation data
