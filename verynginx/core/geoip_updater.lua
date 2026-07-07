@@ -41,8 +41,11 @@ end
 
 -- Community mirrors that host MMDB-compatible files (no API key required)
 -- Ordered by speed/accessibility from testing
+-- P3TERX provides official MaxMind GeoLite2-City database (full coverage, ~66MB)
+-- Loyalsoldier provides community Country database (v2ray routing, ~10MB)
+-- GitHub raw URLs are served via Fastly CDN (global edge nodes)
 local MIRRORS = {
-    "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb",
+    "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-City.mmdb",
     "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb",
     "https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb",
 }
