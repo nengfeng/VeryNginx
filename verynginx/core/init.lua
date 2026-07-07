@@ -19,6 +19,12 @@ function _M.init()
     _M.register_plugins()
     plugin.init_all()
 
+    -- Initialize GeoIP database
+    local geoip = require "core.geoip"
+    local geoip_cfg = config.geoip or {}
+    local db_path = geoip_cfg.db_path or "/opt/verynginx/geoip/GeoLite2-City.mmdb"
+    geoip.init(db_path)
+
     -- Restore persisted IP reputation data
     local ip_reputation = require "core.ip_reputation"
     ip_reputation.restore()

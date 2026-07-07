@@ -5,18 +5,11 @@
 
 local _M = {}
 
--- Top-level requires wrapped in pcall to prevent module load failure
-local geoip, audit, config
-do
-    local ok
-    ok, geoip = pcall(require, "core.geoip")
-    if not ok then error("geoip_updater: failed to load core.geoip: " .. tostring(geoip)) end
-    ok, audit = pcall(require, "core.audit")
-    if not ok then error("geoip_updater: failed to load core.audit: " .. tostring(audit)) end
-    ok, config = pcall(require, "core.config")
-    if not ok then error("geoip_updater: failed to load core.config: " .. tostring(config)) end
-end
+local geoip = require "core.geoip"
+local audit = require "core.audit"
+local config = require "core.config"
 
+local SHARED_DICT = "vn_config"
 local DEFAULT_DB_PATH = "/opt/verynginx/geoip/GeoLite2-City.mmdb"
 local LOCK_KEY = "geoip_update_lock"
 local ETAG_KEY = "geoip_remote_etag"
@@ -58,10 +51,10 @@ local function download_file(url, dest, timeout)
         return true
     end
     -- Fallback: curl CLI
-    local cmd = string.format('curl -fsSL --max-time %d -A "VeryNginx-GeoIP-Updater/2.0" -o "%s" "%s" 2>&1',
+    local cmd = string.format("curl -fsSL --max-time %d -A 'VeryNginx-GeoIP-Updater/2.0' -o '%s' '%s' 2>&1",
         timeout, dest, url)
     local handle = io.popen(cmd)
-    local output = handle:read("*a") or "exit_code"
+    local output = handle:read("*a") or ""
     local ok, _, exit_code = handle:close()
     if not ok and (exit_code or 0) ~= 0 then
         return false, "curl failed: " .. tostring(output):sub(0, 200)
@@ -80,7 +73,7 @@ local function get_remote_etag(url)
         return res.headers["ETag"] or res.headers["Last-Modified"]
     end
     -- Fallback: curl
-    local handle = io.popen(string.format('curl -fsSI --max-time 10 "%s" 2>&1', url))
+    local handle = io.popen(string.format("curl -fsSI --max-time 10 '%s' 2>&1", url))
     local output = handle:read("*a") or ""
     handle:close()
     local etag = output:match("ETag:[%s]*(.-)\r?\n")
@@ -90,7 +83,7 @@ end
 
 -- Acquire update lock
 local function acquire_lock(ttl)
-    local shared = ngx.shared[SHARED_DICT] or {}
+    local shared = ngx.shared[SHARED_DICT]
     if not shared then return true end
     local ok, _ = shared:add(LOCK_KEY, ngx.time(), ttl or 300)
     return ok
@@ -98,7 +91,7 @@ end
 
 -- Release update lock
 local function release_lock()
-    local shared = ngx.shared[SHARED_DICT] or {}
+    local shared = ngx.shared[SHARED_DICT]
     if shared then shared:delete(LOCK_KEY) end
 end
 
@@ -111,14 +104,14 @@ local function get_update_config()
         update_url = cfg.update_url,
         cdn_url = cfg.cdn_url,
         use_cdn = cfg.use_cdn == true,
-        db_path = cfg.db_path or default_db_path,
+        db_path = cfg.db_path or DEFAULT_DB_PATH,
     }
 end
 
 -- Check if update is due
 local function is_update_due(interval_hours, force)
     if force then return true end
-    local shared = ngx.shared[SHARED_DICT] or {}
+    local shared = ngx.shared[SHARED_DICT]
     if not shared then return true end
     local last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0)
     return (ngx.time() - last_check) >= (interval_hours * 3600)
@@ -132,7 +125,6 @@ local function resolve_url(ucfg)
     if ucfg.update_url and ucfg.update_url ~= "" then
         return ucfg.update_url
     end
-    -- Default CDN
     return "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb"
 end
 
@@ -154,13 +146,14 @@ function _M.check_update(force)
     if not is_update_due(ucfg.interval_hours, force) then return false, "not due yet" end
 
     -- Update last check time
-    local shared = ngx.shared[SHARED_DICT] or {}
+    local shared = ngx.shared[SHARED_DICT]
     if shared then shared:set(LAST_CHECK_KEY, ngx.time()) end
 
     -- Acquire lock
     if not acquire_lock() then return false, "update already in progress" end
 
-    local ok, err, status = pcall(function()
+    -- Run update logic, capture all return values
+    local results = { pcall(function()
         local url = resolve_url(ucfg)
         local db_path = ucfg.db_path
 
@@ -206,10 +199,21 @@ function _M.check_update(force)
 
         audit.log("geoip_auto_updated", "url=" .. url, "-")
         return true, "updated successfully", 200
-    end)
+    end) }
 
     release_lock()
-    return ok, tostring(err or ""), status or 500
+
+    -- Parse pcall results: { ok, val1, val2, val3, ... }
+    local ok = table.remove(results, 1) -- first element is pcall success flag
+    if not ok then
+        -- pcall caught an error; results[1] is the error message
+        return false, tostring(results[1] or "unknown error"), 500
+    end
+    -- pcall succeeded; results contains the inner function's return values
+    local success = results[1]
+    local message = results[2]
+    local status = results[3]
+    return success or false, tostring(message or ""), status or 200
 end
 
 -- Get updater status
@@ -220,23 +224,14 @@ function _M.get_status()
         auto_update = ucfg.auto_update,
         interval_hours = ucfg.interval_hours,
         use_cdn = ucfg.use_cdn,
-        db_path = ucfg.db_path or default_db_path,
+        db_path = ucfg.db_path,
         last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0),
         last_update = tonumber(shared:get(LAST_UPDATE_KEY) or 0),
         remote_etag = shared:get(ETAG_KEY) or "",
-        db_path = ucfg.db_path,
     }
-    -- Ensure db_path always has a default
-    if not status.db_path or status.db_path == "" then
-        status.db_path = default_db_path
-    end
     -- Merge with DB file info (path, available, size, mtime)
     local db_info = geoip.get_status()
     for k, v in pairs(db_info) do status[k] = v end
-    -- Ensure db_path reflects actual on-disk path if geoip has one
-    if db_info.path and db_info.path ~= "" then
-        status.db_path = db_info.path
-    end
     return status
 end
 
