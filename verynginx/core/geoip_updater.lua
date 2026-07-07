@@ -96,16 +96,15 @@ local function download_file(url, dest, timeout)
         timeout, dest, url)
     local handle = io.popen(cmd)
     local output = handle:read("*a") or ""
-    local ok, _, exit_code = handle:close()
-    -- Verify file was actually written (handle:close may not report exit code correctly in OpenResty)
+    handle:close()
+    -- Verify file was actually written
+    -- Note: curl exit code is unreliable in OpenResty/LuaJIT.
+    -- validate_mmdb() will catch corrupted downloads.
     local check = io.open(dest, "rb")
     if not check then
         return false, "curl did not create file: " .. tostring(output):sub(0, 200)
     end
     check:close()
-    if not ok and (exit_code or 0) ~= 0 then
-        return false, "curl failed: " .. tostring(output):sub(0, 200)
-    end
     return true
 end
 
