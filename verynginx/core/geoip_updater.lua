@@ -16,6 +16,12 @@ local ETAG_KEY = "geoip_remote_etag"
 local LAST_CHECK_KEY = "geoip_last_check"
 local LAST_UPDATE_KEY = "geoip_last_update"
 
+-- Community mirrors that host GeoLite2-City.mmdb (no API key required)
+local MIRRORS = {
+    "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/release/GeoLite2-City.mmdb",
+    "https://cdn.jsdelivr.net/gh/P3TERX/GeoLite.mmdb@release/GeoLite2-City.mmdb",
+}
+
 -- Validate MMDB file magic bytes
 local function validate_mmdb(path)
     local f = io.open(path, "rb")
@@ -126,14 +132,19 @@ local function is_update_due(interval_hours, force)
 end
 
 -- Resolve download URL from config
-local function resolve_url(ucfg)
-    if ucfg.use_cdn and ucfg.cdn_url and ucfg.cdn_url ~= "" then
+local function resolve_url(ucfg, mirror_index)
+    -- User-configured URL takes priority
+    if ucfg.cdn_url and ucfg.cdn_url ~= "" then
         return ucfg.cdn_url
     end
     if ucfg.update_url and ucfg.update_url ~= "" then
         return ucfg.update_url
     end
-    return "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb"
+    -- Try community mirrors
+    if mirror_index and mirror_index > 0 and mirror_index <= #MIRRORS then
+        return MIRRORS[mirror_index]
+    end
+    return MIRRORS[1]
 end
 
 -- Perform update check and download
@@ -162,7 +173,6 @@ function _M.check_update(force)
 
     -- Run update logic, capture all return values
     local results = { pcall(function()
-        local url = resolve_url(ucfg)
         local db_path = ucfg.db_path
 
         -- Ensure parent directory exists
@@ -171,48 +181,75 @@ function _M.check_update(force)
             os.execute("mkdir -p '" .. dir .. "' 2>/dev/null")
         end
 
-        -- Check remote ETag
-        local remote_etag = get_remote_etag(url)
-        if shared and remote_etag then
-            local local_etag = shared:get(ETAG_KEY)
-            if local_etag and local_etag == remote_etag then
-                return false, "already up to date", 200
+        -- Try each URL (user-configured first, then mirrors)
+        local urls = {}
+        if ucfg.cdn_url and ucfg.cdn_url ~= "" then
+            table.insert(urls, ucfg.cdn_url)
+        elseif ucfg.update_url and ucfg.update_url ~= "" then
+            table.insert(urls, ucfg.update_url)
+        else
+            for _, m in ipairs(MIRRORS) do
+                table.insert(urls, m)
             end
         end
 
-        -- Download to temp file
-        local tmp_path = db_path .. ".tmp"
-        local dl_ok, dl_err = download_file(url, tmp_path)
-        if not dl_ok then return false, dl_err, 502 end
+        local last_err = "no URLs configured"
+        for i, url in ipairs(urls) do
+            -- Check remote ETag
+            local remote_etag = get_remote_etag(url)
+            if shared and remote_etag then
+                local local_etag = shared:get(ETAG_KEY)
+                if local_etag and local_etag == remote_etag then
+                    return false, "already up to date", 200
+                end
+            end
 
-        -- Validate MMDB magic
-        local valid, valid_err = validate_mmdb(tmp_path)
-        if not valid then
-            os.remove(tmp_path)
-            return false, valid_err, 502
+            -- Download to temp file
+            local tmp_path = db_path .. ".tmp"
+            local dl_ok, dl_err = download_file(url, tmp_path)
+            if not dl_ok then
+                last_err = "mirror " .. i .. " (" .. url .. "): " .. dl_err
+                ngx.log(ngx.WARN, "geoip: ", last_err)
+                goto continue
+            end
+
+            -- Validate MMDB magic
+            local valid, valid_err = validate_mmdb(tmp_path)
+            if not valid then
+                os.remove(tmp_path)
+                last_err = "mirror " .. i .. " invalid file: " .. valid_err
+                ngx.log(ngx.WARN, "geoip: ", last_err)
+                goto continue
+            end
+
+            -- Atomic replace
+            local rename_ok, rename_err = os.rename(tmp_path, db_path)
+            if not rename_ok then
+                os.remove(tmp_path)
+                last_err = "rename failed: " .. tostring(rename_err)
+                ngx.log(ngx.WARN, "geoip: ", last_err)
+                goto continue
+            end
+
+            -- Reload GeoIP DB
+            local reload_ok, reload_err = geoip.reload()
+            if not reload_ok then
+                ngx.log(ngx.WARN, "geoip: DB replaced but reload failed: ", reload_err)
+            end
+
+            -- Update tracking
+            if shared then
+                shared:set(ETAG_KEY, remote_etag or "")
+                shared:set(LAST_UPDATE_KEY, ngx.time())
+            end
+
+            audit.log("geoip_auto_updated", "url=" .. url, "-")
+            return true, "updated successfully from mirror " .. i, 200
+
+            ::continue::
         end
 
-        -- Atomic replace
-        local rename_ok, rename_err = os.rename(tmp_path, db_path)
-        if not rename_ok then
-            os.remove(tmp_path)
-            return false, "rename failed: " .. tostring(rename_err), 500
-        end
-
-        -- Reload GeoIP DB
-        local reload_ok, reload_err = geoip.reload()
-        if not reload_ok then
-            ngx.log(ngx.WARN, "geoip: DB replaced but reload failed: ", reload_err)
-        end
-
-        -- Update tracking
-        if shared then
-            shared:set(ETAG_KEY, remote_etag or "")
-            shared:set(LAST_UPDATE_KEY, ngx.time())
-        end
-
-        audit.log("geoip_auto_updated", "url=" .. url, "-")
-        return true, "updated successfully", 200
+        return false, "all mirrors failed: " .. last_err, 502
     end) }
 
     release_lock()
