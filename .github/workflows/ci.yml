@@ -63,7 +63,11 @@ jobs:
       - name: Docker Compose up
         run: |
           cd test/v2
-          docker compose up -d --wait
+          docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
+      - name: Capture container logs on failure
+        if: failure()
+        run: |
+          docker compose -f test/v2/docker-compose.yml logs verynginx 2>&1 || true
       - name: Run integration tests
         run: |
           cd test/v2
@@ -100,7 +104,7 @@ jobs:
       - name: Docker Compose up
         run: |
           cd test/v2
-          docker compose up -d --wait
+          docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
       - name: Install wrk
         run: sudo apt-get install -y wrk
       - name: Run performance baseline
