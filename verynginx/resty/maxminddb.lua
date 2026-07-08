@@ -20,8 +20,33 @@ local ffi_str = ffi.string
 local ffi_cast = ffi.cast
 local ffi_gc = ffi.gc
 
-local tab_isarray = require('table.isarray')
-local tab_nkeys = require('table.nkeys')
+local tab_isarray
+local tab_nkeys
+do
+    local ok
+    ok, tab_isarray = pcall(require, 'table.isarray')
+    if not ok then
+        tab_isarray = function(t)
+            if type(t) ~= "table" then return false end
+            local max, count = 0, 0
+            for k, _ in pairs(t) do
+                if type(k) ~= "number" or k ~= math.floor(k) or k < 1 then return false end
+                count = count + 1
+                if k > max then max = k end
+            end
+            return count == 0 or max == count
+        end
+    end
+    ok, tab_nkeys = pcall(require, 'table.nkeys')
+    if not ok then
+        tab_nkeys = function(t)
+            if type(t) ~= "table" then return 0 end
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        end
+    end
+end
 
 local _D = {}
 local _M = {}
@@ -234,6 +259,28 @@ end
 
 function _M.has_profile(profile)
   return initted and _D[profile] ~= nil
+end
+
+--- Create a new database instance from a mmdb file path.
+-- Returns a wrapper object with a lookup method, compatible with
+-- the geoip module's expected API.
+-- @param db_path string: path to the .mmdb file
+-- @return table|nil, string|nil: wrapper object on success, nil + error on failure
+function _M.new(db_path)
+  if type(db_path) ~= "string" or db_path == "" then
+    return nil, "invalid db_path"
+  end
+  local ok, err = _M.init(db_path)
+  if not ok then
+    return nil, err
+  end
+  local filename = db_path:match("([^/]+)%.mmdb$")
+  local profile = filename and filename:match("-(.+)$"):lower() or "city"
+  return {
+    lookup = function(self, ip)
+      return _M.lookup(ip, nil, profile)
+    end
+  }
 end
 
 -- https://github.com/maxmind/libmaxminddb/blob/master/src/maxminddb.c#L1938
