@@ -54,12 +54,14 @@ end
 -- Reload GeoIP database (after auto-update)
 function _M.reload()
     if not maxminddb then return false, "maxminddb not installed" end
-    if not _geodb_path then return false, "no geodb_path configured" end
+    local path = _geodb_path or (config.geoip and config.geoip.geodb_path) or ""
+    if path == "" then return false, "no geodb_path configured" end
     local err
-    _db, err = maxminddb:new(_geodb_path)
+    _db, err = maxminddb:new(path)
     if not _db then
         return false, "reload failed: " .. tostring(err)
     end
+    _geodb_path = path
     return true
 end
 
