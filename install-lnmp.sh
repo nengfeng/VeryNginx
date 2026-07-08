@@ -658,6 +658,97 @@ PYEOF
   info "Then visit http://localhost/verynginx/index.html to login"
 }
 
+# ----- check GeoIP runtime dependencies -------------------------------------
+check_geoip_deps() {
+  title "Checking GeoIP dependencies"
+
+  local all_ok=true
+
+  # 1. Check LuaJIT / FFI support
+  local has_luajit=false has_ffi=false
+  if [ "$WEB_SERVER_TYPE" = "openresty" ]; then
+    has_luajit=true
+    has_ffi=true
+    info "OpenResty detected → LuaJIT + FFI built-in ✓"
+  else
+    if "$WEB_SERVER_BIN" -V 2>&1 | grep -qi 'luajit'; then
+      has_luajit=true
+      info "LuaJIT detected ✓"
+    else
+      warn "LuaJIT not detected — GeoIP requires FFI (LuaJIT)"
+      all_ok=false
+    fi
+
+    # Quick FFI probe via a temp OpenResty-style check
+    local ffi_check
+    ffi_check=$(echo 'local ok = pcall(require,"ffi"); if ok then print("yes") else print("no") end' | \
+      resty -e 'local ok = pcall(require,"ffi"); if ok then print("yes") else print("no") end' 2>/dev/null || echo "no")
+    if [ "$ffi_check" = "yes" ]; then
+      has_ffi=true
+      info "FFI module available ✓"
+    else
+      if [ "$has_luajit" = "true" ]; then
+        warn "FFI module not loadable — LuaJIT detected but require('ffi') failed"
+      else
+        warn "FFI module not available — GeoIP lookup will be disabled"
+      fi
+      all_ok=false
+    fi
+  fi
+
+  # 2. Check libmaxminddb C library
+  local has_lib=false
+  local lib_paths=(
+    "/usr/lib/x86_64-linux-gnu/libmaxminddb.so"
+    "/usr/lib/libmaxminddb.so"
+    "/usr/local/lib/libmaxminddb.so"
+    "/usr/lib64/libmaxminddb.so"
+  )
+
+  # Try ldconfig first
+  if command -v ldconfig &>/dev/null; then
+    if ldconfig -p 2>/dev/null | grep -q 'libmaxminddb\.so'; then
+      has_lib=true
+      info "libmaxminddb found via ldconfig ✓"
+    fi
+  fi
+
+  # Fallback: check known paths
+  if [ "$has_lib" = "false" ]; then
+    for p in "${lib_paths[@]}"; do
+      if [ -f "$p" ]; then
+        has_lib=true
+        info "libmaxminddb found at $p ✓"
+        break
+      fi
+    done
+  fi
+
+  if [ "$has_lib" = "false" ]; then
+    warn "libmaxminddb not found — GeoIP database lookups will fail"
+    echo "  Install it: apt-get install -y libmaxminddb0 libmaxminddb-dev"
+    echo "  or: yum install -y libmaxminddb libmaxminddb-devel"
+    all_ok=false
+  fi
+
+  # 3. Check table.isarray / table.nkeys (bundled, should always be available)
+  if [ -f "${PWD}/verynginx/table/isarray.lua" ] && [ -f "${PWD}/verynginx/table/nkeys.lua" ]; then
+    info "table.isarray & table.nkeys modules bundled ✓"
+  else
+    warn "table.isarray / table.nkeys not found in source tree"
+  fi
+
+  # Summary
+  echo ""
+  if [ "$all_ok" = "true" ]; then
+    info "GeoIP dependencies: all satisfied ✓"
+  else
+    warn "GeoIP dependencies: some missing (see above)"
+    info "VeryNginx will still work, but GeoIP features will be unavailable."
+    info "GeoIP can be enabled later after installing the missing dependencies."
+  fi
+}
+
 main() {
   for arg in "$@"; do
     case "$arg" in
@@ -674,6 +765,7 @@ main() {
 
   require_root
   detect_web_server
+  check_geoip_deps
   install_files
 
   echo ""
