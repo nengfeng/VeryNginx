@@ -108,7 +108,7 @@ function _M.lookup(ip)
     if not ip then return nil end
     -- Auto-reload if database was downloaded after startup (e.g. by updater)
     if not _db then
-        local ok, err = _M.reload()
+        local ok = _M.reload()
         if not ok then return nil end
     end
     local ok, result = pcall(_db.lookup, _db, ip)
