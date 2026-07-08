@@ -266,11 +266,8 @@ end
 -- the geoip module's expected API.
 -- @param db_path string: path to the .mmdb file
 -- @return table|nil, string|nil: wrapper object on success, nil + error on failure
-function _M.new(db_path)
-  local dt = type(db_path)
-  if dt ~= "string" or db_path == "" then
-    ngx.log(ngx.ERR, "maxminddb.new: type=", dt, " len=", dt == "string" and #db_path or "n/a",
-            " repr='", tostring(db_path), "'")
+function _M.new(self, db_path)
+  if type(db_path) ~= "string" or db_path == "" then
     return nil, "invalid db_path"
   end
   local ok, err = _M.init(db_path)
