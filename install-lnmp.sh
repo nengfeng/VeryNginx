@@ -666,34 +666,47 @@ check_geoip_deps() {
 
   # 1. Check LuaJIT / FFI support
   local has_luajit=false has_ffi=false
+  local detection_method=""
+
   if [ "$WEB_SERVER_TYPE" = "openresty" ]; then
     has_luajit=true
     has_ffi=true
-    info "OpenResty detected → LuaJIT + FFI built-in ✓"
-  else
+    detection_method="OpenResty built-in"
+  fi
+
+  # Check if nginx binary is linked against LuaJIT (ldd is the most reliable method)
+  if [ "$has_luajit" = "false" ] && command -v ldd &>/dev/null; then
+    if ldd "$WEB_SERVER_BIN" 2>/dev/null | grep -qi 'libluajit'; then
+      has_luajit=true
+      has_ffi=true
+      detection_method="ldd (linked to libluajit)"
+    fi
+  fi
+
+  # Check if luajit binary is available on the system
+  if [ "$has_luajit" = "false" ] && command -v luajit &>/dev/null; then
+    has_luajit=true
+    has_ffi=true
+    detection_method="luajit binary found"
+  fi
+
+  # Check nginx -V output as fallback
+  if [ "$has_luajit" = "false" ]; then
     if "$WEB_SERVER_BIN" -V 2>&1 | grep -qi 'luajit'; then
       has_luajit=true
-      info "LuaJIT detected ✓"
-    else
-      warn "LuaJIT not detected — GeoIP requires FFI (LuaJIT)"
-      all_ok=false
-    fi
-
-    # Quick FFI probe via a temp OpenResty-style check
-    local ffi_check
-    ffi_check=$(echo 'local ok = pcall(require,"ffi"); if ok then print("yes") else print("no") end' | \
-      resty -e 'local ok = pcall(require,"ffi"); if ok then print("yes") else print("no") end' 2>/dev/null || echo "no")
-    if [ "$ffi_check" = "yes" ]; then
       has_ffi=true
-      info "FFI module available ✓"
-    else
-      if [ "$has_luajit" = "true" ]; then
-        warn "FFI module not loadable — LuaJIT detected but require('ffi') failed"
-      else
-        warn "FFI module not available — GeoIP lookup will be disabled"
-      fi
-      all_ok=false
+      detection_method="nginx -V"
     fi
+  fi
+
+  if [ "$has_luajit" = "true" ]; then
+    info "LuaJIT detected ($detection_method) → FFI available ✓"
+  else
+    warn "LuaJIT not detected — GeoIP requires FFI (LuaJIT)"
+    echo "  If nginx is compiled with LuaJIT, install the luajit package:"
+    echo "    apt-get install -y luajit libluajit-5.1-2 libluajit-5.1-dev"
+    echo "  Or switch to OpenResty: https://openresty.org/en/installation.html"
+    all_ok=false
   fi
 
   # 2. Check libmaxminddb C library
