@@ -75,14 +75,23 @@ function _M.is_available()
     end
     -- Try reload if DB file was downloaded after startup
     local path = _geodb_path or (config.geoip and config.geoip.geodb_path) or ""
-    if path ~= "" then
-        local f = io.open(path, "rb")
-        if f then
-            f:close()
-            local ok = _M.reload()
-            return ok == true
-        end
+    if path == "" then
+        ngx.log(ngx.WARN, "geoip: is_available() — no geodb_path configured")
+        return false
     end
+    local f = io.open(path, "rb")
+    if not f then
+        ngx.log(ngx.WARN, "geoip: is_available() — DB file not found at ", path)
+        return false
+    end
+    f:close()
+    ngx.log(ngx.WARN, "geoip: is_available() — DB file found, attempting reload from ", path)
+    local ok, err = _M.reload()
+    if ok then
+        ngx.log(ngx.WARN, "geoip: is_available() — reload successful")
+        return true
+    end
+    ngx.log(ngx.WARN, "geoip: is_available() — reload failed: ", tostring(err))
     return false
 end
 
