@@ -58,6 +58,12 @@ _M.schema = {
             auto_block_scanners = true,
             entries = {},
         } },
+        waf_recommender = { type = "table", default = {
+            enabled = true,
+            min_hits = 10,
+            window_size = 3600,
+            min_patterns = 3,
+        } },
         ip_reputation = { type = "table", default = {
             enable = false,
             threshold = 25,

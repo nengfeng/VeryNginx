@@ -1529,6 +1529,52 @@ local function handle_fingerprint_stats()
 end
 
 -- ============================================================
+-- WAF recommender handlers
+-- ============================================================
+
+local function handle_rec_list()
+    local rec = require "core.waf_recommender"
+    return json.encode({ ret = "success", data = rec.list() })
+end
+
+local function handle_rec_apply()
+    local id = ngx.ctx.waf_rule_id
+    if not id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "recommendation id required" })
+    end
+    local rec = require "core.waf_recommender"
+    local ok, err = rec.apply(id)
+    if not ok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    return json.encode({ ret = "success", data = rec.get(id) })
+end
+
+local function handle_rec_dismiss()
+    local id = ngx.ctx.waf_rule_id
+    if not id then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "recommendation id required" })
+    end
+    local rec = require "core.waf_recommender"
+    rec.update_status(id, "dismissed")
+    return json.encode({ ret = "success" })
+end
+
+local function handle_rec_analyze()
+    local rec = require "core.waf_recommender"
+    local count = rec.analyze()
+    return json.encode({ ret = "success", data = { new_recommendations = count } })
+end
+
+local function handle_rec_stats()
+    local rec = require "core.waf_recommender"
+    return json.encode({ ret = "success", data = rec.get_stats() })
+end
+
+-- ============================================================
 -- GeoIP auto-updater handlers
 -- ============================================================
 
@@ -1607,6 +1653,13 @@ _M.register("PUT",    "/fingerprints",           handle_fingerprint_update,  tru
 _M.register("DELETE", "/fingerprints/:id",       handle_fingerprint_delete,  true)
 _M.register("GET",    "/fingerprints/stats",      handle_fingerprint_stats,   true)
 _M.register("POST",   "/config/import",          handle_import_config,       true)
+
+-- WAF recommender routes
+_M.register("GET",    "/waf/recommendations",     handle_rec_list,            true)
+_M.register("POST",   "/waf/recommendations/:id/apply",  handle_rec_apply,      true)
+_M.register("POST",   "/waf/recommendations/:id/dismiss", handle_rec_dismiss,   true)
+_M.register("POST",   "/waf/recommendations/analyze",     handle_rec_analyze,   true)
+_M.register("GET",    "/waf/recommendations/stats",       handle_rec_stats,     true)
 
 _M.register("GET",    "/plugins",                handle_list_plugins,        true)
 _M.register("POST",   "/plugins/:id/toggle",     handle_toggle_plugin,       true)

@@ -17,6 +17,12 @@ local DEFAULTS = {
         challenge_fail = 5,
     },
     whitelist = {},
+    auto_whitelist = {
+        enabled = true,
+        threshold = 3,        -- 连续通过 challenge 次数
+        ttl = 3600,            -- 自动白名单有效期（秒）
+        max_entries = 1000,    -- 最大并发自动白名单数
+    },
 }
 
 local SHARED_DICT_NAME = "ip_reputation"
@@ -216,6 +222,30 @@ function _M.clear_pending(ip)
     end
 end
 
+--- Track consecutive challenge pass (for auto-whitelist).
+-- Increments a counter; when it reaches threshold, adds IP to auto-whitelist.
+function _M.record_challenge_pass(ip)
+    local awl = raw_cfg().auto_whitelist or DEFAULTS.auto_whitelist
+    if not awl.enabled then return end
+    local s = shared()
+    if not s then return end
+    local key = "ip_rep:awl_count:" .. ip
+    local count = s:incr(key, 1, 0, awl.ttl)
+    if count >= awl.threshold then
+        -- Check max entries
+        local idx_key = "ip_rep:awl_index"
+        local index_raw = s:get(idx_key) or "[]"
+        local ok, index = pcall(json.decode, index_raw)
+        if not ok or type(index) ~= "table" then index = {} end
+        if #index < awl.max_entries then
+            s:set("ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
+            table.insert(index, ip)
+            s:set(idx_key, json.encode(index), 0)
+        end
+        s:delete(key)
+    end
+end
+
 local function add_to_flagged_index(ip, duration, now)
     local s = shared()
     if not s then return end
@@ -385,6 +415,7 @@ function _M.is_whitelisted(ip)
             return cached == 1
         end
     end
+    -- Check static whitelist (from config)
     local wl = get_whitelist()
     for _, entry in ipairs(wl) do
         if ip_in_cidr(ip, entry) then
@@ -393,6 +424,13 @@ function _M.is_whitelisted(ip)
             end
             return true
         end
+    end
+    -- Check auto-whitelist (ephemeral, for repeatedly verified IPs)
+    if s and s:get("ip_rep:awl:" .. ip) then
+        if s then
+            s:set("ip_rep:wl_cache:" .. ip, 1, 60)
+        end
+        return true
     end
     if s then
         s:set("ip_rep:wl_cache:" .. ip, 0, 60)

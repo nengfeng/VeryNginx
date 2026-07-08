@@ -171,6 +171,7 @@ function _M.on_access(ctx)
     local cookie_verified = javascript_verify.check(ctx)
     if cookie_verified then
         ip_reputation.clear_score(ip)
+        ip_reputation.record_challenge_pass(ip)
         -- Record challenge pass for rules that issued this challenge
         local ctx_ip = ctx.request.remote_addr
         local pending_rules = ngx.shared.ip_reputation:get("ip_rep:pending_rules:" .. ctx_ip)

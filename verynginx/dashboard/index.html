@@ -551,6 +551,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <a :class="{active:wafTab==='analytics'}" @click="wafTab='analytics';loadWafAnalytics()">Analytics</a>
           <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">History</a>
           <a :class="{active:wafTab==='hits'}" @click="wafTab='hits';loadWafHits()">Hits</a>
+          <a :class="{active:wafTab==='recommendations'}" @click="wafTab='recommendations';loadRecs()">Recommendations</a>
           <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">Tester</a>
         </div>
 
@@ -794,6 +795,33 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
 
         <!-- Tester -->
+        <div v-if="wafTab==='recommendations'">
+          <div class="flex flex-between mb-16">
+            <h3 style="font-size:14px;margin:0">Rule Recommendations
+              <span class="tag tag-ok" v-if="recStats" style="vertical-align:middle">{{ recStats.pending }} pending</span>
+            </h3>
+            <button class="primary small" @click="runRecAnalysis" :disabled="recLoading">{{ recLoading ? 'Analyzing...' : 'Analyze Traffic' }}</button>
+          </div>
+          <div v-if="recError" class="error" style="margin-bottom:8px">{{ recError }}</div>
+          <div v-if="recs.length === 0" class="empty">No recommendations yet. Click "Analyze Traffic" to scan recent blocked hits.</div>
+          <table v-else style="font-size:13px">
+            <thead><tr><th>Pattern</th><th>Category</th><th>Severity</th><th>Action</th><th>Hits</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="r in recs" :key="r.id">
+                <td><code style="font-size:11px">{{ r.pattern }}</code></td>
+                <td><span :class="'tag tag-' + (r.severity === 'critical' ? 'err' : r.severity === 'high' ? 'warn' : 'ok')">{{ r.category }}</span></td>
+                <td>{{ r.severity }}</td>
+                <td>{{ r.action }}</td>
+                <td>{{ r.hit_count }}</td>
+                <td>{{ r.status }}</td>
+                <td>
+                  <button v-if="r.status === 'pending'" class="primary small" @click="applyRec(r.id)" style="margin-right:4px">Apply</button>
+                  <button v-if="r.status === 'pending'" class="outline small" @click="dismissRec(r.id)">Dismiss</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div v-if="wafTab==='tester'">
           <div class="card">
             <h3 style="font-size:14px;margin-bottom:8px">Test Rule</h3>
@@ -2366,6 +2394,7 @@ const app = Vue.createApp({
       if (wafTab.value === 'analytics') await loadWafAnalytics();
       if (wafTab.value === 'timeline') await loadWafTimeline();
       if (wafTab.value === 'history') { await loadWafHistory(); await loadPendingRules(); }
+      if (wafTab.value === 'recommendations') await loadRecs();
     }
 
     function wafOpenCreate() {
@@ -2943,6 +2972,63 @@ const app = Vue.createApp({
 
     async function wafRefreshAll() {
       await Promise.all([loadWafRules()]);
+    }
+
+    // ---- WAF Recommender ----
+    const recs = ref([]);
+    const recStats = ref(null);
+    const recError = ref('');
+    const recLoading = ref(false);
+
+    async function loadRecs() {
+      recError.value = '';
+      try {
+        const [d, s] = await Promise.all([
+          api('GET', '/verynginx/waf/recommendations'),
+          api('GET', '/verynginx/waf/recommendations/stats')
+        ]);
+        if (d.ret === 'success') recs.value = d.data || [];
+        if (s.ret === 'success') recStats.value = s.data;
+      } catch (e) {
+        recError.value = e.message;
+      }
+    }
+
+    async function runRecAnalysis() {
+      recLoading.value = true;
+      recError.value = '';
+      try {
+        const d = await api('POST', '/verynginx/waf/recommendations/analyze');
+        if (d.ret === 'success') {
+          showToast('Analysis complete: ' + (d.data.new_recommendations || 0) + ' new recommendations', 'success');
+          await loadRecs();
+        }
+      } catch (e) {
+        recError.value = e.message;
+      } finally {
+        recLoading.value = false;
+      }
+    }
+
+    async function applyRec(id) {
+      try {
+        const d = await api('POST', '/verynginx/waf/recommendations/' + id + '/apply');
+        if (d.ret === 'success') {
+          showToast('Rule applied successfully', 'success');
+          await loadRecs();
+        }
+      } catch (e) {
+        recError.value = e.message;
+      }
+    }
+
+    async function dismissRec(id) {
+      try {
+        await api('POST', '/verynginx/waf/recommendations/' + id + '/dismiss');
+        await loadRecs();
+      } catch (e) {
+        recError.value = e.message;
+      }
     }
 
     async function wafRollback(version) {
