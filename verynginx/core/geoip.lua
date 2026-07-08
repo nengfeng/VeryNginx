@@ -42,11 +42,14 @@ function _M.init(geodb_path)
             end
         end
     end)
-    local err
-    _db, err = maxminddb:new(_geodb_path)
-    if not _db then
-        return false, "failed to load GeoIP DB: " .. tostring(err)
+    local ok, result = pcall(maxminddb.new, maxminddb, _geodb_path)
+    if not ok then
+        return false, "failed to load GeoIP DB: " .. tostring(result)
     end
+    if not result then
+        return false, "failed to load GeoIP DB: maxminddb:new returned nil"
+    end
+    _db = result
     ngx.log(ngx.DEBUG, "geoip: loaded DB from ", _geodb_path)
     return true
 end
@@ -58,11 +61,14 @@ function _M.reload()
         or (config.geoip and config.geoip.geodb_path and config.geoip.geodb_path ~= "" and config.geoip.geodb_path)
         or ""
     if path == "" then return false, "no geodb_path configured" end
-    local err
-    _db, err = maxminddb:new(path)
-    if not _db then
-        return false, "reload failed: " .. tostring(err)
+    local ok, result = pcall(maxminddb.new, maxminddb, path)
+    if not ok then
+        return false, "reload failed: " .. tostring(result)
     end
+    if not result then
+        return false, "reload failed: maxminddb:new returned nil"
+    end
+    _db = result
     _geodb_path = path
     return true
 end
