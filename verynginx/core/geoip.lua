@@ -54,7 +54,9 @@ end
 -- Reload GeoIP database (after auto-update)
 function _M.reload()
     if not maxminddb then return false, "maxminddb not installed" end
-    local path = _geodb_path or (config.geoip and config.geoip.geodb_path) or ""
+    local path = (_geodb_path and _geodb_path ~= "" and _geodb_path)
+        or (config.geoip and config.geoip.geodb_path and config.geoip.geodb_path ~= "" and config.geoip.geodb_path)
+        or ""
     if path == "" then return false, "no geodb_path configured" end
     local err
     _db, err = maxminddb:new(path)
@@ -76,7 +78,9 @@ function _M.is_available()
         return true
     end
     -- Try reload if DB file was downloaded after startup
-    local path = _geodb_path or (config.geoip and config.geoip.geodb_path) or ""
+    local path = (_geodb_path and _geodb_path ~= "" and _geodb_path)
+        or (config.geoip and config.geoip.geodb_path and config.geoip.geodb_path ~= "" and config.geoip.geodb_path)
+        or ""
     if path == "" then
         ngx.log(ngx.WARN, "geoip: is_available() — no geodb_path configured")
         return false
