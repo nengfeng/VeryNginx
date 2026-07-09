@@ -103,7 +103,18 @@ end
 
 ### 2.3 Controller 注册契约
 
-每个 controller 暴露 `_M.register(api)`，`api` 是 `api/init.lua` 的 `_M`。Controller 之间不互相依赖。
+每个 controller 暴露 `_M.register(api)`，`api` 是 `api/init.lua` 的 `_M`。Controller 之间不互相依赖。新增 controller 时还必须在 `api/init.lua` 的 `CONTROLLERS` 表中注册。
+
+### 2.4 API 中间件流水线
+
+`run_route()` 按顺序处理所有跨切关注点：
+
+1. **Auth** — `api.auth.middleware(ctx)`，未认证返回 401
+2. **Rate limiting** — 认证路由 60 req/60s（按用户），未认证路由 20 req/60s（按 IP）；`/config` POST 额外限制 30 req/60s
+3. **Idempotency-Key** — mutating 请求可携带 `Idempotency-Key` header，重复 key 返回 409（1 小时 TTL，基于 `vn_locks`）
+4. **Security headers** — 自动注入 `X-Content-Type-Options`/`X-Frame-Options`/`X-XSS-Protection`/`Content-Security-Policy`
+5. **Response size limit** — 超过 10MB 截断为 413
+6. **Audit log** — mutating 请求写入 `core.audit`
 
 ---
 
@@ -139,7 +150,7 @@ shared:incr("counter:" .. key, 1, 0, ttl)
 
 ### 3.3 shared dict 名称硬编码
 
-当前 shared dict 名称：`vn_config`、`vn_locks`、`ip_reputation`、`frequency_limit`、`healthcheck`。新增时要在 `nginx_conf/in_http_block.conf` 的 `lua_shared_dict` 中声明。
+当前 shared dict 名称：`vn_config`、`vn_locks`、`ip_reputation`、`frequency_limit`、`healthcheck`、`statistics`、`metrics`、`dns_cache`。新增时要在 `nginx_conf/in_http_block.conf` 的 `lua_shared_dict` 中声明。
 
 ---
 
@@ -184,11 +195,15 @@ signals = {
 
 ### 5.2 启动后下载的数据库要自动重载
 
-`lookup()` 中检测到 `_db == nil` 时自动调用 `reload()`。
+`lookup()` 和 `is_available()` 中检测到 `_db == nil` 时自动调用 `reload()`。
 
 ### 5.3 数据源：P3TERX GeoLite2-City
 
 使用官方 MaxMind GeoLite2-City 数据库（~66MB），通过 P3TERX 镜像下载。
+
+### 5.4 GeoIP 自动更新
+
+`core/geoip_updater.lua` 在 `init_worker` 启动定时器，按配置间隔检查并下载最新数据库。CDN 和官方源可切换。
 
 ---
 
@@ -211,6 +226,28 @@ signals = {
 ### 6.4 `config.report()` 返回 JSON 字符串
 
 `report()` 返回 JSON 而非 table。需要 table 时先 `json.decode(config.report())`。
+
+### 6.5 `MODULE_ROOT` 自动检测
+
+`config.lua` 和 `init.lua` 通过 `debug.getinfo(1, "S").source:match("^@(.+)/core/")` 自动检测安装前缀，无需 `VN_PREFIX` 环境变量。模块路径基于此解析。
+
+### 6.6 新增 config section
+
+```lua
+waf_recommender = { type = "table", default = {
+    enabled = true,
+    min_hits = 10,           -- 最少命中次数才生成建议
+    window_size = 3600,      -- 分析窗口（秒）
+    min_patterns = 3,        -- 同 IP 最少不同 URI 模式怀疑为扫描
+}}
+
+auto_whitelist = { type = "table", default = {
+    enabled = true,
+    threshold = 3,           -- 连续通过 challenge 次数
+    ttl = 3600,              -- 有效期（秒）
+    max_entries = 1000,      -- 最大并发数
+}}
+```
 
 ---
 
@@ -251,13 +288,26 @@ signals = {
 | static_file | 600 | 静态文件 |
 | summary | 900 | 请求统计 |
 
+### 7.5 WAF 规则推荐引擎
+
+`core/waf_recommender.lua` 分析被阻断的流量（来自 `waf_recent_hits:data:` 环形缓冲区），自动识别攻击模式并生成规则建议。
+
+- 分析触发：`POST /waf/recommendations/analyze`（手动）或 `init_worker` 定时器
+- URI 归一化：UUID/十六进制/数字 → 占位符，合并同类模式
+- 分类：path_traversal / rce / sqli / scanner（基于关键词匹配）
+- 存储：建议写入 `vn_config` shared dict（7 天 TTL），通过 INDEX_KEY 索引
+- 应用：`apply(id)` 调用 `waf-rule-manager` 创建正式规则并 reload
+
+**注意**：`min_patterns` 配置声明但未使用；`add()`/`delete()` 的 index 读写存在竞态条件。
+
 ---
 
 ## 8. 前端 Dashboard
 
-### 8.1 Vue 3 + Vite SPA
+### 8.1 Vue 3 SPA (CDN, 无构建)
 
 - 单文件 `dashboard/index.html`，包含 HTML 模板 + `<script setup>` + CSS
+- Vue 3 通过 CDN (`https://unpkg.com/vue@3/dist/vue.global.prod.js`) 加载，无构建步骤
 - 使用 Vue 3 Composition API（`ref`/`reactive`/`computed`）
 - API 调用通过 `api(method, path, body?)` 函数
 
@@ -300,6 +350,25 @@ docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
 - 集成测试：`test/v2/test_integration.py`
 - Docker Compose：`test/v2/docker-compose.yml`
 
+### 9.4 单元测试覆盖
+
+| Spec 文件 | 覆盖范围 |
+|-----------|----------|
+| `config_spec.lua` | 配置 schema 验证、默认值填充 |
+| `context_spec.lua` | 请求上下文 ctx API |
+| `core_spec.lua` | 核心模块 smoke test |
+| `filter_challenge_spec.lua` | Challenge 规则过滤 |
+| `ip_reputation_spec.lua` | IP 声誉评分、信号、白名单 |
+| `ip_reputation_concurrency_spec.lua` | IP 声誉并发安全 |
+| `ip_reputation_observability_spec.lua` | IP 声誉可观测性 |
+| `matcher_spec.lua` | 9 种匹配器单元测试 |
+| `plugin_terminal_actions_spec.lua` | 插件 terminal action 处理 |
+| `rule_engine_challenge_spec.lua` | 规则引擎 challenge 流程 |
+| `security_challenge_xss_spec.lua` | JS Challenge XSS 安全 |
+| `security_cookie_bypass_spec.lua` | Cookie 验证绕过防护 |
+| `waf_hits_spec.lua` | WAF 命中记录 |
+| `waf_rule_manager_spec.lua` | WAF 规则 CRUD + 版本控制 |
+
 ---
 
 ## 10. 安全
@@ -329,7 +398,21 @@ X-XSS-Protection: 1; mode=block
 Content-Security-Policy: default-src 'self'; script-src 'self'; ...
 ```
 
-### 10.5 SSRF 防护
+### 10.5 速率限制
+
+- 认证路由：60 req/60s（按用户）
+- 未认证路由：20 req/60s（按 IP）
+- `/config` POST：额外 30 req/60s
+
+### 10.6 幂等性
+
+mutating 请求可携带 `Idempotency-Key` header，重复 key 返回 409（1 小时 TTL，基于 `vn_locks`）。
+
+### 10.7 响应大小限制
+
+API 响应超过 10MB 截断为 413。
+
+### 10.8 SSRF 防护
 
 所有 webhook URL 必须：
 - 以 `https://` 开头
@@ -341,45 +424,61 @@ Content-Security-Policy: default-src 'self'; script-src 'self'; ...
 
 ```
 verynginx/
-├── api/
-│   ├── init.lua             ← 路由调度 + 中间件
-│   ├── helpers.lua          ← 共享工具函数
-│   ├── controllers/
-│   │   ├── auth.lua         ← 登录/登出
-│   │   ├── config.lua       ← 配置/状态/审计
-│   │   ├── waf_rules.lua    ← WAF 规则 CRUD
-│   │   ├── waf_stats.lua    ← WAF 统计/命中/时间线
-│   │   ├── waf_recommender.lua ← 规则推荐
-│   │   ├── reputation.lua   ← IP 声誉
-│   │   ├── geoip.lua        ← GeoIP 查询/配置
-│   │   ├── fingerprint.lua  ← TLS 指纹
-│   │   ├── frequency.lua    ← 频率限制
-│   │   └── plugins.lua      ← 插件管理/上游健康
-│   ├── auth.lua             ← 认证 middleware
-│   ├── csrf.lua
-│   └── rate_limit.lua
-├── core/
-│   ├── init.lua, config.lua, plugin.lua, rule_engine.lua
-│   ├── ip_reputation.lua, statistics.lua, session.lua
-│   ├── geoip.lua, geoip_updater.lua, alerting.lua
-│   ├── ja3.lua, fingerprint_db.lua
-│   ├── metrics.lua, observability.lua
-│   ├── audit.lua, context.lua, hmac.lua
-│   ├── password_hash.lua, random.lua
-│   └── waf_recommender.lua
-├── plugin/
-│   ├── filter/              ← WAF + IP 声誉 + GeoIP
-│   ├── browser_verify/      ← JS Challenge + Cookie
-│   ├── frequency_limit/
-│   ├── proxy_pass/
-│   ├── router/
-│   ├── static_file/
-│   └── summary/
-├── dashboard/index.html     ← Vue 3 SPA
-├── nginx_conf/
-│   ├── in_http_block.conf   ← shared dict, lua_package_path
-│   ├── in_external.conf     ← upstream, main context
-│   └── in_server_block.conf
-└── resty/
-    └── maxminddb.lua        ← vendored lua-resty-maxminddb
+├── AGENTS.md                ← 本文档 — 开发经验与约束
+├── Dockerfile               ← 生产镜像 (debian:bullseye-slim + install.py)
+├── install-lnmp.sh          ← 一键安装脚本 (LNMP 环境)
+├── verynginx/
+│   ├── on_rewrite.lua       ← 请求重写阶段处理
+│   ├── on_access.lua        ← 请求访问阶段处理
+│   ├── on_log.lua           ← 请求日志阶段处理
+│   ├── waf-rule-manager.lua ← WAF 规则引擎 (CRUD/版本/测试)
+│   ├── api/
+│   │   ├── init.lua         ← 路由调度 + 中间件
+│   │   ├── helpers.lua      ← 共享工具函数
+│   │   ├── controllers/
+│   │   │   ├── auth.lua     ← 登录/登出
+│   │   │   ├── config.lua   ← 配置/状态/审计
+│   │   │   ├── waf_rules.lua ← WAF 规则 CRUD
+│   │   │   ├── waf_stats.lua ← WAF 统计/命中/时间线
+│   │   │   ├── waf_recommender.lua ← 规则推荐
+│   │   │   ├── reputation.lua ← IP 声誉
+│   │   │   ├── geoip.lua    ← GeoIP 查询/配置
+│   │   │   ├── fingerprint.lua ← TLS 指纹
+│   │   │   ├── frequency.lua ← 频率限制
+│   │   │   └── plugins.lua  ← 插件管理/上游健康
+│   │   ├── auth.lua         ← 认证 middleware
+│   │   ├── csrf.lua
+│   │   └── rate_limit.lua
+│   ├── core/
+│   │   ├── init.lua, config.lua, plugin.lua, rule_engine.lua
+│   │   ├── ip_reputation.lua, statistics.lua, session.lua
+│   │   ├── geoip.lua, geoip_updater.lua, alerting.lua
+│   │   ├── ja3.lua, fingerprint_db.lua
+│   │   ├── metrics.lua, observability.lua
+│   │   ├── audit.lua, context.lua, hmac.lua
+│   │   ├── password_hash.lua, random.lua
+│   │   └── waf_recommender.lua
+│   ├── plugin/
+│   │   ├── filter/          ← WAF + IP 声誉 + GeoIP
+│   │   ├── browser_verify/  ← JS Challenge + Cookie
+│   │   ├── frequency_limit/
+│   │   ├── proxy_pass/
+│   │   ├── router/
+│   │   ├── static_file/
+│   │   └── summary/
+│   ├── dashboard/index.html ← Vue 3 SPA
+│   ├── nginx_conf/
+│   │   ├── in_http_block.conf ← shared dict, lua_package_path
+│   │   ├── in_external.conf   ← upstream, main context
+│   │   └── in_server_block.conf
+│   ├── configs/
+│   │   ├── config.default.json ← 默认配置模板
+│   │   └── config.json         ← 运行时配置 (CI 生成)
+│   └── resty/
+│       └── maxminddb.lua    ← vendored lua-resty-maxminddb
+└── test/
+    └── v2/
+        ├── spec/            ← 单元测试 (busted)
+        ├── test_integration.py ← 集成测试 (Python/curl)
+        └── docker-compose.yml  ← CI 测试环境
 ```
