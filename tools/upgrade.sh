@@ -48,7 +48,7 @@ if [ ! -d "${VN_DIR}" ]; then
     exit 1
 fi
 
-if [ ! -f "${VN_DIR}/configs/config.json" ] && [ ! -f "${VN_DIR}/verynginx/configs/config.json" ]; then
+if [ ! -f "${VN_DIR}/configs/config.json" ]; then
     warn "未找到 config.json，可能尚未配置"
 else
     info "找到现有配置"
@@ -61,11 +61,8 @@ mkdir -p "${BACKUP_DIR}"
 if [ -d "${VN_DIR}/configs" ]; then
     cp -r "${VN_DIR}/configs" "${BACKUP_DIR}/configs"
     info "备份 configs/ -> ${BACKUP_DIR}/configs"
-fi
-
-if [ -d "${VN_DIR}/verynginx/configs" ]; then
-    cp -r "${VN_DIR}/verynginx/configs" "${BACKUP_DIR}/verynginx_configs"
-    info "备份 verynginx/configs/ -> ${BACKUP_DIR}/verynginx_configs"
+else
+    warn "未找到 configs/ 目录，无配置可备份"
 fi
 
 if [ -f "${VN_DIR}/geoip/GeoLite2-City.mmdb" ]; then
@@ -87,35 +84,28 @@ git clone --depth 1 --branch v2 \
 }
 info "代码拉取完成 (commit: $(cd ${GIT_CLONE_DIR} && git rev-parse --short HEAD))"
 
-# ---- 替换代码（原子操作） ----
-info "=== Step 4: 替换代码目录 ==="
+# ---- 部署新代码（覆盖式，不影响 openresty/ 和 configs/ 中的用户数据） ----
+info "=== Step 4: 部署新代码 ==="
 
-if [ -d "${VN_DIR}/verynginx" ]; then
-    # 先复制到临时目录；如果 cp 失败（磁盘满、权限不足），旧 verynginx 不受影响
-    rm -rf "${VN_DIR}/.verynginx_new" 2>/dev/null || true
-    cp -r "${GIT_CLONE_DIR}/verynginx" "${VN_DIR}/.verynginx_new"
-    # 原子 swap（同文件系统的 mv 是原子的）
-    mv "${VN_DIR}/verynginx" "${VN_DIR}/verynginx.old"
-    mv "${VN_DIR}/.verynginx_new" "${VN_DIR}/verynginx"
-    info "旧代码移出: ${VN_DIR}/verynginx.old"
-    info "新代码部署到 ${VN_DIR}/verynginx"
-else
-    # 全新安装
-    cp -r "${GIT_CLONE_DIR}/verynginx" "${VN_DIR}/verynginx"
-    info "新代码部署到 ${VN_DIR}/verynginx"
+if [ ! -d "${VN_DIR}/core" ]; then
+    error "未找到 ${VN_DIR}/core/，安装目录结构异常"
+    exit 1
 fi
 
-# 复制 nginx_conf 到安装目录顶层（兼容旧引用方式）
-if [ -d "${VN_DIR}/verynginx/nginx_conf" ]; then
-    cp -r "${VN_DIR}/verynginx/nginx_conf" "${VN_DIR}/nginx_conf"
-    info "同步 nginx_conf -> ${VN_DIR}/nginx_conf"
-fi
+# 覆盖部署：cp -r -f 将新代码铺到 VN_DIR/，不影响 openresty/
+# configs/ 中的用户数据（config.json/waf-rules.json 等）不在 git 仓库中，不会被覆盖
+cp -r -f "${GIT_CLONE_DIR}/verynginx/." "${VN_DIR}/"
+info "新代码已部署到 ${VN_DIR}"
 
 # ---- 检查并自动修补 nginx.conf ----
 # 新版本将 lua_package_path 移到了 in_http_block.conf（http 上下文）
 # 旧 nginx.conf 可能只引用了 in_external.conf（main 上下文），缺少 http 块引用
 info "=== Step 4b: 检查 nginx.conf 引用 ==="
-NGINX_CONF="${VN_DIR}/nginx.conf"
+NGINX_CONF="${VN_DIR}/openresty/nginx/conf/nginx.conf"
+# 回退：如果 OpenResty 的 nginx.conf 不存在，检查安装目录顶层
+if [ ! -f "${NGINX_CONF}" ]; then
+    NGINX_CONF="${VN_DIR}/nginx.conf"
+fi
 HTTP_BLOCK_INCLUDE="include ${VN_DIR}/nginx_conf/in_http_block.conf;"
 
 if [ -f "${NGINX_CONF}" ]; then
@@ -145,20 +135,10 @@ fi
 # ---- 恢复配置 ----
 info "=== Step 5: 恢复用户配置 ==="
 
-if [ -f "${BACKUP_DIR}/configs/config.json" ]; then
-    cp "${BACKUP_DIR}/configs/config.json" "${VN_DIR}/verynginx/configs/config.json"
-    info "恢复 config.json"
-elif [ -f "${BACKUP_DIR}/verynginx_configs/config.json" ]; then
-    cp "${BACKUP_DIR}/verynginx_configs/config.json" "${VN_DIR}/verynginx/configs/config.json"
-    info "恢复 config.json (从子目录备份)"
-fi
-
-if [ -f "${BACKUP_DIR}/configs/waf-rules.json" ]; then
-    cp "${BACKUP_DIR}/configs/waf-rules.json" "${VN_DIR}/verynginx/configs/waf-rules.json"
-    info "恢复 waf-rules.json"
-elif [ -f "${BACKUP_DIR}/verynginx_configs/waf-rules.json" ]; then
-    cp "${BACKUP_DIR}/verynginx_configs/waf-rules.json" "${VN_DIR}/verynginx/configs/waf-rules.json"
-    info "恢复 waf-rules.json (从子目录备份)"
+# 恢复全部 configs/ 用户数据（config.json、waf-rules.json、ip-reputation-flagged.json、backups/ 等）
+if [ -d "${BACKUP_DIR}/configs" ]; then
+    cp -r -f "${BACKUP_DIR}/configs/." "${VN_DIR}/configs/"
+    info "恢复 configs/ 用户数据"
 fi
 
 if [ -f "${BACKUP_DIR}/geoip/GeoLite2-City.mmdb" ]; then
@@ -170,7 +150,6 @@ fi
 # ---- 清理 ----
 info "=== Step 6: 清理 ==="
 rm -rf "${GIT_CLONE_DIR}" "${VN_DIR}/.verynginx_new"
-rm -rf "${VN_DIR}/verynginx.old"
 info "临时文件已清理"
 
 # ---- 完成 ----
