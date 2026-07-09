@@ -87,7 +87,7 @@ describe("filter challenge flow", function()
         assert.equals("block", ctx.action_result.type)
 
         rep.clear_ip(ip)
-        ctx2 = make_ctx({
+        local ctx2 = make_ctx({
             uri = "/any-path",
             remote_addr = ip,
         })

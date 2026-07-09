@@ -4,7 +4,6 @@
 -- @Disc    : access phase entry - execute plugins with short-circuit, then apply
 
 local plugin = require "core.plugin"
-local context = require "core.context"
 local rule_engine = require "core.rule_engine"
 
 local ctx = ngx.ctx.vn_ctx
