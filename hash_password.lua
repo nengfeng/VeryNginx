@@ -16,13 +16,13 @@ ngx = {
         error("openssl.hmac not available in CLI mode")
     end,
     encode_base64 = function(s)
-        local ok, enc = pcall(require, "openssl.enc")
+        local ok, mod = pcall(require, "openssl.enc")
         if ok then
-            return enc:encode_base64(s)
+            return mod:encode_base64(s)
         end
-        local ok, mime = pcall(require, "mime")
+        ok, mod = pcall(require, "mime")
         if ok then
-            return mime.b64(s)
+            return mod.b64(s)
         end
         -- inline base64 fallback
         local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
