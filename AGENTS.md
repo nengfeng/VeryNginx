@@ -163,6 +163,10 @@ shared:incr("counter:" .. key, 1, 0, ttl)
 
 ### 4.2 自动白名单
 
+阈值与有效期定义在 `core/ip_reputation.lua` 的 `DEFAULTS.auto_whitelist`，`record_challenge_pass()` 读取 `config.ip_reputation.auto_whitelist`（不存在时回退 DEFAULTS）。
+
+> **注意**：`config.lua` 的 schema **未声明** `ip_reputation.auto_whitelist` 字段，因此在 `config.json` 中配置该项当前不生效。如需可配，必须先在 schema 的 `ip_reputation` 字段中补上 `auto_whitelist` 子表。
+
 | 配置 | 默认 | 说明 |
 |------|------|------|
 | `threshold` | 3 | 连续通过 challenge 次数 |
@@ -181,7 +185,6 @@ signals = {
     waf_block = 5,         -- WAF 触发 block
     not_found = 1,         -- 404 请求（仅 pending 状态时累加）
     challenge_fail = 5,    -- 未通过 challenge
-    geoip_block = 5,       -- GeoIP 拦截
 }
 ```
 
@@ -249,6 +252,8 @@ auto_whitelist = { type = "table", default = {
 }}
 ```
 
+> **注意**：上面的 `auto_whitelist` 示例仅为字段形状说明。`config.lua` 的 schema 当前**未声明** `ip_reputation.auto_whitelist`，按上文 4.2 所述，该子表需先加进 schema 才能经 config 配置；目前实际生效值来自 `core/ip_reputation.lua` 的 `DEFAULTS.auto_whitelist`。
+
 ---
 
 ## 7. 插件与规则引擎
@@ -298,7 +303,7 @@ auto_whitelist = { type = "table", default = {
 - 存储：建议写入 `vn_config` shared dict（7 天 TTL），通过 INDEX_KEY 索引
 - 应用：`apply(id)` 调用 `waf-rule-manager` 创建正式规则并 reload
 
-**注意**：`min_patterns` 配置声明但未使用；`add()`/`delete()` 的 index 读写存在竞态条件。
+**注意**：`add()`/`delete()` 的 index 读写存在竞态条件。
 
 ---
 
@@ -361,7 +366,7 @@ docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
 | `ip_reputation_spec.lua` | IP 声誉评分、信号、白名单 |
 | `ip_reputation_concurrency_spec.lua` | IP 声誉并发安全 |
 | `ip_reputation_observability_spec.lua` | IP 声誉可观测性 |
-| `matcher_spec.lua` | 9 种匹配器单元测试 |
+| `matcher_spec.lua` | 10 种匹配器单元测试 |
 | `plugin_terminal_actions_spec.lua` | 插件 terminal action 处理 |
 | `rule_engine_challenge_spec.lua` | 规则引擎 challenge 流程 |
 | `security_challenge_xss_spec.lua` | JS Challenge XSS 安全 |
