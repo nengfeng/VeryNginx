@@ -46,31 +46,24 @@ end
 -- Generate rule suggestion from a blocked pattern
 -- ---------------------------------------------------------------------------
 local function generate_suggestion(pattern, info)
-    local matcher
-    local category = "custom"
-    local severity = "medium"
+    local category
+    local severity
 
-    -- Classify URI pattern into attack category
     if pattern:find("/%.%.", 1, true) or pattern:find("/etc/") or pattern:find("/proc/") then
         category = "path_traversal"
         severity = "critical"
-        matcher = { URI = { pattern } }
     elseif pattern:find("exec") or pattern:find("cmd") or pattern:find("shell") then
         category = "rce"
         severity = "critical"
-        matcher = { URI = { pattern } }
     elseif pattern:find("select") or pattern:find("union") or pattern:find("'") then
         category = "sqli"
         severity = "high"
-        matcher = { URI = { pattern } }
     elseif pattern:find("%.env") or pattern:find("%.git") or pattern:find("backup") then
         category = "scanner"
         severity = "medium"
-        matcher = { URI = { pattern } }
     else
         category = "scanner"
         severity = "medium"
-        matcher = { URI = { pattern } }
     end
 
     local suggestion = {
