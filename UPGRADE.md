@@ -17,7 +17,7 @@ sudo systemctl restart openresty
 
 ## 手动升级
 
-如果自动脚本不适用，可按以下步骤操作：
+如果自动脚本不适用，可按以下步骤操作。
 
 ### 1. 备份
 
@@ -68,29 +68,7 @@ sudo cp ~/config.json.bak     /opt/verynginx/configs/config.json
 sudo cp ~/waf-rules.json.bak  /opt/verynginx/configs/waf-rules.json
 ```
 
-### 4. 检查 nginx 配置变更
-
-**重要**：新版本的 `lua_package_path` 已从 `in_external.conf` 移到 `in_http_block.conf`。
-
-如果你的 nginx.conf 只引用了 `in_external.conf`，请确保同时引用 `in_http_block.conf`：
-
-```nginx
-# nginx.conf
-
-# main 上下文
-include /opt/verynginx/nginx_conf/in_external.conf;
-
-http {
-    # http 上下文（新增）
-    include /opt/verynginx/nginx_conf/in_http_block.conf;
-
-    server {
-        include /opt/verynginx/nginx_conf/in_server_block.conf;
-    }
-}
-```
-
-### 5. 重启
+### 4. 重启
 
 ```bash
 # 验证配置
@@ -115,7 +93,7 @@ sudo journalctl -u openresty -n 50 --no-pager
 
 | 症状 | 原因 | 解决 |
 |------|------|------|
-| OpenResty 无法启动 | `lua_package_path` 未正确配置 | 检查 `in_http_block.conf` 是否被 include |
+| OpenResty 无法启动 | `lua_package_path` 未正确配置 | 升级脚本已自动修补 nginx.conf；若手动升级，检查 `in_http_block.conf` 是否被 include |
 | GeoIP 查询返回空 | `lua-resty-maxminddb` 未安装 | `apt install libmaxminddb-dev` |
 | Dashboard 白页 | 新版 Dashboard 需要 Vue 3 | 刷新浏览器缓存（Ctrl+F5） |
 | 配置丢失 | config.json 路径变化 | 从 `~/config.json.bak` 恢复 |
