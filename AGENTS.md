@@ -165,7 +165,7 @@ shared:incr("counter:" .. key, 1, 0, ttl)
 
 阈值与有效期定义在 `core/ip_reputation.lua` 的 `DEFAULTS.auto_whitelist`，`record_challenge_pass()` 读取 `config.ip_reputation.auto_whitelist`（不存在时回退 DEFAULTS）。
 
-> **注意**：`config.lua` 的 schema **未声明** `ip_reputation.auto_whitelist` 字段，因此在 `config.json` 中配置该项当前不生效。如需可配，必须先在 schema 的 `ip_reputation` 字段中补上 `auto_whitelist` 子表。
+> **注意**：`config.lua` 的 schema **未声明** `ip_reputation.auto_whitelist` 字段。`normalize_defaults` 用 `deep_copy` 保留 config.json 中的未知字段，因此**完整配置可生效**——但 schema 不会填默认值、不做验证，**部分配置会静默失效**（如只写 `threshold` 则 `enabled` 为 nil → feature 被关闭）。如需安全可配，应在 schema 的 `ip_reputation` 字段中补上 `auto_whitelist` 子表以获得默认值填充和验证。
 
 | 配置 | 默认 | 说明 |
 |------|------|------|
@@ -252,7 +252,7 @@ auto_whitelist = { type = "table", default = {
 }}
 ```
 
-> **注意**：上面的 `auto_whitelist` 示例仅为字段形状说明。`config.lua` 的 schema 当前**未声明** `ip_reputation.auto_whitelist`，按上文 4.2 所述，该子表需先加进 schema 才能经 config 配置；目前实际生效值来自 `core/ip_reputation.lua` 的 `DEFAULTS.auto_whitelist`。
+> **注意**：上面的 `auto_whitelist` 示例仅为字段形状说明。`config.lua` 的 schema 当前**未声明** `ip_reputation.auto_whitelist`——config.json 中写全字段可生效（`normalize_defaults` 的 `deep_copy` 会保留未知字段），但无默认值填充、无验证，部分配置会静默失效。目前未配置时实际生效值来自 `core/ip_reputation.lua` 的 `DEFAULTS.auto_whitelist`。
 
 ---
 
