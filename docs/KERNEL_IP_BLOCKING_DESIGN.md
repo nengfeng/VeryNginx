@@ -1,6 +1,6 @@
 # VeryNginx 内核层 IP 封禁设计草案
 
-> **版本**: Draft v0.4
+> **版本**: Draft v0.5
 >
 > **日期**: 2026-07-11
 >
@@ -1887,16 +1887,29 @@ CC 同样记录“首次被引用规则超限”的 loose 指标，以及满足 
 
 ## 19. 待决策事项
 
-1. Helper 使用何种实现语言和进程模型？
-2. 配套 LNMP 当前支持的 Debian/Ubuntu 版本分别对应哪些最低 kernel 和 nftables 版本？
-3. Helper 首期使用 `/usr/sbin/nft` 子进程、libnftables 还是直接 Netlink？
-4. scanner 和 CC 的初始晋升阈值如何通过 observe 数据确定？
-5. 是否允许按重复攻击阶梯式延长 TTL？
-6. Docker 首期是否只支持宿主机 Helper？
-7. IPv6 单地址封禁何时默认开启？
-8. 是否永远禁止自动 IPv6 `/64` 聚合，还是保留实验开关？
-9. 与 UFW、`iptables-nft`、Docker 和用户已有 nftables table 的支持矩阵如何定义？
-10. 是否需要未来对接 CDN/云防火墙 API；若需要，应设计为独立边缘执行层，而不是本机防火墙 backend？
+### 19.1 仍需决策
+
+1. Helper 首期采用何种实现语言，以及在 Protocol v1 的顺序连接、有界并发和资源限制下采用单事件循环还是有界 worker 模型？
+2. Docker 首期正式支持是否仅限宿主机 Helper，还是同时支持经过网络命名空间和 hook 位置验证的 sidecar？
+3. IPv6 自动前缀聚合在 v1 明确禁止；后续版本是否允许通过独立安全评审引入实验模式？
+4. 基于 Phase 5 共存测试，UFW、`iptables-nft`、Docker 自动规则和用户已有 nftables table 应分别标记为 `supported`、`unsupported` 还是 `detect-only`？
+
+以下事项已经由正文定案，不再作为 v1 待决策项：
+
+- Helper 首期通过固定绝对路径 `/usr/sbin/nft -f -` 批量执行，libnftables/直接 Netlink 仅作为未来 Executor 内部优化。
+- 自动封禁允许有上限、可审计的阶梯式 TTL 续期，但不能自动转为永久封禁。
+- IPv6 单地址封禁在 v1 默认关闭，`ipv6.prefix_aggregation=true` 在 v1 拒绝。
+- CDN/云防火墙 API 不属于本机 nftables v1；未来如实现，必须作为独立边缘执行层。
+
+### 19.2 实施前验证与校准项
+
+以下事项必须在对应 phase 完成，但结果不会改变本设计的核心架构：
+
+1. 根据配套 LNMP 实际支持的最近两个 Debian/Ubuntu 版本，记录对应最低 kernel、nftables 用户态版本和所需 capability，并通过第 9.6 节 probe 验证。
+2. 在 Phase 1 observe 数据上校准 scanner/CC 阈值、`cc.min_violation_windows`、Challenge 要求、初始 TTL、最大 TTL 和阶梯式续期级别；未完成校准前不得启用对应 enforce。
+3. 保持 v1 `ipv6.enabled=false`，通过独立的 IPv6 精确地址误封率、地址稳定性和运维恢复测试，形成未来是否修改默认值的发布门槛。
+4. 在支持矩阵中的发行版上测量 `/usr/sbin/nft -f -` 的批处理延迟、CPU 和进程开销；只有性能数据证明必要时，才评估在相同 Nft Executor 契约后切换到 libnftables 或直接 Netlink。
+5. 完成 UFW、`iptables-nft`、Docker 自动规则和用户已有 nftables table 的 Phase 5 共存测试，并将测试结论转化为 19.1 第 4 项的正式支持分类。
 
 ---
 
