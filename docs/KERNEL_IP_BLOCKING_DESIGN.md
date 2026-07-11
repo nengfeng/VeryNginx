@@ -1,6 +1,6 @@
 # VeryNginx 内核层 IP 封禁设计草案
 
-> **版本**: Draft v0.3
+> **版本**: Draft v0.4
 >
 > **日期**: 2026-07-11
 >
@@ -255,6 +255,7 @@ filter(priority 100)
 - observe 模式只记录 `would_promote`、`would_rate_limit` 和拒绝原因，不创建可安装的期望状态，不发送 mutating IPC。
 - enforce 模式只有在全部安全门通过后才原子创建或延长期望状态，并将 Protocol v1 请求放入有界 dispatch 队列。
 - 同一候选按 `(policy, canonical_ip, evidence_generation, policy_version)` 幂等评估。队列由 shared dict 中的有界索引承载，不能使用请求 worker 本地 Lua table。
+- 自动证据、候选、期望状态和 dispatch item 都携带 `global_activation_generation` 及对应的 `policy_generation.scanner|cc`。全局关闭只推进 global generation，单个策略开关只推进对应 policy generation；任一 generation 过期的工作都不能在后台继续安装。manual 条目不属于自动 policy generation。
 
 #### 阶段 C：Helper 验证与安装
 
@@ -376,9 +377,10 @@ installed
 3. IP 不属于现有 `ip_reputation.whitelist`、运行时自动白名单或可信基础设施。
 4. IP 不是回环、链路本地、组播、未指定地址或本机管理地址。
 5. 当前网络拓扑允许内核按该地址匹配真实数据包源。
-6. 未超过目标集合容量。
-7. 通过第 6.2 节定义的全局自动晋升令牌桶。
-8. 候选证据仍在有效窗口内。
+6. 当前 Helper connection 已完成 protected-scope validation，scope digest、activation generation 和 table generation binding 均有效。
+7. 未超过目标集合容量。
+8. 通过第 6.2 节定义的全局自动晋升令牌桶。
+9. 候选证据仍在当前 `evidence_not_before` 之后且处于有效窗口内。
 
 ### 6.2 自动晋升速率限制
 
@@ -399,7 +401,35 @@ installed
 - 令牌桶在地址、证据、白名单、拓扑、重叠和容量检查之后，在创建或延长期望状态之前执行。token 消耗与期望状态接受必须在策略调度器视角下原子完成。
 - 无 token 时保持 `candidate`，记录固定结果 `rate_limited`，不创建可安装状态、不调用 Helper，也不进入无界重试队列；原证据仍有效时允许后续重新评估。
 - observe 模式使用独立虚拟桶计算 `would_rate_limit`，不消耗 enforce 桶 token。
-- 桶状态保存在 shared dict，记录当前 token 和最后补充时间。worker reload 不得把桶重置为满额；热加载降低 `burst` 时立即夹紧可用 token，但不撤销已安装条目。
+- enforce 与 observe 虚拟桶分别保存在现有 `ngx.shared.vn_locks`，不新增 shared dict，也不使用 `get_keys()` 枚举：
+
+```text
+kb:promotion_bucket:v1:enforce:state
+kb:promotion_bucket:v1:enforce:lock
+kb:promotion_bucket:v1:observe:state
+kb:promotion_bucket:v1:observe:lock
+```
+
+state 使用版本化结构，token 以固定精度整数保存，避免不同 Lua/Helper 实现的浮点差异：
+
+```json
+{
+  "version": 1,
+  "tokens_microunits": 0,
+  "last_refill_ms": 1783728000000,
+  "limit": 1000,
+  "interval": 60,
+  "burst": 1000
+}
+```
+
+一个完整 token 等于 `1000000` microunits。补充和消费必须在 token 化、带 TTL 的 lock 内完成，并与期望状态接受处于同一个 scheduler-visible 临界区。observe 和 enforce 桶完全独立。
+
+- Nginx/OpenResty graceful configuration reload 在 shared zone 名称和大小兼容时保留桶状态。新 worker 使用 `shared:add()` 或等价 create-if-absent 初始化，不能无条件 `set()` 覆盖幸存状态。
+- 完整 master stop/start、state key 缺失、版本不支持或 state 损坏时，桶以 `tokens_microunits=0`、`last_refill_ms=now` 冷启动并正常补充，不能初始化为 `burst`。
+- 桶不写入 `kernel-blocking-state.json`。首期不要求精确保留完整 master restart 前的瞬时余额，安全策略是重启后从空桶恢复。
+- 热加载限速参数时，先按旧参数补充到切换时刻，再安装新参数并将余额夹紧到新 `burst`；提高 limit 或 burst 不追溯补发 token。
+- 全局 `enabled` 从 `true` 变为 `false` 时停止补充并把 enforce/observe 桶重置为空；重新启用时仍从空桶开始。
 - 桶状态损坏或不可用时，流量处理继续 fail-open，但新的自动内核晋升 fail-closed 并标记 degraded。
 - Helper 对来自 Nginx peer 的所有 `add`/自动续期独立执行相同或更严格的硬变更限额，不能信任调用方提供的 `source` 来决定是否限速。Helper 的连接速率、IPC 请求速率和 batch 大小限制是独立协议防线，不能与本令牌桶混为一谈。
 
@@ -493,6 +523,56 @@ rule current 从 limit 变为 limit + 1
   -> 每个原始计数 key 生命周期最多记录一次
 ```
 
+#### Frequency Rule ID Migration
+
+历史配置中的 frequency rule 可以没有 `id`，而 v2 counter namespace 要求所有规则都有稳定、唯一 ID。冷切换前必须由部署/升级 preflight 在旧 limiter 仍完整运行时执行一次幂等迁移，启动加载和请求 worker 热加载不得隐式迁移。
+
+迁移在现有 config save lock 下执行：
+
+1. 读取磁盘上的 pre-cutover 配置并检查全部 frequency rules，包括当前禁用的规则。
+2. 合法 legacy ID 必须是 JSON string、UTF-8 字节长度 `1..128`，且完全匹配 `[A-Za-z0-9._-]+`。保留第一次出现的合法、非空且唯一 ID；字段缺失、JSON null 或空字符串统一归类为 `missing`，非字符串、超长或包含其他字符统一归类为 `invalid`。
+3. 对 missing/empty、invalid，以及重复合法 ID 的第二项及后续项，使用以下唯一的 m1 算法生成 ID，所有实现必须逐字节一致：
+
+```text
+canonical_rule = RFC 8785 JSON Canonicalization Scheme(rule with top-level "id" removed)
+
+old_id_marker =
+  "missing"                                      # absent/null/empty string
+  "present:" + 原始合法字符串 ID                 # duplicate valid ID
+  "invalid:" + base64url_no_padding(
+      SHA-256(RFC 8785 canonical bytes of original id value)
+  )                                              # non-string/illegal/oversized
+
+duplicate_ordinal = 同一合法非空原 ID 的 1-based 出现序号；missing/invalid 使用 0
+
+preimage =
+  "verynginx-frequency-id-migration\n" +
+  "m1\n" +
+  decimal(original_array_index_1_based) + "\n" +
+  old_id_marker + "\n" +
+  decimal(duplicate_ordinal) + "\n" +
+  decimal(collision_attempt) + "\n" +
+  canonical_rule
+
+digest = SHA-256(UTF-8 bytes of preimage)
+new_id = "freq_m1_" + base64url_no_padding(full 32-byte digest)
+```
+
+4. `collision_attempt` 从 0 开始。若 `new_id` 与任何保留或本轮已生成 ID 冲突，则递增 attempt 并重新计算，直到唯一；不得截断 digest、依赖 map 遍历顺序或回退到时间戳/随机值。m1 输出固定为 51 个 ASCII 字符，frequency rule ID schema 至少允许 128 字符。
+5. 使用现有备份、临时文件和原子 rename 流程持久化完整配置。
+6. 重新读取落盘结果，验证所有 frequency rule ID 非空、唯一、稳定且可规范编码。
+7. 写入有界升级审计，记录规则原位置、旧 ID 的安全摘要、新 ID 和 `missing|invalid|duplicate` 原因；非法复杂值不得原样写日志。
+
+幂等与失败要求：
+
+- 成功迁移后再次执行不改变配置。
+- 原子 rename 前失败必须保持原配置不变；中断后重试必须生成相同 ID。
+- 如果 `cc.rule_ids` 引用了一个重复的 legacy ID，迁移不能猜测管理员原本指向哪条规则，必须中止 cutover 并要求显式解决引用。
+- 如果 `cc.rule_ids` 引用了唯一但不符合新 schema 的字符串 ID，迁移必须把该引用原子更新为对应 m1 ID 并审计；非字符串 ID 不可能成为合法引用。无法唯一映射时中止 cutover。
+- 迁移、持久化或回读验证失败时继续使用完整旧 frequency limiter 语义并中止整个 v2 cutover，不能跳过规则、部分切换或仅关闭缺失 ID 的规则。
+- Dashboard、Raw JSON、import、通用规则编辑器和专用 Frequency API 在迁移后都必须保留并验证 ID；修改 ID 是显式计数重置操作。
+- 该迁移独立于 `kernel_ip_blocking.enabled`，因为 v2 key 影响所有 frequency rules。
+
 #### Frequency Counter Key v2 与冷切换
 
 现有限频原始计数 key 必须加入 rule ID，避免两条使用相同 `key` 维度的规则互相污染。v2 使用版本化命名空间：
@@ -522,14 +602,14 @@ fl:v2:kernel:violation:<encoded_rule_id>:<canonical_ip>:<evidence_slot>
 
 首次部署 v2 采用明确的冷切换契约：
 
-1. 所有 frequency rules 同时切换到 v2 key，不只切换 `cc.rule_ids` 引用的规则。
-2. 不对旧 `fl:*` key 双读、双写或转换；旧 key 不枚举、不删除，按原 TTL 自然过期。
-3. 所有活动限频窗口在切换时重新开始，客户端可能在最长一个 `rule.window` 内获得一次新额度。升级状态和发布说明必须明确显示该行为。
-4. CC violation evidence 从空历史开始，旧计数不能解释为连续超限窗口。共享状态记录 `counter_namespace="v2"` 和统一 `cutover_epoch`。
-5. 只有全部证据都晚于 `cutover_epoch` 且已满足 `min_violation_windows` 时才允许 CC 自动晋升；在此之前状态为 `warming_up`。
-6. graceful reload 期间不得让旧、新 worker 长期同时执行不同 key 语义。部署流程必须完成 OpenResty 冷重启；首期不实现 dual-read/dual-write。
-7. 回滚到旧代码会再次重置窗口，不做反向状态转换。
-8. 所有启用的 frequency rule 在激活前必须有非空、唯一、稳定的 `rule.id`。修改 ID 被视为有意创建新计数命名空间并重置该规则的计数与证据。
+1. 完成并回读验证 Frequency Rule ID Migration；验证失败不得建立 v2 namespace。
+2. 所有 frequency rules 同时切换到 v2 key，不只切换 `cc.rule_ids` 引用的规则。
+3. 不对旧 `fl:*` key 双读、双写或转换；旧 key 不枚举、不删除，按原 TTL 自然过期。
+4. 所有活动限频窗口在切换时重新开始，客户端可能在最长一个 `rule.window` 内获得一次新额度。升级状态和发布说明必须明确显示该行为。
+5. CC violation evidence 从空历史开始，旧计数不能解释为连续超限窗口。共享状态记录 `counter_namespace="v2"` 和统一 `cutover_epoch`。
+6. 只有全部证据都晚于 `cutover_epoch` 且已满足 `min_violation_windows` 时才允许 CC 自动晋升；在此之前状态为 `warming_up`。
+7. graceful reload 期间不得让旧、新 worker 长期同时执行不同 key 语义。部署流程必须在迁移验证后完成 OpenResty 冷重启；首期不实现 dual-read/dual-write。
+8. 回滚到旧代码会再次重置窗口，不做反向状态转换。
 9. `/frequency/stats` 只枚举规范的 v2 counter 命名空间，不能把旧 key 或 violation marker 混入原始限频统计。
 
 初始策略示意：
@@ -701,6 +781,7 @@ Protocol v1 使用本地 Unix Domain Socket：
 - Helper 在读取 payload 前校验 frame 长度和 Unix peer credentials。
 - 客户端使用持久顺序连接，每条连接同一时间最多一个 in-flight 请求，不支持 pipelining。连接最多处理 100 个请求或存活 30 秒，达到任一条件后正常重连。
 - connect timeout 为 100 ms，read/write timeout 为 2 秒，idle timeout 为 5 秒。EOF、timeout 或 Helper 重启后使用带抖动的指数退避重连，初始 100 ms、上限 5 秒。
+- 任意断线重连都使当前 protected-scope binding 失效，即使连接到同一个 Helper 进程。重新连接后必须先完成 `health -> ensure_base -> replace_allow_snapshot` bootstrap，不能立即恢复 DROP add/renew/reconcile-add。
 - Helper 最多接受 16 个并发客户端连接；超限返回 `rate_limited` 或立即拒绝。控制面 dispatch 队列必须有界，断线期间不得无限累积。
 - 请求 worker 不直接持有阻塞式 IPC 会话。周期批处理由 worker 0 timer 上下文发送；高优先级 allow 刷新由一次性异步 timer 发送。
 
@@ -765,6 +846,9 @@ unsupported_operation
 unauthorized_peer
 invalid_scope
 invalid_address
+address_not_local
+scope_validation_pending
+scope_digest_mismatch
 protected_address
 whitelisted
 stale_generation
@@ -787,13 +871,13 @@ Protocol v1 只允许以下操作：
 | 操作 | 类型 | 核心 payload/result 契约 |
 |------|------|--------------------------|
 | `probe` | 只读 | 返回 `protocol_min/max`、capabilities、Helper 版本和受支持 nftables 特性 |
-| `health` | 只读 | 返回 Helper、Executor、table generation、allow `{epoch,sequence,digest}` 和 degraded 原因 |
-| `ensure_base` | 变更 | 接收完整受保护地址、端口、期望 table generation 和当前 whitelist epoch；作用域为空时拒绝 enforce |
-| `add` | 变更、批量 | `items[]` 包含逻辑集合、规范化地址、地址族、绝对 `expires_at` 或仅限 manual 的 permanent 标记、策略版本和原因枚举 |
+| `health` | 只读 | 返回 `helper_instance_id`、Executor、table generation、本机地址摘要、已验证 scope digest、allow `{epoch,sequence,digest}` 和 degraded 原因 |
+| `ensure_base` | 变更 | 接收完整 canonical protected scope、`scope_digest`、activation generation、期望 table generation 和当前 whitelist epoch；重新验证本机地址并返回 connection binding |
+| `add` | 变更、批量 | 携带当前 binding；`items[]` 包含逻辑集合、规范化地址、地址族、绝对 `expires_at` 或仅限 manual 的 permanent 标记、策略版本和原因枚举 |
 | `delete` | 变更、批量 | `items[]` 包含逻辑集合、地址和地址族；删除不存在条目视为成功 |
 | `list` | 只读 | 仅列出自有对象，使用 opaque cursor，单页最多 1000 项 |
 | `replace_allow_snapshot` | 变更 | 接收完整静态 CIDR/IP 与未过期 auto-allow、`{epoch,sequence}` 和 canonical digest |
-| `reconcile` | 变更、分块 | 接收 generation-checked 期望状态分块，返回新增、更新、删除、跳过和失败数量 |
+| `reconcile` | 变更、分块 | 携带当前 binding，接收 generation-checked 期望状态分块及每项 `ensure|preserve_only|manual` mode，返回新增、更新、删除、保留、跳过和失败数量 |
 | `flush_owned` | 变更 | scope 只允许 `auto|all|detach`，不能接收任意 table/chain/set 名 |
 
 通用 batch 规则：
@@ -805,10 +889,37 @@ Protocol v1 只允许以下操作：
 - `replace_allow_snapshot` 必须在同一 transaction 中更新 allow 并移除被覆盖的所有自有 DROP 条目。
 - `reconcile` 超过单批上限时由控制面分块。每块携带同一 `snapshot_id`、固定 desired-state generation、从 0 连续递增的 `chunk_index` 和 `final_chunk`；每块内部原子。
 - Helper 可以逐块幂等补装/更新条目，但在收到并成功处理该 snapshot 的 `final_chunk=true` 前不得依据“未出现”删除任何现有条目。最终块成功后才按完整 snapshot 身份索引执行权威删除并提交该 desired-state generation。
+- `preserve_only` 项若实际存在则保留其当前剩余 TTL，若缺失则不新增，且任何情况下不续期；它在最终权威删除阶段视为仍被期望。`manual` 项按明确 TTL/permanent 语义补装。
 - chunk 缺失、乱序、generation 改变或 snapshot 超时会中止该 snapshot，丢弃 Helper 的暂存索引且不执行权威删除；已完成的幂等补装由下一轮 reconciliation 重新确认。
 - `list` cursor 仅在同一 table generation 内有效；generation 变化后返回 `stale_generation`，调用方重新分页。
 
-#### 8.3.4 幂等、排序与版本协商
+#### 8.3.4 Protected Scope Binding
+
+保护作用域摘要定义为以下 canonical JSON 的 SHA-256：
+
+```text
+scope
+sorted protected_addresses
+sorted protected_ports
+ipv4.enabled
+ipv6.enabled
+```
+
+Helper 每次进程启动生成不可预测的 `helper_instance_id`。`ensure_base` 必须根据执行当时的主机网络状态重新枚举本机地址，确认每个 protected address 仍是本机单播地址，并将当前 IPC connection、`helper_instance_id`、activation generation、`scope_digest` 和 table generation 绑定为一个 session。
+
+出现以下任一条件时进入 `scope_validation_pending`：
+
+1. `helper_instance_id` 改变。
+2. IPC 断线并重连。
+3. 配置产生新的 canonical `scope_digest`。
+4. `health` 报告已安装 scope digest、table generation 或本机地址摘要发生变化。
+5. 系统网络变化监测通知本机地址新增、删除或状态变化。
+
+pending 期间只允许 `probe`、`health`、`ensure_base`、allow refresh、delete/clear、`flush_owned` 和 detach；禁止自动或人工 DROP add、DROP renew 和 reconcile-add。`ensure_base` 成功后必须先安装最新 allow snapshot，随后才能恢复 DROP 写入。
+
+`add` 和 `reconcile` 必须携带或绑定到当前 session。Helper 发现 instance、connection、activation generation、scope digest 或 table generation 不匹配时返回 `scope_validation_pending` 或 `scope_digest_mismatch`，不能使用旧 binding。验证失败时 Lua 层继续 fail-open，状态标记为 `scope_unvalidated|address_not_local|scope_digest_mismatch`。
+
+#### 8.3.5 幂等、排序与版本协商
 
 - Helper 为 mutating `request_id` 保存有界幂等缓存，默认 TTL 10 分钟、最多 10000 项。
 - 相同 ID 加相同规范化请求摘要返回首次结果，不重复执行；相同 ID 加不同摘要返回 `idempotency_conflict`。
@@ -817,7 +928,7 @@ Protocol v1 只允许以下操作：
 - `probe` 返回 `protocol_min`、`protocol_max` 和 capability flags。major version 不兼容时所有 mutating 请求返回 `unsupported_version`。
 - v1 可增加调用方明确声明支持的只读 result 字段；未知请求字段默认拒绝，不能静默忽略安全控制。
 
-#### 8.3.5 身份认证与资源限制
+#### 8.3.6 身份认证与资源限制
 
 - Socket 父目录由 root 拥有且不可被 nginx 用户替换，Socket owner/group/mode 固定为 `root:verynginx 0660`。
 - Helper 使用 `SO_PEERCRED` 或目标平台等价机制验证固定 UID/GID allowlist，文件权限不是唯一认证手段。
@@ -977,8 +1088,11 @@ candidate
 promoted
 dispatch_pending
 installed
+installed_while_disabled
+suspended_disabled
 expired
 drifted
+scope_validation_pending
 helper unavailable
 ```
 
@@ -1000,21 +1114,26 @@ helper unavailable
 core.init.init()
   1. config.load_from_file()
   2. 初始化 shared state
-  3. ip_reputation.restore()
-  4. kernel_blocking.restore()
-  5. 继续 matcher/plugin 初始化
+  3. attach/create activation generation 和 promotion bucket state
+  4. ip_reputation.restore()
+  5. kernel_blocking.restore()
+  6. 继续 matcher/plugin 初始化
 
 core.init.init_worker(), worker 0
-  1. 启动后一次性 kernel_blocking.reconcile(now)
-  2. 自重调度 batch callback:
+  1. 启动后执行 Helper bootstrap:
+       probe/health
+       ensure_base
+       replace_allow_snapshot
+  2. bootstrap 成功后一次性 kernel_blocking.reconcile(now)
+  3. 自重调度 batch callback:
        kernel_blocking.process_candidates(now)
        kernel_blocking.flush_dispatch_queue(now)
-  3. 自重调度 reconcile callback:
+  4. 自重调度 reconcile callback:
        kernel_blocking.reconcile(now)
-  4. 每 600 秒统一 persistence callback:
+  5. 每 600 秒统一 persistence callback:
        ip_reputation.persist()
        kernel_blocking.persist()
-  5. worker 退出轮询:
+  6. worker 退出轮询:
        ip_reputation.persist()
        kernel_blocking.persist()
 ```
@@ -1023,12 +1142,13 @@ core.init.init_worker(), worker 0
 
 - batch callback 按顺序先评估候选、后派发，使用当前运行时 `batch_interval`。
 - reconcile callback 使用当前运行时 `reconcile_interval`。
+- shared state 初始化必须以 create-if-absent 方式接入幸存的 graceful-reload 状态；完整 master restart 时按第 6.2 节建立空 promotion bucket。
 - interval 可热加载的 callback 使用自重调度 `ngx.timer.at()`，每次开始时读取当前已规范化配置，不能因配置变更累积多个 `timer.every()` 链。
 - callback 必须处理 `premature` 和 `ngx.worker.exiting()`；每个模块调用分别 `pcall`，一个模块失败不能阻止其他模块持久化或下一次正常重调度。
 - reconciliation、persistence 和 dispatch 各自使用 token 化、带 TTL 的 shared-dict lease 或等价 single-flight guard，防止慢调用重叠以及 graceful reload 时两个 worker generation 同时执行。worker 异常退出后 lease 必须自动过期。
 - `persist()` 内仍保留 worker 0 防御性检查。退出轮询检测到 exiting 后每个模块只调用一次，不再重调度。
-- 启动恢复只重建期望状态，不执行 Socket I/O，不假定内核条目仍存在；首次 reconciliation 只能在 `init_worker` 后运行。
-- disabled/observe 模式可以执行 probe、health 和只读 drift 检查，但不得派发 add/delete 等 mutating 自动操作。
+- 启动恢复只重建期望状态，不执行 Socket I/O，不假定内核条目仍存在；Helper bootstrap 和首次 reconciliation 只能在 `init_worker` 后运行。
+- disabled/observe 模式可以执行 probe、health、只读 drift 检查，以及 allow refresh、delete/clear、flush、detach 等减少封禁的操作；不得派发 DROP add、renew 或 reconcile-add。
 
 现有 IP 声誉状态继续写入：
 
@@ -1047,11 +1167,12 @@ configs/kernel-blocking-state.json
 快照要求：
 
 - 使用版本化 payload。
-- 保存 promoted/installed 期望状态、人工封禁及绝对 `expires_at`，不保存可重建的短期请求队列。
+- 保存 promoted/installed 期望状态、人工封禁、绝对 `expires_at`、global/policy generation，以及每条记录的 reconciliation mode `ensure|preserve_only|manual`；不保存可重建的短期请求队列。
+- 不保存 promotion bucket、scheduler lease 或 connection binding；完整 master restart 时这些短期状态按各自冷启动规则重建。
 - 使用同目录临时文件加原子 rename。
 - `persist()` 内仍保留 worker 0 防御性检查，与现有 `ip_reputation.persist()` 一致。
 - 启动恢复时丢弃已经过期的自动条目，并按 `expires_at - now` 计算剩余 TTL，不能重新赋予完整 TTL。
-- 人工永久封禁和未过期人工 TTL 封禁必须恢复。
+- 人工永久封禁和未过期人工 TTL 封禁的 desired state 必须恢复；只有全局 enabled 且 scope/allow bootstrap 成功后才重新安装，disabled 启动时保持 suspended 状态并继续在 Dashboard 可见。
 - 快照缺失、损坏或版本不支持时 fail-open，记录告警但不阻断 Nginx 启动。
 - 恢复只建立期望状态，不直接假定内核已安装；进入 `init_worker` 后由 worker 0 触发 Helper reconciliation。
 
@@ -1061,13 +1182,57 @@ configs/kernel-blocking-state.json
 
 `core.init` worker 0 注册并独占 reconciliation 调度，`kernel_blocking` 仅实现可调用回调：
 
-1. 读取 Helper health 和 nftables table generation。
-2. 分页读取自有集合实际状态。
-3. 与未过期的期望状态比较。
-4. 批量补装缺失条目。
-5. 删除不再期望且由自动策略创建的条目。
-6. 保留无法确认所有权的外部条目并告警。
-7. 记录耗时、差异数量和失败原因。
+1. 读取 Helper health、`helper_instance_id`、table generation、installed scope digest 和本机地址摘要。
+2. 若任一 identity/digest 与当前 binding 不一致，进入 `scope_validation_pending`，重新执行 `ensure_base` 并安装最新 allow snapshot。
+3. bootstrap 成功后分页读取自有集合实际状态。
+4. 将未过期状态分为：当前 generation 且允许补装的 `ensure`、只保留现有实际条目但禁止补装/续期的 `preserve_only`，以及 generation-independent 的 `manual`。
+5. 在当前模式允许时仅补装 `ensure` 和合法 `manual` 条目；`preserve_only` 只作为“若实际存在则保留到原 TTL”的身份发送。
+6. 删除不再期望且不属于 `preserve_only` 的自动条目。Helper authoritative snapshot 必须理解 `preserve_only`：它阻止删除已存在条目，但不得创建缺失条目或延长 TTL。
+7. 保留无法确认所有权的外部条目并告警。
+8. 记录耗时、差异数量、scope validation 和失败原因。
+
+### 10.5 Enabled 与 Policy 状态转换
+
+关闭晋升和清理内核集合是两个独立动作。`kernel_ip_blocking.enabled: true -> false` 不隐式执行 `flush_owned`：
+
+1. 原子递增 `global_activation_generation` 并记录 `evidence_not_before` 和关闭时间。
+2. 停止候选评估、自动期望状态创建、自动续期、DROP add 派发和 reconcile-add。
+3. queued/重试项按来源 generation 惰性丢弃；未安装的自动期望状态标记为 `suspended_disabled`，不得在重新启用后直接重放；已安装自动条目改为 `preserve_only`。
+4. 已提交的 in-flight transaction 可能在关闭后才返回。成功晚到时必须在 reconciliation 可见前原子记录 `state=installed_while_disabled`、`reconciliation_mode=preserve_only`、原始绝对 `expires_at` 和来源 global/policy generations，不能声称关闭已经删除它。
+5. 已安装 scanner/CC 条目按原内核 TTL 自然过期；manual TTL/permanent 条目保持。只有管理员显式调用 `flush-auto`、`flush-all-owned` 或 detach 才立即清理。
+6. 白名单刷新、delete/clear、flush 和 detach 始终允许，因为这些操作只会减少封禁。
+7. 不扫描或删除短期 evidence key；旧 activation generation 和新的 `evidence_not_before` 使关闭前证据失去晋升资格。
+8. enforce/observe 桶停止补充并重置为空。
+
+`false -> true` 时：
+
+1. 再次递增 global activation generation，记录新的 `evidence_not_before`，令牌桶从空状态开始。
+2. 在任何 DROP add/renew 前完成当前 Helper connection 的 protected-scope validation 和最新 allow snapshot 安装。
+3. 只有新 cutoff 后产生的证据才能创建自动期望状态；不重放 `suspended_disabled`、旧 dispatch item 或关闭前缺失的自动条目。
+4. 关闭期间仍真实存在于内核中的自动条目可继续到原 TTL，但 reconciliation 不依据旧 desired state 补装缺失自动条目。
+5. 未过期 manual TTL 和 permanent 期望状态可在 scope/allow 验证后恢复。
+6. `mode=observe` 时仍禁止所有 DROP add/renew。
+
+`scanner.enabled` 或 `cc.enabled` 的关闭/重新启用遵循同一 policy-scoped 规则，只推进对应 `policy_generation`：停止该策略新工作、不隐式 flush 已安装条目、把已安装条目标记为 `preserve_only`，重新启用后要求新证据。其他策略 generation 不受影响。
+
+其他影响 effective mode 或晋升判定的配置变化使用同一失效模型：
+
+| 变化 | Generation 与 cutoff | 已安装自动条目 |
+|------|----------------------|----------------|
+| `mode: enforce -> observe` | 推进 global generation；停止 enforce 桶；observe 继续采集 | scanner/CC `ensure -> preserve_only` |
+| `mode: observe -> enforce` | 推进 global generation，设置新的 global `evidence_not_before`，enforce 桶从空开始 | 不重放 observe 期间 queued/desired；新证据满足后才安装 |
+| `cc.enforce_ready: true -> false` | 推进 CC policy generation；CC 保持 observe | 已安装 CC `ensure -> preserve_only` |
+| `cc.enforce_ready: false -> true` | 推进 CC policy generation，设置新的 CC `evidence_not_before` | 不立即安装旧候选，等待新证据和 warm-up |
+| scanner/CC 晋升字段、引用规则或证据阈值变化 | 推进对应 policy generation 和 cutoff | 该策略旧条目 `ensure -> preserve_only` |
+| topology、protected scope、地址族或其他全局安全门变化 | 推进 global generation；同时使 scope binding 失效 | 自动条目 `ensure -> preserve_only`，重新 bootstrap 后按新证据处理 |
+
+只影响 Dashboard 文案、日志级别或其他非策略字段的变化不得推进 generation。所有 transition 必须在配置 post-activation hook 中根据 old/new normalized config digest 计算，不能由各 worker 自行猜测。
+
+manual 条目不使用 global/policy generation；它们通过独立的管理版本、TTL 和审计状态恢复。全局 disabled 时不自动补装 manual，但重新启用并完成 scope/allow bootstrap 后可以恢复未过期或 permanent manual desired state。
+
+global/policy generation counters、对应的 normalized policy config digest 和 reconciliation mode 必须写入 `kernel-blocking-state.json`。完整 master restart 在当前配置 digest 与快照一致时恢复这些值，restart 本身不推进 generation；若当前配置与快照 digest 不一致，则按实际 changed fields 执行一次对应 global/policy transition 并推进 generation。若快照缺失或损坏，则自动条目不得从磁盘外状态重建，manual 恢复也进入 degraded 并要求管理员确认。
+
+API/Dashboard 在全局或策略 disabled 时仍必须显示实际内核条目，并明确警告 `disabled_with_active_entries`。
 
 ---
 
@@ -1138,17 +1303,55 @@ configs/kernel-blocking-state.json
 8. 任一嵌套字段或引用无效时整次 save/load activation 失败，不允许部分应用。
 9. 规范化后的运行时快照保持不可变；模块不得直接修改活动配置中的嵌套 table。
 
-加载和保存顺序必须调整为：
+配置处理必须分成可写 save pipeline 和只读 load pipeline，不能用一个流程覆盖所有场景。
+
+#### API Save、Import 与 Rollback
 
 ```text
-parse raw candidate
+copy raw candidate
   -> recursive type/shape check and default merge
   -> effective cross-field/reference validation
-  -> persist
-  -> atomically activate immutable snapshot
+  -> compile immutable runtime snapshot
+  -> backup + atomically persist normalized config
+  -> activate snapshot
+  -> run post-activation publication hooks
 ```
 
-现有只补顶层默认值的 `normalize_defaults()` 不能直接承担本 section 的安全语义。
+- 验证和 compile 全部成功前不得写配置文件。
+- whitelist generation、activation generation、enabled/policy transition 和 scope-digest publication 只能在持久化与 runtime activation 成功后执行。
+- post-activation Helper/IPC 失败不回滚已经提交的配置文件，运行状态进入 degraded 并由重试/reconciliation 恢复。
+- rollback 读取历史配置后仍需走完整递归规范化和当前版本验证，不能绕过新 schema。
+
+#### Startup Load
+
+```text
+read persisted bytes
+  -> parse
+  -> recursive normalize in memory
+  -> cross-field/reference validation
+  -> compile immutable snapshot
+  -> activate
+```
+
+- 普通启动加载不得重写、修复、迁移、备份或把默认值回写 `config.json`。
+- 配置无效时保留原文件不动，激活安全的内存默认快照，其中 kernel blocking 强制 disabled，并明确记录配置错误。
+- Frequency ID migration、schema migration、默认文件恢复和自动生成凭据等需要写盘的动作必须由显式 migration/save pipeline 执行，不能混入普通 load。
+
+#### Hot Reload
+
+Hot reload 使用与 startup 相同的只读 parse/normalize/validate/compile 流程：
+
+```text
+read changed persisted bytes
+  -> parse/normalize/validate/compile
+  -> atomically activate only on complete success
+```
+
+- 失败时继续保留最后一个 last-known-good runtime snapshot 和 hash。
+- 失败时不得发布新的 config hash、whitelist generation、activation generation 或 scope digest。
+- request worker 和热加载回调不得隐式执行配置迁移。
+
+现有只补顶层默认值、先保留所有未知字段的 `normalize_defaults()` 不能直接承担本 section 的安全语义，必须拆分或重构为递归 schema walker，并将 unknown-field 策略作为 schema node 的显式属性。
 
 ### 11.2 字段定义
 
@@ -1191,6 +1394,7 @@ parse raw candidate
 
 - `enabled=true` 且 `mode=enforce` 时必须同时满足：`topology=direct`、`fail_policy=open`、`scope=web`、`protected_addresses` 非空、`protected_ports` 非空，并至少启用一个与保护地址一致的地址族。
 - 保存配置时验证地址语法、规范化、重复项和地址族；激活 enforce 或 Helper `ensure_base()` 时还必须独立验证每个 protected address 当前确属本机单播地址。
+- Helper 启动/重启、IPC 重连、scope 配置变化、本机地址摘要变化或 table generation 漂移后，原 scope binding 立即失效。在新的 `ensure_base` 和 allow snapshot 成功前不得执行 DROP add/renew/reconcile-add。
 - 首期不自动推断接口地址，也不把空数组解释为所有本机地址。空保护作用域只允许 disabled/observe。
 - `scanner.require_flagged=false`、`ipv6.prefix_aggregation=true` 或 `cc.enabled=true && cc.enforce_ready=false` 不得产生对应类型的 enforce 安装；最后一种组合仍允许 CC observe。
 - 不新增 `never_block_addresses` 或其他并行来源白名单；静态来源白名单统一复用 `ip_reputation.whitelist`，运行时自动白名单作为附加临时 allow 状态。
@@ -1202,11 +1406,80 @@ parse raw candidate
 
 ### 11.4 Frequency Rule 引用完整性
 
-- 启用 v2 counter namespace 前，所有已启用 frequency rules 都必须具有非空、唯一、稳定且可规范编码的 `rule.id`，不只检查 `cc.rule_ids` 引用的规则。
+- 启用 v2 counter namespace 前必须完成第 6.4 节的 Frequency Rule ID Migration；迁移后所有 frequency rules，包括禁用规则，都必须具有非空、唯一、稳定且可规范编码的 `rule.id`。
 - `cc.rule_ids` 只允许引用存在且启用、key 为 `"ip"` 或组合 key 明确包含 `"ip"` 的 frequency rules。
 - 被引用规则的 `limit`、`window`、matcher 和 key 从现有 frequency rule 读取，不在 kernel section 重复配置。
 - 空 `cc.rule_ids` 表示不生成 CC 候选；未知、重复、禁用或不含 IP 维度的引用使整次配置保存失败。
 - 修改 frequency rule ID 是显式计数重置操作，API/Dashboard 必须提示 v2 counter 与 CC warm-up 会重新开始。
+- 正常 save/import 在 migration 完成后不得自动修复缺失或重复 ID，而应拒绝配置；自动生成只属于显式、版本化、可审计的 pre-cutover migration。
+
+### 11.5 Effective Runtime State
+
+配置值、策略有效模式、安装可达性和运行健康必须分别计算，不能把 `degraded` 当作配置模式。
+
+全局有效模式：
+
+| `enabled` | `mode` | Effective global mode | DROP install reachable |
+|-----------|--------|-----------------------|------------------------|
+| `false` | 任意 | `disabled` | 否 |
+| `true` | `observe` | `observe` | 否 |
+| `true` | `enforce` | `enforce` | 仍受 runtime gates 约束 |
+
+CC 有效模式：
+
+| Global | `cc.enabled` | `cc.rule_ids` | `cc.enforce_ready` | CC effective mode | 安装可达 | Primary reason |
+|--------|--------------|---------------|--------------------|-------------------|----------|----------------|
+| disabled | 任意 | 任意 | 任意 | `disabled` | 否 | `global_disabled` |
+| observe | `false` | 任意 | 任意 | `disabled` | 否 | `cc_disabled` |
+| observe | `true` | 空 | 任意 | `disabled` | 否 | `no_rule_ids` |
+| observe | `true` | 非空 | 任意 | `observe` | 否 | `global_observe` |
+| enforce | `false` | 任意 | 任意 | `disabled` | 否 | `cc_disabled` |
+| enforce | `true` | 空 | 任意 | `disabled` | 否 | `no_rule_ids` |
+| enforce | `true` | 非空 | `false` | `observe` | 否 | `cc_not_enforce_ready` |
+| enforce | `true` | 非空 | `true` | `enforce` | 条件可达 | 无配置层阻塞 |
+
+进入全局 enforce 不要求 CC 已 ready。`cc.enforce_ready=false` 表示 scanner 等其他策略可以 enforce，而 CC 保持 observe-only；这不是 degraded。
+
+runtime blocker 不改变 configured/effective mode，只把受影响的 global/policy `install_reachable` 设为 false，并附加固定 reason。某个 policy 不可达不能自动把其他 policy 标记为不可达：
+
+```text
+helper_unavailable
+scope_validation_pending
+scope_unvalidated
+scope_digest_mismatch
+allow_refresh_pending
+counter_namespace_not_v2
+warming_up
+family_disabled
+capacity
+rate_limited
+whitelisted
+topology
+disabled_with_active_entries
+```
+
+policy-level reachability 与单个 candidate 的拒绝结果分开记录。每个 `cc.rule_ids` 引用规则至少暴露：
+
+```text
+rule_id
+reference_valid
+counter_namespace
+cutover_epoch
+warmup_until
+effective_mode
+install_reachable
+reason_codes[]
+```
+
+推荐且必须可达的操作流程为：
+
+```text
+启用全局 observe
+  -> 启用并配置 CC rules
+  -> 完成 ID migration、v2 cutover、warm-up 和 observe 校准
+  -> 显式确认 cc.enforce_ready=true
+  -> 切换全局 enforce
+```
 
 ---
 
@@ -1238,26 +1511,61 @@ parse raw candidate
 
 `GET /kernel-blocking/status` 至少返回：
 
-- `counter_namespace`、`cutover_epoch` 和每条 CC 引用规则的 `warming_up|ready` 状态。
+- configured global state、effective global/scanner/CC mode、global/policy-scoped `install_reachable`、health 和固定 `reason_codes[]`，结构遵循 11.5。
+- Frequency ID migration 状态和映射摘要、`counter_namespace`、`cutover_epoch`，以及每条 CC 引用规则的 reference、warm-up 和 reachability 状态。
 - 控制面 whitelist generation、Helper installed allow generation、canonical digest 和 `allow_refresh_pending`。
-- Promotion 桶的配置、当前可用 token、最后补充时间和近期 `rate_limited` 数量。
-- dispatch queue 深度、最近 IPC Protocol v1 错误码、table generation 和 reconciliation lease 状态。
+- Promotion 桶的配置、状态来源 `survived_reload|cold_empty|reconfigured`、当前可用 token、最后补充时间和近期 `rate_limited` 数量。
+- `helper_instance_id`、configured/installed scope digest、本机地址摘要、scope validation state 和 table generation。
+- global/policy activation generations、`evidence_not_before`、dispatch queue 深度、最近 IPC Protocol v1 错误码和 scheduler lease 状态。
+- disabled 或 policy disabled 时仍存在的实际内核条目数量，并返回 `disabled_with_active_entries` 警告。
+
+状态响应的最低结构示意：
+
+```json
+{
+  "configured": {
+    "enabled": true,
+    "mode": "enforce"
+  },
+  "effective": {
+    "global_mode": "enforce",
+    "global_install_reachable": true,
+    "scanner": {
+      "mode": "enforce",
+      "install_reachable": true,
+      "reason_codes": []
+    },
+    "cc": {
+      "mode": "observe",
+      "install_reachable": false,
+      "reason_codes": ["cc_not_enforce_ready"]
+    }
+  },
+  "health": {
+    "state": "ok"
+  }
+}
+```
 
 ### 12.2 Dashboard 草案
 
 建议新增“Kernel Blocking”区域：
 
-- 当前模式：disabled / observe / enforce / degraded
-- nftables capability 和 Helper health
+- configured global toggle/mode、effective global/scanner/CC mode 和独立 health `ok|degraded|unavailable`
+- global、scanner、CC 分开的“当前能否安装” reachability badge、全部固定 reason 及对应处理建议
+- nftables capability、`helper_instance_id`、Helper health 和 protected-scope validation
 - scanner、CC、manual 集合数量
+- disabled/policy-disabled 但仍有活动内核条目时的显式警告及 `flush-auto` 入口
 - 最近晋升和解除记录
 - 候选 IP、证据和模拟命中数量
 - 期望状态与实际状态差异
-- Frequency v2 冷切换和 CC warm-up 状态
+- Frequency ID migration、v2 冷切换、cutover epoch，以及每条 CC rule 的 reference/warm-up/reachability 状态
 - 白名单控制面/Helper generation 差异
 - 自动晋升桶余额及近期限速拒绝
 - 单 IP 详情：来源、TTL、策略版本、历史
 - 暂停新增、解除单条、清理自动集合、触发 reconcile
+
+`cc.enforce_ready` 必须能在全局 observe 模式下查看和显式确认，不能只在全局 enforce 后才显示或编辑。进入全局 enforce 不得要求 CC ready；CC observe-only 不能显示为 degraded。
 
 危险操作必须二次确认。Dashboard 不提供任意 nftables 规则编辑器。
 
@@ -1281,7 +1589,7 @@ verynginx_kernel_block_allow_generation_lag
 verynginx_kernel_block_promotion_tokens
 ```
 
-其中 `policy` 仅允许 `scanner|cc`，`level` 仅允许 `loose|strict`；被安全门拒绝的原因使用固定枚举，例如 `whitelisted|topology|family|scope|capacity|challenge_required|rate_limited|warming_up`。counter namespace、cutover epoch 和 generation 具体值优先通过 status 返回，不把 IP、rule ID、generation 或自由文本作为 Prometheus label，防止高基数。
+其中 `policy` 仅允许 `scanner|cc`，`level` 仅允许 `loose|strict`；被安全门拒绝的原因使用固定枚举，例如 `whitelisted|topology|family|scope_validation_pending|scope_digest_mismatch|capacity|challenge_required|rate_limited|warming_up|disabled_with_active_entries`。counter namespace、cutover epoch 和 generation 具体值优先通过 status 返回，不把 IP、rule ID、generation 或自由文本作为 Prometheus label，防止高基数。
 
 ### 13.2 审计字段
 
@@ -1338,7 +1646,7 @@ verynginx_kernel_block_promotion_tokens
 - `flush auto`：清理 scanner/CC 自动集合，保留 manual。
 - `flush all owned`：清理全部 VeryNginx 自有集合。
 - `detach chain`：从系统 hook 移除 VeryNginx 自有 jump/chain。
-- `disable config`：下次启动保持关闭。
+- `disable config`：停止新晋升并使下次启动保持关闭，不隐式清理现有集合；需要立即解除时另行执行 `flush auto`、`flush all owned` 或 `detach chain`。
 
 ### 14.3 管理员逃生通道
 
@@ -1362,7 +1670,8 @@ verynginx_kernel_block_promotion_tokens
 - 检测 UFW、Docker、`iptables-nft` 和已有 `table inet verynginx`。
 - 不覆盖用户的 `/etc/nftables.conf`，不清空已有 nftables table。
 - capability 不满足时保持 Lua WAF 可用，并明确报告内核封禁不可用。
-- 首次引入 Frequency Counter Key v2 时执行 OpenResty 冷重启，不使用 graceful reload 混跑旧、新 key；发布说明明确所有活动限频窗口重置以及 CC 证据 warm-up。
+- 首次引入 Frequency Counter Key v2 的部署顺序固定为：备份配置；在旧 limiter 运行时执行 Frequency Rule ID Migration；原子持久化并回读验证；验证成功后执行 OpenResty 冷重启；建立 `counter_namespace=v2` 和 `cutover_epoch`。不得使用 graceful reload 混跑旧、新 key。
+- ID migration 或回读验证失败时中止冷切换并继续使用完整旧 limiter 语义；发布说明明确 ID 映射、所有活动限频窗口重置以及 CC 证据 warm-up。
 
 推荐模型：
 
@@ -1407,19 +1716,23 @@ Helper 应在防火墙就绪后启动。OpenResty 不应强依赖 Helper 启动�
 - Promotion 不作为普通 access plugin，terminal action 后不合成后续插件证据
 - scanner block 分槽计数、原子递增、TTL、窗口汇总和有界索引
 - CC rule ID 引用校验、IP key 限制、v2 key 无歧义编码和每个原始计数生命周期一次的超限证据
+- Frequency ID migration 的 RFC 8785 canonicalization 测试向量、缺失/非法/非字符串/超长/重复 ID、禁用规则、确定性重试、collision attempt、唯一非法引用重写、歧义 `cc.rule_ids`、写入中断和回读验证
 - v2 冷切换隔离旧 key、统一 cutover epoch、warm-up、修改 rule ID 和 rollback 重置语义
 - 白名单和 protected address 优先级
 - generation-qualified 白名单正负缓存、CIDR 变更、静态 add/remove、配置整体替换、保存失败和旧 generation 自然过期
 - 自动白名单创建、删除、过期和缓存 TTL 不越过 auto-allow 到期时间
 - 白名单覆盖 manual/scanner/CC，以及完整 snapshot 高优先级 allow 刷新
 - scanner/CC 重叠时的单一自动集合归属
-- 全局自动晋升令牌桶 burst/refill、scanner/CC 共享、升级、续期、重复证据、observe 虚拟桶、reload 状态保留和 manual 排除
+- 全局自动晋升令牌桶固定 key、原子 consume、burst/refill、scanner/CC 共享、升级、续期、重复证据、observe 虚拟桶、HUP 状态保留、完整 restart 空桶、损坏状态和 manual 排除
 - TTL 分级和最大值
 - IPv4/IPv6 解析、规范化和非法输入
 - 拓扑安全门
 - 状态机转换
+- enabled/mode/enforce_ready/策略阈值/引用/scope 变化的 global/policy generation 映射、快照恢复、旧队列丢弃、late in-flight 原子转 `preserve_only`、不补装/不删除/不续期、重新启用证据 cutoff 和 manual 恢复
 - 队列去重、容量和过期
 - 递归配置默认值、部分嵌套对象、未知字段、map/array 形状、错误类型和规范化后的跨字段验证
+- save/startup/hot-reload 三条配置 pipeline、启动不回写、hot reload 失败保留 last-known-good 和 publication hook 顺序
+- 11.5 全部 effective-state 矩阵行、多个 runtime reason overlay 和每条 CC rule reachability 序列化
 - scheduler 唯一所有权、自重调度、热加载 interval、lease 过期、premature、无重复注册和 worker 退出持久化
 
 ### 16.2 Nft Executor Contract Test
@@ -1447,6 +1760,7 @@ Helper 应在防火墙就绪后启动。OpenResty 不应强依赖 Helper 启动�
 - protocol/capability 协商、不兼容 major version 和未知安全字段
 - whitelist/desired/table generation 过期、冲突和在途旧 snapshot 不能覆盖新状态
 - whitelist epoch bootstrap 前合并刷新请求，`ensure_base` 成功后只发送最新完整 snapshot
+- Helper restart/reconnect、scope digest/本机地址摘要变化、旧 connection binding 和 scope validation 操作门控
 - reconcile snapshot 分块顺序、final chunk 前禁止权威删除、缺块/超时中止和 generation pinning
 - list cursor 在 table generation 变化后失效
 - 持久连接生命周期、单 in-flight、timeout、EOF、Helper 重启、退避和有界队列
@@ -1468,7 +1782,11 @@ Helper 应在防火墙就绪后启动。OpenResty 不应强依赖 Helper 启动�
 - conntrack、Docker 和防火墙管理器交互。
 - Helper 无权限时 fail-open。
 - Helper crash/restart 后恢复。
+- Helper restart、IPC reconnect、DHCP/VIP/接口地址变化后，在 `ensure_base` 和最新 allow snapshot 成功前没有任何 DROP add/renew/reconcile-add。
+- disabled 后 queued/in-flight/installed 状态可解释，自动条目不被隐式 flush；重新启用不重放关闭前自动工作。
+- graceful reload 保留 promotion bucket，完整 service restart 以空桶启动。
 - v2 升级和回滚冷切换不会把旧 key 当作新计数或 CC 证据。
+- 缺失/重复 rule ID 的迁移未成功持久化和验证时不能进入 v2 cutover。
 
 ### 16.5 安全测试
 
@@ -1509,8 +1827,8 @@ Helper 应在防火墙就绪后启动。OpenResty 不应强依赖 Helper 启动�
 
 | 阶段 | 内容 | 是否写内核 | 退出条件 |
 |------|------|------------|----------|
-| Phase 0 | 威胁模型、递归配置 schema、默认值/跨字段验证、IPC v1、Executor contract、调度 wiring、独立快照格式 | 否 | 设计评审和 contract test 方案通过 |
-| Phase 1 | Frequency Counter Key v2 冷切换、证据采集、Promotion Policy observe-only、虚拟晋升桶 | 否 | warm-up 完成，候选数据稳定，无明显误判 |
+| Phase 0 | 威胁模型、递归配置 schema、三类配置 pipeline、Frequency ID migration 工具、IPC v1、Executor contract、调度 wiring、独立快照格式 | 否 | 设计评审、migration dry-run 和 contract test 方案通过 |
+| Phase 1 | 持久化并验证 ID migration、Frequency Counter Key v2 冷切换、证据采集、Promotion Policy observe-only、虚拟晋升桶 | 否 | migration/cutover 完整，warm-up 完成，候选数据稳定 |
 | Phase 2 | nftables Executor、Helper、IPC v1、只读 probe/list | 否 | 权限、capability、协议和故障测试通过 |
 | Phase 3 | Shadow reconciliation | 否或隔离 namespace | 期望/实际差异可解释 |
 | Phase 4 | nftables 小流量 canary，短 TTL | 是 | 误封率和回滚指标达标 |
@@ -1528,7 +1846,7 @@ observe 模式先回答：
 - 最大集合规模和每秒新增速率是多少？
 - 全局晋升桶在候选数据上会拒绝多少 `would_promote`，scanner 与 CC 是否互相挤占？
 
-Phase 1 开始前必须完成 Frequency Counter Key v2 冷重启切换并记录统一 `cutover_epoch`。CC 数据只统计切换后产生的 violation marker；warm-up 完成前不得把历史不足误判为策略安全。
+Phase 1 开始前必须先完成并回读验证 Frequency Rule ID Migration，再执行 Frequency Counter Key v2 冷重启切换并记录统一 `cutover_epoch`。CC 数据只统计切换后产生的 violation marker；warm-up 完成前不得把历史不足误判为策略安全。
 
 Scanner 必须同时统计两个层次：
 
