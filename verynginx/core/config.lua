@@ -7,79 +7,343 @@ local _M = {}
 local json = require "dkjson"
 local random = require "core.random"
 
+-- URL constants to keep schema lines short
+local GEOIP_UPDATE_URL = "https://download.maxmind.com/app/geoip_download"
+local GEOIP_CDN_URL = "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb"
+
 -- ---------------------------------------------------------------------------
 -- Schema definition
 -- ---------------------------------------------------------------------------
+local cs = require "core.config_schema"
+
+-- Bottom-up: define leaf schema nodes first, then compose into parents.
+local function leaf(t)
+    return t
+end
+
 _M.schema = {
     version = "2.0",
     fields = {
-        base_uri = { type = "string", default = "/verynginx" },
-        dashboard_host = { type = "string", default = "" },
-        cookie_prefix = { type = "string", default = "verynginx" },
-        admin = { type = "table", default = {} },
-        matcher = { type = "table", default = {} },
-        rule = { type = "table", default = {} },
-        backend_upstream = { type = "table", default = {} },
-        response = { type = "table", default = {} },
-        plugin = { type = "table", default = {} },
-        security = { type = "table", default = { session_ttl = 28800 } },
-        statistics = { type = "table", default = {} },
-        observability = { type = "table", default = {} },
-        body = { type = "table", default = { max_size = 1048576, max_args = 100, on_error = "fail_closed" } },
-        proxy = { type = "table", default = { health_check_interval = 5 } },
-        config_save_lock_ttl = { type = "number", default = 60 },
-        alerting = { type = "table", default = {
-            enabled = false,
-            webhook_url = "",
-            hit_spike_multiplier = 3.0,
-            hit_spike_min_hits = 10,
-            fp_pass_rate_threshold = 0.3,
-            fp_min_challenges = 5,
-            unknown_pattern_min_hits = 5,
-            ja3_cross_ip_threshold = 5,
-            window_seconds = 360,
-        } },
-        waf_rules = { type = "table", default = {} },
-        geoip = { type = "table", default = {
-            enable = false,
-            geodb_path = "",
-            whitelist = {},
-            blocklist = {},
-            block_continents = {},
-            auto_update = true,
-            update_interval_hours = 168,
-            license_key = "",
-            update_url = "https://download.maxmind.com/app/geoip_download",
-            cdn_url = "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
-            use_cdn = false,
-        } },
-        fingerprints = { type = "table", default = {
-            enable = true,
-            auto_block_scanners = true,
-            entries = {},
-        } },
-        waf_recommender = { type = "table", default = {
-            enabled = true,
-            min_hits = 10,
-            window_size = 3600,
-            min_patterns = 3,
-        } },
-        ip_reputation = { type = "table", default = {
-            enable = false,
-            threshold = 25,
-            flag_duration = 600,
-            window_size = 300,
-            slot_size = 60,
-            min_requests = 3,
-            pending_ttl = 600,
-            whitelist = {},
-            signals = {
-                waf_challenge = 3,
-                waf_block = 5,
-                not_found = 1,
-                challenge_fail = 5,
+        base_uri = leaf({ type = "string", default = "/verynginx" }),
+        dashboard_host = leaf({ type = "string", default = "" }),
+        cookie_prefix = leaf({ type = "string", default = "verynginx" }),
+        admin = leaf({ type = "table", default = {} }),
+        matcher = leaf({ type = "table", default = {} }),
+        rule = leaf({ type = "table", default = {} }),
+        backend_upstream = leaf({ type = "table", default = {} }),
+        response = leaf({ type = "table", default = {} }),
+        plugin = leaf({
+            type = "object",
+            default = {},
+        }),
+        -- security: top-level preserve; recursive-merge children
+        security = {
+            type = "object",
+            default = { session_ttl = 28800, csrf = true, rate_limit = { login = "10/m", config_save = "30/m" } },
+            children = {
+                session_ttl = leaf({ type = "integer", default = 28800, min = 60, max = 86400 * 30 }),
+                csrf = leaf({ type = "boolean", default = true }),
+                rate_limit = {
+                    type = "object",
+                    default = { login = "10/m", config_save = "30/m" },
+                    children = {
+                        login = leaf({ type = "string", default = "10/m" }),
+                        config_save = leaf({ type = "string", default = "30/m" }),
+                    },
+                },
             },
-        } },
+            preserve_unknown = true,
+        },
+        statistics = leaf({ type = "table", default = {} }),
+        observability = leaf({ type = "table", default = {} }),
+        body = {
+            type = "object",
+            default = { max_size = 1048576, max_args = 100, on_error = "fail_closed" },
+            children = {
+                max_size = leaf({ type = "integer", default = 1048576, min = 1024, max = 104857600 }),
+                max_args = leaf({ type = "integer", default = 100, min = 1, max = 10000 }),
+                on_error = leaf({ type = "string", default = "fail_closed",
+                    enum = { "match", "skip", "fail_closed" } }),
+            },
+            preserve_unknown = true,
+        },
+        proxy = {
+            type = "object",
+            default = { health_check_interval = 5 },
+            children = {
+                health_check_interval = leaf({ type = "integer", default = 5, min = 1, max = 300 }),
+            },
+            preserve_unknown = true,
+        },
+        config_save_lock_ttl = leaf({ type = "integer", default = 60, min = 5, max = 300 }),
+        alerting = {
+            type = "object",
+            default = {
+                enabled = false,
+                webhook_url = "",
+                hit_spike_multiplier = 3.0,
+                hit_spike_min_hits = 10,
+                fp_pass_rate_threshold = 0.3,
+                fp_min_challenges = 5,
+                unknown_pattern_min_hits = 5,
+                ja3_cross_ip_threshold = 5,
+                window_seconds = 360,
+            },
+            children = {
+                enabled           = leaf({ type = "boolean", default = false }),
+                webhook_url       = leaf({ type = "string", default = "", pattern = "^https://" }),
+                hit_spike_multiplier = leaf({ type = "number", default = 3.0, min = 1.0, max = 100.0 }),
+                hit_spike_min_hits   = leaf({ type = "integer", default = 10, min = 1, max = 10000 }),
+                fp_pass_rate_threshold = leaf({ type = "number", default = 0.3, min = 0.0, max = 1.0 }),
+                fp_min_challenges    = leaf({ type = "integer", default = 5, min = 1, max = 1000 }),
+                unknown_pattern_min_hits = leaf({ type = "integer", default = 5, min = 1, max = 1000 }),
+                ja3_cross_ip_threshold   = leaf({ type = "integer", default = 5, min = 2, max = 1000 }),
+                window_seconds      = leaf({ type = "integer", default = 360, min = 60, max = 86400 }),
+            },
+            preserve_unknown = true,
+        },
+        waf_rules = leaf({ type = "table", default = {} }),
+        geoip = {
+            type = "object",
+            default = {
+                enable = false,
+                geodb_path = "",
+                whitelist = {},
+                blocklist = {},
+                block_continents = {},
+                auto_update = true,
+                update_interval_hours = 168,
+                license_key = "",
+                update_url = "https://download.maxmind.com/app/geoip_download",
+                cdn_url = "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
+                use_cdn = false,
+            },
+            children = {
+                enable              = leaf({ type = "boolean", default = false }),
+                geodb_path          = leaf({ type = "string", default = "" }),
+                whitelist           = leaf({ type = "array", default = {}, items = "string" }),
+                blocklist           = leaf({ type = "array", default = {}, items = "string" }),
+                block_continents    = leaf({ type = "array", default = {}, items = "string" }),
+                auto_update         = leaf({ type = "boolean", default = true }),
+                update_interval_hours = leaf({ type = "integer", default = 168, min = 1, max = 720 }),
+                license_key         = leaf({ type = "string", default = "" }),
+                update_url          = leaf({ type = "string", default = GEOIP_UPDATE_URL }),
+                cdn_url             = leaf({ type = "string", default = GEOIP_CDN_URL }),
+                use_cdn             = leaf({ type = "boolean", default = false }),
+            },
+            preserve_unknown = true,
+        },
+        fingerprints = {
+            type = "object",
+            default = { enable = true, auto_block_scanners = true, entries = {} },
+            children = {
+                enable              = leaf({ type = "boolean", default = true }),
+                auto_block_scanners = leaf({ type = "boolean", default = true }),
+                entries             = leaf({ type = "array", default = {}, items = "string" }),
+            },
+            preserve_unknown = true,
+        },
+        waf_recommender = {
+            type = "object",
+            default = { enabled = true, min_hits = 10, window_size = 3600, min_patterns = 3 },
+            children = {
+                enabled     = leaf({ type = "boolean", default = true }),
+                min_hits    = leaf({ type = "integer", default = 10, min = 1, max = 10000 }),
+                window_size = leaf({ type = "integer", default = 3600, min = 60, max = 86400 }),
+                min_patterns = leaf({ type = "integer", default = 3, min = 1, max = 1000 }),
+            },
+            preserve_unknown = true,
+        },
+        ip_reputation = {
+            type = "object",
+            default = {
+                enable = false,
+                threshold = 25,
+                flag_duration = 600,
+                window_size = 300,
+                slot_size = 60,
+                min_requests = 3,
+                pending_ttl = 600,
+                whitelist = {},
+                signals = {
+                    waf_challenge = 3,
+                    waf_block = 5,
+                    not_found = 1,
+                    challenge_fail = 5,
+                },
+                auto_whitelist = {
+                    enabled = true,
+                    threshold = 3,
+                    ttl = 3600,
+                    max_entries = 1000,
+                },
+            },
+            children = {
+                enable          = leaf({ type = "boolean", default = false }),
+                threshold       = leaf({ type = "integer", default = 25, min = 1, max = 10000 }),
+                flag_duration   = leaf({ type = "integer", default = 600, min = 60, max = 604800 }),
+                window_size     = leaf({ type = "integer", default = 300, min = 60, max = 86400 }),
+                slot_size       = leaf({ type = "integer", default = 60, min = 1, max = 3600 }),
+                min_requests    = leaf({ type = "integer", default = 3, min = 1, max = 1000 }),
+                pending_ttl     = leaf({ type = "integer", default = 600, min = 60, max = 86400 }),
+                whitelist       = leaf({ type = "array", default = {}, items = "string" }),
+                signals = {
+                    type = "object",
+                    default = {
+                        waf_challenge = 3,
+                        waf_block = 5,
+                        not_found = 1,
+                        challenge_fail = 5,
+                    },
+                    children = {
+                        waf_challenge = leaf({ type = "integer", default = 3, min = 1, max = 100 }),
+                        waf_block     = leaf({ type = "integer", default = 5, min = 1, max = 100 }),
+                        not_found     = leaf({ type = "integer", default = 1, min = 1, max = 100 }),
+                        challenge_fail = leaf({ type = "integer", default = 5, min = 1, max = 100 }),
+                    },
+                    preserve_unknown = true,
+                },
+                auto_whitelist = {
+                    type = "object",
+                    default = {
+                        enabled = true,
+                        threshold = 3,
+                        ttl = 3600,
+                        max_entries = 1000,
+                    },
+                    children = {
+                        enabled     = leaf({ type = "boolean", default = true }),
+                        threshold   = leaf({ type = "integer", default = 3, min = 1, max = 100 }),
+                        ttl         = leaf({ type = "integer", default = 3600, min = 60, max = 604800 }),
+                        max_entries = leaf({ type = "integer", default = 1000, min = 1, max = 100000 }),
+                    },
+                },
+            },
+            preserve_unknown = true,
+        },
+        -- ---------------------------------------------------------
+        -- kernel_ip_blocking: strictly validated; unknowns rejected
+        -- ---------------------------------------------------------
+        kernel_ip_blocking = {
+            type = "object",
+            default = {
+                enabled = false,
+                mode = "observe",
+                topology = "unknown",
+                fail_policy = "open",
+                helper_socket = "/run/verynginx/firewall-helper.sock",
+                scope = "web",
+                protected_addresses = {},
+                protected_ports = {},
+                batch_interval = 1,
+                reconcile_interval = 30,
+                max_entries = { scanner = 100000, cc = 50000, manual = 10000 },
+                scanner = {
+                    enabled = true,
+                    require_flagged = true,
+                    min_hard_blocks = 3,
+                    max_ttl = 86400,
+                },
+                cc = {
+                    enabled = true,
+                    enforce_ready = false,
+                    rule_ids = {},
+                    ttl = 300,
+                    max_ttl = 1800,
+                    min_violation_windows = 3,
+                    require_challenge_fail = true,
+                },
+                ipv4 = { enabled = true },
+                ipv6 = { enabled = false, prefix_aggregation = false },
+                promotion_rate_limit = {
+                    limit = 1000,
+                    interval = 60,
+                    burst = 1000,
+                },
+            },
+            reject_unknown = true,
+            children = {
+                enabled = leaf({ type = "boolean", default = false }),
+                mode = leaf({ type = "string", default = "observe", enum = { "observe", "enforce" } }),
+                topology = leaf({ type = "string", default = "unknown", enum = { "unknown", "direct", "proxied" } }),
+                fail_policy = leaf({ type = "string", default = "open", enum = { "open" } }),
+                helper_socket = leaf({
+                    type = "string",
+                    default = "/run/verynginx/firewall-helper.sock",
+                    pattern = "^/run/verynginx/firewall%-helper%.sock$",
+                }),
+                scope = leaf({ type = "string", default = "web", enum = { "web" } }),
+                protected_addresses = leaf({ type = "array", default = {}, items = "string" }),
+                protected_ports = leaf({ type = "array", default = {}, items = "integer", unique_items = true }),
+                batch_interval = leaf({ type = "integer", default = 1, min = 1, max = 60 }),
+                reconcile_interval = leaf({ type = "integer", default = 30, min = 5, max = 3600 }),
+                max_entries = {
+                    type = "object",
+                    default = { scanner = 100000, cc = 50000, manual = 10000 },
+                    children = {
+                        scanner = leaf({ type = "integer", default = 100000, min = 1, max = 1000000 }),
+                        cc      = leaf({ type = "integer", default = 50000, min = 1, max = 1000000 }),
+                        manual  = leaf({ type = "integer", default = 10000, min = 1, max = 1000000 }),
+                    },
+                },
+                scanner = {
+                    type = "object",
+                    default = { enabled = true, require_flagged = true, min_hard_blocks = 3, max_ttl = 86400 },
+                    children = {
+                        enabled = leaf({ type = "boolean", default = true }),
+                        require_flagged = leaf({ type = "boolean", default = true }),
+                        min_hard_blocks = leaf({ type = "integer", default = 3, min = 1, max = 100 }),
+                        max_ttl = leaf({ type = "integer", default = 86400, min = 60, max = 604800 }),
+                    },
+                },
+                cc = {
+                    type = "object",
+                    default = {
+                        enabled = true,
+                        enforce_ready = false,
+                        rule_ids = {},
+                        ttl = 300,
+                        max_ttl = 1800,
+                        min_violation_windows = 3,
+                        require_challenge_fail = true,
+                    },
+                    children = {
+                        enabled              = leaf({ type = "boolean", default = true }),
+                        enforce_ready        = leaf({ type = "boolean", default = false }),
+                        rule_ids = leaf({ type = "array", default = {},
+                                            items = "string", unique_items = true }),
+                        ttl                  = leaf({ type = "integer", default = 300, min = 60, max = 3600 }),
+                        max_ttl              = leaf({ type = "integer", default = 1800, min = 300, max = 604800 }),
+                        min_violation_windows = leaf({ type = "integer", default = 3, min = 1, max = 100 }),
+                        require_challenge_fail = leaf({ type = "boolean", default = true }),
+                    },
+                },
+                ipv4 = {
+                    type = "object",
+                    default = { enabled = true },
+                    children = {
+                        enabled = leaf({ type = "boolean", default = true }),
+                    },
+                },
+                ipv6 = {
+                    type = "object",
+                    default = { enabled = false, prefix_aggregation = false },
+                    children = {
+                        enabled = leaf({ type = "boolean", default = false }),
+                        prefix_aggregation = leaf({ type = "boolean", default = false }),
+                    },
+                },
+                promotion_rate_limit = {
+                    type = "object",
+                    default = { limit = 1000, interval = 60, burst = 1000 },
+                    children = {
+                        limit    = leaf({ type = "integer", default = 1000, min = 1, max = 100000 }),
+                        interval = leaf({ type = "integer", default = 60, min = 1, max = 3600 }),
+                        burst    = leaf({ type = "integer", default = 1000, min = 1, max = 100000 }),
+                    },
+                },
+            },
+        },
     }
 }
 
@@ -143,15 +407,44 @@ local function config_default_json_path()
 end
 
 -- ---------------------------------------------------------------------------
--- Normalize defaults: fill missing fields with schema defaults
+-- Normalize defaults: recursively walk schema fields with type/shape checks
+-- Keeps backward compatibility with old-style flat schema entries.
 -- ---------------------------------------------------------------------------
-local function normalize_defaults(config, schema)
+local function normalize_defaults(config, schema, opts)
+    opts = opts or {}
     local result = deep_copy(config)
+    local seen_keys = {}
+
     for name, field in pairs(schema.fields) do
-        if result[name] == nil then
-            result[name] = deep_copy(field.default)
+        seen_keys[name] = true
+        local raw_val = result[name]
+        if field.children then
+            -- Recursive schema node
+            local child_result = cs.normalize_node(field, raw_val, {
+                path = name,
+                reject_unknown = opts.reject_unknown,
+            })
+            result[name] = child_result.value
+            -- Non-fatal type/shape errors are silently corrected by falling back
+            -- to default values (which is what normalize_node returns).
+        else
+            -- Simple leaf: fill default if missing
+            if raw_val == nil then
+                result[name] = deep_copy(field.default)
+            end
         end
     end
+
+    -- Preserve any extra top-level fields not in schema (backward compat)
+    -- Callers can opt-in to strict rejection via opts.reject_unknown_top
+    if not opts.reject_unknown_top then
+        for k, v in pairs(config) do
+            if not seen_keys[k] then
+                result[k] = deep_copy(v)
+            end
+        end
+    end
+
     if not result.version then
         result.version = schema.version
     end

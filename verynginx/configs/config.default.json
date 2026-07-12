@@ -71,5 +71,49 @@
         "enable": true,
         "auto_block_scanners": true,
         "entries": []
+    },
+    "kernel_ip_blocking": {
+        "enabled": false,
+        "mode": "observe",
+        "topology": "unknown",
+        "fail_policy": "open",
+        "helper_socket": "/run/verynginx/firewall-helper.sock",
+        "scope": "web",
+        "protected_addresses": [],
+        "protected_ports": [],
+        "batch_interval": 1,
+        "reconcile_interval": 30,
+        "max_entries": {
+            "scanner": 100000,
+            "cc": 50000,
+            "manual": 10000
+        },
+        "scanner": {
+            "enabled": true,
+            "require_flagged": true,
+            "min_hard_blocks": 3,
+            "max_ttl": 86400
+        },
+        "cc": {
+            "enabled": true,
+            "enforce_ready": false,
+            "rule_ids": [],
+            "ttl": 300,
+            "max_ttl": 1800,
+            "min_violation_windows": 3,
+            "require_challenge_fail": true
+        },
+        "ipv4": {
+            "enabled": true
+        },
+        "ipv6": {
+            "enabled": false,
+            "prefix_aggregation": false
+        },
+        "promotion_rate_limit": {
+            "limit": 1000,
+            "interval": 60,
+            "burst": 1000
+        }
     }
 }
