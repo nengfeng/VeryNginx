@@ -34,7 +34,7 @@ local function health_check_transitions(exec)
         -- Helper unreachable: transition installed → scope_validation_pending
         local page = state_machine.list(0, 500, "installed")
         for _, e in ipairs(page.entries) do
-            state_machine.to_scope_validation_pending(e.ip)
+            state_machine.to_scope_validation_pending(e.ip, e.policy)
         end
         return "unreachable"
     end
@@ -50,7 +50,7 @@ local function health_check_transitions(exec)
             end)
             exists = cont
         end
-        state_machine.from_scope_validation_pending(e.ip, exists)
+        state_machine.from_scope_validation_pending(e.ip, e.policy, exists)
     end
     return "ok"
 end

@@ -173,6 +173,21 @@ local function passes_security_gate(ip, family)
 end
 
 ---------------------------------------------------------------------------
+-- Check if an IP is already installed in any automatic DROP set and return
+-- the set name. Used for scanner/CC overlap resolution.
+-- Design §5.1: scanner_drop > cc_drop.
+-- @return string|nil: "scanner_drop" | "cc_drop" | nil
+---------------------------------------------------------------------------
+local function get_installed_auto_set(ip)
+	local s = sm.get(ip)
+	if not s or s.state ~= "installed" then return nil end
+	if s.list == "scanner_drop" or s.list == "cc_drop" then
+		return s.list
+	end
+	return nil
+end
+
+---------------------------------------------------------------------------
 -- Enforce-mode promotion for a single scanner IP.
 -- Consumes a token and calls executor.add() to install into kernel.
 -- Updates state machine on success.
@@ -190,26 +205,36 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
         return true
     end
 
-    -- Check if already installed to avoid duplicate adds
-    local existing = sm.get(ip)
-    if existing and existing.state == "installed" then
-        return true
-    end
+	-- Check if already installed in scanner_drop (same set) to avoid dups.
+	-- Design §5.1 overlap: if already in cc_drop, we still proceed to
+	-- upgrade to scanner_drop (atomic add + delete cc_drop).
+	local existing = sm.get(ip)
+	if existing and existing.state == "installed" and existing.list == "scanner_drop" then
+		return true
+	end
 
-    -- Consume enforce token
+	-- Consume enforce token
     if not consume_enforce_token() then
         evidence_tbl.result = "rate_limited"
         sm.upsert(ip, "scanner", "rate_limited", evidence_tbl, {})
         return true
     end
 
-    -- Compute TTL: use canary TTL on first install (shorter TTL for canary)
-    local max_ttl = (kb_cfg.scanner and kb_cfg.scanner.max_ttl) or 86400
-    local canary_ttl = (kb_cfg.canary and kb_cfg.canary.scanner_ttl) or 60
-    local ttl = math.min(canary_ttl, max_ttl)
-    if block_hits >= 10 then
-        ttl = max_ttl
-    end
+	-- Compute TTL: use canary TTL on first install (shorter TTL for canary).
+	-- Design §5.1 overlap: if IP already in cc_drop, preserve the longer TTL.
+	local max_ttl = (kb_cfg.scanner and kb_cfg.scanner.max_ttl) or 86400
+	local canary_ttl = (kb_cfg.canary and kb_cfg.canary.scanner_ttl) or 60
+	local ttl = math.min(canary_ttl, max_ttl)
+	if block_hits >= 10 then
+		ttl = max_ttl
+	end
+	-- If upgrading from cc_drop, use max of existing remaining TTL and new TTL
+	if existing and existing.expires_at then
+		local remaining = existing.expires_at - ngx.time()
+		if remaining and remaining > ttl then
+			ttl = math.min(remaining, max_ttl)
+		end
+	end
 
     -- Install via executor
     local executor = require "core.kernel_blocking.executor"
@@ -236,17 +261,29 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
         return false
     end
 
-    -- Success: transition state machine
-    evidence_tbl.result = "promoted"
-    sm.upsert(ip, "scanner", "installed", evidence_tbl, {
-        list = "scanner_drop",
-        installed_at = ngx.time(),
-        expires_at = ngx.time() + ttl,
-    })
+	-- Design §5.1 overlap: check if IP was already in cc_drop BEFORE
+	-- we upsert. If so, also remove it from cc_drop to avoid duplicate.
+	-- Executor still has cc_drop entry until we explicitly delete.
+	local executor_cleanup = get_installed_auto_set(ip) == "cc_drop"
 
-    ngx.log(ngx.WARN, "kernel_blocking: IP ", ip,
-        " installed into scanner_drop (ttl=", ttl, "s)")
-    return true
+	-- Success: transition state machine
+	evidence_tbl.result = "promoted"
+	sm.upsert(ip, "scanner", "installed", evidence_tbl, {
+		list = "scanner_drop",
+		installed_at = ngx.time(),
+		expires_at = ngx.time() + ttl,
+	})
+
+	-- Remove from cc_drop if it was there (scanner_drop > cc_drop)
+	if executor_cleanup then
+		pcall(function()
+			exec.delete("cc_drop", "ipv4", ip)
+		end)
+	end
+
+	ngx.log(ngx.WARN, "kernel_blocking: IP ", ip,
+		" installed into scanner_drop (ttl=", ttl, "s)")
+	return true
 end
 
 -- ---------------------------------------------------------------------------
@@ -261,6 +298,12 @@ local function evaluate_scanner_candidates()
     for _, c in ipairs(candidates.entries) do
         if c.policy ~= "scanner" then goto continue end
         local ip = c.ip
+
+        -- Skip already-installed entries (idempotent re-evaluation)
+        local existing_scanner = sm.get_policy(ip, "scanner")
+        if existing_scanner and existing_scanner.state == "installed" then
+            goto continue
+        end
 
         -- Security gate
         local gate_ok, reason = passes_security_gate(ip, "ipv4")
@@ -322,18 +365,168 @@ local function evaluate_scanner_candidates()
 end
 
 -- ---------------------------------------------------------------------------
+-- Enforce-mode promotion for a single CC IP.
+-- Consumes a token and calls executor.add() to install into cc_drop.
+-- Design §6.4: cc_drop with short TTL, progressive.
+-- ---------------------------------------------------------------------------
+local function enforce_promote_cc(ip, violation_count)
+	local kb_cfg = config.kernel_ip_blocking
+
+	-- Emergency pause: stop installing but keep observing
+	if kb_cfg.emergency_pause then
+		sm.upsert(ip, "cc", "candidate",
+			{ result = "paused", violation_count = violation_count }, {})
+		return true
+	end
+
+	-- Check overlap: if already in scanner_drop, no need for cc_drop
+	local existing_set = get_installed_auto_set(ip)
+	if existing_set == "scanner_drop" then
+		sm.upsert(ip, "cc", "candidate",
+			{ result = "already_in_scanner_drop", violation_count = violation_count }, {})
+		return true
+	end
+
+	-- Already installed in cc_drop: skip
+	if existing_set == "cc_drop" then
+		return true
+	end
+
+	-- Consume enforce token
+	if not consume_enforce_token() then
+		sm.upsert(ip, "cc", "rate_limited",
+			{ violation_count = violation_count }, {})
+		return true
+	end
+
+	-- Compute TTL: use cc.ttl (short, Design §5.1: 1-10 min)
+	local ttl = (kb_cfg.cc and kb_cfg.cc.ttl) or 300
+	local max_ttl = (kb_cfg.cc and kb_cfg.cc.max_ttl) or 1800
+	-- Progressive TTL: more violations = longer TTL, up to max_ttl
+	ttl = math.min(ttl + (violation_count - 1) * 60, max_ttl)
+
+	-- Install via executor
+	local executor = require "core.kernel_blocking.executor"
+	local exec = executor.get_executor()
+	local ev_tbl = { violation_count = violation_count }
+
+	local call_ok, add_ok, add_err = pcall(function()
+		return exec.add("cc_drop", "ipv4", ip, ttl)
+	end)
+
+	if not call_ok then
+		ngx.log(ngx.ERR, "kernel_blocking: executor.add crashed for CC ", ip, ": ",
+			tostring(add_ok))
+		ev_tbl.result = "executor_error"
+		ev_tbl.error = tostring(add_ok)
+		sm.upsert(ip, "cc", "degraded", ev_tbl, {})
+		return false
+	end
+
+	if not add_ok then
+		ngx.log(ngx.ERR, "kernel_blocking: executor.add false for CC ", ip,
+			": ", tostring(add_err))
+		ev_tbl.result = "executor_error"
+		ev_tbl.error = tostring(add_err)
+		sm.upsert(ip, "cc", "degraded", ev_tbl, {})
+		return false
+	end
+
+	-- Success
+	ev_tbl.result = "promoted"
+	sm.upsert(ip, "cc", "installed", ev_tbl, {
+		list = "cc_drop",
+		installed_at = ngx.time(),
+		expires_at = ngx.time() + ttl,
+	})
+
+	ngx.log(ngx.WARN, "kernel_blocking: IP ", ip,
+		" installed into cc_drop (ttl=", ttl, "s, violations=", violation_count, ")")
+	return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Evaluate CC candidates.
+-- Reads CC violation evidence from shared dict and evaluates candidates.
+-- Design §6.4: requires min_violation_windows consecutive violations.
+-- ---------------------------------------------------------------------------
+local function evaluate_cc_candidates()
+	local kb_cfg = config.kernel_ip_blocking
+	if not (kb_cfg.cc and kb_cfg.cc.enabled) then return end
+	if not (kb_cfg.cc.rule_ids and #kb_cfg.cc.rule_ids > 0) then return end
+
+	-- CC observe-only: global observe OR cc.enforce_ready=false
+	local cc_enforce = (kb_cfg.mode == "enforce") and
+		(kb_cfg.cc.enforce_ready == true)
+
+	local candidates = sm.list_candidates(0, 100)
+	local min_windows = (kb_cfg.cc.min_violation_windows) or 3
+	local rule_window = (kb_cfg.cc.ttl) or 300  -- use ttl as window base
+
+    for _, c in ipairs(candidates.entries) do
+        if c.policy ~= "cc" then goto continue end
+        local ip = c.ip
+
+        -- Skip already-installed CC entries (idempotent re-evaluation)
+        local existing_cc = sm.get_policy(ip, "cc")
+        if existing_cc and existing_cc.state == "installed" then
+            goto continue
+        end
+
+        -- Also skip if already in scanner_drop (higher priority)
+        local existing_scanner = sm.get_policy(ip, "scanner")
+        if existing_scanner and existing_scanner.state == "installed" and existing_scanner.list == "scanner_drop" then
+            sm.upsert(ip, "cc", "candidate",
+                { result = "already_in_scanner_drop" }, {})
+            goto continue
+        end
+
+        -- Security gate
+        local gate_ok, reason = passes_security_gate(ip, "ipv4")
+        if not gate_ok then
+            sm.upsert(ip, "cc", "rejected", { reason = reason }, {})
+            goto continue
+        end
+
+		-- Count violation windows
+		local violations = evidence.count_cc_violations(ip, rule_window, min_windows + 2)
+
+		local mode = kb_cfg.mode
+		local rate_limited = would_observe_rate_limit()
+
+		if cc_enforce and violations >= min_windows and not rate_limited then
+			enforce_promote_cc(ip, violations)
+		elseif cc_enforce and violations >= min_windows and rate_limited then
+			sm.upsert(ip, "cc", "candidate",
+				{ violation_count = violations, result = "would_rate_limit" }, {})
+		else
+			local result_str = "would_not_promote"
+			if mode ~= "enforce" then
+				result_str = (cc_enforce and "cc_observe") or "cc_observe_only"
+			end
+			sm.upsert(ip, "cc", "candidate",
+				{ violation_count = violations, result = result_str }, {})
+		end
+
+		::continue::
+	end
+end
+
+-- ---------------------------------------------------------------------------
 -- Main evaluate function (worker 0 callback entry point).
 -- Already called within the kernel_blocking-enabled gate.
 -- ---------------------------------------------------------------------------
 function _M.evaluate(_now)
-    -- Phase 1: scanner-only evaluation (CC requires warm-up)
-    local kb_cfg = config.kernel_ip_blocking
-    if not kb_cfg then return end
+	local kb_cfg = config.kernel_ip_blocking
+	if not kb_cfg then return end
 
-    if kb_cfg.scanner and kb_cfg.scanner.enabled then
-        evaluate_scanner_candidates()
-    end
-    -- CC evaluation deferred to Phase 1 post warm-up (see plan §6.4)
+	if kb_cfg.scanner and kb_cfg.scanner.enabled then
+		evaluate_scanner_candidates()
+	end
+
+	if kb_cfg.cc and kb_cfg.cc.enabled then
+		evaluate_cc_candidates()
+	end
 end
 
 -- ---------------------------------------------------------------------------

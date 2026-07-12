@@ -74,10 +74,46 @@ function _M.record_cc_violation_evidence(rule_id, ip, window)
     end
 end
 
-function _M.count_cc_violations(_ip, _window, _min_violation_windows)
-    -- Placeholder: full implementation deferred to Phase 1 which
-    -- introduces the bounded candidate index for CC evidence.
-    return 0
+-- ---------------------------------------------------------------------------
+-- Count distinct evidence slots with at least one violation for an IP.
+-- Reads violation markers from all CC-referenced rule IDs.
+-- Keys: fl:v2:kernel:violation:<rule_id>:<ip>:<evidence_slot>
+-- We cannot use get_keys() on large dictionaries, so we probe slots
+-- backward from current slot for a bounded window span.
+-- @param ip string
+-- @param window number: rule window in seconds
+-- @param max_slots number: maximum number of slots to probe
+-- @return number: count of slots with at least one violation
+-- ---------------------------------------------------------------------------
+function _M.count_cc_violations(ip, window, max_slots)
+	if not ip or not window or window <= 0 then return 0 end
+	max_slots = max_slots or 10
+	local config = require "core.config"
+	local kb_cfg = config and config.kernel_ip_blocking
+	local rule_ids = (kb_cfg and kb_cfg.cc and kb_cfg.cc.rule_ids) or {}
+	if #rule_ids == 0 then return 0 end
+
+	local s = ngx.shared[CC_DICT]
+	if not s then return 0 end
+
+	local current_slot = math.floor(ngx.time() / window)
+	local count = 0
+	-- Probe slots backward from current
+	for slot_offset = 0, max_slots - 1 do
+		local slot = current_slot - slot_offset
+		local found = false
+		for _, rule_id in ipairs(rule_ids) do
+			local key = "fl:v2:kernel:violation:" .. rule_id .. ":" .. ip .. ":" .. slot
+			if s:get(key) ~= nil then
+				found = true
+				break
+			end
+		end
+		if found then
+			count = count + 1
+		end
+	end
+	return count
 end
 
 return _M

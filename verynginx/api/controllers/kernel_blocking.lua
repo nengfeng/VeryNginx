@@ -236,7 +236,10 @@ local function handle_clear()
         end
     end
 
-    sm.transition(ip, "cleared", { cleared_at = ngx.time(), reason = "manual_clear" })
+    -- Clear from all policies (scanner, cc, manual)
+    for _, policy in ipairs({ "scanner", "cc", "manual" }) do
+        sm.transition(ip, policy, "cleared", { cleared_at = ngx.time(), reason = "manual_clear" })
+    end
 
     return json.encode({
         ret = "success",

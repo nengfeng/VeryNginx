@@ -192,30 +192,45 @@ func (b *NFTBackend) Health() map[string]interface{} {
 	}
 }
 
-// EnsureBase creates the nft table and logical sets if they don't exist.
+// EnsureBase creates the nft tables, sets, and prerouting chains with jump
+// rules. This implements Design §9.3/§9.4.
+//
+// We use separate ip and ip6 tables (rather than inet) so that set element
+// types are homogeneous within each table. Each table gets its own prerouting
+// chain with allow-return and drop rules.
 func (b *NFTBackend) EnsureBase() error {
-	// Build a script that creates the table and all 4 sets.
 	var sb strings.Builder
-	sb.WriteString("add table ip verynginx\n")
-	sb.WriteString("add table ip6 verynginx\n")
 
-	sets := []string{"scanner_drop", "cc_drop", "manual_drop", "allow"}
-	for _, s := range sets {
-		// IPv4 sets (ip family)
-		if s == "allow" {
-			fmt.Fprintf(&sb, "add set ip verynginx %s { type ipv4_addr; flags interval; }\n", s)
-		} else {
-			fmt.Fprintf(&sb, "add set ip verynginx %s { type ipv4_addr; flags timeout; }\n", s)
-		}
-		// IPv6 sets
-		if s == "allow" {
-			fmt.Fprintf(&sb, "add set ip6 verynginx %s { type ipv6_addr; flags interval; }\n", s)
-		} else {
-			fmt.Fprintf(&sb, "add set ip6 verynginx %s { type ipv6_addr; flags timeout; }\n", s)
-		}
-	}
-	// Also add chain/rules referencing the drop sets so they actually work.
-	// (In a real deployment you'd have input chain rules. Here we just create the sets.)
+	// IPv4 table + sets + chain
+	sb.WriteString("add table ip verynginx\n")
+	sb.WriteString("add set ip verynginx allow { type ipv4_addr; flags interval; }\n")
+	sb.WriteString("add set ip verynginx scanner_drop { type ipv4_addr; flags timeout; }\n")
+	sb.WriteString("add set ip verynginx cc_drop { type ipv4_addr; flags timeout; }\n")
+	sb.WriteString("add set ip verynginx manual_drop { type ipv4_addr; flags timeout; }\n")
+	sb.WriteString("add chain ip verynginx prerouting {\n")
+	sb.WriteString("  type filter hook prerouting priority raw; policy accept;\n")
+	sb.WriteString("}\n")
+	// Whitelist has highest priority: RETURN immediately.
+	sb.WriteString("add rule ip verynginx prerouting ip daddr @allow return\n")
+	// DROP rules for each auto/manual set.
+	sb.WriteString("add rule ip verynginx prerouting ip saddr @scanner_drop counter drop\n")
+	sb.WriteString("add rule ip verynginx prerouting ip saddr @cc_drop counter drop\n")
+	sb.WriteString("add rule ip verynginx prerouting ip saddr @manual_drop counter drop\n")
+
+	// IPv6 table + sets + chain
+	sb.WriteString("add table ip6 verynginx\n")
+	sb.WriteString("add set ip6 verynginx allow { type ipv6_addr; flags interval; }\n")
+	sb.WriteString("add set ip6 verynginx scanner_drop { type ipv6_addr; flags timeout; }\n")
+	sb.WriteString("add set ip6 verynginx cc_drop { type ipv6_addr; flags timeout; }\n")
+	sb.WriteString("add set ip6 verynginx manual_drop { type ipv6_addr; flags timeout; }\n")
+	sb.WriteString("add chain ip6 verynginx prerouting {\n")
+	sb.WriteString("  type filter hook prerouting priority raw; policy accept;\n")
+	sb.WriteString("}\n")
+	sb.WriteString("add rule ip6 verynginx prerouting ip6 daddr @allow return\n")
+	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @scanner_drop counter drop\n")
+	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @cc_drop counter drop\n")
+	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @manual_drop counter drop\n")
+
 	_, err := b.execNFT(sb.String())
 	return err
 }
