@@ -40,11 +40,38 @@ local function read_bucket()
     return t
 end
 
+-- Refill observe-bucket tokens before evaluation round.
+-- Uses promotion_rate_limit config (limit, interval, burst).
+local function refill_observe_bucket()
+    local kb_cfg = config.kernel_ip_blocking
+    local rate_cfg = kb_cfg and kb_cfg.promotion_rate_limit
+    if not rate_cfg then return end
+    local now_ms = ngx.time() * 1000  -- millisecond precision
+    local bucket = read_bucket()
+    local burst = rate_cfg.burst or 1000
+    local limit = rate_cfg.limit or 1000
+    local interval = rate_cfg.interval or 60
+    local tokens = bucket.tokens or 0
+    local last_refill = bucket.last_refill or 0
+    local elapsed_ms = now_ms - last_refill
+    if elapsed_ms <= 0 then return end
+    local refill = math.floor(elapsed_ms * limit / (interval * 1000))
+    if refill > 0 then
+        tokens = math.min(tokens + refill, burst)
+        local s = observe_bucket_shared()
+        if s then
+            s:set(OBSERVE_BUCKET_KEY, json.encode({
+                tokens = tokens, last_refill = now_ms,
+            }), 3600)
+        end
+    end
+end
+
 -- Check if this candidate would be observe-rate-limited.
 -- Returns true if no token available.
 local function would_observe_rate_limit()
-    local kb_cfg = config.kernel_ip_blocking
-    local rate_cfg = kb_cfg and kb_cfg.promotion_rate_limit
+    local rate_cfg = config.kernel_ip_blocking and
+        config.kernel_ip_blocking.promotion_rate_limit
     if not rate_cfg then return false end
     local bucket = read_bucket()
     return (bucket.tokens or 0) < 1
@@ -77,8 +104,11 @@ local function passes_security_gate(ip, family)
     -- Whitelist check
     if ir.is_whitelisted(ip) then return false, "whitelisted" end
 
-    -- Topology check
-    if kb_cfg.topology ~= "direct" then return false, "topology" end
+    -- Topology check: observe mode collects data regardless of topology;
+    -- enforce mode requires topology=direct (validated at config save time).
+    if kb_cfg.mode == "enforce" and kb_cfg.topology ~= "direct" then
+        return false, "topology"
+    end
 
     return true, nil
 end
@@ -168,6 +198,8 @@ function _M.process_candidates(now)
     if not (config.kernel_ip_blocking and config.kernel_ip_blocking.enabled) then
         return
     end
+    -- Refill observe-bucket tokens before evaluation round
+    refill_observe_bucket()
     _M.evaluate(now)
 end
 

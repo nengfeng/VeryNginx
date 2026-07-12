@@ -8,6 +8,7 @@
 local _M = {}
 
 local ir = require "core.ip_reputation"
+local sm = require "core.kernel_blocking.state_machine"
 
 local SCANNER_DICT = "ip_reputation"
 local CC_DICT = "frequency_limit"
@@ -27,7 +28,12 @@ function _M.record_waf_block_evidence(ip)
     local key = "ip_rep:kernel:waf_block:" .. ip .. ":" .. slot
     local s = ngx.shared[SCANNER_DICT]
     if not s then return end
+    local prev = s:get(key)
     s:incr(key, 1, 0, window_size)
+    -- First evidence for this slot: register/update candidate in state machine
+    if prev == nil then
+        sm.upsert_candidate(ip, "scanner", "observed", { first_seen = ngx.time() })
+    end
 end
 
 function _M.sum_scanner_blocks(ip)
@@ -61,7 +67,11 @@ function _M.record_cc_violation_evidence(rule_id, ip, window)
     local ttl = window * 4  -- default: covers min_violation_windows + buffer
     local s = ngx.shared[CC_DICT]
     if not s then return end
-    s:add(key, true, ttl)
+    local added = s:add(key, true, ttl)
+    -- First evidence from this rule for this IP: register candidate in state machine
+    if added then
+        sm.upsert_candidate(ip, "cc", "observed", { rule_id = rule_id })
+    end
 end
 
 function _M.count_cc_violations(_ip, _window, _min_violation_windows)
