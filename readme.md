@@ -35,6 +35,17 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **WebSocket support** — seamless Upgrade/Connection header passthrough
 - **TLS/SSL to upstream** — SNI, certificate verification support
 
+### Kernel IP Blocking
+
+- **WAF-to-kernel promotion** — confirmed malicious IPs (scanner/CC) promoted from WAF to Linux nftables kernel firewall via Go Helper
+- **Four logical sets** — `scanner_drop`, `cc_drop`, `manual_drop`, `allow` with atomic nft transaction
+- **Privileged Helper** — Go static binary with Unix Domain Socket IPC (Protocol v1); only `CAP_NET_ADMIN` required (no root)
+- **Canary deployment** — initial short TTL (60s scanner / 30s CC) with automatic escalation to full TTL on high-confidence signals
+- **Emergency break-glass** — pause/resume promotion, flush auto-owned entries, manual IP block/clear
+- **Fail-open design** — any Helper error preserves existing Lua WAF; no single point of failure
+- **Dashboard + API** — full management UI tab and 8 REST endpoints (`/kernel-blocking/status`, `/entries`, `/candidates`, `/promote`, `/clear`, `/pause`, `/flush-auto`, `/reconcile`)
+- **Auto whitelist sync** — static + auto-whitelist pushed to Helper via generation-qualified cache
+
 ### Management
 
 - **Web dashboard** — full configuration at `/verynginx/index.html` (configurable `base_uri`)

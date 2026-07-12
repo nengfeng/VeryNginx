@@ -35,6 +35,17 @@
 - **WebSocket 支持** — 自动处理 Upgrade/Connection 头传递
 - **上游 TLS/SSL** — SNI、证书验证全面支持
 
+### 内核 IP 拦截（Kernel IP Blocking）
+
+- **WAF → 内核晋升** — 确认恶意 IP（扫描器/CC）通过 Go Helper 从 WAF 晋升到 Linux nftables 内核防火墙
+- **四组逻辑集合** — `scanner_drop`、`cc_drop`、`manual_drop`、`allow`，原子 nft 事务写入
+- **特权 Helper** — Go 静态二进制 + Unix Domain Socket IPC（Protocol v1）；仅需 `CAP_NET_ADMIN`（无需 root）
+- **金丝雀部署** — 初始短 TTL（扫描器 60s / CC 30s），高置信信号自动升级到完整 TTL
+- **紧急操作** — 暂停/恢复晋升、清空自动集合、手动 IP 封禁/解封
+- **Fail-open 设计** — 任何 Helper 故障不影响现有 Lua WAF
+- **Dashboard + API** — 完整管理面板和 8 个 REST 接口（`/kernel-blocking/status`、`/entries`、`/candidates`、`/promote`、`/clear`、`/pause`、`/flush-auto`、`/reconcile`）
+- **白名单自动同步** — 静态 + 自动白名单通过 generation-qualified 缓存推送到 Helper
+
 ### 管理
 
 - **Web 管理面板** — 通过 `/verynginx/index.html` 完成所有配置（`base_uri` 可自定义）

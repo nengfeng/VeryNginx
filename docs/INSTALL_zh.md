@@ -348,7 +348,54 @@ python install.py update openresty
 
 ---
 
+## 内核 IP 拦截（Kernel IP Blocking）
+
+启用内核 IP 拦截需要部署 **Firewall Helper**（Go 二进制），它是一个通过 Unix Domain Socket 与 VeryNginx 通信的特权进程。
+
+### 系统要求
+
+| 依赖 | 说明 |
+|------|------|
+| Linux kernel 3.13+ | 需要 `CONFIG_NF_TABLES` 支持 |
+| nftables 用户态工具 | `apt-get install -y nftables` |
+| Go 1.21+（可选） | 用于从源码编译 Helper，也可直接用预编译二进制 |
+
+### 快速部署
+
+```bash
+# 方式 A：install-lnmp.sh 一站式安装（推荐）
+sudo bash install-lnmp.sh    # 选择 "Install Firewall Helper"
+
+# 方式 B：手动编译 + 部署
+cd helper
+go build -o firewall-helper .
+sudo cp firewall-helper /usr/local/bin/
+sudo cp helper/firewall-helper.{socket,service} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now firewall-helper.socket
+
+# 方式 C：Docker（Helper 运行在宿主机）
+# docker-compose 已内置 firewall-helper sidecar，见 test/v2/docker-compose.yml
+```
+
+### Helm / Docker Compose（推荐阅读）
+
+生产环境建议用 Docker Compose：
+- `verynginx` 容器：无特权，通过共享 volume 连接到 Helper
+- `firewall-helper` 容器：`cap_add: NET_ADMIN`，操作 nftables 内核
+- 两者通过 Unix Domain Socket 通信
+
+### 权限说明
+
+- Helper 仅需 `CAP_NET_ADMIN` capability，不需要 root
+- systemd service 使用 `AmbientCapabilities=CAP_NET_ADMIN`
+- Docker: `cap_add: [NET_ADMIN]` 仅给 Helper 容器，不给 verynginx 容器
+
+---
+
 ## 参考
 
+- [USAGE_zh.md](USAGE_zh.md) — 使用手册（含 Kernel Blocking 章节）
+- [KERNEL_IP_BLOCKING_DESIGN.md](KERNEL_IP_BLOCKING_DESIGN.md) — 详细设计文档
 - [DESIGN_V2.md](DESIGN_V2.md) — v2 架构设计文档
 - [VeryNginx Issues](https://github.com/nengfeng/VeryNginx/issues)

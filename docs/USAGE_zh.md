@@ -647,10 +647,126 @@ VeryNginx 的配置保存后**立即生效**，无需重启 Nginx。如果是跨
 
 ---
 
+## 内核 IP 拦截（Kernel IP Blocking）
+
+VeryNginx v2 可将确认的恶意 IP 从 WAF 用户层晋升到 Linux **nftables 内核防火墙**，在内核层直接丢弃攻击流量，完全绕过 Nginx 处理链。
+
+### 架构
+
+```
+请求 → WAF (Lua) → 证据积累 → Promotion Policy
+                                ↓ 满足阈值
+                         Helper (Go, CAP_NET_ADMIN)
+                                ↓ nft -f -
+                         nftables (内核 netfilter)
+                                ↓
+                         直接丢弃 / 转发到 Nginx
+```
+
+### 四种逻辑集合
+
+| 集合 | 用途 | 默认 TTL |
+|------|------|----------|
+| `scanner_drop` | 扫描器/爬虫 | 60s（金丝雀）→ 86400s |
+| `cc_drop` | CC 攻击 / 频率超限 | 30s（金丝雀）→ 可配置 |
+| `manual_drop` | 人工封禁 | 自定义 |
+| `allow` | 白名单（永不拦截） | 永久 |
+
+### 部署
+
+**方式一：LNMP 脚本安装（推荐）**
+
+运行 `install-lnmp.sh` 时选择 "Install Firewall Helper"：
+- 自动构建 Go 二进制（需 Go 1.21+）
+- 部署 systemd socket activation units
+- 探测 nftables 能力（inet family / interval set / timeout element）
+
+**方式二：Docker 部署**
+
+使用 `test/v2/docker-compose.yml`：
+- `firewall-helper`  sidecar 容器运行 Helper（`cap_add: NET_ADMIN`）
+- Unix Domain Socket 通过共享 volume `kb-socket` 暴露给 verynginx 容器
+- verynginx 容器无特权，不直接操作内核
+
+**方式三：手动部署**
+
+```bash
+# 构建 Helper
+cd helper && go build -o firewall-helper .
+sudo cp firewall-helper /usr/local/bin/
+
+# 部署 systemd units
+sudo cp helper/firewall-helper.{socket,service} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now firewall-helper.socket
+```
+
+### 管理面板
+
+Dashboard → **Kernel Block** 菜单：
+
+- **状态卡片**：运行模式（observe/enforce）、已安装条目数、候选数、Helper 健康
+- **已安装分页表**：IP / 集合 / 安装时间 / 过期时间 / 内核验证状态，支持单条清除
+- **候选分页表**：IP / 策略 / 状态 / 阻断命中数，支持手动晋升
+- **操作按钮**：暂停/恢复晋升、清空自动集合、手动封禁（IP + 策略 + TTL）
+
+### REST API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/kernel-blocking/status` | 配置、健康、计数器、Token 桶状态 |
+| GET | `/kernel-blocking/entries?page_size=50&cursor=0` | 已安装条目分页 |
+| GET | `/kernel-blocking/candidates?state=candidate` | 候选条目分页 |
+| POST | `/kernel-blocking/promote` body: `{ip, policy, ttl}` | 手动晋升 |
+| POST | `/kernel-blocking/clear` body: `{ip}` | 手动清除 |
+| POST | `/kernel-blocking/pause` body: `{paused: bool}` | 暂停/恢复晋升 |
+| POST | `/kernel-blocking/flush-auto` | 清空自动集合 |
+| POST | `/kernel-blocking/reconcile` | 手动触发同步 |
+
+所有 mutating API 继承现有中间件（Auth / CSRF / Rate Limit / Idempotency-Key / Audit）。
+
+### 紧急操作
+
+当需要立即停止 kernel blocking 时：
+
+1. **暂停晋升**：Dashboard 点 "Pause" 或 `POST /kernel-blocking/pause {"paused": true}`。不影响已安装条目。
+2. **清空自动集合**：`POST /kernel-blocking/flush-auto`。保留 manual 集合。
+3. **完全清理**：设置 `config.kernel_ip_blocking.mode = "observe"` + `flush-auto`。
+
+### 配置参考
+
+```json
+{
+  "kernel_ip_blocking": {
+    "enabled": true,
+    "mode": "observe",
+    "topology": "direct",
+    "fail_policy": "open",
+    "canary": { "scanner_ttl": 60, "cc_ttl": 30 },
+    "emergency_pause": false,
+    "scanner": { "min_hard_blocks": 3, "max_ttl": 86400 },
+    "cc": { "ttl": 300, "max_ttl": 1800, "min_violation_windows": 3 }
+  }
+}
+```
+
+- `mode`：`observe`（只记录不安装）或 `enforce`（实际写入内核）
+- `topology`：`direct`（直连公网，enforce 模式必需）或 `proxied`（CDN 后面）
+- `fail_policy`：唯一可选 `open`（Helper 故障时保持 WAF，不拦截）
+
+### 注意事项
+
+- Helper 重启后，所有 `installed` 状态条目变为 `scope_validation_pending`，下次 reconcile 验证后恢复或标记为 `degraded`
+- nftables 内核集合条目会在 TTL 到期后自动清除，无需主动删除
+- 白名单变更（静态/自动）会异步推送到 Helper 的全量 snapshot
+
+---
+
 ## 参考
 
 - [INSTALL_zh.md](INSTALL_zh.md) — 安装手册
 - [DESIGN_V2.md](DESIGN_V2.md) — v2 架构设计
 - [IP 信誉调优](IP_REPUTATION_TUNING_GUIDE.md) — 生产环境阈值配置与误报排查
 - [WAF API 参考](WAF_API.md) — 规则管理 REST API
+- [KERNEL_IP_BLOCKING_DESIGN.md](KERNEL_IP_BLOCKING_DESIGN.md) — 内核拦截详细设计
 - [VeryNginx Issues](https://github.com/nengfeng/VeryNginx/issues)
