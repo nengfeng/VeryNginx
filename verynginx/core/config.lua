@@ -273,6 +273,7 @@ _M.schema = {
                     pattern = "^/run/verynginx/firewall%-helper%.sock$",
                 }),
                 scope = leaf({ type = "string", default = "web", enum = { "web" } }),
+                shadow = leaf({ type = "boolean", default = false }),
                 protected_addresses = leaf({ type = "array", default = {}, items = "string" }),
                 protected_ports = leaf({ type = "array", default = {}, items = "integer", unique_items = true }),
                 batch_interval = leaf({ type = "integer", default = 1, min = 1, max = 60 }),

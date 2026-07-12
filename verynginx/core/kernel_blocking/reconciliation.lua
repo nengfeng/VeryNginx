@@ -11,7 +11,7 @@
 local _M = {}
 
 local desired = require "core.kernel_blocking.desired_state"
-local mock = require "core.kernel_blocking.executor_mock"
+local executor_mod = require "core.kernel_blocking.executor"
 local config = require "core.config"
 
 -- ---------------------------------------------------------------------------
@@ -26,11 +26,14 @@ function _M.reconcile(_now)
         return { skipped = "disabled" }
     end
 
+    -- Get the active executor (mock or IPC-backed in shadow mode)
+    local exec = executor_mod.get_executor()
+
     local result = {
         to_add = {},
         to_update = {},
         to_remove = {},
-        dry_run = true,
+        dry_run = (kb_cfg.mode == "observe"),
     }
 
     -- 1. Read desired state (paginated)
@@ -44,22 +47,20 @@ function _M.reconcile(_now)
         page_cursor = page.next_cursor
     until not page_cursor
 
-    -- 2. For each desired entry, check actual state via mock executor
+    -- 2. For each desired entry, check actual state
     for _, entry in ipairs(all_desired) do
-        local ok, _ = mock.contains(entry.list, entry.family, entry.ip)
+        local ok, _ = exec.contains(entry.list, entry.family, entry.ip)
         if not ok then
             result.to_add[#result.to_add + 1] = entry
             ngx.log(ngx.INFO, "kernel_blocking DRY-RUN would_install: ",
                 entry.list, "/", entry.ip)
         else
-            -- Already installed (Phase 2 mock accepts all)
             result.to_update[#result.to_update + 1] = entry
         end
     end
 
     -- 3. Check for entries in actual state that are no longer desired
-    -- (mock.list returns all; filter by desired list)
-    -- Phase 2: simplified — actual state is read via mock.list
+    --    Actual state is read via exec.list (which delegates to mock or IPC)
     local lists = { "scanner_drop", "cc_drop", "manual_drop" }
     local families = { "ipv4", "ipv6" }
     local desired_set = {}
@@ -70,7 +71,7 @@ function _M.reconcile(_now)
         for _, family in ipairs(families) do
             local cursor = 0
             repeat
-                local page = mock.list(list, family, cursor)
+                local page = exec.list(list, family, cursor)
                 for _, actual in ipairs(page.entries) do
                     if not desired_set[list .. ":" .. family .. ":" .. actual.ip] then
                         result.to_remove[#result.to_remove + 1] = actual
