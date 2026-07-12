@@ -75,6 +75,20 @@ describe("kernel_ip_blocking cross-field validation", function()
         assert.truthy(err:find("max_ttl"))
     end)
 
+    it("rejects scanner.max_ttl < ip_reputation.flag_duration", function()
+        ensure_ngx()
+        local kb = base_kb()
+        kb.scanner.max_ttl = 300  -- less than default flag_duration=600
+        local ok, err = config.validate_config({
+            version = "2.0", admin = {}, matcher = {}, rule = {},
+            ip_reputation = { flag_duration = 600 },
+            kernel_ip_blocking = kb,
+        })
+        assert.is_false(ok)
+        assert.truthy(err:find("max_ttl"))
+        assert.truthy(err:find("flag_duration"))
+    end)
+
     it("rejects enforce without topology=direct", function()
         ensure_ngx()
         local kb = base_kb()

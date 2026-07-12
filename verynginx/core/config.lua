@@ -653,8 +653,8 @@ local function validate_config(config)
                     kb.cc.max_ttl, kb.cc.ttl)
             end
         end
-        if kb.scanner and kb.ip_reputation then
-            local flag_dur = kb.ip_reputation.flag_duration or 600
+        if kb.scanner then
+            local flag_dur = (config.ip_reputation and config.ip_reputation.flag_duration) or 600
             if kb.scanner.max_ttl and kb.scanner.max_ttl < flag_dur then
                 return false, string.format(
                     "kernel_ip_blocking.scanner.max_ttl (%d) must be >= ip_reputation.flag_duration (%d)",
