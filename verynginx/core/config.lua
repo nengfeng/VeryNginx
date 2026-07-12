@@ -631,6 +631,80 @@ local function validate_config(config)
         end
     end
 
+    -- ------------------------------------------------------------------
+    -- kernel_ip_blocking: cross-field validation (Design §11.3)
+    -- ------------------------------------------------------------------
+    local kb = config.kernel_ip_blocking
+    if kb and type(kb) == "table" then
+        -- interval consistency
+        if kb.reconcile_interval and kb.batch_interval then
+            if kb.reconcile_interval < kb.batch_interval then
+                return false, string.format(
+                    "kernel_ip_blocking.reconcile_interval (%d) must be >= batch_interval (%d)",
+                    kb.reconcile_interval, kb.batch_interval)
+            end
+        end
+
+        -- TTL hierarchy
+        if kb.cc then
+            if kb.cc.max_ttl and kb.cc.ttl and kb.cc.max_ttl < kb.cc.ttl then
+                return false, string.format(
+                    "kernel_ip_blocking.cc.max_ttl (%d) must be >= cc.ttl (%d)",
+                    kb.cc.max_ttl, kb.cc.ttl)
+            end
+        end
+        if kb.scanner and kb.ip_reputation then
+            local flag_dur = kb.ip_reputation.flag_duration or 600
+            if kb.scanner.max_ttl and kb.scanner.max_ttl < flag_dur then
+                return false, string.format(
+                    "kernel_ip_blocking.scanner.max_ttl (%d) must be >= ip_reputation.flag_duration (%d)",
+                    kb.scanner.max_ttl, flag_dur)
+            end
+        end
+
+        -- enforce-mode gates
+        local _enabled = kb.enabled
+        local _mode = kb.mode
+        if _enabled == true and _mode == "enforce" then
+            if kb.topology ~= "direct" then
+                return false, "kernel_ip_blocking: enforce mode requires topology='direct'"
+            end
+            if not kb.protected_addresses or #kb.protected_addresses == 0 then
+                return false, "kernel_ip_blocking: enforce mode requires non-empty protected_addresses"
+            end
+            if not kb.protected_ports or #kb.protected_ports == 0 then
+                return false, "kernel_ip_blocking: enforce mode requires non-empty protected_ports"
+            end
+            if kb.fail_policy ~= "open" then
+                return false, "kernel_ip_blocking: v1 only supports fail_policy='open'"
+            end
+            if kb.scope ~= "web" then
+                return false, "kernel_ip_blocking: v1 only supports scope='web'"
+            end
+            -- at least one address family must be enabled
+            local v4 = kb.ipv4 and kb.ipv4.enabled
+            local v6 = kb.ipv6 and kb.ipv6.enabled
+            if not v4 and not v6 then
+                return false, "kernel_ip_blocking: enforce mode requires at least one enabled address family"
+            end
+        end
+
+        -- cc.ttl range check (design §11.2)
+        if kb.cc and kb.cc.ttl then
+            if kb.cc.ttl < 60 or kb.cc.ttl > 3600 then
+                return false, "kernel_ip_blocking.cc.ttl must be between 60 and 3600"
+            end
+        end
+
+        -- enforce_ready is only meaningful when cc.enabled=true (not an error, but warn-log)
+        -- cc.enabled && enforce_ready=false is CC observe-only — valid per design §11.5
+
+        -- IPv6 safety knobs
+        if kb.ipv6 and kb.ipv6.prefix_aggregation ~= false then
+            return false, "kernel_ip_blocking.ipv6.prefix_aggregation must be false in v1"
+        end
+    end
+
     -- Alerting webhook URL validation (prevent SSRF)
     if config.alerting and config.alerting.webhook_url and config.alerting.webhook_url ~= "" then
         if not config.alerting.webhook_url:match("^https://") then

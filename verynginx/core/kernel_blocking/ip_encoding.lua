@@ -34,7 +34,11 @@ local function normalize_ipv4(ip)
 end
 
 -- Normalize an IPv6 address: lowercase, full expansion then compression.
--- For our purposes, lowercase + strip leading zeros in each group is enough.
+-- NOTE (Phase 0): ipv6.enabled defaults to false so this simplified
+-- implementation (lowercase only) is acceptable. Before enabling IPv6
+-- in production, replace with a full RFC 5952 compressor (expand to
+-- 8 groups, compress longest zero run, lowercase) so ::1 and
+-- 0:0:0:0:0:0:0:1 are treated as equivalent.
 local function normalize_ipv6(ip)
     if not ip then return "unknown" end
     ip = ip:lower()
