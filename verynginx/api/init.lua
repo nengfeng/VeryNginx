@@ -41,6 +41,7 @@ local CONTROLLERS = {
     "fingerprint",
     "frequency",
     "plugins",
+    "kernel_blocking",
 }
 
 for _, name in ipairs(CONTROLLERS) do

@@ -1,0 +1,352 @@
+-- -*- coding: utf-8 -*-
+-- @Date    : 2026-07-12
+-- @Author  : VeryNginx v2
+-- @Disc    : Kernel blocking controller (Design §11.5).
+--             Exposes status, entries, candidates, and manual operations.
+
+local _M = {}
+
+local json = require "dkjson"
+
+-- ---------------------------------------------------------------------------
+-- GET /kernel-blocking/status
+-- Returns comprehensive status including config, health, counters.
+-- ---------------------------------------------------------------------------
+local function handle_status()
+    local config = require "core.config"
+    local kb_cfg = config and config.kernel_ip_blocking
+    if not kb_cfg then
+        return json.encode({ ret = "failed", message = "kernel_ip_blocking not configured" })
+    end
+
+    local executor = require "core.kernel_blocking.executor"
+    local sm = require "core.kernel_blocking.state_machine"
+    local exec = executor.get_executor()
+
+    -- Helper health
+    local health_ok, health = pcall(function() return exec.health() end)
+    if not health_ok then health = { state = "unreachable", error = tostring(health) } end
+
+    -- Bucket state
+    local locks = ngx.shared.vn_locks or {}
+    local enforce_raw = locks:get("kb:enforce_bucket:state")
+    local enforce_bucket = { tokens = 0, last_refill = 0 }
+    if enforce_raw then
+        local ok, t = pcall(json.decode, enforce_raw)
+        if ok and type(t) == "table" then enforce_bucket = t end
+    end
+
+    -- Counters from state machine
+    local total_candidates = sm.count()
+    local installed = sm.count("installed")
+    local rejected = sm.count("rejected")
+    local degraded = sm.count("degraded")
+    local rate_limited = sm.count("rate_limited")
+    local paused_count = sm.count("scope_validation_pending")
+
+    return json.encode({
+        ret = "success",
+        data = {
+            configured = {
+                enabled = kb_cfg.enabled,
+                mode = kb_cfg.mode,
+                emergency_pause = kb_cfg.emergency_pause,
+                topology = kb_cfg.topology,
+                shadow = kb_cfg.shadow,
+            },
+            effective = {
+                global_mode = kb_cfg.mode,
+                global_install_reachable = health.state == "ok",
+                reason_codes = health.state ~= "ok" and { "helper_unreachable" } or {},
+            },
+            health = health,
+            promotion_bucket = {
+                tokens_available = enforce_bucket.tokens or 0,
+                last_refill = enforce_bucket.last_refill or 0,
+            },
+            counters = {
+                candidates = total_candidates - installed,
+                installed = installed,
+                rejected = rejected,
+                degraded = degraded,
+                rate_limited = rate_limited,
+                paused = paused_count,
+            },
+        }
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- GET /kernel-blocking/entries?policy=scanner&cursor=0&page_size=50
+-- Paginated list of installed entries from state machine + executor.
+-- ---------------------------------------------------------------------------
+local function handle_entries()
+    local cursor = tonumber(ngx.var.arg_cursor) or 0
+    local page_size = tonumber(ngx.var.arg_page_size) or 50
+    page_size = math.min(page_size, 200)
+
+    local sm = require "core.kernel_blocking.state_machine"
+    local page = sm.list(cursor, page_size, "installed")
+
+    -- Enrich with executor contains-check
+    local executor_mod = require "core.kernel_blocking.executor"
+    local exec = executor_mod.get_executor()
+    for _, e in ipairs(page.entries) do
+        if e.list then
+            local ok, exists = pcall(function()
+                return exec.contains(e.list, e.family or "ipv4", e.ip)
+            end)
+            e.in_kernel = (ok and exists) and true or false
+        else
+            e.in_kernel = false
+        end
+    end
+
+    return json.encode({
+        ret = "success",
+        data = {
+            entries = page.entries,
+            next_cursor = page.next_cursor,
+        }
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- GET /kernel-blocking/candidates?state=candidate&cursor=0&page_size=50
+-- Paginated list of candidates from state machine.
+-- ---------------------------------------------------------------------------
+local function handle_candidates()
+    local cursor = tonumber(ngx.var.arg_cursor) or 0
+    local page_size = tonumber(ngx.var.arg_page_size) or 50
+    local state_filter = ngx.var.arg_state
+
+    local sm = require "core.kernel_blocking.state_machine"
+    local page = sm.list(cursor, page_size, state_filter)
+
+    return json.encode({
+        ret = "success",
+        data = {
+            entries = page.entries,
+            next_cursor = page.next_cursor,
+        }
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- POST /kernel-blocking/promote { ip, policy, ttl? }
+-- Manually promote an IP to a drop set.
+-- ---------------------------------------------------------------------------
+local function handle_promote()
+    ngx.req.read_body()
+    local body = ngx.req.get_body_data()
+    if not body or body == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "body required" })
+    end
+    local ok, req = pcall(json.decode, body)
+    if not ok or type(req) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid JSON" })
+    end
+    local ip = req.ip
+    local policy = req.policy or "scanner"
+    local ttl = req.ttl or 86400
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ip required" })
+    end
+
+    local config = require "core.config"
+    local kb_cfg = config and config.kernel_ip_blocking
+    local max_ttl = (kb_cfg and kb_cfg.scanner and kb_cfg.scanner.max_ttl) or 86400
+    ttl = math.min(ttl, max_ttl)
+
+    local set_name = ({scanner = "scanner_drop", cc = "cc_drop", manual = "manual_drop"})[policy]
+    if not set_name then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid policy: " .. policy })
+    end
+
+    local executor_mod = require "core.kernel_blocking.executor"
+    local exec = executor_mod.get_executor()
+    local sm = require "core.kernel_blocking.state_machine"
+
+    local add_ok, err = pcall(function()
+        return exec.add(set_name, "ipv4", ip, ttl)
+    end)
+
+    if not add_ok then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+
+    sm.upsert(ip, policy, "installed", {
+        reason = "manual_promote",
+    }, {
+        list = set_name,
+        installed_at = ngx.time(),
+        expires_at = ngx.time() + ttl,
+        source = "manual",
+    })
+
+    return json.encode({
+        ret = "success",
+        data = { ip = ip, set = set_name, ttl = ttl }
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- POST /kernel-blocking/clear { ip }
+-- Manually clear an IP from all drop sets.
+-- ---------------------------------------------------------------------------
+local function handle_clear()
+    ngx.req.read_body()
+    local body = ngx.req.get_body_data()
+    if not body or body == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "body required" })
+    end
+    local ok, req = pcall(json.decode, body)
+    if not ok or type(req) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid JSON" })
+    end
+    local ip = req.ip
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ip required" })
+    end
+
+    local executor_mod = require "core.kernel_blocking.executor"
+    local exec = executor_mod.get_executor()
+    local sm = require "core.kernel_blocking.state_machine"
+
+    -- Try deleting from all 3 drop sets
+    local sets = { "scanner_drop", "cc_drop", "manual_drop" }
+    local removed = 0
+    for _, set_name in ipairs(sets) do
+        local chk_ok, exists = pcall(function()
+            return exec.contains(set_name, "ipv4", ip)
+        end)
+        if chk_ok and exists then
+            local rm_ok = pcall(function()
+                return exec.delete(set_name, "ipv4", ip)
+            end)
+            if rm_ok then removed = removed + 1 end
+        end
+    end
+
+    sm.transition(ip, "cleared", { cleared_at = ngx.time(), reason = "manual_clear" })
+
+    return json.encode({
+        ret = "success",
+        data = { ip = ip, removed = removed }
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- POST /kernel-blocking/pause { paused: true|false }
+-- Toggle emergency pause without clearing state.
+-- ---------------------------------------------------------------------------
+local function handle_pause()
+    ngx.req.read_body()
+    local body = ngx.req.get_body_data()
+    if not body or body == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "body required" })
+    end
+    local ok, req = pcall(json.decode, body)
+    if not ok or type(req) ~= "table" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid JSON" })
+    end
+    if type(req.paused) ~= "boolean" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "paused boolean required" })
+    end
+
+    -- Load full config (via report), mutate emergency_pause, save
+    -- NOTE: report() encodes config_data which may contain function refs
+    -- (module-level helpers). Use pcall to catch JSON errors and fall back
+    -- to a direct config_data accessor pattern.
+    local config_mod = require "core.config"
+    local cfg = nil
+    local report_ok, report_val = pcall(function() return config_mod.report() end)
+    if report_ok and report_val then
+        cfg = json.decode(report_val)
+    end
+    -- Fallback: load from file directly
+    if not cfg then
+        config_mod.load_from_file()
+        local report_ok2, report_val2 = pcall(function() return config_mod.report() end)
+        if report_ok2 and report_val2 then
+            cfg = json.decode(report_val2)
+        end
+    end
+    if not cfg then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "config load failed" })
+    end
+    cfg.kernel_ip_blocking = cfg.kernel_ip_blocking or {}
+    cfg.kernel_ip_blocking.emergency_pause = req.paused
+
+    local save_ok, save_err = config_mod.save(cfg)
+    if not save_ok then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = tostring(save_err) })
+    end
+
+    return json.encode({
+        ret = "success",
+        data = { paused = req.paused }
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- POST /kernel-blocking/flush-auto
+-- Flush all auto-owned entries (scanner_drop + cc_drop).
+-- ---------------------------------------------------------------------------
+local function handle_flush_auto()
+    local executor_mod = require "core.kernel_blocking.executor"
+    local exec = executor_mod.get_executor()
+
+    local result, err = pcall(function()
+        return exec.flush_owned("auto")
+    end)
+
+    if not result then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+
+    return json.encode({
+        ret = "success",
+        data = { removed = (err and err.removed) or 0 }
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- POST /kernel-blocking/reconcile
+-- Manually trigger a reconciliation round.
+-- ---------------------------------------------------------------------------
+local function handle_reconcile()
+    local recon_mod = require "core.kernel_blocking.reconciliation"
+    local result = recon_mod.reconcile(ngx.time())
+    return json.encode({ ret = "success", data = result })
+end
+
+-- ---------------------------------------------------------------------------
+-- Route registration
+-- ---------------------------------------------------------------------------
+function _M.register(api)
+    api.register("GET", "/kernel-blocking/status", handle_status)
+    api.register("GET", "/kernel-blocking/entries", handle_entries)
+    api.register("GET", "/kernel-blocking/candidates", handle_candidates)
+    api.register("POST", "/kernel-blocking/promote", handle_promote)
+    api.register("POST", "/kernel-blocking/clear", handle_clear)
+    api.register("POST", "/kernel-blocking/pause", handle_pause)
+    api.register("POST", "/kernel-blocking/flush-auto", handle_flush_auto)
+    api.register("POST", "/kernel-blocking/reconcile", handle_reconcile)
+end
+
+return _M
