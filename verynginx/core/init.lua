@@ -34,6 +34,10 @@ function _M.init()
     -- Restore persisted IP reputation data
     local ip_reputation = require "core.ip_reputation"
     ip_reputation.restore()
+
+    -- Initialize whitelist generation epoch (Phase 1)
+    local wlg = require "core.kernel_blocking.whitelist_generation"
+    wlg.init_epoch()
 end
 
 function _M._validate_config()
@@ -102,14 +106,53 @@ function _M.init_worker()
     local alerting = require "core.alerting"
     alerting.init()
 
-    -- Only worker 0 does I/O for persistence
+    -- Only worker 0 does I/O for persistence and background evaluation
     local ip_reputation = require "core.ip_reputation"
     local geoip_updater = require "core.geoip_updater"
     geoip_updater.init()
     if ngx.worker.id() == 0 then
+        -- IP reputation persistence (every 600s)
         ngx.timer.every(600, function()
             ip_reputation.persist()
         end)
+
+        -- Phase 1: Kernel blocking promotion policy (observe-only).
+        -- Self-rescheduling timer for hot-reloadable batch_interval.
+        local promotion = require "core.kernel_blocking.promotion"
+        local function promotion_timer(_batch_interval)
+            if ngx.worker.exiting() then return end
+            local ok, err = pcall(function()
+                promotion.process_candidates(ngx.time())
+            end)
+            if not ok then
+                ngx.log(ngx.WARN, "kernel_blocking promotion eval error: ", err)
+            end
+            -- Re-read config for hot-reloadable interval, then reschedule
+            local kb_cfg = config.kernel_ip_blocking
+            local interval = (kb_cfg and kb_cfg.batch_interval) or 1
+            ngx.timer.at(math.max(interval, 1), function(premature)
+                if premature then return end
+                promotion_timer(interval)
+            end)
+        end
+        -- Start after a short delay (don't block startup)
+        ngx.timer.at(1, function(premature)
+            if premature then return end
+            promotion_timer(1)
+        end)
+
+        -- Persist kernel state on worker shutdown (Phase 1: candidates in shared dict survive)
+        local function kernel_blocking_persist_on_exit(premature)
+            if premature then return end
+            if ngx.worker.exiting() then
+                -- Phase 1 observes only; no desired-state to persist yet.
+                -- Phase 3+ will persist desired state here.
+                return
+            end
+            ngx.timer.at(1, kernel_blocking_persist_on_exit)
+        end
+        ngx.timer.at(1, kernel_blocking_persist_on_exit)
+
         -- Persist ip_reputation on worker shutdown
         local function ip_rep_persist_on_exit(premature)
             if premature then return end
