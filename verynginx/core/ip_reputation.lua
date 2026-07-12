@@ -256,6 +256,9 @@ function _M.record_challenge_pass(ip)
             s:set(idx_key, json.encode(index), 0)
         end
         s:delete(key)
+        -- Phase 1: auto-whitelist created, bump generation sequence
+        local wlg = require "core.kernel_blocking.whitelist_generation"
+        wlg.bump_sequence()
     end
 end
 
@@ -395,7 +398,11 @@ function _M.add_whitelist(entry)
     local ok, err = cfg_mod.save(cfg)
     if not ok then
         ngx.log(ngx.WARN, "add_whitelist: save failed: ", err)
+        return
     end
+    -- Phase 1: bump generation sequence to invalidate old caches
+    local wlg = require "core.kernel_blocking.whitelist_generation"
+    wlg.bump_sequence()
 end
 
 function _M.remove_whitelist(entry)
@@ -414,7 +421,11 @@ function _M.remove_whitelist(entry)
     local ok, err = cfg_mod.save(cfg)
     if not ok then
         ngx.log(ngx.WARN, "remove_whitelist: save failed: ", err)
+        return
     end
+    -- Phase 1: bump generation sequence to invalidate old caches
+    local wlg = require "core.kernel_blocking.whitelist_generation"
+    wlg.bump_sequence()
 end
 
 local function ip_in_cidr(ip, cidr)
@@ -445,34 +456,29 @@ local function ip_in_cidr(ip, cidr)
 end
 
 function _M.is_whitelisted(ip)
-    local s = shared()
-    -- Fast path: O(1) exact-match cache for /32 entries
-    if s then
-        local cached = s:get("ip_rep:wl_cache:" .. ip)
-        if cached ~= nil then
-            return cached == 1
-        end
+    -- Phase 1: use generation-qualified cache
+    local wlg = require "core.kernel_blocking.whitelist_generation"
+    local cached = wlg.cache_get(ip)
+    if cached ~= nil then
+        return cached
     end
     -- Check static whitelist (from config)
     local wl = get_whitelist()
     for _, entry in ipairs(wl) do
         if ip_in_cidr(ip, entry) then
-            if s then
-                s:set("ip_rep:wl_cache:" .. ip, 1, 60)
-            end
+            wlg.cache_set(ip, true)
             return true
         end
     end
     -- Check auto-whitelist (ephemeral, for repeatedly verified IPs)
+    local s = shared()
     if s and s:get("ip_rep:awl:" .. ip) then
-        if s then
-            s:set("ip_rep:wl_cache:" .. ip, 1, 60)
-        end
+        -- Limit positive cache TTL to auto-whitelist remaining TTL
+        local awl_ttl = s:get("ip_rep:awl_ttl:" .. ip)
+        wlg.cache_set(ip, true, awl_ttl or 60)
         return true
     end
-    if s then
-        s:set("ip_rep:wl_cache:" .. ip, 0, 60)
-    end
+    wlg.cache_set(ip, false)
     return false
 end
 
