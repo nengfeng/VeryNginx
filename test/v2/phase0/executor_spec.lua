@@ -72,3 +72,33 @@ describe("IPC executor adapter", function()
         assert.truthy(resp)
     end)
 end)
+
+describe("replace_allow_snapshot", function()
+    it("replaces the allow set in mock executor", function()
+        local mock = require "core.kernel_blocking.executor_mock"
+        -- Add some entries first
+        mock.add("allow", "ipv4", "10.0.0.1", 0)
+        mock.add("allow", "ipv4", "10.0.0.2", 0)
+        -- Replace with new entries
+        local ok, _ = mock.replace_allow_snapshot({
+            { ip = "192.168.1.1", family = "ipv4" },
+            { ip = "192.168.1.2", family = "ipv4" },
+        })
+        assert.is_true(ok)
+        -- Old entries should be gone
+        local old_gone, _ = mock.contains("allow", "ipv4", "10.0.0.1")
+        assert.is_false(old_gone)
+        -- New entries should exist
+        local new_there, _ = mock.contains("allow", "ipv4", "192.168.1.1")
+        assert.is_true(new_there)
+    end)
+
+    it("handles empty entries list (clears allow set)", function()
+        local mock = require "core.kernel_blocking.executor_mock"
+        mock.add("allow", "ipv4", "10.0.0.1", 0)
+        local ok, _ = mock.replace_allow_snapshot({})
+        assert.is_true(ok)
+        local list = mock.list("allow", "ipv4", 0)
+        assert.are.equal(0, #list.entries)
+    end)
+end)

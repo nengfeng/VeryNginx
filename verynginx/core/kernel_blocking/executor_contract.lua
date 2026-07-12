@@ -17,6 +17,7 @@ _M.METHODS = {
     "delete",
     "contains",
     "list",
+    "replace_allow_snapshot",
     "reconcile",
     "flush_owned",
     "health",

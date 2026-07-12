@@ -84,6 +84,20 @@ function _M.list(set, family, cursor)
 end
 
 -- ---------------------------------------------------------------------------
+-- replace_allow_snapshot(entries) -> ok, error?
+-- entries: { { ip = ..., family = "ipv4"|"ipv6" }, ... }
+-- ---------------------------------------------------------------------------
+function _M.replace_allow_snapshot(entries)
+    local resp, err = client.request_safe("replace_allow_snapshot", "whitelist", {
+        items = entries or {},
+    })
+    if resp and resp.ok then
+        return true, nil
+    end
+    return false, err or "replace_allow_snapshot_failed"
+end
+
+-- ---------------------------------------------------------------------------
 -- reconcile(desired_snapshot) -> { added, updated, removed, failed }
 -- desired_snapshot: flat list of { set, family, ip, ttl, mode }
 -- ---------------------------------------------------------------------------

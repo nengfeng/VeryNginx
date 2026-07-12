@@ -146,6 +146,39 @@ function _M.list(set, family, cursor)
 end
 
 -- ---------------------------------------------------------------------------
+-- replace_allow_snapshot(entries) -> ok, error?
+-- entries: { { ip = ..., family = "ipv4"|"ipv6" }, ... }
+-- Replaces the entire atom-helper-managed allow set with the given entries.
+-- ---------------------------------------------------------------------------
+function _M.replace_allow_snapshot(entries)
+    local s = shared()
+    if not s then return false, contract.ERRORS.unavailable end
+    -- Clear old allow entries from mock nft
+    local idx = index_read()
+    local to_clear = {}
+    for key, _ in pairs(idx) do
+        if key:find(DATA_PREFIX .. "allow:", 1, true) == 1 then
+            to_clear[#to_clear + 1] = key
+        end
+    end
+    for _, key in ipairs(to_clear) do
+        s:delete(key)
+        idx[key] = nil
+    end
+    -- Add new allow entries
+    for _, entry in ipairs(entries or {}) do
+        local key = set_key("allow", entry.family or "ipv4", entry.ip)
+        s:set(key, json.encode({
+            ip = entry.ip, family = entry.family or "ipv4",
+            set = "allow", created_at = ngx.time(),
+        }), 0)
+        idx[key] = true
+    end
+    index_write(idx)
+    return true, nil
+end
+
+-- ---------------------------------------------------------------------------
 -- reconcile(desired_snapshot) -> { added, updated, removed, preserved, failed }
 -- desired_snapshot: { [set_family_ip] = { ip, family, set, expires_at, mode } }
 -- mode: "ensure" | "preserve_only" | "manual"

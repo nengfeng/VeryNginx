@@ -54,12 +54,25 @@ end
 -- ---------------------------------------------------------------------------
 -- Atomically increment the sequence. Returns the new sequence number.
 -- Called after a successful whitelist change (add/remove/auto).
+-- Triggers async snapshot push to Helper via ngx.timer.at.
 -- ---------------------------------------------------------------------------
 function _M.bump_sequence()
     local s = ngx.shared[SHARED_DICT]
     if not s then return nil end
     local new_seq = s:incr(SEQ_KEY, 1)
-    return new_seq and tonumber(new_seq) or nil
+    new_seq = new_seq and tonumber(new_seq) or nil
+    -- Async push (ngx.timer.at runs in a request-like context with
+    -- access to modules and shared dicts; does not block the caller).
+    -- Guard: ngx.timer may not exist in test/non-OpenResty contexts.
+    if new_seq and ngx.timer and ngx.timer.at then
+        local ok, err = ngx.timer.at(0, function()
+            _M.push_allow_snapshot()
+        end)
+        if not ok then
+            ngx.log(ngx.WARN, "kernel_blocking: timer for snapshot push failed: ", err)
+        end
+    end
+    return new_seq
 end
 
 -- ---------------------------------------------------------------------------
@@ -112,6 +125,50 @@ function _M.cache_invalidate(ip)
     local epoch, seq = _M.get_generation()
     if not epoch then return end
     s:delete("ip_rep:wl_cache:" .. epoch .. ":" .. tostring(seq) .. ":" .. ip)
+end
+
+-- ---------------------------------------------------------------------------
+-- Build the full allow list (static + auto-whitelist) and push it to the
+-- Helper via executor.replace_allow_snapshot.
+-- Called asynchronously (ngx.timer.at) after bump_sequence().
+-- ---------------------------------------------------------------------------
+function _M.push_allow_snapshot()
+    local executor = require "core.kernel_blocking.executor"
+    local exec = executor.get_executor()
+    local config = require "core.config"
+    local json = require "dkjson"
+
+    local entries = {}
+
+    -- Static whitelist from config (ip_reputation.whitelist)
+    local ip_rep = config and config.ip_reputation
+    local static_wl = ip_rep and ip_rep.whitelist or {}
+    for _, entry in ipairs(static_wl) do
+        -- entry may be a bare IP or CIDR string
+        local ip = entry:match("^([%w%.:]+)") or entry
+        local family = ip:find(":") and "ipv6" or "ipv4"
+        entries[#entries + 1] = { ip = ip, family = family }
+    end
+
+    -- Auto-whitelist from shared dict (ip_rep:awl:* with index)
+    local s = ngx.shared[SHARED_DICT]
+    if s then
+        local awl_idx_raw = s:get("ip_rep:awl_index") or "[]"
+        local ok, awl_idx = pcall(json.decode, awl_idx_raw)
+        if ok and type(awl_idx) == "table" then
+            for _, ip in ipairs(awl_idx) do
+                if s:get("ip_rep:awl:" .. ip) then
+                    local family = ip:find(":") and "ipv6" or "ipv4"
+                    entries[#entries + 1] = { ip = ip, family = family }
+                end
+            end
+        end
+    end
+
+    local ok, err = exec.replace_allow_snapshot(entries)
+    if not ok then
+        ngx.log(ngx.WARN, "kernel_blocking: push_allow_snapshot failed: ", err)
+    end
 end
 
 return _M

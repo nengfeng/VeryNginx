@@ -194,6 +194,30 @@ function _M.count(state_filter)
     return n
 end
 
+-- ---------------------------------------------------------------------------
+-- Health-check-driven transitions.
+-- When Helper connection is lost, installed entries transition to
+-- scope_validation_pending. Once connection is restored (and entries
+-- verified still present), they transition back to installed.
+-- ---------------------------------------------------------------------------
+function _M.to_scope_validation_pending(ip)
+    return _M.transition(ip, STATE.scope_validation_pending, {
+        reason = "helper_unreachable",
+    })
+end
+
+function _M.from_scope_validation_pending(ip, verified)
+    if verified then
+        return _M.transition(ip, STATE.installed, {
+            reason = "helper_restored",
+        })
+    else
+        return _M.transition(ip, STATE.degraded, {
+            reason = "helper_restored_entry_missing",
+        })
+    end
+end
+
 -- Backward-compatible aliases (Phase 1 API surface)
 _M.upsert_candidate = _M.upsert
 _M.get_candidate = _M.get

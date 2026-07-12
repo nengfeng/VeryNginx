@@ -12,6 +12,7 @@ local _M = {}
 
 local desired = require "core.kernel_blocking.desired_state"
 local executor_mod = require "core.kernel_blocking.executor"
+local state_machine = require "core.kernel_blocking.state_machine"
 local config = require "core.config"
 
 -- ---------------------------------------------------------------------------
@@ -20,6 +21,40 @@ local config = require "core.config"
 -- @param now number: ngx.time()
 -- @return table: { to_add, to_update, to_remove, would_log }
 -- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- Health-check-driven scope_validation_pending transitions.
+-- Called at the start of each reconcile round.
+-- ---------------------------------------------------------------------------
+local function health_check_transitions(exec)
+    -- Check Helper health
+    local ok, health = pcall(function() return exec.health() end)
+    local helper_up = ok and health and health.state == "ok"
+
+    if not helper_up then
+        -- Helper unreachable: transition installed → scope_validation_pending
+        local page = state_machine.list(0, 500, "installed")
+        for _, e in ipairs(page.entries) do
+            state_machine.to_scope_validation_pending(e.ip)
+        end
+        return "unreachable"
+    end
+
+    -- Helper reachable: validate scope_validation_pending entries
+    local pending = state_machine.list(0, 500, "scope_validation_pending")
+    for _, e in ipairs(pending.entries) do
+        local exists = false
+        -- Check if entry still exists in kernel
+        if e.list then
+            local cont, _ = pcall(function()
+                return exec.contains(e.list, e.family or "ipv4", e.ip)
+            end)
+            exists = cont
+        end
+        state_machine.from_scope_validation_pending(e.ip, exists)
+    end
+    return "ok"
+end
+
 function _M.reconcile(_now)
     local kb_cfg = config.kernel_ip_blocking
     if not kb_cfg or kb_cfg.enabled ~= true then
@@ -29,11 +64,15 @@ function _M.reconcile(_now)
     -- Get the active executor (mock or IPC-backed in shadow mode)
     local exec = executor_mod.get_executor()
 
+    -- Health-check-driven state transitions
+    local health_status = health_check_transitions(exec)
+
     local result = {
         to_add = {},
         to_update = {},
         to_remove = {},
         dry_run = (kb_cfg.mode == "observe"),
+        health = health_status,
     }
 
     -- 1. Read desired state (paginated)
