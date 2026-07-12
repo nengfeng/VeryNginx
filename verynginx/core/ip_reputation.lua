@@ -84,6 +84,19 @@ local function window_size()
     return cfg_val("window_size")
 end
 
+-- Public read-only accessors for Promotion Policy (Phase 1+)
+function _M.slot_size()
+    return slot_size()
+end
+
+function _M.window_size()
+    return window_size()
+end
+
+function _M.flag_duration()
+    return cfg_val("flag_duration")
+end
+
 local function num_slots()
     return math.ceil(window_size() / slot_size())
 end
