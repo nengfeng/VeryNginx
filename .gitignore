@@ -4,6 +4,12 @@
 *.swm
 __pycache__
 
+# Go helper build artifact
+helper/firewall-helper
+
+# Test artifacts
+*.sock
+
 # Runtime-generated configs (allow .default.json templates)
 verynginx/configs/backups/
 verynginx/configs/waf-rules.json

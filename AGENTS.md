@@ -14,6 +14,7 @@
 8. [前端 Dashboard](#8-前端-dashboard)
 9. [测试与 CI](#9-测试与-ci)
 10. [安全](#10-安全)
+11. [Firewall Helper (Go)](#11-firewall-helper-go)
 
 ---
 
@@ -425,6 +426,78 @@ API 响应超过 10MB 截断为 413。
 
 ---
 
+## 11. Firewall Helper (Go)
+
+### 11.1 概述
+
+Go 实现的特权 Helper 进程，监听 Unix Domain Socket (`/run/verynginx/firewall-helper.sock`)，接收 VeryNginx worker 发来的 Protocol v1 帧并转换为 nftables 操作。
+
+### 11.2 架构
+
+```
+VeryNginx worker (Lua)
+    ↓ Unix socket (Protocol v1: 4-byte BE length + JSON)
+helper/main.go
+    ↓ exec.Command("/usr/sbin/nft", "-f", "-")
+nftables (Linux kernelnetfilter)
+```
+
+### 11.3 关键设计
+
+| 项目 | 说明 |
+|------|------|
+| 语言 | Go 1.21+，静态二进制无运行时依赖 |
+| 权限 | 仅需 `CAP_NET_ADMIN`，不需要 root |
+| Socket | systemd socket-activated |
+| 故障安全 | nft 执行失败返回 `{ok:false, error}`，不 panic |
+| 原子性 | nft `-f -` 整批写入（单个事务） |
+| In-memory state | 同时在内存中维护，用于 health/list 快速响应 |
+
+### 11.4 文件结构
+
+```
+helper/
+├── go.mod
+├── main.go              ← 全部逻辑 (~450 行)
+├── main_test.go         ← e2e 测试 (需 E2E=1 + CAP_NET_ADMIN)
+├── firewall-helper.socket ← systemd socket unit
+└── firewall-helper.service ← systemd service unit
+```
+
+### 11.5 部署
+
+```bash
+# 构建
+cd helper && go build -o firewall-helper .
+
+# 安装二进制
+cp firewall-helper /usr/local/bin/
+
+# systemd units
+cp firewall-helper.{socket,service} /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now firewall-helper.socket
+# service 在首次连接时自动启动 (socket-activated)
+```
+
+### 11.6 测试
+
+```bash
+# 单元 + e2e (需要 CAP_NET_ADMIN)
+cd helper && E2E=1 go test -v
+
+# Lua client → Go Helper → nftables 全链路
+bash test/v2/phase0/test_go_helper_e2e.sh
+```
+
+### 11.7 协议兼容性
+
+- Protocol v1 帧: 4-byte big-endian length + JSON envelope
+- 9 种操作: probe, health, ensure_base, add, delete, list, replace_allow_snapshot, reconcile, flush_owned
+- 环境变量 `VN_HELPER_SOCKET` 可覆盖 socket 路径（用于测试）
+
+---
+
 ## 附录：模块文件结构
 
 ```
@@ -481,9 +554,17 @@ verynginx/
 │   │   └── config.json         ← 运行时配置 (CI 生成)
 │   └── resty/
 │       └── maxminddb.lua    ← vendored lua-resty-maxminddb
-└── test/
-    └── v2/
-        ├── spec/            ← 单元测试 (busted)
-        ├── test_integration.py ← 集成测试 (Python/curl)
-        └── docker-compose.yml  ← CI 测试环境
+└── helper/
+    ├── go.mod
+    ├── main.go              ← Protocol v1 server + nftables executor
+    ├── main_test.go         ← e2e 测试 (E2E=1)
+    ├── firewall-helper.socket ← systemd socket activation
+    └── firewall-helper.service ← systemd service unit
+
+test/
+└── v2/
+    ├── spec/            ← 单元测试 (busted)
+    ├── phase0/          ← Kernel blocking 集成测试
+    ├── test_integration.py ← 集成测试 (Python/curl)
+    └── docker-compose.yml  ← CI 测试环境
 ```
