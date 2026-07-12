@@ -1,10 +1,12 @@
 # Kernel IP Blocking 实施计划
 
-> **版本**: Draft v1.0
+> **版本**: Draft v1.1
 >
 > **日期**: 2026-07-12
 >
 > **状态**: 待执行
+>
+> **更新记录**: v1.1 补充既有 bug 修复 (whitelist)、配置管线侧效应 (compile_runtime_snapshot/admin 密码)、init_worker 独立 timer 现状、frequency key 碰撞风险
 >
 > **前置条件**: `docs/KERNEL_IP_BLOCKING_DESIGN.md` v0.5
 
@@ -140,6 +142,12 @@ test/v2/spec/
 6. **运行时快照不可变性**:
    规范化后的 `config_data` 生成 deep-copy-on-write 语义。模块只读引用，必须通过 save → normalize → 替换 的流程修改。
 
+7. **管线重构必须保留的现有侧效应**:
+   - `compile_runtime_snapshot` (config.lua L263-295): 每次 save/load 预解析 matcher 字符串引用为 CRC32。递归 schema walker 需为 matcher/rule 段保留处理入口
+   - `load_from_file()` 自动生成 admin 密码 (L428-504): 通过 single-flight lock (`config_auto_save_lock`) 回写磁盘。拆管线时必须保留此行为在 load pipeline 中
+   - `save()` 当前顺序: make_backup → validate_config → compile_runtime_snapshot → atomic rename (L575-699)。新管线保持此顺序，不重新排列
+   - `schema.version = "2.0"` 在 `fields` 之外，`normalize_defaults` 对其有特殊处理 (L155-157)。递归 schema 需兼容顶层 version 字段
+
 **影响文件**:
 - 新建: `verynginx/core/config_schema.lua`
 - 重构: `verynginx/core/config.lua` (保留对外 API，内部委托 recursive_normalize)
@@ -251,6 +259,8 @@ test/v2/spec/
    - 新契约: 只返回维度部分 (不返回带 `fl:` 前缀的完整 key)
    - rule_id 和所有可变 dimension 使用长度前缀编码、URL-safe 编码或固定摘要
    - IPv4/IPv6 必须先规范化
+   - **注意**: 当前 key 无 escaping/sanitization (limiter.lua L18, L22)，dimension value 中如果含 `:` 理论上会与分隔符碰撞。v2 编码默认使用长度前缀 + base64url 消除此风险
+   - `uri` dimension 使用 `statistics.normalize_uri()` 归一化 (limiter.lua L30-31)。v2 续约时归一化逻辑必须保持一致
 
 2. **修改 `verynginx/plugin/frequency_limit/init.lua`**:
    - 当前计数 key: `fl:v2:count:<encoded_rule_id>:<encoded_dimension_key>`
@@ -301,24 +311,49 @@ test/v2/spec/
    - 导出 `flag_duration()` → 返回当前 flag duration
    - 修复 `add_whitelist()` bug (`cfg` 引用错误、`config.save()` 传错参数)
 
-2. **新建 `verynginx/core/kernel_blocking/evidence.lua`**:
+2. **修复 `add_whitelist` / `remove_whitelist` 既有 bug** (ip_reputation.lua L359-380):
+   - **Bug 描述**: `add_whitelist()` 使用 `table.insert(cfg.whitelist, entry)` 直接 mutate 运行时只读配置 store，绕过 save pipeline；`save(config)` 传入 config 模块 `_M` 而不是 config 数据（靠 metatable 碰巧工作）
+   - **Bug 描述**: `remove_whitelist()` 使用 `cfg.whitelist = filtered` 直接赋值只读子表，同样绕过 save pipeline
+   - **修复方案**: 白名单变更统一走发布路径: `validate → compile new list → config.save(new_config_data) → 成功后递增 sequence → 发 allow snapshot`。5 个配置入口 (`/config`、import、rollback、热加载、reputation API) 全部收敛到此路径
+   - **关键**: 这是高危 bug —— save 失败或并发 load 会导致内存/磁盘不一致。必须在 Phase 0 修复
+
+3. **新建 `verynginx/core/kernel_blocking/evidence.lua`**:
    - `record_waf_block_evidence(ip)`: scanner 用 — `shared:incr("ip_rep:kernel:waf_block:" .. ip .. ":" .. slot, 1, 0, window_size())`
    - `record_cc_violation_evidence(rule_id, ip, window)`: CC 用 — `shared:add("fl:v2:kernel:violation:" .. rule_id .. ":" .. ip .. ":" .. slot, true, ttl)`
    - 两者遵循有界原子操作，不执行 IPC/JSON 通信/磁盘 I/O
 
 **影响文件**:
-- 修改: `verynginx/core/ip_reputation.lua` (暴露接口 + 修 bug)
+- 修改: `verynginx/core/ip_reputation.lua` (暴露接口 + 修 bug + 统一发布路径)
 - 新建: `verynginx/core/kernel_blocking/evidence.lua`
 
 ---
 
-### 2.5 Phase 0 退出验证
+### 2.5 Worker 0 调度 Scheduling (现状澄清)
+
+> **重要**: `core/init.lua` 现有 `init_worker` 远不止 IP 声誉持久化。以下模块已有自己独立的 `ngx.timer.every/at`:
+> - `statistics.lua` — 60s / 300s / 3600s + persist_interval
+> - `alerting.lua` — 自有 interval timer
+> - `geoip_updater.lua` — 自有 timer
+> - `waf_rule_manager` — 30s timer
+> - `health_check.lua` — 自有 timer
+> - **退出轮询已存在** (init.lua L114-122): 通过 `ngx.timer.at(1, ...)` 检测 `ngx.worker.exiting()` 并循环 re-schedule
+>
+> **结论**: kernel_blocking 不重写整个调度体系，而是**新增一组并行的 timer** 到 worker 0 的 `init_worker` block 中。需确保:
+> - 退出轮询增加 `kernel_blocking.persist()` 调用 (每个模块分别 pcall，一个失败不阻止其他)
+> - 新增的自重调度 `ngx.timer.at()` 在 `premature` 和 `ngx.worker.exiting()` 时正确退出
+> - 其他模块的独立 timer 不受影响
+
+---
+
+### 2.6 Phase 0 退出验证
 
 - [ ] 全部 Phase 0 单元测试通过
 - [ ] 现有测试套件无回归
 - [ ] Frequency Rule ID Migration 在 sample config 上 dry-run 幂等
 - [ ] v2 counter namespace 冷切换后 limit 计数正确 (不丢、不翻倍)
 - [ ] Schema walker 拒绝未知字段但接受旧配置 (backward compatible)
+- [ ] `add_whitelist`/`remove_whitelist` 白名单变更走保存管线 (不再直接 mutate store)
+- [ ] 退出轮询加入 kernel_blocking 后其他模块持久化不受影响
 
 ---
 
@@ -474,6 +509,8 @@ Phase 1 状态记录在 shared dict 的候选索引中 (有界)，`candidate` �
 ---
 
 ### 3.7 白名单 Generation 机制
+
+> **性能注意**: `is_whitelisted()` 在请求 hot path 上运行 (3 个调用点: filter/init.lua:109, reputation.lua:41, waf_stats.lua:278)。引入 generation 后每次多一次 shared dict get 读取 `{epoch, sequence}`。由于 shared dict get 是 O(1) 且每个请求只多一次，实际影响可忽略，但上线后需观察 P99 延迟。
 
 **新建 `verynginx/core/kernel_blocking/whitelist_generation.lua`**:
 
