@@ -141,6 +141,30 @@ function _M.init_worker()
             promotion_timer(1)
         end)
 
+        -- Phase 2: Kernel blocking reconciliation (dry-run observer).
+        -- Self-rescheduling timer for hot-reloadable reconcile_interval.
+        local reconcile_mod = require "core.kernel_blocking.reconciliation"
+        local function reconcile_timer(_unused)
+            if ngx.worker.exiting() then return end
+            local ok, err = pcall(function()
+                reconcile_mod.reconcile(ngx.time())
+            end)
+            if not ok then
+                ngx.log(ngx.WARN, "kernel_blocking reconcile error: ", err)
+            end
+            local kb_cfg = config.kernel_ip_blocking
+            local interval = (kb_cfg and kb_cfg.reconcile_interval) or 30
+            ngx.timer.at(math.max(interval, 5), function(premature)
+                if premature then return end
+                reconcile_timer(interval)
+            end)
+        end
+        -- Start reconcile shortly after promotion starts
+        ngx.timer.at(5, function(premature)
+            if premature then return end
+            reconcile_timer(30)
+        end)
+
         -- Persist kernel state on worker shutdown (Phase 1: candidates in shared dict survive)
         local function kernel_blocking_persist_on_exit(premature)
             if premature then return end
