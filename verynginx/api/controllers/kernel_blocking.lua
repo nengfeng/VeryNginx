@@ -19,61 +19,9 @@ local function handle_status()
         return json.encode({ ret = "failed", message = "kernel_ip_blocking not configured" })
     end
 
-    local executor = require "core.kernel_blocking.executor"
-    local sm = require "core.kernel_blocking.state_machine"
-    local exec = executor.get_executor()
-
-    -- Helper health
-    local health_ok, health = pcall(function() return exec.health() end)
-    if not health_ok then health = { state = "unreachable", error = tostring(health) } end
-
-    -- Bucket state
-    local locks = ngx.shared.vn_locks or {}
-    local enforce_raw = locks:get("kb:enforce_bucket:state")
-    local enforce_bucket = { tokens = 0, last_refill = 0 }
-    if enforce_raw then
-        local ok, t = pcall(json.decode, enforce_raw)
-        if ok and type(t) == "table" then enforce_bucket = t end
-    end
-
-    -- Counters from state machine
-    local total_candidates = sm.count()
-    local installed = sm.count("installed")
-    local rejected = sm.count("rejected")
-    local degraded = sm.count("degraded")
-    local rate_limited = sm.count("rate_limited")
-    local paused_count = sm.count("scope_validation_pending")
-
-    return json.encode({
-        ret = "success",
-        data = {
-            configured = {
-                enabled = kb_cfg.enabled,
-                mode = kb_cfg.mode,
-                emergency_pause = kb_cfg.emergency_pause,
-                topology = kb_cfg.topology,
-                shadow = kb_cfg.shadow,
-            },
-            effective = {
-                global_mode = kb_cfg.mode,
-                global_install_reachable = health.state == "ok",
-                reason_codes = health.state ~= "ok" and { "helper_unreachable" } or {},
-            },
-            health = health,
-            promotion_bucket = {
-                tokens_available = enforce_bucket.tokens or 0,
-                last_refill = enforce_bucket.last_refill or 0,
-            },
-            counters = {
-                candidates = total_candidates - installed,
-                installed = installed,
-                rejected = rejected,
-                degraded = degraded,
-                rate_limited = rate_limited,
-                paused = paused_count,
-            },
-        }
-    })
+    local kb = require "core.kernel_blocking"
+    local data = kb.status()
+    return json.encode({ ret = "success", data = data })
 end
 
 -- ---------------------------------------------------------------------------
@@ -189,6 +137,7 @@ local function handle_promote()
         source = "manual",
         policy = policy,
         reason = "manual_promote",
+        reconciliation_mode = "manual",
     })
 
     sm.upsert(ip, policy, "installed", {
@@ -199,7 +148,19 @@ local function handle_promote()
         installed_at = ngx.time(),
         expires_at = ngx.time() + ttl,
         source = "manual",
+        reconciliation_mode = "manual",
     })
+
+    pcall(function()
+        local audit = require "core.audit"
+        audit.log("kernel_blocking.promote", policy .. " " .. ip .. " ttl=" .. tostring(ttl))
+    end)
+    pcall(function()
+        local metrics = require "core.metrics"
+        metrics.incr("verynginx_kernel_block_promotions_total", 1, {
+            list = set_name, result = "manual",
+        })
+    end)
 
     return json.encode({
         ret = "success",
@@ -258,6 +219,17 @@ local function handle_clear()
     for _, policy in ipairs({ "scanner", "cc", "manual" }) do
         sm.transition(ip, policy, "cleared", { cleared_at = ngx.time(), reason = "manual_clear" })
     end
+
+    pcall(function()
+        local audit = require "core.audit"
+        audit.log("kernel_blocking.clear", ip)
+    end)
+    pcall(function()
+        local metrics = require "core.metrics"
+        metrics.incr("verynginx_kernel_block_operations_total", 1, {
+            operation = "clear", result = "ok",
+        })
+    end)
 
     return json.encode({
         ret = "success",
@@ -364,8 +336,12 @@ end
 -- Manually trigger a reconciliation round.
 -- ---------------------------------------------------------------------------
 local function handle_reconcile()
-    local recon_mod = require "core.kernel_blocking.reconciliation"
-    local result = recon_mod.reconcile(ngx.time())
+    local kb = require "core.kernel_blocking"
+    local result = kb.reconcile(ngx.time())
+    pcall(function()
+        local audit = require "core.audit"
+        audit.log("kernel_blocking.reconcile", "manual")
+    end)
     return json.encode({ ret = "success", data = result })
 end
 

@@ -296,6 +296,7 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 		source = "automatic",
 		policy = "scanner",
 		reason = "auto_promotion",
+		reconciliation_mode = "ensure",
 	})
 	-- scanner supersedes cc desired entry
 	desired.remove_desired(ip, family, "cc_drop")
@@ -346,6 +347,21 @@ local function evaluate_scanner_candidates()
         if not gate_ok then
             sm.upsert(ip, "scanner", "rejected", { reason = reason }, {})
             goto continue
+        end
+
+        -- Lifecycle evidence cutoff (Design §10.5)
+        do
+            local ok_life, life = pcall(require, "core.kernel_blocking.lifecycle")
+            if ok_life and life and life.evidence_allowed then
+                local allowed, why = life.evidence_allowed("scanner", ngx.time())
+                if not allowed then
+                    sm.upsert(ip, "scanner", "candidate", {
+                        result = "evidence_cutoff",
+                        reason = why,
+                    }, {})
+                    goto continue
+                end
+            end
         end
 
         -- Aggregate scanner evidence
@@ -490,6 +506,7 @@ local function enforce_promote_cc(ip, violation_count)
 		source = "automatic",
 		policy = "cc",
 		reason = "auto_promotion",
+		reconciliation_mode = "ensure",
 	})
 	sm.upsert(ip, "cc", "installed", ev_tbl, {
 		list = "cc_drop",
@@ -546,6 +563,21 @@ local function evaluate_cc_candidates()
             goto continue
         end
 
+        -- Lifecycle evidence cutoff (Design §10.5)
+        do
+            local ok_life, life = pcall(require, "core.kernel_blocking.lifecycle")
+            if ok_life and life and life.evidence_allowed then
+                local allowed, why = life.evidence_allowed("cc", ngx.time())
+                if not allowed then
+                    sm.upsert(ip, "cc", "candidate", {
+                        result = "evidence_cutoff",
+                        reason = why,
+                    }, {})
+                    goto continue
+                end
+            end
+        end
+
 		-- Count violation windows
 		local violations = evidence.count_cc_violations(ip, rule_window, min_windows + 2)
 
@@ -593,6 +625,14 @@ end
 function _M.process_candidates(now)
     if not (config.kernel_ip_blocking and config.kernel_ip_blocking.enabled) then
         return
+    end
+    -- Evidence cutoff: only post-transition evidence is eligible.
+    local life_ok, life = pcall(require, "core.kernel_blocking.lifecycle")
+    if life_ok and life and life.evidence_allowed then
+        local allowed = life.evidence_allowed("scanner", now or ngx.time())
+        if not allowed then
+            -- still evaluate for observe logging after cutoff only
+        end
     end
     -- Refill observe-bucket tokens before evaluation round
     refill_observe_bucket()

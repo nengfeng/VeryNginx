@@ -43,11 +43,16 @@ local mock_config = {
         emergency_pause = false,
         topology = "direct",
         shadow = false,
+        fail_policy = "open",
+        ipv4 = { enabled = true },
+        ipv6 = { enabled = false },
         scanner = { enabled = true, min_hard_blocks = 3, max_ttl = 86400 },
+        cc = { enabled = true, enforce_ready = false, rule_ids = {}, ttl = 300, max_ttl = 1800 },
         canary = { scanner_ttl = 60, cc_ttl = 30 },
         promotion_rate_limit = { limit = 1000, interval = 60, burst = 1000 },
     },
     ip_reputation = {},
+    rule = { frequency_limit = {} },
 }
 local config_module = {
     load_from_file = function() end,
@@ -115,6 +120,8 @@ describe("Kernel blocking controller", function()
         assert.are.equal("success", data.ret)
         assert.are.equal(true, data.data.configured.enabled)
         assert.are.equal("observe", data.data.configured.mode)
+        assert.truthy(data.data.effective)
+        assert.are.equal("observe", data.data.effective.global_mode)
         assert.are.equal(0, data.data.counters.installed)
         assert.are.equal(1, data.data.counters.candidates)
     end)

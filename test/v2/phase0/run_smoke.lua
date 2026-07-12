@@ -57,6 +57,7 @@ _G.assert = setmetatable({}, {
 function assert.is_true(v) if v ~= true then fail("expected true, got " .. tostring(v)) end end
 function assert.is_false(v) if v ~= false then fail("expected false, got " .. tostring(v)) end end
 function assert.truthy(v) if not v then fail("expected truthy, got " .. tostring(v)) end end
+function assert.is_truthy(v, msg) if not v then fail(msg or ("expected truthy, got " .. tostring(v))) end end
 assert.are = {
     equal = function(a, b)
         if a ~= b then fail("expected " .. tostring(a) .. " == " .. tostring(b)) end
@@ -79,6 +80,8 @@ end
 local specs = {
     "test/v2/phase0/reconciliation_spec.lua",
     "test/v2/phase0/promotion_enforce_spec.lua",
+    "test/v2/phase0/lifecycle_readiness_spec.lua",
+    "test/v2/phase0/kernel_blocking_controller_spec.lua",
 }
 
 for _, path in ipairs(specs) do

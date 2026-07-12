@@ -127,6 +127,12 @@ local function safe_contains(exec, list, family, ip)
 end
 
 local function apply_add(exec, entry, now, result)
+    local mode = entry.reconciliation_mode or "ensure"
+    if mode == "preserve_only" then
+        -- Design §10.4: preserve_only never creates missing entries.
+        result.skipped_preserve = (result.skipped_preserve or 0) + 1
+        return false
+    end
     local ttl = remaining_ttl(entry, now)
     local call_ok, add_ok, add_err = pcall(function()
         return exec.add(entry.list, entry.family, entry.ip, ttl)
@@ -246,23 +252,34 @@ function _M.reconcile(now)
         applied_add = 0,
         applied_remove = 0,
         failed = 0,
+        skipped_preserve = 0,
     }
 
     local all_desired = collect_all_desired(now)
     local desired_set = {}
+    local preserve_set = {}
 
     for _, entry in ipairs(all_desired) do
-        desired_set[entry.list .. ":" .. entry.family .. ":" .. entry.ip] = true
+        local key = entry.list .. ":" .. entry.family .. ":" .. entry.ip
+        desired_set[key] = true
+        local mode = entry.reconciliation_mode or "ensure"
+        if mode == "preserve_only" then
+            preserve_set[key] = true
+        end
         local present, cerr = safe_contains(exec, entry.list, entry.family, entry.ip)
         if cerr then
             result.failed = result.failed + 1
         elseif not present then
-            result.to_add[#result.to_add + 1] = entry
-            if enforce then
-                apply_add(exec, entry, now, result)
+            if mode == "preserve_only" then
+                result.skipped_preserve = result.skipped_preserve + 1
             else
-                ngx.log(ngx.INFO, "kernel_blocking DRY-RUN would_install: ",
-                    entry.list, "/", entry.ip)
+                result.to_add[#result.to_add + 1] = entry
+                if enforce then
+                    apply_add(exec, entry, now, result)
+                else
+                    ngx.log(ngx.INFO, "kernel_blocking DRY-RUN would_install: ",
+                        entry.list, "/", entry.ip)
+                end
             end
         else
             result.to_update[#result.to_update + 1] = entry
@@ -282,7 +299,8 @@ function _M.reconcile(now)
                 end
                 for _, actual in ipairs(page.entries or {}) do
                     local ip = actual.ip
-                    if ip and not desired_set[list .. ":" .. family .. ":" .. ip] then
+                    local key = list .. ":" .. family .. ":" .. tostring(ip)
+                    if ip and not desired_set[key] then
                         actual.set = actual.set or list
                         actual.family = actual.family or family
                         result.to_remove[#result.to_remove + 1] = actual
@@ -292,6 +310,9 @@ function _M.reconcile(now)
                             ngx.log(ngx.INFO, "kernel_blocking DRY-RUN would_remove: ",
                                 list, "/", ip)
                         end
+                    elseif ip and preserve_set[key] then
+                        -- present preserve_only entry: keep until natural TTL
+                        result.to_update[#result.to_update + 1] = actual
                     end
                 end
                 cursor = page.next_cursor

@@ -1210,25 +1210,55 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- Status cards -->
         <div class="grid grid-4 mb-16">
           <div class="stat-card">
-            <div class="stat-label">Mode</div>
+            <div class="stat-label">Configured</div>
             <div class="stat-value" style="font-size:18px">{{ kbStatus.configured.mode }}</div>
             <div class="stat-sub" :class="kbStatus.configured.enabled?'enabled':'disabled'">{{ kbStatus.configured.enabled ? 'Enabled' : 'Disabled' }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Installed</div>
-            <div class="stat-value">{{ kbStatus.counters.installed }}</div>
-            <div class="stat-sub">entries in kernel</div>
+            <div class="stat-label">Effective Global</div>
+            <div class="stat-value" style="font-size:18px">{{ (kbStatus.effective && kbStatus.effective.global_mode) || '-' }}</div>
+            <div class="stat-sub" :class="kbStatus.effective && kbStatus.effective.global_install_reachable ? 'enabled' : 'disabled'">
+              {{ kbStatus.effective && kbStatus.effective.global_install_reachable ? 'Install reachable' : 'Not reachable' }}
+            </div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Candidates</div>
-            <div class="stat-value">{{ kbStatus.counters.candidates }}</div>
-            <div class="stat-sub">awaiting promotion</div>
+            <div class="stat-label">Installed</div>
+            <div class="stat-value">{{ kbStatus.counters.installed }}</div>
+            <div class="stat-sub">S {{ kbStatus.counters.installed_scanner || 0 }} / CC {{ kbStatus.counters.installed_cc || 0 }} / M {{ kbStatus.counters.installed_manual || 0 }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Helper</div>
             <div class="stat-value" style="font-size:18px">{{ kbStatus.health.state }}</div>
             <div class="stat-sub" :class="kbStatus.health.state==='ok'?'enabled':'disabled'">{{ kbStatus.health.state==='ok' ? 'Reachable' : 'Unreachable' }}</div>
           </div>
+        </div>
+
+        <div class="grid grid-4 mb-16">
+          <div class="stat-card">
+            <div class="stat-label">Scanner Effective</div>
+            <div class="stat-value" style="font-size:16px">{{ kbStatus.effective && kbStatus.effective.scanner ? kbStatus.effective.scanner.mode : '-' }}</div>
+            <div class="stat-sub">{{ kbStatus.effective && kbStatus.effective.scanner && kbStatus.effective.scanner.install_reachable ? 'reachable' : 'blocked' }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">CC Effective</div>
+            <div class="stat-value" style="font-size:16px">{{ kbStatus.effective && kbStatus.effective.cc ? kbStatus.effective.cc.mode : '-' }}</div>
+            <div class="stat-sub">{{ kbStatus.effective && kbStatus.effective.cc && kbStatus.effective.cc.install_reachable ? 'reachable' : 'blocked' }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Promotion Tokens</div>
+            <div class="stat-value">{{ kbStatus.promotion_bucket && kbStatus.promotion_bucket.tokens_available != null ? kbStatus.promotion_bucket.tokens_available : 0 }}</div>
+            <div class="stat-sub">candidates {{ kbStatus.counters.candidates || 0 }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Migration / NS</div>
+            <div class="stat-value" style="font-size:16px">{{ kbStatus.migration && kbStatus.migration.status ? kbStatus.migration.status : '-' }}</div>
+            <div class="stat-sub">{{ kbStatus.counter_namespace || 'v1' }}</div>
+          </div>
+        </div>
+
+        <div v-if="kbReasonText" class="error" style="margin-bottom:12px">{{ kbReasonText }}</div>
+        <div v-if="kbStatus.counters && kbStatus.counters.active_auto_while_disabled" class="error" style="margin-bottom:12px">
+          Warning: disabled_with_active_entries ({{ kbStatus.counters.active_auto_while_disabled }} auto entries still active)
         </div>
 
         <!-- Actions bar -->
@@ -1238,6 +1268,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               {{ kbStatus.configured.emergency_pause ? 'Resume' : 'Pause' }}
             </button>
             <button class="outline small" @click="kbFlushAuto">Flush Auto</button>
+            <button class="outline small" @click="kbReconcile">Reconcile</button>
             <button class="outline small" @click="loadKbData">Refresh</button>
           </div>
           <div class="flex" style="gap:8px;align-items:center">
@@ -1725,7 +1756,7 @@ const app = Vue.createApp({
     const topPaths = ref([]);
 
     // ---- Kernel Blocking State ----
-    const kbStatus = ref({ configured: { enabled: false, mode: 'observe', emergency_pause: false }, health: { state: 'unknown' }, counters: { installed: 0, candidates: 0, rejected: 0, degraded: 0, rate_limited: 0, paused: 0 }, promotion_bucket: { tokens_available: 0 } });
+    const kbStatus = ref({ configured: { enabled: false, mode: 'observe', emergency_pause: false }, effective: { global_mode: 'disabled', global_install_reachable: false, scanner: { mode: 'disabled' }, cc: { mode: 'disabled' }, reason_codes: [] }, health: { state: 'unknown' }, counters: { installed: 0, candidates: 0, rejected: 0, degraded: 0, rate_limited: 0, paused: 0, installed_scanner: 0, installed_cc: 0, installed_manual: 0 }, promotion_bucket: { tokens_available: 0 }, migration: { status: 'unknown' }, counter_namespace: 'v1' });
     const kbEntries = ref([]);
     const kbCandidates = ref([]);
     const kbTab = ref('entries');
@@ -1735,6 +1766,14 @@ const app = Vue.createApp({
     const kbError = ref('');
     const kbEntriesNext = ref(null);
     const kbCandidatesNext = ref(null);
+    const kbReasonText = computed(() => {
+      const codes = [];
+      const eff = kbStatus.value.effective || {};
+      (eff.reason_codes || []).forEach(c => codes.push(c));
+      if (eff.scanner && eff.scanner.reason_codes) eff.scanner.reason_codes.forEach(c => codes.push('scanner:' + c));
+      if (eff.cc && eff.cc.reason_codes) eff.cc.reason_codes.forEach(c => codes.push('cc:' + c));
+      return codes.length ? ('Reasons: ' + codes.join(', ')) : '';
+    });
 
 
     const s = computed(() => status.value);
@@ -3056,6 +3095,18 @@ const app = Vue.createApp({
       } catch (e) { showToast(e.message, 'error'); }
     }
 
+    async function kbReconcile() {
+      try {
+        const d = await api('POST', '/verynginx/kernel-blocking/reconcile', {});
+        if (d.ret === 'success') {
+          showToast('Reconcile completed', 'success');
+          await loadKbData();
+        } else {
+          showToast(d.message || 'Reconcile failed', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+    }
+
     async function kbClear(ip) {
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/clear', { ip });
@@ -3476,9 +3527,9 @@ const app = Vue.createApp({
       auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil,
       // Kernel Blocking
       kbStatus, kbEntries, kbCandidates, kbTab, kbNewIP, kbNewPolicy, kbNewTTL, kbError,
-      kbEntriesNext, kbCandidatesNext,
+      kbEntriesNext, kbCandidatesNext, kbReasonText,
       loadKbData, loadKbEntries, loadKbCandidates,
-      kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto,
+      kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,
     };
   }
 });

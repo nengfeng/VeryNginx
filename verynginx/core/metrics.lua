@@ -70,6 +70,15 @@ local METADATA = {
     shared_dict_usage_pct = { type = "gauge", help = "Shared dict usage percentage" },
     plugin_duration_seconds_count = { type = "counter", help = "Total plugin duration count" },
     plugin_duration_seconds_sum = { type = "counter", help = "Total plugin duration sum" },
+    verynginx_kernel_block_candidates = { type = "gauge", help = "Kernel blocking candidate count" },
+    verynginx_kernel_block_installed = { type = "gauge", help = "Kernel blocking installed entry count" },
+    verynginx_kernel_block_desired = { type = "gauge", help = "Kernel blocking desired entry count" },
+    verynginx_kernel_block_promotion_tokens = { type = "gauge", help = "Kernel blocking enforce promotion tokens" },
+    verynginx_kernel_block_degraded = { type = "gauge", help = "Kernel blocking degraded entry count" },
+    verynginx_kernel_block_reconcile_drift = { type = "gauge", help = "Kernel blocking reconcile drift count" },
+    verynginx_kernel_block_operations_total = { type = "counter", help = "Kernel blocking operations total" },
+    verynginx_kernel_block_promotions_total = { type = "counter", help = "Kernel blocking promotions total" },
+    verynginx_kernel_block_lifecycle_transitions_total = { type = "counter", help = "Kernel blocking lifecycle transitions" },
 }
 
 --- Export all metrics in Prometheus text format.

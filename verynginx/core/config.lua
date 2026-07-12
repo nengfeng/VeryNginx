@@ -1077,6 +1077,9 @@ function _M.save(config)
         return false, "rename failed: " .. tostring(err_rename)
     end
 
+    -- capture previous config for lifecycle transition hooks
+    local previous = deep_copy(config_data)
+
     -- activate
     set_config_store(compiled)
     _M.local_hash = new_hash
@@ -1085,6 +1088,13 @@ function _M.save(config)
         shared:set("config_hash", new_hash)
     end
     release_save_lock(lock_key, lock_token)
+
+    -- Post-activation: kernel blocking lifecycle transitions (Design §10.5).
+    -- Failures must not roll back the already-activated config.
+    pcall(function()
+        local life = require "core.kernel_blocking.lifecycle"
+        life.on_config_activated(previous, compiled)
+    end)
 
     return true
 end
