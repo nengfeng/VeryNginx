@@ -63,7 +63,7 @@ package.loaded["core.kernel_blocking.executor"] = {
     get_mock = function() return mock end,
 }
 local recon = require "core.kernel_blocking.reconciliation"
-local kb = require "core.kernel_blocking"
+local kb = require "core.kernel_blocking.init"
 
 describe("Lifecycle transitions", function()
     before_each(function()

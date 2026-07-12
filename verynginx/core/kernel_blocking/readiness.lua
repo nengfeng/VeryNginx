@@ -175,7 +175,8 @@ function _M.compute(opts)
             rule_id = rid,
             reference_valid = ref_valid,
             counter_namespace = cutover and "v2" or "v1",
-            cutover_epoch = (ngx.shared.frequency_limit and ngx.shared.frequency_limit:get("fl:v2:cutover_epoch")) or nil,
+            cutover_epoch = (ngx.shared.frequency_limit
+                and ngx.shared.frequency_limit:get("fl:v2:cutover_epoch")) or nil,
             effective_mode = cc_mode,
             install_reachable = cc_reachable and ref_valid or false,
             reason_codes = reasons,

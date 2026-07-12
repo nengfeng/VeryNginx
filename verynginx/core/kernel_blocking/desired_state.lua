@@ -156,7 +156,7 @@ function _M.clear_auto()
     local kept = {}
     local removed = 0
     for _, key in ipairs(idx) do
-        local fam, list, ip = key:match("^" .. DESIRED_STATE_PREFIX .. "([^:]+):([^:]+):(.+)$")
+        local _, list = key:match("^" .. DESIRED_STATE_PREFIX .. "([^:]+):([^:]+):(.+)$")
         if list == "scanner_drop" or list == "cc_drop" then
             s:delete(key)
             removed = removed + 1

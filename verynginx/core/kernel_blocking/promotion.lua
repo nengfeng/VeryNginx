@@ -627,13 +627,8 @@ function _M.process_candidates(now)
         return
     end
     -- Evidence cutoff: only post-transition evidence is eligible.
-    local life_ok, life = pcall(require, "core.kernel_blocking.lifecycle")
-    if life_ok and life and life.evidence_allowed then
-        local allowed = life.evidence_allowed("scanner", now or ngx.time())
-        if not allowed then
-            -- still evaluate for observe logging after cutoff only
-        end
-    end
+    -- lifecycle module loaded on demand for evidence enforcement
+    pcall(require, "core.kernel_blocking.lifecycle")
     -- Refill observe-bucket tokens before evaluation round
     refill_observe_bucket()
     -- In enforce mode, also refill the enforce bucket

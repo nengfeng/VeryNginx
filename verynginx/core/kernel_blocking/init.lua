@@ -264,8 +264,7 @@ function _M.reconcile(now)
     return result
 end
 
-function _M.status(opts)
-    opts = opts or {}
+function _M.status(_)
     local kb = config.kernel_ip_blocking or {}
     local executor = require "core.kernel_blocking.executor"
     local exec = executor.get_executor()

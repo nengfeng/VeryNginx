@@ -19,7 +19,7 @@ local function handle_status()
         return json.encode({ ret = "failed", message = "kernel_ip_blocking not configured" })
     end
 
-    local kb = require "core.kernel_blocking"
+    local kb = require "core.kernel_blocking.init"
     local data = kb.status()
     return json.encode({ ret = "success", data = data })
 end
@@ -336,7 +336,7 @@ end
 -- Manually trigger a reconciliation round.
 -- ---------------------------------------------------------------------------
 local function handle_reconcile()
-    local kb = require "core.kernel_blocking"
+    local kb = require "core.kernel_blocking.init"
     local result = kb.reconcile(ngx.time())
     pcall(function()
         local audit = require "core.audit"

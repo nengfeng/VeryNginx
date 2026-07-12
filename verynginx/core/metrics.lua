@@ -78,7 +78,9 @@ local METADATA = {
     verynginx_kernel_block_reconcile_drift = { type = "gauge", help = "Kernel blocking reconcile drift count" },
     verynginx_kernel_block_operations_total = { type = "counter", help = "Kernel blocking operations total" },
     verynginx_kernel_block_promotions_total = { type = "counter", help = "Kernel blocking promotions total" },
-    verynginx_kernel_block_lifecycle_transitions_total = { type = "counter", help = "Kernel blocking lifecycle transitions" },
+    verynginx_kernel_block_lifecycle_transitions_total = {
+        type = "counter", help = "Kernel blocking lifecycle transitions"
+    },
 }
 
 --- Export all metrics in Prometheus text format.
