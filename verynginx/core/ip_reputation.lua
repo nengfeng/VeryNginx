@@ -356,27 +356,52 @@ function _M.clear_score(ip)
     end
 end
 
+local function clone_full_config()
+    local cfg_mod = require("core.config")
+    -- config.report() returns JSON string of the full config
+    local src = cfg_mod.report()
+    local j = require("dkjson")
+    local decoded = j.decode(src)
+    if not decoded then
+        decoded = {}
+    end
+    return decoded
+end
+
 function _M.add_whitelist(entry)
-    local cfg = raw_cfg()
-    local list = cfg.whitelist or {}
+    local cfg = clone_full_config()
+    local ip_rep = cfg.ip_reputation or {}
+    local list = ip_rep.whitelist or {}
     for _, e in ipairs(list) do
         if e == entry then return end
     end
     table.insert(list, entry)
-    require("core.config").save(config)
+    ip_rep.whitelist = list
+    cfg.ip_reputation = ip_rep
+    local cfg_mod = require("core.config")
+    local ok, err = cfg_mod.save(cfg)
+    if not ok then
+        ngx.log(ngx.WARN, "add_whitelist: save failed: ", err)
+    end
 end
 
 function _M.remove_whitelist(entry)
-    local cfg = raw_cfg()
-    local list = cfg.whitelist or {}
+    local cfg = clone_full_config()
+    local ip_rep = cfg.ip_reputation or {}
+    local list = ip_rep.whitelist or {}
     local filtered = {}
     for _, e in ipairs(list) do
         if e ~= entry then
             table.insert(filtered, e)
         end
     end
-    cfg.whitelist = filtered
-    require("core.config").save(config)
+    ip_rep.whitelist = filtered
+    cfg.ip_reputation = ip_rep
+    local cfg_mod = require("core.config")
+    local ok, err = cfg_mod.save(cfg)
+    if not ok then
+        ngx.log(ngx.WARN, "remove_whitelist: save failed: ", err)
+    end
 end
 
 local function ip_in_cidr(ip, cidr)
