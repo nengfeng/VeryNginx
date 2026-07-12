@@ -1,5 +1,5 @@
 -- -*- coding: utf-8 -*-
--- Tests for Phase 2: executor mock, desired state, reconciliation dry-run.
+-- Tests for Phase 2/4: desired state wiring + reconciliation apply.
 
 package.path = "verynginx/?.lua;verynginx/lua_script/?.lua;" .. package.path
 
@@ -26,10 +26,44 @@ _G.ngx.shared = setmetatable({_cache = {}}, {
     end,
 })
 
+local mock_config = {
+    kernel_ip_blocking = {
+        enabled = true,
+        mode = "observe",
+        topology = "direct",
+        fail_policy = "open",
+        ipv4 = { enabled = true },
+        ipv6 = { enabled = false },
+        scanner = { enabled = true, min_hard_blocks = 3, max_ttl = 86400 },
+        cc = { enabled = true, enforce_ready = true, rule_ids = {"r1"}, ttl = 300, max_ttl = 1800 },
+        emergency_pause = false,
+    },
+}
+package.loaded["core.config"] = mock_config
+
 local mock = require "core.kernel_blocking.executor_mock"
+package.loaded["core.kernel_blocking.executor"] = {
+    get_executor = function() return mock end,
+    get_mock = function() return mock end,
+}
+
+-- Promotion deps must be mocked before first require of promotion.
+package.loaded["core.ip_reputation"] = {
+    is_flagged = function(ip) return ip == "203.0.113.10" end,
+    is_whitelisted = function() return false end,
+}
+package.loaded["core.kernel_blocking.evidence"] = {
+    sum_scanner_blocks = function(ip)
+        if ip == "203.0.113.10" then return 10 end
+        return 0
+    end,
+    count_cc_violations = function() return 0 end,
+}
+
 local desired = require "core.kernel_blocking.desired_state"
 local reconcil = require "core.kernel_blocking.reconciliation"
-local contract = require "core.kernel_blocking.executor_contract"
+local sm = require "core.kernel_blocking.state_machine"
+local promotion = require "core.kernel_blocking.promotion"
 
 describe("Executor mock contract", function()
     before_each(function()
@@ -54,10 +88,6 @@ describe("Executor mock contract", function()
         assert.is_false(ok)
     end)
 
-    it("list returns matching entries", function()
-        -- already tested above
-    end)
-
     it("flush_owned removes all entries", function()
         mock.add("scanner_drop", "ipv4", "10.0.0.1", 0)
         mock.add("cc_drop", "ipv4", "10.0.0.2", 0)
@@ -66,9 +96,7 @@ describe("Executor mock contract", function()
     end)
 
     it("reconcile computes add/update/remove", function()
-        -- Start with one existing entry
         mock.add("scanner_drop", "ipv4", "10.0.0.1", 0)
-        -- Reconcile with a different desired entry
         local snap = {}
         local k = "kb_mock:nft:scanner_drop:ipv4:10.0.0.2"
         snap[k] = {
@@ -85,7 +113,7 @@ describe("Executor mock contract", function()
     end)
 end)
 
-describe("Desired state (dry-run)", function()
+describe("Desired state", function()
     before_each(function()
         ngx.shared.vn_config:flush_all()
     end)
@@ -114,17 +142,115 @@ describe("Desired state (dry-run)", function()
         desired.set_desired("10.0.0.1", "ipv4", "scanner_drop", {}, 0)
         assert.are.equal(1, desired.count_desired())
     end)
+
+    it("remove_desired and clear_for_ip", function()
+        desired.set_desired("10.0.0.9", "ipv4", "scanner_drop", {}, 60)
+        desired.set_desired("10.0.0.9", "ipv4", "cc_drop", {}, 60)
+        assert.are.equal(2, desired.count_desired())
+        desired.remove_desired("10.0.0.9", "ipv4", "cc_drop")
+        assert.are.equal(1, desired.count_desired())
+        desired.clear_for_ip("10.0.0.9")
+        assert.are.equal(0, desired.count_desired())
+    end)
 end)
 
-describe("Reconciliation dry-run", function()
+describe("Reconciliation dry-run and apply", function()
     before_each(function()
         mock.flush_owned("all")
         ngx.shared.vn_config:flush_all()
+        mock_config.kernel_ip_blocking.enabled = true
+        mock_config.kernel_ip_blocking.mode = "observe"
     end)
 
     it("returns disabled when kernel blocking not enabled", function()
-        -- No config set; reconciliation should report disabled
+        mock_config.kernel_ip_blocking.enabled = false
         local r = reconcil.reconcile(ngx.time())
         assert.are.equal("disabled", r.skipped)
+    end)
+
+    it("observe mode does not install missing desired entries", function()
+        mock_config.kernel_ip_blocking.mode = "observe"
+        desired.set_desired("203.0.113.8", "ipv4", "scanner_drop", {}, 300)
+        local r = reconcil.reconcile(ngx.time())
+        assert.is_true(r.dry_run)
+        assert.are.equal(1, #r.to_add)
+        assert.are.equal(0, r.applied_add)
+        local ok = mock.contains("scanner_drop", "ipv4", "203.0.113.8")
+        assert.is_false(ok)
+    end)
+
+    it("enforce mode applies missing desired entries", function()
+        mock_config.kernel_ip_blocking.mode = "enforce"
+        desired.set_desired("203.0.113.9", "ipv4", "scanner_drop",
+            { reason = "test" }, 300, { policy = "scanner", source = "automatic" })
+        local r = reconcil.reconcile(ngx.time())
+        assert.is_false(r.dry_run)
+        assert.are.equal(1, #r.to_add)
+        assert.are.equal(1, r.applied_add)
+        local ok = mock.contains("scanner_drop", "ipv4", "203.0.113.9")
+        assert.is_true(ok)
+        local e = sm.get_policy("203.0.113.9", "scanner")
+        assert.truthy(e)
+        assert.are.equal("installed", e.state)
+    end)
+
+    it("enforce mode removes orphan kernel entries not in desired", function()
+        mock_config.kernel_ip_blocking.mode = "enforce"
+        mock.add("scanner_drop", "ipv4", "198.51.100.1", 600)
+        -- no desired entry for this IP
+        local r = reconcil.reconcile(ngx.time())
+        assert.are.equal(1, #r.to_remove)
+        assert.are.equal(1, r.applied_remove)
+        local ok = mock.contains("scanner_drop", "ipv4", "198.51.100.1")
+        assert.is_false(ok)
+    end)
+
+    it("enforce backfills desired from installed state machine entries", function()
+        mock_config.kernel_ip_blocking.mode = "enforce"
+        -- installed in SM + kernel, but missing desired
+        mock.add("scanner_drop", "ipv4", "198.51.100.2", 600)
+        sm.upsert("198.51.100.2", "scanner", "installed", {}, {
+            list = "scanner_drop",
+            family = "ipv4",
+            expires_at = ngx.time() + 600,
+            source = "automatic",
+        })
+        local r = reconcil.reconcile(ngx.time())
+        assert.are.equal(0, #r.to_remove)
+        local d = desired.get_desired("198.51.100.2", "ipv4", "scanner_drop")
+        assert.truthy(d)
+        local ok = mock.contains("scanner_drop", "ipv4", "198.51.100.2")
+        assert.is_true(ok)
+    end)
+end)
+
+describe("Promotion writes desired_state", function()
+    before_each(function()
+        mock.flush_owned("all")
+        ngx.shared.vn_config:flush_all()
+        ngx.shared.vn_locks:flush_all()
+        mock_config.kernel_ip_blocking.enabled = true
+        mock_config.kernel_ip_blocking.mode = "enforce"
+        mock_config.kernel_ip_blocking.emergency_pause = false
+        mock_config.kernel_ip_blocking.promotion_rate_limit = {
+            limit = 1000, interval = 60, burst = 1000,
+        }
+        mock_config.kernel_ip_blocking.canary = { scanner_ttl = 60, cc_ttl = 30 }
+        mock_config.kernel_ip_blocking.scanner = {
+            enabled = true, min_hard_blocks = 3, max_ttl = 86400,
+        }
+    end)
+
+    it("enforce promotion installs and records desired entry", function()
+        sm.upsert("203.0.113.10", "scanner", "observed", {}, {})
+        promotion.process_candidates(ngx.time())
+        local e = sm.get_policy("203.0.113.10", "scanner")
+        assert.truthy(e)
+        assert.are.equal("installed", e.state)
+        local d = desired.get_desired("203.0.113.10", "ipv4", "scanner_drop")
+        assert.truthy(d)
+        assert.are.equal("scanner_drop", d.list)
+        local ok = mock.contains("scanner_drop", "ipv4", "203.0.113.10")
+        assert.is_true(ok)
     end)
 end)

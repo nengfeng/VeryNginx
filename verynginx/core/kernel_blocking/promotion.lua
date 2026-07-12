@@ -16,8 +16,16 @@ local _M = {}
 local ir = require "core.ip_reputation"
 local sm = require "core.kernel_blocking.state_machine"
 local evidence = require "core.kernel_blocking.evidence"
+local desired = require "core.kernel_blocking.desired_state"
 local config = require "core.config"
 local json = require "dkjson"
+
+local function detect_family(ip)
+    if type(ip) == "string" and ip:find(":", 1, true) then
+        return "ipv6"
+    end
+    return "ipv4"
+end
 
 -- Virtual promotion bucket (observe-only; separate from enforce bucket).
 -- Key: kb:observe_bucket:state  (table with tokens, last_refill)
@@ -212,6 +220,9 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 	if existing and existing.state == "installed" and existing.list == "scanner_drop" then
 		return true
 	end
+	-- Capture overlap before intermediate transitions mutate scanner state.
+	local executor_cleanup = get_installed_auto_set(ip) == "cc_drop"
+	local existing_cc = sm.get_policy(ip, "cc")
 
 	-- Consume enforce token
     if not consume_enforce_token() then
@@ -229,18 +240,30 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 		ttl = max_ttl
 	end
 	-- If upgrading from cc_drop, use max of existing remaining TTL and new TTL
-	if existing and existing.expires_at then
-		local remaining = existing.expires_at - ngx.time()
+	local ttl_source = existing_cc or existing
+	if ttl_source and ttl_source.expires_at then
+		local remaining = ttl_source.expires_at - ngx.time()
 		if remaining and remaining > ttl then
 			ttl = math.min(remaining, max_ttl)
 		end
 	end
 
+    local family = detect_family(ip)
+    -- Intermediate states: promoted -> dispatch_pending -> installed/degraded
+    sm.upsert(ip, "scanner", "promoted", evidence_tbl, {
+        list = "scanner_drop",
+        family = family,
+    })
+    sm.transition(ip, "scanner", "dispatch_pending", {
+        list = "scanner_drop",
+        family = family,
+    })
+
     -- Install via executor
     local executor = require "core.kernel_blocking.executor"
     local exec = executor.get_executor()
     local call_ok, add_ok, add_err = pcall(function()
-        return exec.add("scanner_drop", "ipv4", ip, ttl)
+        return exec.add("scanner_drop", family, ip, ttl)
     end)
 
     if not call_ok then
@@ -248,7 +271,10 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
             tostring(add_ok))
         evidence_tbl.result = "executor_error"
         evidence_tbl.error = tostring(add_ok)
-        sm.upsert(ip, "scanner", "degraded", evidence_tbl, {})
+        sm.upsert(ip, "scanner", "degraded", evidence_tbl, {
+            list = "scanner_drop",
+            family = family,
+        })
         return false
     end
 
@@ -257,19 +283,25 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
             ip, ": ", tostring(add_err))
         evidence_tbl.result = "executor_error"
         evidence_tbl.error = tostring(add_err)
-        sm.upsert(ip, "scanner", "degraded", evidence_tbl, {})
+        sm.upsert(ip, "scanner", "degraded", evidence_tbl, {
+            list = "scanner_drop",
+            family = family,
+        })
         return false
     end
 
-	-- Design §5.1 overlap: check if IP was already in cc_drop BEFORE
-	-- we upsert. If so, also remove it from cc_drop to avoid duplicate.
-	-- Executor still has cc_drop entry until we explicitly delete.
-	local executor_cleanup = get_installed_auto_set(ip) == "cc_drop"
-
-	-- Success: transition state machine
+	-- Success: desired_state + state machine installed
 	evidence_tbl.result = "promoted"
+	desired.set_desired(ip, family, "scanner_drop", evidence_tbl, ttl, {
+		source = "automatic",
+		policy = "scanner",
+		reason = "auto_promotion",
+	})
+	-- scanner supersedes cc desired entry
+	desired.remove_desired(ip, family, "cc_drop")
 	sm.upsert(ip, "scanner", "installed", evidence_tbl, {
 		list = "scanner_drop",
+		family = family,
 		installed_at = ngx.time(),
 		expires_at = ngx.time() + ttl,
 	})
@@ -277,8 +309,12 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 	-- Remove from cc_drop if it was there (scanner_drop > cc_drop)
 	if executor_cleanup then
 		pcall(function()
-			exec.delete("cc_drop", "ipv4", ip)
+			exec.delete("cc_drop", family, ip)
 		end)
+		sm.transition(ip, "cc", "cleared", {
+			reason = "superseded_by_scanner",
+			cleared_at = ngx.time(),
+		})
 	end
 
 	ngx.log(ngx.WARN, "kernel_blocking: IP ", ip,
@@ -405,13 +441,23 @@ local function enforce_promote_cc(ip, violation_count)
 	-- Progressive TTL: more violations = longer TTL, up to max_ttl
 	ttl = math.min(ttl + (violation_count - 1) * 60, max_ttl)
 
+	local family = detect_family(ip)
+	local ev_tbl = { violation_count = violation_count }
+	sm.upsert(ip, "cc", "promoted", ev_tbl, {
+		list = "cc_drop",
+		family = family,
+	})
+	sm.transition(ip, "cc", "dispatch_pending", {
+		list = "cc_drop",
+		family = family,
+	})
+
 	-- Install via executor
 	local executor = require "core.kernel_blocking.executor"
 	local exec = executor.get_executor()
-	local ev_tbl = { violation_count = violation_count }
 
 	local call_ok, add_ok, add_err = pcall(function()
-		return exec.add("cc_drop", "ipv4", ip, ttl)
+		return exec.add("cc_drop", family, ip, ttl)
 	end)
 
 	if not call_ok then
@@ -419,7 +465,10 @@ local function enforce_promote_cc(ip, violation_count)
 			tostring(add_ok))
 		ev_tbl.result = "executor_error"
 		ev_tbl.error = tostring(add_ok)
-		sm.upsert(ip, "cc", "degraded", ev_tbl, {})
+		sm.upsert(ip, "cc", "degraded", ev_tbl, {
+			list = "cc_drop",
+			family = family,
+		})
 		return false
 	end
 
@@ -428,14 +477,23 @@ local function enforce_promote_cc(ip, violation_count)
 			": ", tostring(add_err))
 		ev_tbl.result = "executor_error"
 		ev_tbl.error = tostring(add_err)
-		sm.upsert(ip, "cc", "degraded", ev_tbl, {})
+		sm.upsert(ip, "cc", "degraded", ev_tbl, {
+			list = "cc_drop",
+			family = family,
+		})
 		return false
 	end
 
-	-- Success
+	-- Success: desired_state + installed
 	ev_tbl.result = "promoted"
+	desired.set_desired(ip, family, "cc_drop", ev_tbl, ttl, {
+		source = "automatic",
+		policy = "cc",
+		reason = "auto_promotion",
+	})
 	sm.upsert(ip, "cc", "installed", ev_tbl, {
 		list = "cc_drop",
+		family = family,
 		installed_at = ngx.time(),
 		expires_at = ngx.time() + ttl,
 	})

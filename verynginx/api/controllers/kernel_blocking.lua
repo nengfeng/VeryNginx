@@ -171,19 +171,31 @@ local function handle_promote()
     local exec = executor_mod.get_executor()
     local sm = require "core.kernel_blocking.state_machine"
 
-    local add_ok, err = pcall(function()
-        return exec.add(set_name, "ipv4", ip, ttl)
+    local family = (type(ip) == "string" and ip:find(":", 1, true)) and "ipv6" or "ipv4"
+    local call_ok, add_ok, add_err = pcall(function()
+        return exec.add(set_name, family, ip, ttl)
     end)
 
-    if not add_ok then
+    if not call_ok or not add_ok then
         ngx.status = 500
-        return json.encode({ ret = "failed", message = tostring(err) })
+        return json.encode({
+            ret = "failed",
+            message = tostring(add_err or add_ok or "add_failed"),
+        })
     end
+
+    local desired = require "core.kernel_blocking.desired_state"
+    desired.set_desired(ip, family, set_name, { reason = "manual_promote" }, ttl, {
+        source = "manual",
+        policy = policy,
+        reason = "manual_promote",
+    })
 
     sm.upsert(ip, policy, "installed", {
         reason = "manual_promote",
     }, {
         list = set_name,
+        family = family,
         installed_at = ngx.time(),
         expires_at = ngx.time() + ttl,
         source = "manual",
@@ -191,7 +203,7 @@ local function handle_promote()
 
     return json.encode({
         ret = "success",
-        data = { ip = ip, set = set_name, ttl = ttl }
+        data = { ip = ip, set = set_name, ttl = ttl, family = family }
     })
 end
 
@@ -220,21 +232,27 @@ local function handle_clear()
     local executor_mod = require "core.kernel_blocking.executor"
     local exec = executor_mod.get_executor()
     local sm = require "core.kernel_blocking.state_machine"
+    local desired = require "core.kernel_blocking.desired_state"
 
-    -- Try deleting from all 3 drop sets
+    -- Try deleting from all 3 drop sets for both families
     local sets = { "scanner_drop", "cc_drop", "manual_drop" }
+    local families = { "ipv4", "ipv6" }
     local removed = 0
     for _, set_name in ipairs(sets) do
-        local chk_ok, exists = pcall(function()
-            return exec.contains(set_name, "ipv4", ip)
-        end)
-        if chk_ok and exists then
-            local rm_ok = pcall(function()
-                return exec.delete(set_name, "ipv4", ip)
+        for _, family in ipairs(families) do
+            local chk_ok, exists = pcall(function()
+                return exec.contains(set_name, family, ip)
             end)
-            if rm_ok then removed = removed + 1 end
+            if chk_ok and exists then
+                local rm_ok = pcall(function()
+                    return exec.delete(set_name, family, ip)
+                end)
+                if rm_ok then removed = removed + 1 end
+            end
         end
     end
+
+    desired.clear_for_ip(ip)
 
     -- Clear from all policies (scanner, cc, manual)
     for _, policy in ipairs({ "scanner", "cc", "manual" }) do
@@ -312,19 +330,32 @@ end
 local function handle_flush_auto()
     local executor_mod = require "core.kernel_blocking.executor"
     local exec = executor_mod.get_executor()
+    local desired = require "core.kernel_blocking.desired_state"
+    local sm = require "core.kernel_blocking.state_machine"
 
-    local result, err = pcall(function()
+    local ok, flush_result = pcall(function()
         return exec.flush_owned("auto")
     end)
 
-    if not result then
+    if not ok then
         ngx.status = 500
-        return json.encode({ ret = "failed", message = tostring(err) })
+        return json.encode({ ret = "failed", message = tostring(flush_result) })
+    end
+
+    desired.clear_auto()
+    for _, policy in ipairs({ "scanner", "cc" }) do
+        local page = sm.list(0, 500, "installed", policy)
+        for _, e in ipairs(page.entries or {}) do
+            sm.transition(e.ip, policy, "cleared", {
+                cleared_at = ngx.time(),
+                reason = "flush_auto",
+            })
+        end
     end
 
     return json.encode({
         ret = "success",
-        data = { removed = (err and err.removed) or 0 }
+        data = { removed = (flush_result and flush_result.removed) or 0 }
     })
 end
 
