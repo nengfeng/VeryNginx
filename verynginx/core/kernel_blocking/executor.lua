@@ -1,5 +1,5 @@
 -- -*- coding: utf-8 -*-
--- @Date    : 206-07-12
+-- @Date    : 2026-07-12
 -- @Author  : VeryNginx v2
 -- @Disc    : Kernel blocking executor — unified interface.
 --             Selects between mock_executor (shared-dict backed) and
