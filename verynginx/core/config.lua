@@ -260,6 +260,8 @@ _M.schema = {
                     interval = 60,
                     burst = 1000,
                 },
+                canary = { scanner_ttl = 60, cc_ttl = 30 },
+                emergency_pause = false,
             },
             reject_unknown = true,
             children = {
@@ -338,11 +340,20 @@ _M.schema = {
                     type = "object",
                     default = { limit = 1000, interval = 60, burst = 1000 },
                     children = {
-                        limit    = leaf({ type = "integer", default = 1000, min = 1, max = 100000 }),
-                        interval = leaf({ type = "integer", default = 60, min = 1, max = 3600 }),
-                        burst    = leaf({ type = "integer", default = 1000, min = 1, max = 100000 }),
+                        limit    = leaf({type = "integer", default = 1000, min = 1, max = 100000}),
+                        interval = leaf({type = "integer", default = 60, min = 1, max = 3600}),
+                        burst    = leaf({type = "integer", default = 1000, min = 1, max = 100000}),
                     },
                 },
+                canary = {
+                    type = "object",
+                    default = { scanner_ttl = 60, cc_ttl = 30 },
+                    children = {
+                        scanner_ttl = leaf({type = "integer", default = 60, min = 10, max = 600}),
+                        cc_ttl      = leaf({type = "integer", default = 30, min = 10, max = 600}),
+                    },
+                },
+                emergency_pause = leaf({ type = "boolean", default = false }),
             },
         },
     }
