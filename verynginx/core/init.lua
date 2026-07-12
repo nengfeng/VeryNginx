@@ -40,7 +40,7 @@ function _M.init()
     wlg.init_epoch()
 
     -- Kernel blocking: restore desired state only (no socket I/O here)
-    local kb = require "core.kernel_blocking"
+    local kb = require "core.kernel_blocking.init"
     kb.restore()
 end
 
@@ -115,7 +115,7 @@ function _M.init_worker()
     local geoip_updater = require "core.geoip_updater"
     geoip_updater.init()
     if ngx.worker.id() == 0 then
-        local kb = require "core.kernel_blocking"
+        local kb = require "core.kernel_blocking.init"
 
         -- Unified persistence every 600s (ip reputation + kernel blocking)
         ngx.timer.every(600, function()
