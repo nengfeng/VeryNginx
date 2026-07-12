@@ -6,6 +6,7 @@ services:
     volumes:
       - ../../verynginx:/opt/verynginx
       - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+      - kb-socket:/run/verynginx
     environment:
       - TEST_MODE=1
     healthcheck:
@@ -13,3 +14,31 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    depends_on:
+      - firewall-helper
+
+  # Firewall Helper: privileged sidecar for kernel IP blocking.
+  # Runs with CAP_NET_ADMIN to manipulate nftables.
+  # Communicates with verynginx via Unix Domain Socket.
+  firewall-helper:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: verynginx-firewall-helper:latest
+    container_name: verynginx-firewall-helper
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - kb-socket:/run/verynginx
+    command: ["/usr/local/bin/firewall-helper"]
+    environment:
+      - VN_HELPER_SOCKET=/run/verynginx/firewall-helper.sock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "test", "-S", "/run/verynginx/firewall-helper.sock"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  kb-socket:

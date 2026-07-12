@@ -574,6 +574,15 @@ show_summary() {
   echo "    systemctl reload nginx  # reload after manual edit"
   echo "    tail -f ${WEB_INSTALL_DIR}/logs/error.log  # monitor errors"
   echo ""
+  echo "  ${BOLD}Kernel IP Blocking:${NC}"
+  if [ -f "$FIREWALL_HELPER_BIN" ]; then
+    echo "    Helper binary:  $FIREWALL_HELPER_BIN"
+    echo "    Helper socket:  $FIREWALL_HELPER_SOCKET"
+    echo "    Start helper:   systemctl start firewall-helper.socket"
+  else
+    echo "    Not installed (re-run install-lnmp.sh to add)"
+  fi
+  echo ""
 }
 
 # ----- main ----------------------------------------------------------------
@@ -794,7 +803,213 @@ main() {
     echo "  include ${VN_DIR}/nginx_conf/in_server_block.conf;   # inside server {}"
   fi
 
+  # Firewall Helper (kernel IP blocking)
+  echo ""
+  confirm "Install Firewall Helper for kernel IP blocking?" DO_HELPER "y"
+  if [ "$DO_HELPER" = "y" ]; then
+    probe_nftables_capabilities
+    install_firewall_helper
+  else
+    info "Skipping Firewall Helper installation"
+    info "You can install it later by re-running install-lnmp.sh"
+  fi
+
   show_summary
 }
 
 main "$@"
+
+# ----- Firewall Helper (Go) ------------------------------------------------
+# Probes nftables capabilities and deploys the privileged Helper process.
+# The Helper is a static Go binary that bridges VeryNginx Lua workers to
+# kernel nftables via a Unix Domain Socket.
+FIREWALL_HELPER_BIN="/usr/local/bin/firewall-helper"
+FIREWALL_HELPER_SOCKET="/run/verynginx/firewall-helper.sock"
+FIREWALL_HELPER_DIR="/run/verynginx"
+
+probe_nftables_capabilities() {
+  title "Probing nftables capabilities"
+
+  local nft_cmd=""
+  if command -v nft >/dev/null 2>&1; then
+    nft_cmd="$(command -v nft)"
+  fi
+
+  if [ -z "$nft_cmd" ]; then
+    warn "nft command not found — kernel IP blocking will be disabled"
+    echo "  Install nftables user-space tools:"
+    echo "    apt-get install -y nftables"
+    echo "    yum install -y nftables"
+    return 1
+  fi
+
+  info "nft command found: $nft_cmd ✓"
+
+  # Check kernel nftables support
+  if ! "$nft_cmd" list tables >/dev/null 2>&1; then
+    warn "nft list tables failed — kernel may lack nftables support"
+    echo "  Kernel IP blocking requires Linux 3.13+ with CONFIG_NF_TABLES"
+    return 1
+  fi
+  info "kernel nftables operational ✓"
+
+  # Probe capabilities by creating a temporary table
+  local probe_table="vn_probe_$$"
+  local probe_ok=true
+
+  # Test 1: inet family (dual ipv4/ipv6)
+  if "$nft_cmd" add table inet "$probe_table" 2>/dev/null; then
+    if "$nft_cmd" add set inet "$probe_table" test_set '{ type ipv4_addr; flags interval; }' 2>/dev/null; then
+      info "inet family + interval set: supported ✓"
+      "$nft_cmd" delete set inet "$probe_table" test_set 2>/dev/null
+    else
+      warn "interval set: not supported"
+      probe_ok=false
+    fi
+    # Test timeout element
+    if "$nft_cmd" add set inet "$probe_table" test_timeout '{ type ipv4_addr; flags timeout; }' 2>/dev/null; then
+      if "$nft_cmd" add element inet "$probe_table" test_timeout '{ 192.0.2.1 timeout 60s }' 2>/dev/null; then
+        info "timeout element: supported ✓"
+        "$nft_cmd" delete element inet "$probe_table" test_timeout '{ 192.0.2.1 }' 2>/dev/null
+      else
+        warn "timeout element: not supported"
+        probe_ok=false
+      fi
+      "$nft_cmd" delete set inet "$probe_table" test_timeout 2>/dev/null
+    fi
+    "$nft_cmd" delete table inet "$probe_table" 2>/dev/null
+  else
+    warn "inet family: not supported"
+    probe_ok=false
+    # Fallback: try ip family only
+    if "$nft_cmd" add table ip "$probe_table" 2>/dev/null; then
+      info "ip family (ipv4 only): supported ✓"
+      "$nft_cmd" delete table ip "$probe_table" 2>/dev/null
+    fi
+  fi
+
+  if [ "$probe_ok" = "true" ]; then
+    info "nftables capabilities: all satisfied ✓"
+  else
+    warn "nftables capabilities: partial — kernel IP blocking may be limited"
+  fi
+  return 0
+}
+
+install_firewall_helper() {
+  title "Installing Firewall Helper (Go)"
+
+  # Check if Go is available
+  local go_cmd=""
+  if command -v go >/dev/null 2>&1; then
+    go_cmd="$(command -v go)"
+  fi
+
+  if [ -z "$go_cmd" ]; then
+    warn "Go compiler not found — skipping Helper build"
+    echo "  To build the Helper later:"
+    echo "    1. Install Go 1.21+: https://go.dev/dl/"
+    echo "    2. cd helper && go build -o firewall-helper ."
+    echo "    3. cp firewall-helper /usr/local/bin/"
+    return 0
+  fi
+
+  local go_version
+  go_version=$("$go_cmd" version 2>/dev/null | awk '{print $3}' | sed 's/go//')
+  info "Go version: $go_version"
+
+  # Build the helper
+  local helper_src="${PWD}/helper"
+  if [ ! -d "$helper_src" ]; then
+    warn "helper/ source directory not found — skipping build"
+    return 0
+  fi
+
+  info "Building firewall-helper..."
+  if (cd "$helper_src" && "$go_cmd" build -o firewall-helper . 2>&1); then
+    info "Build successful ✓"
+  else
+    warn "Build failed — kernel IP blocking will be unavailable"
+    echo "  Build manually: cd helper && go build -o firewall-helper ."
+    return 0
+  fi
+
+  # Install binary
+  cp "${helper_src}/firewall-helper" "$FIREWALL_HELPER_BIN"
+  chmod 755 "$FIREWALL_HELPER_BIN"
+  info "Installed: $FIREWALL_HELPER_BIN ✓"
+
+  # Create socket directory
+  mkdir -p "$FIREWALL_HELPER_DIR"
+  chmod 755 "$FIREWALL_HELPER_DIR"
+  info "Socket directory: $FIREWALL_HELPER_DIR ✓"
+
+  # Install systemd units if systemd is present
+  if command -v systemctl >/dev/null 2>&1 && [ -d /etc/systemd/system ]; then
+    info "Installing systemd socket activation units..."
+
+    # Write socket unit
+    cat > /etc/systemd/system/firewall-helper.socket <<SOCKUNIT
+[Unit]
+Description=VeryNginx Firewall Helper Socket
+Before=nginx.service
+
+[Socket]
+ListenStream=${FIREWALL_HELPER_SOCKET}
+SocketMode=0666
+DirectoryMode=0755
+
+[Install]
+WantedBy=sockets.target
+SOCKUNIT
+
+    # Write service unit
+    cat > /etc/systemd/system/firewall-helper.service <<SVCUNIT
+[Unit]
+Description=VeryNginx Firewall Helper (nftables kernel IP blocking)
+After=network.target
+Requires=firewall-helper.socket
+
+[Service]
+Type=simple
+ExecStart=${FIREWALL_HELPER_BIN}
+Restart=on-failure
+RestartSec=1
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ReadWritePaths=${FIREWALL_HELPER_DIR}
+RuntimeDirectory=verynginx
+ExecStartPre=/bin/mkdir -p ${FIREWALL_HELPER_DIR}
+
+[Install]
+WantedBy=multi-user.target
+SVCUNIT
+
+    systemctl daemon-reload
+    systemctl enable firewall-helper.socket
+    info "systemd units installed ✓"
+    info "Start with: systemctl start firewall-helper.socket"
+  else
+    warn "systemd not detected — Helper must be started manually"
+    echo "  Run: $FIREWALL_HELPER_BIN &"
+    echo "  Or create a systemd unit from helper/firewall-helper.{socket,service}"
+  fi
+
+  # Set socket permissions so nginx worker can connect
+  # nginx typically runs as www-data or nginx
+  if id www-data >/dev/null 2>&1; then
+    chown www-data:www-data "$FIREWALL_HELPER_DIR" 2>/dev/null || true
+  elif id nginx >/dev/null 2>&1; then
+    chown nginx:nginx "$FIREWALL_HELPER_DIR" 2>/dev/null || true
+  fi
+  chmod 777 "$FIREWALL_HELPER_DIR" 2>/dev/null || chmod 755 "$FIREWALL_HELPER_DIR"
+
+  info "Firewall Helper installation complete"
+  echo "  Binary:  $FIREWALL_HELPER_BIN"
+  echo "  Socket:  $FIREWALL_HELPER_SOCKET"
+  echo "  Mode:    observe (default — change to enforce in Config → Kernel Blocking)"
+}
