@@ -12,6 +12,7 @@ local ip_reputation = require "core.ip_reputation"
 local javascript_verify = require "plugin.browser_verify.javascript_verify"
 local geoip = nil -- lazy loaded in on_access()
 local fingerprint_db = nil -- lazy loaded in on_access()
+local evidence = nil -- lazy loaded (kernel blocking evidence)
 
 local function split_rules(all_rules)
     local hard_block, challenge = {}, {}
@@ -60,6 +61,10 @@ local function evaluate_rules(rules, ctx, ip)
             return true
         elseif action == "block" then
             ip_reputation.record_signal(ip, "waf_block")
+            if config.kernel_ip_blocking and config.kernel_ip_blocking.enabled then
+                if not evidence then evidence = require "core.kernel_blocking.evidence" end
+                evidence.record_waf_block_evidence(ip)
+            end
             ctx.set_action(ctx, "block", { code = rule.code or 403, response = rule.response })
             return true
         elseif action == "challenge" then
