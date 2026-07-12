@@ -160,9 +160,12 @@ function _M.reconcile(snapshot)
         desired_keys[key] = true
     end
     -- Add/update entries from snapshot
+    -- NOTE: snapshot from desired_state uses expires_at (absolute),
+    -- but add() expects ttl (relative). TODO(Phase 4): convert.
     for key, entry in pairs(snapshot) do
         local s, f, ip = entry.set, entry.family, entry.ip
-        local ok, _ = _M.add(s, f, ip, entry.ttl)  -- order matches add(set, family, ip, ttl)
+        local ttl = entry.ttl or (entry.expires_at and (entry.expires_at - ngx.time())) or 0
+        local ok, _ = _M.add(s, f, ip, ttl)  -- order matches add(set, family, ip, ttl)
         if ok then
             if idx[key] then
                 result.updated = result.updated + 1
