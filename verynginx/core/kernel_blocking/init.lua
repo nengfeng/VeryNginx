@@ -260,6 +260,25 @@ function _M.reconcile(now)
         ngx.log(ngx.ERR, "kernel_blocking.reconcile failed: ", result)
         return { error = tostring(result) }
     end
+    -- Cache compact last-reconcile summary for dashboard.
+    pcall(function()
+        local s = ngx.shared[LEASE_DICT]
+        if s and type(result) == "table" then
+            s:set("kb:last_reconcile", json.encode({
+                at = ngx.time(),
+                dry_run = result.dry_run,
+                to_add = #(result.to_add or {}),
+                to_update = #(result.to_update or {}),
+                to_remove = #(result.to_remove or {}),
+                applied_add = result.applied_add or 0,
+                applied_remove = result.applied_remove or 0,
+                failed = result.failed or 0,
+                skipped_preserve = result.skipped_preserve or 0,
+                health = result.health,
+                skipped = result.skipped,
+            }), 86400)
+        end
+    end)
     pcall(_M.update_metrics, result)
     return result
 end
@@ -309,10 +328,28 @@ function _M.status(_)
     local wlg = require "core.kernel_blocking.whitelist_generation"
     local epoch, seq = wlg.get_generation()
 
+    local last_reconcile = nil
+    if locks then
+        local raw = locks:get("kb:last_reconcile")
+        if raw then
+            local ok, t = pcall(json.decode, raw)
+            if ok and type(t) == "table" then last_reconcile = t end
+        end
+    end
+
+    -- Enrich configured with scope fields for dashboard.
+    matrix.configured.protected_addresses = kb.protected_addresses or {}
+    matrix.configured.protected_ports = kb.protected_ports or {}
+    matrix.configured.helper_socket = kb.helper_socket
+    matrix.configured.batch_interval = kb.batch_interval
+    matrix.configured.reconcile_interval = kb.reconcile_interval
+    matrix.configured.promotion_rate_limit = kb.promotion_rate_limit
+
     return {
         configured = matrix.configured,
         effective = matrix.effective,
         health = health,
+        helper_instance_id = health and (health.instance_id or health.helper_instance_id) or nil,
         migration = matrix.migration,
         counter_namespace = matrix.counter_namespace,
         cutover_epoch = matrix.cutover_epoch,
@@ -320,6 +357,7 @@ function _M.status(_)
         lifecycle = matrix.lifecycle,
         whitelist_generation = {
             control_plane = { epoch = epoch, sequence = seq },
+            helper_installed = health and health.allow_generation or nil,
         },
         promotion_bucket = {
             enforce = {
@@ -334,6 +372,7 @@ function _M.status(_)
             },
             tokens_available = enforce_bucket.tokens or 0,
             last_refill = enforce_bucket.last_refill or 0,
+            rate_limited_recent = sm.count("rate_limited"),
         },
         counters = {
             candidates = math.max(sm.count() - installed, 0),
@@ -347,7 +386,11 @@ function _M.status(_)
             paused = sm.count("scope_validation_pending"),
             desired = desired.count_desired(),
             active_auto_while_disabled = (kb.enabled ~= true) and active_auto or 0,
+            drift = last_reconcile and (
+                (last_reconcile.to_add or 0) + (last_reconcile.to_remove or 0)
+            ) or 0,
         },
+        last_reconcile = last_reconcile,
         dispatch_queue = { depth = 0 },
     }
 end

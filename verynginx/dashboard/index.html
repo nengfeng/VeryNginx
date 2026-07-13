@@ -1206,12 +1206,13 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <div v-if="page==='kb'">
         <h2 class="page-title">Kernel IP Blocking</h2>
         <div v-if="kbError" class="error" style="margin-bottom:8px">{{ kbError }}</div>
+        <div v-if="kbBusy" class="empty" style="text-align:left;padding:8px 0">Working…</div>
 
         <!-- Status cards -->
         <div class="grid grid-4 mb-16">
           <div class="stat-card">
             <div class="stat-label">Configured</div>
-            <div class="stat-value" style="font-size:18px">{{ kbStatus.configured.mode }}</div>
+            <div class="stat-value" style="font-size:18px">{{ kbStatus.configured.mode || '-' }}</div>
             <div class="stat-sub" :class="kbStatus.configured.enabled?'enabled':'disabled'">{{ kbStatus.configured.enabled ? 'Enabled' : 'Disabled' }}</div>
           </div>
           <div class="stat-card">
@@ -1223,107 +1224,255 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           </div>
           <div class="stat-card">
             <div class="stat-label">Installed</div>
-            <div class="stat-value">{{ kbStatus.counters.installed }}</div>
+            <div class="stat-value">{{ kbStatus.counters.installed || 0 }}</div>
             <div class="stat-sub">S {{ kbStatus.counters.installed_scanner || 0 }} / CC {{ kbStatus.counters.installed_cc || 0 }} / M {{ kbStatus.counters.installed_manual || 0 }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Helper</div>
-            <div class="stat-value" style="font-size:18px">{{ kbStatus.health.state }}</div>
-            <div class="stat-sub" :class="kbStatus.health.state==='ok'?'enabled':'disabled'">{{ kbStatus.health.state==='ok' ? 'Reachable' : 'Unreachable' }}</div>
+            <div class="stat-value" style="font-size:18px">{{ (kbStatus.health && kbStatus.health.state) || 'unknown' }}</div>
+            <div class="stat-sub" :class="(kbStatus.health && kbStatus.health.state)==='ok'?'enabled':'disabled'">
+              {{ kbStatus.helper_instance_id ? ('id ' + String(kbStatus.helper_instance_id).slice(0,8)) : ((kbStatus.health && kbStatus.health.state)==='ok' ? 'Reachable' : 'Unreachable') }}
+            </div>
           </div>
         </div>
 
         <div class="grid grid-4 mb-16">
           <div class="stat-card">
             <div class="stat-label">Scanner Effective</div>
-            <div class="stat-value" style="font-size:16px">{{ kbStatus.effective && kbStatus.effective.scanner ? kbStatus.effective.scanner.mode : '-' }}</div>
-            <div class="stat-sub">{{ kbStatus.effective && kbStatus.effective.scanner && kbStatus.effective.scanner.install_reachable ? 'reachable' : 'blocked' }}</div>
+            <div class="stat-value" style="font-size:16px">{{ kbEffMode('scanner') }}</div>
+            <div class="stat-sub">{{ kbEffReachable('scanner') ? 'reachable' : 'blocked' }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">CC Effective</div>
-            <div class="stat-value" style="font-size:16px">{{ kbStatus.effective && kbStatus.effective.cc ? kbStatus.effective.cc.mode : '-' }}</div>
-            <div class="stat-sub">{{ kbStatus.effective && kbStatus.effective.cc && kbStatus.effective.cc.install_reachable ? 'reachable' : 'blocked' }}</div>
+            <div class="stat-value" style="font-size:16px">{{ kbEffMode('cc') }}</div>
+            <div class="stat-sub">{{ kbEffReachable('cc') ? 'reachable' : 'blocked' }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Promotion Tokens</div>
-            <div class="stat-value">{{ kbStatus.promotion_bucket && kbStatus.promotion_bucket.tokens_available != null ? kbStatus.promotion_bucket.tokens_available : 0 }}</div>
-            <div class="stat-sub">candidates {{ kbStatus.counters.candidates || 0 }}</div>
+            <div class="stat-value">{{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.tokens_available) || 0 }}</div>
+            <div class="stat-sub">rate-limited {{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.rate_limited_recent) || kbStatus.counters.rate_limited || 0 }} · candidates {{ kbStatus.counters.candidates || 0 }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Migration / NS</div>
-            <div class="stat-value" style="font-size:16px">{{ kbStatus.migration && kbStatus.migration.status ? kbStatus.migration.status : '-' }}</div>
-            <div class="stat-sub">{{ kbStatus.counter_namespace || 'v1' }}</div>
+            <div class="stat-value" style="font-size:16px">{{ (kbStatus.migration && kbStatus.migration.status) || '-' }}</div>
+            <div class="stat-sub">{{ kbStatus.counter_namespace || 'v1' }} · desired {{ kbStatus.counters.desired || 0 }} · drift {{ kbStatus.counters.drift || 0 }}</div>
           </div>
         </div>
 
-        <div v-if="kbReasonText" class="error" style="margin-bottom:12px">{{ kbReasonText }}</div>
+        <!-- Reasons with remediation -->
+        <div class="card mb-16" v-if="kbReasonItems.length">
+          <h3 style="font-size:14px;margin-bottom:8px">Blocking reasons &amp; next actions</h3>
+          <div v-for="item in kbReasonItems" :key="item.code" style="margin-bottom:8px;font-size:13px">
+            <span class="tag tag-warn" style="margin-right:6px">{{ item.code }}</span>
+            <strong>{{ item.title }}</strong>
+            <div style="color:var(--muted);margin-left:4px">{{ item.advice }}</div>
+          </div>
+        </div>
         <div v-if="kbStatus.counters && kbStatus.counters.active_auto_while_disabled" class="error" style="margin-bottom:12px">
-          Warning: disabled_with_active_entries ({{ kbStatus.counters.active_auto_while_disabled }} auto entries still active)
+          Warning: disabled_with_active_entries — {{ kbStatus.counters.active_auto_while_disabled }} auto entries still active in kernel. Use Flush Auto only if you intend to remove them.
         </div>
 
-        <!-- Actions bar -->
-        <div class="flex flex-between mb-16" style="align-items:center;gap:12px">
-          <div class="flex" style="gap:8px">
-            <button class="outline small" @click="kbPause(!kbStatus.configured.emergency_pause)">
-              {{ kbStatus.configured.emergency_pause ? 'Resume' : 'Pause' }}
-            </button>
-            <button class="outline small" @click="kbFlushAuto">Flush Auto</button>
-            <button class="outline small" @click="kbReconcile">Reconcile</button>
-            <button class="outline small" @click="loadKbData">Refresh</button>
+        <!-- Controls -->
+        <div class="card mb-16">
+          <h3 style="font-size:14px;margin-bottom:12px">Controls</h3>
+          <div class="grid grid-3 mb-16">
+            <div class="field">
+              <label style="font-size:12px;color:var(--muted)"><input type="checkbox" v-model="kbForm.enabled"> Global enabled</label>
+            </div>
+            <div class="field">
+              <label style="font-size:12px;color:var(--muted)">Global mode</label>
+              <select v-model="kbForm.mode" style="margin-top:4px">
+                <option value="observe">observe</option>
+                <option value="enforce">enforce</option>
+              </select>
+            </div>
+            <div class="field">
+              <label style="font-size:12px;color:var(--muted)"><input type="checkbox" v-model="kbForm.cc_enforce_ready"> CC enforce_ready</label>
+            </div>
+            <div class="field">
+              <label style="font-size:12px;color:var(--muted)"><input type="checkbox" v-model="kbForm.scanner_enabled"> Scanner enabled</label>
+            </div>
+            <div class="field">
+              <label style="font-size:12px;color:var(--muted)"><input type="checkbox" v-model="kbForm.cc_enabled"> CC enabled</label>
+            </div>
+            <div class="field">
+              <label style="font-size:12px;color:var(--muted)">Topology (readonly)</label>
+              <input :value="kbStatus.configured.topology || 'unknown'" disabled style="margin-top:4px">
+            </div>
           </div>
-          <div class="flex" style="gap:8px;align-items:center">
-            <input v-model="kbNewIP" placeholder="IP to block" style="width:160px">
+          <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">Save policy settings</button>
+            <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)">
+              {{ kbStatus.configured.emergency_pause ? 'Resume promotions' : 'Pause promotions' }}
+            </button>
+            <button class="outline small" :disabled="kbBusy" @click="kbReconcile">Reconcile now</button>
+            <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto">Flush auto sets</button>
+            <button class="outline small" :disabled="kbBusy" @click="loadKbData">Refresh</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted)">
+            Topology / protected addresses &amp; ports are safety gates — edit them in Config. Current scope:
+            addrs={{ (kbStatus.configured.protected_addresses||[]).join(', ') || '(empty)' }},
+            ports={{ (kbStatus.configured.protected_ports||[]).join(', ') || '(empty)' }}.
+          </div>
+        </div>
+
+        <!-- Readiness checklist -->
+        <div class="card mb-16">
+          <h3 style="font-size:14px;margin-bottom:8px">Enforce readiness checklist</h3>
+          <div v-for="step in kbChecklist" :key="step.id" style="font-size:13px;margin-bottom:6px">
+            <span :class="step.ok ? 'tag tag-ok' : 'tag tag-warn'" style="margin-right:6px">{{ step.ok ? 'OK' : 'TODO' }}</span>
+            {{ step.label }}
+          </div>
+        </div>
+
+        <!-- Manual block -->
+        <div class="card mb-16">
+          <h3 style="font-size:14px;margin-bottom:8px">Manual block</h3>
+          <div class="flex" style="gap:8px;align-items:center;flex-wrap:wrap">
+            <input v-model="kbNewIP" placeholder="IP to block" style="width:180px">
             <select v-model="kbNewPolicy" style="width:120px">
               <option value="scanner">Scanner</option>
               <option value="cc">CC</option>
               <option value="manual">Manual</option>
             </select>
-            <input v-model.number="kbNewTTL" placeholder="TTL (s)" type="number" min="60" style="width:90px">
-            <button class="small" @click="kbPromote">Block</button>
+            <input v-model.number="kbNewTTL" placeholder="TTL (s)" type="number" min="60" style="width:100px">
+            <button class="small primary" :disabled="kbBusy" @click="kbPromote">Block IP</button>
           </div>
         </div>
 
-        <!-- Tabs: entries / candidates -->
+        <!-- Meta / lifecycle -->
+        <div class="card mb-16" style="font-size:12px;color:var(--muted)">
+          <div>Whitelist generation: epoch={{ kbStatus.whitelist_generation && kbStatus.whitelist_generation.control_plane && kbStatus.whitelist_generation.control_plane.epoch ? String(kbStatus.whitelist_generation.control_plane.epoch).slice(0,8) : '-' }}
+            seq={{ kbStatus.whitelist_generation && kbStatus.whitelist_generation.control_plane ? kbStatus.whitelist_generation.control_plane.sequence : '-' }}</div>
+          <div>Lifecycle gen global={{ kbStatus.lifecycle && kbStatus.lifecycle.global_activation_generation }}
+            scanner={{ kbStatus.lifecycle && kbStatus.lifecycle.policy_generation && kbStatus.lifecycle.policy_generation.scanner }}
+            cc={{ kbStatus.lifecycle && kbStatus.lifecycle.policy_generation && kbStatus.lifecycle.policy_generation.cc }}
+            · last={{ kbStatus.lifecycle && kbStatus.lifecycle.last_transition || '-' }}</div>
+          <div v-if="kbStatus.last_reconcile">Last reconcile: at {{ formatKbTime(kbStatus.last_reconcile.at) }}
+            add={{ kbStatus.last_reconcile.to_add }} remove={{ kbStatus.last_reconcile.to_remove }}
+            applied_add={{ kbStatus.last_reconcile.applied_add }} applied_remove={{ kbStatus.last_reconcile.applied_remove }}
+            {{ kbStatus.last_reconcile.dry_run ? '(dry-run)' : '(apply)' }}</div>
+        </div>
+
+        <!-- CC rules -->
+        <div class="card mb-16" v-if="(kbStatus.cc_rules||[]).length">
+          <h3 style="font-size:14px;margin-bottom:8px">CC rule readiness</h3>
+          <table class="data-table">
+            <thead><tr><th>Rule ID</th><th>Ref</th><th>NS</th><th>Mode</th><th>Install</th><th>Reasons</th></tr></thead>
+            <tbody>
+              <tr v-for="r in kbStatus.cc_rules" :key="r.rule_id">
+                <td style="font-family:monospace;font-size:12px">{{ r.rule_id }}</td>
+                <td><span :class="r.reference_valid?'tag tag-ok':'tag tag-err'">{{ r.reference_valid ? 'valid' : 'invalid' }}</span></td>
+                <td>{{ r.counter_namespace }}</td>
+                <td>{{ r.effective_mode }}</td>
+                <td><span :class="r.install_reachable?'tag tag-ok':'tag tag-warn'">{{ r.install_reachable ? 'yes' : 'no' }}</span></td>
+                <td style="font-size:12px">{{ (r.reason_codes||[]).join(', ') || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Tabs -->
         <div class="tabs mb-8">
           <a :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">Installed</a>
           <a :class="{active:kbTab==='candidates'}" @click="kbTab='candidates';loadKbCandidates()">Candidates</a>
+          <a :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">Timeline</a>
         </div>
 
-        <!-- Entries tab -->
+        <!-- Filters -->
+        <div class="flex mb-8" style="gap:8px;flex-wrap:wrap" v-if="kbTab!=='timeline'">
+          <select v-model="kbFilterPolicy" @change="kbReloadList" style="width:140px">
+            <option value="">All policies</option>
+            <option value="scanner">scanner</option>
+            <option value="cc">cc</option>
+            <option value="manual">manual</option>
+          </select>
+          <select v-if="kbTab==='candidates'" v-model="kbFilterState" @change="kbReloadList" style="width:160px">
+            <option value="">All states</option>
+            <option value="candidate">candidate</option>
+            <option value="rejected">rejected</option>
+            <option value="rate_limited">rate_limited</option>
+            <option value="degraded">degraded</option>
+            <option value="observed">observed</option>
+          </select>
+          <input v-model="kbFilterIP" placeholder="Filter IP contains…" style="width:180px" @keyup.enter="kbReloadList">
+          <button class="outline small" @click="kbReloadList">Apply</button>
+        </div>
+
+        <!-- Entries -->
         <div v-if="kbTab==='entries'">
           <div v-if="!kbEntries.length" class="empty">No installed entries.</div>
           <table v-else class="data-table">
-            <thead><tr><th>IP</th><th>Set</th><th>Installed</th><th>Expires</th><th>In Kernel</th><th>Actions</th></tr></thead>
+            <thead><tr><th>IP</th><th>Set</th><th>Family</th><th>Source</th><th>Mode</th><th>Installed</th><th>Expires</th><th>Kernel</th><th>Actions</th></tr></thead>
             <tbody>
-              <tr v-for="e in kbEntries" :key="e.ip+'-'+e.list">
+              <tr v-for="e in kbEntries" :key="e.ip+'-'+(e.list||e.policy)" style="cursor:pointer" @click="kbOpenDetail(e)">
                 <td>{{ e.ip }}</td>
-                <td>{{ e.list }}</td>
-                <td>{{ formatAgo(e.installed_at) }}</td>
-                <td>{{ e.expires_at ? formatAgo(e.expires_at) : '-' }}</td>
+                <td>{{ e.list || e.policy }}</td>
+                <td>{{ e.family || 'ipv4' }}</td>
+                <td>{{ e.source || '-' }}</td>
+                <td>{{ e.reconciliation_mode || 'ensure' }}</td>
+                <td>{{ formatKbTime(e.installed_at) }}</td>
+                <td>{{ formatKbExpiry(e.expires_at) }}</td>
                 <td><span :class="e.in_kernel?'enabled':'disabled'">{{ e.in_kernel ? 'Yes' : 'No' }}</span></td>
-                <td><button class="outline small" @click="kbClear(e.ip)">Clear</button></td>
+                <td @click.stop>
+                  <button class="outline small" @click="kbOpenDetail(e)">Detail</button>
+                  <button class="outline small" @click="kbClear(e.ip)">Clear</button>
+                </td>
               </tr>
             </tbody>
           </table>
           <div v-if="kbEntriesNext" style="margin-top:8px"><button class="outline small" @click="loadKbEntries(kbEntriesNext)">Next</button></div>
         </div>
 
-        <!-- Candidates tab -->
+        <!-- Candidates -->
         <div v-if="kbTab==='candidates'">
           <div v-if="!kbCandidates.length" class="empty">No candidates.</div>
           <table v-else class="data-table">
-            <thead><tr><th>IP</th><th>Policy</th><th>State</th><th>Block Hits</th><th>Actions</th></tr></thead>
+            <thead><tr><th>IP</th><th>Policy</th><th>State</th><th>Evidence</th><th>Result</th><th>Actions</th></tr></thead>
             <tbody>
-              <tr v-for="c in kbCandidates" :key="c.ip">
+              <tr v-for="c in kbCandidates" :key="c.ip+'-'+c.policy+'-'+c.state" style="cursor:pointer" @click="kbOpenDetail(c)">
                 <td>{{ c.ip }}</td>
                 <td>{{ c.policy }}</td>
                 <td>{{ c.state }}</td>
-                <td>{{ c.evidence && c.evidence.block_hits ? c.evidence.block_hits : '-' }}</td>
-                <td><button class="outline small" @click="kbPromoteIp(c.ip,c.policy)">Promote</button></td>
+                <td style="font-size:12px">{{ kbEvidenceSummary(c) }}</td>
+                <td style="font-size:12px">{{ (c.evidence && c.evidence.result) || '-' }}</td>
+                <td @click.stop>
+                  <button class="outline small" @click="kbOpenDetail(c)">Detail</button>
+                  <button class="outline small" @click="kbPromoteIp(c.ip,c.policy)">Promote</button>
+                </td>
               </tr>
             </tbody>
           </table>
           <div v-if="kbCandidatesNext" style="margin-top:8px"><button class="outline small" @click="loadKbCandidates(kbCandidatesNext)">Next</button></div>
+        </div>
+
+        <!-- Timeline -->
+        <div v-if="kbTab==='timeline'">
+          <div v-if="!kbTimeline.length" class="empty">No recent kernel_blocking audit events.</div>
+          <table v-else class="data-table">
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+            <tbody>
+              <tr v-for="(a,i) in kbTimeline" :key="i">
+                <td>{{ formatKbTime(a.time) }}</td>
+                <td>{{ a.user }}</td>
+                <td><span class="tag tag-warn">{{ a.action }}</span></td>
+                <td style="font-size:12px">{{ a.detail }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Detail modal -->
+        <div class="modal-overlay" v-if="kbDetail.show" @click.self="kbDetail.show=false">
+          <div class="modal" style="max-width:640px">
+            <h3>IP detail: {{ kbDetail.entry && kbDetail.entry.ip }}</h3>
+            <pre style="max-height:50vh;white-space:pre-wrap">{{ kbDetailJson }}</pre>
+            <div class="flex" style="gap:8px;justify-content:flex-end;margin-top:12px">
+              <button class="outline small" @click="kbDetail.show=false">Close</button>
+              <button class="outline small" v-if="kbDetail.entry && kbDetail.entry.ip" @click="kbClear(kbDetail.entry.ip);kbDetail.show=false">Clear</button>
+              <button class="small primary" v-if="kbDetail.entry && kbDetail.entry.ip && kbDetail.entry.policy && kbDetail.entry.state!=='installed'" @click="kbPromoteIp(kbDetail.entry.ip, kbDetail.entry.policy);kbDetail.show=false">Promote</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1756,24 +1905,150 @@ const app = Vue.createApp({
     const topPaths = ref([]);
 
     // ---- Kernel Blocking State ----
-    const kbStatus = ref({ configured: { enabled: false, mode: 'observe', emergency_pause: false }, effective: { global_mode: 'disabled', global_install_reachable: false, scanner: { mode: 'disabled' }, cc: { mode: 'disabled' }, reason_codes: [] }, health: { state: 'unknown' }, counters: { installed: 0, candidates: 0, rejected: 0, degraded: 0, rate_limited: 0, paused: 0, installed_scanner: 0, installed_cc: 0, installed_manual: 0 }, promotion_bucket: { tokens_available: 0 }, migration: { status: 'unknown' }, counter_namespace: 'v1' });
+    const kbStatus = ref({
+      configured: { enabled: false, mode: 'observe', emergency_pause: false, topology: 'unknown', protected_addresses: [], protected_ports: [] },
+      effective: { global_mode: 'disabled', global_install_reachable: false, scanner: { mode: 'disabled', reason_codes: [] }, cc: { mode: 'disabled', reason_codes: [] }, reason_codes: [] },
+      health: { state: 'unknown' },
+      counters: { installed: 0, candidates: 0, rejected: 0, degraded: 0, rate_limited: 0, paused: 0, installed_scanner: 0, installed_cc: 0, installed_manual: 0, desired: 0, drift: 0 },
+      promotion_bucket: { tokens_available: 0, rate_limited_recent: 0 },
+      migration: { status: 'unknown' },
+      counter_namespace: 'v1',
+      cc_rules: [],
+      lifecycle: {},
+      whitelist_generation: {},
+      last_reconcile: null,
+    });
     const kbEntries = ref([]);
     const kbCandidates = ref([]);
+    const kbTimeline = ref([]);
     const kbTab = ref('entries');
     const kbNewIP = ref('');
     const kbNewPolicy = ref('scanner');
     const kbNewTTL = ref(300);
     const kbError = ref('');
+    const kbBusy = ref(false);
     const kbEntriesNext = ref(null);
     const kbCandidatesNext = ref(null);
-    const kbReasonText = computed(() => {
+    const kbFilterPolicy = ref('');
+    const kbFilterState = ref('');
+    const kbFilterIP = ref('');
+    const kbForm = reactive({
+      enabled: false,
+      mode: 'observe',
+      cc_enforce_ready: false,
+      scanner_enabled: true,
+      cc_enabled: true,
+    });
+    const kbDetail = reactive({ show: false, entry: null });
+    const kbDetailJson = computed(() => kbDetail.entry ? JSON.stringify(kbDetail.entry, null, 2) : '');
+
+    const KB_REASON_HELP = {
+      global_disabled: { title: 'Kernel blocking is disabled', advice: 'Enable global switch, then start from observe mode.' },
+      global_observe: { title: 'Global mode is observe', advice: 'Observe collects candidates only. Switch to enforce after checklist is green.' },
+      helper_unavailable: { title: 'Firewall Helper unreachable', advice: 'Start firewall-helper.socket and check /run/verynginx/firewall-helper.sock.' },
+      topology: { title: 'Topology blocks enforce installs', advice: 'Set topology=direct and configure protected addresses/ports in Config.' },
+      emergency_pause: { title: 'Emergency pause is on', advice: 'Click Resume promotions to allow new automatic installs.' },
+      family_disabled: { title: 'Address family disabled', advice: 'Enable ipv4 and/or ipv6 under kernel_ip_blocking.' },
+      disabled_with_active_entries: { title: 'Disabled but kernel entries remain', advice: 'Entries expire by TTL, or use Flush Auto after confirmation.' },
+      scanner_disabled: { title: 'Scanner policy disabled', advice: 'Enable scanner policy if you want scanner promotions.' },
+      cc_disabled: { title: 'CC policy disabled', advice: 'Enable CC policy and configure rule_ids.' },
+      no_rule_ids: { title: 'No CC rule_ids configured', advice: 'Add frequency rule IDs under kernel_ip_blocking.cc.rule_ids.' },
+      cc_not_enforce_ready: { title: 'CC not enforce-ready', advice: 'Finish migration/cutover/calibration, then set cc.enforce_ready=true.' },
+      counter_namespace_not_v2: { title: 'Frequency counter namespace is not v2', advice: 'Run frequency rule ID migration and complete v2 cutover.' },
+      invalid_rule_ref: { title: 'CC rule reference invalid', advice: 'Fix or remove invalid rule_ids so all references resolve.' },
+      helper_unreachable: { title: 'Helper unreachable', advice: 'Restore Helper process/socket.' },
+    };
+
+    function kbCollectReasonCodes() {
       const codes = [];
       const eff = kbStatus.value.effective || {};
       (eff.reason_codes || []).forEach(c => codes.push(c));
-      if (eff.scanner && eff.scanner.reason_codes) eff.scanner.reason_codes.forEach(c => codes.push('scanner:' + c));
-      if (eff.cc && eff.cc.reason_codes) eff.cc.reason_codes.forEach(c => codes.push('cc:' + c));
-      return codes.length ? ('Reasons: ' + codes.join(', ')) : '';
+      if (eff.scanner && eff.scanner.reason_codes) eff.scanner.reason_codes.forEach(c => codes.push(c));
+      if (eff.cc && eff.cc.reason_codes) eff.cc.reason_codes.forEach(c => codes.push(c));
+      const uniq = [];
+      codes.forEach(c => { if (c && !uniq.includes(c)) uniq.push(c); });
+      return uniq;
+    }
+
+    const kbReasonItems = computed(() => kbCollectReasonCodes().map(code => {
+      const help = KB_REASON_HELP[code] || { title: code, advice: 'See design docs / logs for details.' };
+      return { code, title: help.title, advice: help.advice };
+    }));
+
+    function kbEffMode(policy) {
+      const eff = kbStatus.value.effective || {};
+      if (policy === 'scanner') return (eff.scanner && eff.scanner.mode) || '-';
+      if (policy === 'cc') return (eff.cc && eff.cc.mode) || '-';
+      return eff.global_mode || '-';
+    }
+    function kbEffReachable(policy) {
+      const eff = kbStatus.value.effective || {};
+      if (policy === 'scanner') return !!(eff.scanner && eff.scanner.install_reachable);
+      if (policy === 'cc') return !!(eff.cc && eff.cc.install_reachable);
+      return !!eff.global_install_reachable;
+    }
+
+    const kbChecklist = computed(() => {
+      const c = kbStatus.value.configured || {};
+      const m = kbStatus.value.migration || {};
+      const ns = kbStatus.value.counter_namespace;
+      const healthOk = kbStatus.value.health && kbStatus.value.health.state === 'ok';
+      const hasRules = (c.cc_rule_ids && c.cc_rule_ids.length) || (kbStatus.value.cc_rules && kbStatus.value.cc_rules.length);
+      return [
+        { id: 'enabled', label: 'Global enabled', ok: !!c.enabled },
+        { id: 'observe_first', label: 'Feature enabled (prefer observe first)', ok: !!c.enabled },
+        { id: 'topology', label: 'topology=direct for enforce installs', ok: c.topology === 'direct' },
+        { id: 'scope', label: 'protected_addresses and protected_ports configured', ok: (c.protected_addresses||[]).length > 0 && (c.protected_ports||[]).length > 0 },
+        { id: 'helper', label: 'Helper health ok', ok: !!healthOk },
+        { id: 'cc_rules', label: 'CC rule_ids present (if using CC)', ok: !!hasRules || c.cc_enabled === false },
+        { id: 'migration', label: 'Frequency ID migration completed', ok: m.status === 'completed' || m.status === 'no_rules' },
+        { id: 'v2', label: 'v2 counter namespace cut over', ok: ns === 'v2' || m.status === 'no_rules' },
+        { id: 'cc_ready', label: 'cc.enforce_ready confirmed (only if CC enforce desired)', ok: !!c.cc_enforce_ready || c.cc_enabled === false },
+      ];
     });
+
+    function formatKbTime(ts) {
+      if (!ts) return '-';
+      const d = new Date(ts * 1000);
+      if (isNaN(d.getTime())) return String(ts);
+      return d.toLocaleString();
+    }
+    function formatKbExpiry(ts) {
+      if (!ts) return '-';
+      const now = Math.floor(Date.now() / 1000);
+      const left = ts - now;
+      if (left <= 0) return 'expired';
+      if (left < 60) return left + 's left';
+      if (left < 3600) return Math.floor(left / 60) + 'm left';
+      if (left < 86400) return Math.floor(left / 3600) + 'h left';
+      return Math.floor(left / 86400) + 'd left';
+    }
+    function kbEvidenceSummary(c) {
+      const e = (c && c.evidence) || {};
+      const parts = [];
+      if (e.block_hits != null) parts.push('blocks=' + e.block_hits);
+      if (e.violation_count != null) parts.push('violations=' + e.violation_count);
+      if (e.flagged != null) parts.push('flagged=' + String(e.flagged));
+      if (e.strict != null) parts.push('strict=' + String(e.strict));
+      if (e.reason) parts.push(e.reason);
+      return parts.join(' ') || '-';
+    }
+    function kbSyncFormFromStatus() {
+      const c = kbStatus.value.configured || {};
+      kbForm.enabled = !!c.enabled;
+      kbForm.mode = c.mode || 'observe';
+      kbForm.cc_enforce_ready = !!c.cc_enforce_ready;
+      kbForm.scanner_enabled = c.scanner_enabled !== false;
+      kbForm.cc_enabled = c.cc_enabled !== false;
+    }
+    function kbOpenDetail(entry) {
+      kbDetail.entry = entry;
+      kbDetail.show = true;
+    }
+    function kbReloadList() {
+      if (kbTab.value === 'entries') loadKbEntries();
+      else if (kbTab.value === 'candidates') loadKbCandidates();
+    }
 
 
     const s = computed(() => status.value);
@@ -3033,42 +3308,108 @@ const app = Vue.createApp({
       try {
         const d = await api('GET', '/verynginx/kernel-blocking/status');
         if (d.ret === 'success') {
-          kbStatus.value = d.data;
+          kbStatus.value = Object.assign({}, kbStatus.value, d.data || {});
+          kbSyncFormFromStatus();
         } else {
           kbError.value = d.message || 'Failed to load status';
         }
       } catch (e) {
         kbError.value = e.message;
       }
-      await loadKbEntries();
+      if (kbTab.value === 'candidates') await loadKbCandidates();
+      else if (kbTab.value === 'timeline') await loadKbTimeline();
+      else await loadKbEntries();
     }
 
     async function loadKbEntries(cursor) {
       try {
         let url = '/verynginx/kernel-blocking/entries?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
+        if (kbFilterPolicy.value) url += '&policy=' + encodeURIComponent(kbFilterPolicy.value);
         const d = await api('GET', url);
         if (d.ret === 'success') {
-          kbEntries.value = d.data.entries || [];
+          let entries = d.data.entries || [];
+          if (kbFilterPolicy.value) entries = entries.filter(e => (e.policy || '').includes(kbFilterPolicy.value) || (e.list || '').includes(kbFilterPolicy.value));
+          if (kbFilterIP.value) {
+            const q = kbFilterIP.value.toLowerCase();
+            entries = entries.filter(e => String(e.ip || '').toLowerCase().includes(q));
+          }
+          kbEntries.value = entries;
           kbEntriesNext.value = d.data.next_cursor;
+        } else {
+          kbError.value = d.message || 'Failed to load entries';
         }
-      } catch (e) { /* silent */ }
+      } catch (e) { kbError.value = e.message; }
     }
 
     async function loadKbCandidates(cursor) {
       try {
         let url = '/verynginx/kernel-blocking/candidates?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
+        if (kbFilterState.value) url += '&state=' + encodeURIComponent(kbFilterState.value);
         const d = await api('GET', url);
         if (d.ret === 'success') {
-          kbCandidates.value = d.data.entries || [];
+          let entries = d.data.entries || [];
+          if (kbFilterPolicy.value) entries = entries.filter(e => e.policy === kbFilterPolicy.value);
+          if (kbFilterIP.value) {
+            const q = kbFilterIP.value.toLowerCase();
+            entries = entries.filter(e => String(e.ip || '').toLowerCase().includes(q));
+          }
+          kbCandidates.value = entries;
           kbCandidatesNext.value = d.data.next_cursor;
+        } else {
+          kbError.value = d.message || 'Failed to load candidates';
         }
-      } catch (e) { /* silent */ }
+      } catch (e) { kbError.value = e.message; }
+    }
+
+    async function loadKbTimeline() {
+      try {
+        const d = await api('GET', '/verynginx/audit?limit=300');
+        if (d.ret === 'success') {
+          const all = d.data || [];
+          kbTimeline.value = all.filter(a => String(a.action || '').includes('kernel_blocking'));
+        } else {
+          kbError.value = d.message || 'Failed to load timeline';
+        }
+      } catch (e) { kbError.value = e.message; }
+    }
+
+    async function kbSaveSettings() {
+      if (kbForm.mode === 'enforce' && !kbForm.enabled) {
+        showToast('Enable must be true before enforce mode', 'error'); return;
+      }
+      if (kbForm.mode === 'enforce' && !confirm('Switch/save enforce-related settings? Ensure Helper, topology and checklist are ready.')) return;
+      if (kbForm.cc_enforce_ready && !confirm('Confirm CC enforce_ready=true after migration/cutover/calibration?')) return;
+      kbBusy.value = true;
+      try {
+        const full = await api('GET', '/verynginx/config');
+        if (!full || typeof full !== 'object') throw new Error('config load failed');
+        const kb = Object.assign({}, full.kernel_ip_blocking || {});
+        kb.enabled = !!kbForm.enabled;
+        kb.mode = kbForm.mode;
+        kb.scanner = Object.assign({}, kb.scanner || {}, { enabled: !!kbForm.scanner_enabled });
+        kb.cc = Object.assign({}, kb.cc || {}, {
+          enabled: !!kbForm.cc_enabled,
+          enforce_ready: !!kbForm.cc_enforce_ready,
+        });
+        full.kernel_ip_blocking = kb;
+        const d = await api('POST', '/verynginx/config', full);
+        if (d.ret === 'success') {
+          showToast('Kernel blocking settings saved', 'success');
+          cfg.value = full;
+          await loadKbData();
+        } else {
+          showToast(d.message || 'Save failed', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
     }
 
     async function kbPromote() {
       if (!kbNewIP.value) { showToast('IP required', 'error'); return; }
+      if (!confirm('Manually block ' + kbNewIP.value + ' as ' + kbNewPolicy.value + ' for ' + kbNewTTL.value + 's?')) return;
+      kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', {
           ip: kbNewIP.value, policy: kbNewPolicy.value, ttl: kbNewTTL.value
@@ -3081,9 +3422,12 @@ const app = Vue.createApp({
           showToast(d.message || 'Promote failed', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
     }
 
     async function kbPromoteIp(ip, policy) {
+      if (!confirm('Promote ' + ip + ' as ' + policy + ' (TTL 300s)?')) return;
+      kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy, ttl: 300 });
         if (d.ret === 'success') {
@@ -3093,21 +3437,28 @@ const app = Vue.createApp({
           showToast(d.message || 'Promote failed', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
     }
 
     async function kbReconcile() {
+      if (!confirm('Trigger reconciliation now?')) return;
+      kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/reconcile', {});
         if (d.ret === 'success') {
-          showToast('Reconcile completed', 'success');
+          const r = d.data || {};
+          showToast('Reconcile done: add=' + ((r.to_add&&r.to_add.length)||r.applied_add||0) + ' remove=' + ((r.to_remove&&r.to_remove.length)||r.applied_remove||0), 'success');
           await loadKbData();
         } else {
           showToast(d.message || 'Reconcile failed', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
     }
 
     async function kbClear(ip) {
+      if (!confirm('Clear all kernel blocking entries for ' + ip + '?')) return;
+      kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/clear', { ip });
         if (d.ret === 'success') {
@@ -3117,9 +3468,12 @@ const app = Vue.createApp({
           showToast(d.message || 'Clear failed', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
     }
 
     async function kbPause(paused) {
+      if (!confirm(paused ? 'Pause automatic promotions?' : 'Resume automatic promotions?')) return;
+      kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/pause', { paused });
         if (d.ret === 'success') {
@@ -3129,18 +3483,23 @@ const app = Vue.createApp({
           showToast(d.message || 'Pause failed', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
     }
 
     async function kbFlushAuto() {
+      if (!confirm('Flush ALL automatic scanner/cc kernel entries? This cannot be undone.')) return;
+      if (!confirm('Final confirmation: flush auto sets now?')) return;
+      kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/flush-auto');
         if (d.ret === 'success') {
-          showToast('Auto entries flushed (' + (d.data.removed || 0) + ')', 'success');
+          showToast('Auto entries flushed (' + ((d.data && d.data.removed) || 0) + ')', 'success');
           await loadKbData();
         } else {
           showToast(d.message || 'Flush failed', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
     }
 
 
@@ -3526,8 +3885,11 @@ const app = Vue.createApp({
       auditEntries, auditError, auditActionClass, loadAudit, clearAuditFilters,
       auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil,
       // Kernel Blocking
-      kbStatus, kbEntries, kbCandidates, kbTab, kbNewIP, kbNewPolicy, kbNewTTL, kbError,
-      kbEntriesNext, kbCandidatesNext, kbReasonText,
+      kbStatus, kbEntries, kbCandidates, kbTimeline, kbTab, kbNewIP, kbNewPolicy, kbNewTTL, kbError, kbBusy,
+      kbEntriesNext, kbCandidatesNext, kbFilterPolicy, kbFilterState, kbFilterIP,
+      kbForm, kbDetail, kbDetailJson, kbReasonItems, kbChecklist,
+      kbEffMode, kbEffReachable, formatKbTime, formatKbExpiry, kbEvidenceSummary,
+      kbOpenDetail, kbReloadList, kbSaveSettings, loadKbTimeline,
       loadKbData, loadKbEntries, loadKbCandidates,
       kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,
     };

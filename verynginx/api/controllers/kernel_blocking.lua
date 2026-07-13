@@ -32,9 +32,10 @@ local function handle_entries()
     local cursor = tonumber(ngx.var.arg_cursor) or 0
     local page_size = tonumber(ngx.var.arg_page_size) or 50
     page_size = math.min(page_size, 200)
+    local policy_filter = ngx.var.arg_policy
 
     local sm = require "core.kernel_blocking.state_machine"
-    local page = sm.list(cursor, page_size, "installed")
+    local page = sm.list(cursor, page_size, "installed", policy_filter)
 
     -- Enrich with executor contains-check
     local executor_mod = require "core.kernel_blocking.executor"
