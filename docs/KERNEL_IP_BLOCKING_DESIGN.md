@@ -1487,18 +1487,20 @@ reason_codes[]
 
 ### 12.1 API 草案
 
-建议通过现有 controller 注册体系提供：
+通过现有 controller 注册体系提供（当前实现 10 个端点）：
 
-| 方法 | 路径草案 | 用途 |
-|------|----------|------|
-| GET | `/kernel-blocking/status` | Helper、nftables、模式和集合统计 |
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/kernel-blocking/status` | Helper、nftables、模式、集合统计、桶状态 |
 | GET | `/kernel-blocking/entries` | 分页查询期望和实际条目 |
 | GET | `/kernel-blocking/candidates` | observe 模式候选 |
 | POST | `/kernel-blocking/promote` | 人工封禁 |
 | POST | `/kernel-blocking/clear` | 人工解除 |
-| POST | `/kernel-blocking/reconcile` | 手动触发同步 |
-| POST | `/kernel-blocking/pause` | 停止新增晋升 |
+| POST | `/kernel-blocking/pause` | 停止新增晋升（紧急暂停） |
 | POST | `/kernel-blocking/flush-auto` | 清理自动集合 |
+| POST | `/kernel-blocking/reconcile` | 手动触发同步 |
+| GET | `/kernel-blocking/bucket-history` | 令牌桶余额历史（5 分钟采样，24h 保留） |
+| GET | `/kernel-blocking/diff` | 期望 vs 实际状态差异 |
 
 所有 mutating API 必须继承现有：
 
@@ -1517,6 +1519,8 @@ reason_codes[]
 - Promotion 桶的配置、状态来源 `survived_reload|cold_empty|reconfigured`、当前可用 token、最后补充时间和近期 `rate_limited` 数量。
 - `helper_instance_id`、configured/installed scope digest、本机地址摘要、scope validation state 和 table generation。
 - global/policy activation generations、`evidence_not_before`、dispatch queue 深度、最近 IPC Protocol v1 错误码和 scheduler lease 状态。
+- **IPC 统计**：连接状态、请求计数、错误计数、最后错误码。
+- **Per-rule CC reachability**：每条 `cc.rule_ids` 引用规则的 `rule_id`、`reference_valid`、`counter_namespace`、`cutover_epoch`、`warmup_until`、`effective_mode`、`install_reachable`、`reason_codes[]`。
 - disabled 或 policy disabled 时仍存在的实际内核条目数量，并返回 `disabled_with_active_entries` 警告。
 
 状态响应的最低结构示意：
@@ -1547,27 +1551,22 @@ reason_codes[]
 }
 ```
 
-### 12.2 Dashboard 草案
+### 12.2 Dashboard 实现
 
-建议新增“Kernel Blocking”区域：
+Dashboard（`verynginx/dashboard/index.html`）已实现"Kernel Blocking"区域，包含：
 
-- configured global toggle/mode、effective global/scanner/CC mode 和独立 health `ok|degraded|unavailable`
-- global、scanner、CC 分开的“当前能否安装” reachability badge、全部固定 reason 及对应处理建议
-- nftables capability、`helper_instance_id`、Helper health 和 protected-scope validation
-- scanner、CC、manual 集合数量
-- disabled/policy-disabled 但仍有活动内核条目时的显式警告及 `flush-auto` 入口
-- 最近晋升和解除记录
-- 候选 IP、证据和模拟命中数量
-- 期望状态与实际状态差异
-- Frequency ID migration、v2 冷切换、cutover epoch，以及每条 CC rule 的 reference/warm-up/reachability 状态
-- 白名单控制面/Helper generation 差异
-- 自动晋升桶余额及近期限速拒绝
-- 单 IP 详情：来源、TTL、策略版本、历史
-- 暂停新增、解除单条、清理自动集合、触发 reconcile
+- configured/effective global+scanner+CC mode、reachability badges、reason codes
+- nftables capability、`helper_instance_id`、Helper health、protected-scope validation
+- scanner/CC/manual 集合数量，disabled 活动条目警告
+- 最近晋升/解除记录，候选 IP 列表
+- **期望状态与实际状态差异**（missing_in_kernel / orphan_in_kernel 颜色标记）
+- **Per-rule 可达性视图**：每个 CC 规则展开式详情（NS/cutover/warmup/reason_codes）
+- **桶余额趋势图**：SVG 折线图展示 enforce/observe 双桶 token 变化（5 分钟采样）
+- Frequency ID migration 状态、CC rule 引用完整性
+- 白名单 generation 差异、桶余额、近期 rate_limited 计数
+- 暂停/解除/flush/reconcile 操作按钮
 
-`cc.enforce_ready` 必须能在全局 observe 模式下查看和显式确认，不能只在全局 enforce 后才显示或编辑。进入全局 enforce 不得要求 CC ready；CC observe-only 不能显示为 degraded。
-
-危险操作必须二次确认。Dashboard 不提供任意 nftables 规则编辑器。
+`cc.enforce_ready` 能在全局 observe 模式下查看和确认。危险操作有二次确认。Dashboard 不提供任意 nftables 规则编辑器。
 
 ---
 

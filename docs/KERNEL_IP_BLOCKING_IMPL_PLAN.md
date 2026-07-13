@@ -4,10 +4,10 @@
 >
 > **日期**: 2026-07-12
 >
-> **状态**: 待执行
+> **状态**: ✅ Phase 0-6 已实现（2026-07-13）
 >
 > **更新记录**: v1.1 补充既有 bug 修复 (whitelist)、配置管线侧效应 (compile_runtime_snapshot/admin 密码)、init_worker 独立 timer 现状、frequency key 碰撞风险
->
+
 > **前置条件**: `docs/KERNEL_IP_BLOCKING_DESIGN.md` v0.5
 
 ---

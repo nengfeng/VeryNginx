@@ -15,6 +15,7 @@
 9. [测试与 CI](#9-测试与-ci)
 10. [安全](#10-安全)
 11. [Firewall Helper (Go)](#11-firewall-helper-go)
+12. [Kernel Blocking (Lua)](#12-kernel-blocking-lua)
 
 ---
 
@@ -352,28 +353,32 @@ docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
 
 ### 9.3 测试脚本位置
 
-- 单元测试：`test/v2/spec/*.spec.lua`
+- 单元测试：`test/v2/phase0/*.spec.lua`（_kernel_blocking 相关的 phase0 集成测试）
+- 遗留单元测试：`test/v2/spec/*.spec.lua`（_v1 模块，部分已迁移至 phase0）
 - 集成测试：`test/v2/test_integration.py`
 - Docker Compose：`test/v2/docker-compose.yml`
 
-### 9.4 单元测试覆盖
+### 9.4 单元测试覆盖（phase0 — kernel_blocking 相关）
 
 | Spec 文件 | 覆盖范围 |
 |-----------|----------|
-| `config_spec.lua` | 配置 schema 验证、默认值填充 |
-| `context_spec.lua` | 请求上下文 ctx API |
-| `core_spec.lua` | 核心模块 smoke test |
-| `filter_challenge_spec.lua` | Challenge 规则过滤 |
-| `ip_reputation_spec.lua` | IP 声誉评分、信号、白名单 |
-| `ip_reputation_concurrency_spec.lua` | IP 声誉并发安全 |
-| `ip_reputation_observability_spec.lua` | IP 声誉可观测性 |
-| `matcher_spec.lua` | 10 种匹配器单元测试 |
-| `plugin_terminal_actions_spec.lua` | 插件 terminal action 处理 |
-| `rule_engine_challenge_spec.lua` | 规则引擎 challenge 流程 |
-| `security_challenge_xss_spec.lua` | JS Challenge XSS 安全 |
-| `security_cookie_bypass_spec.lua` | Cookie 验证绕过防护 |
-| `waf_hits_spec.lua` | WAF 命中记录 |
-| `waf_rule_manager_spec.lua` | WAF 规则 CRUD + 版本控制 |
+| `config_cross_field_spec.lua` | 配置跨字段验证、enforce 门槛校验 |
+| `config_recursive_schema_spec.lua` | 递归 schema 默认值归一化 |
+| `config_whitelist_publish_spec.lua` | 白名单 generation 发布路径 |
+| `evidence_spec.lua` | scanner/CC 证据采集、slot 边界 |
+| `executor_spec.lua` | Nft Executor contract 测试 |
+| `frequency_rule_id_migration_spec.lua` | Frequency Rule ID m1 迁移算法 |
+| `frequency_v2_namespace_spec.lua` | v2 counter namespace 冷切换 |
+| `ipc_spec.lua` | IPC Protocol v1 framing/envelope |
+| `kernel_blocking_controller_spec.lua` | API 控制器 10 个端点 |
+| `lifecycle_readiness_spec.lua` | 生命周期、generation 转换、功能标志就绪检查 |
+| `promotion_enforce_spec.lua` | scanner/CC enforce 晋升、require_challenge_fail |
+| `promotion_state_machine_spec.lua` | 状态机转换、list/compact |
+| `reconcile_chunked_spec.lua` | 分块 reconcile、final_chunk gating |
+| `reconciliation_spec.lua` | 全量 reconcile、scope rebind |
+| `scope_binding_spec.lua` | Protected Scope Binding、scope_digest |
+| `ttl_ladder_spec.lua` | TTL 阶梯续期 |
+| `whitelist_generation_spec.lua` | 白名单 epoch/sequence 缓存 |
 
 ---
 
@@ -498,9 +503,70 @@ bash test/v2/phase0/test_go_helper_e2e.sh
 
 ---
 
-## 附录：模块文件结构
+## 12. Kernel Blocking (Lua)
+
+### 12.1 模块文件结构
 
 ```
+verynginx/core/kernel_blocking/
+├── init.lua               ← 主入口：status/persist/restore/diff/bucket-history
+├── promotion.lua          ← Scanner/CC Promotion Policy
+├── state_machine.lua      ← 候选/期望状态生命周期（10 态）
+├── desired_state.lua      ← 期望状态持久化（基于 generation）
+├── token_bucket.lua       ← 自动晋升令牌桶（microunits 精度）
+├── whitelist_generation.lua ← 白名单 epoch/sequence 缓存
+├── evidence.lua           ← scanner/CC 证据采集
+├── readiness.lua          ← 功能标志/引用完整性检查
+├── lifecycle.lua          ← worker 0 调度器 wiring
+├── reconciliation.lua     ← 分块 reconcile 调度
+├── snapshot.lua           ← snapshot 分块（chunked reconcile）
+├── scope_binding.lua      ← Protected Scope Binding
+├── ttl_ladder.lua         ← TTL 阶梯式续期
+├── executor_contract.lua  ← Executor 接口契约
+├── executor_ipc.lua       ← IPC Executor 包装（含 rebind）
+├── executor_mock.lua      ← Mock Executor（测试用）
+├── executor.lua           ← Executor 工厂
+├── ipc_client.lua         ← Unix Socket 客户端（含 backoff）
+├── ipc_protocol.lua       ← Protocol v1 编解码
+└── ip_encoding.lua        ← IPv6 规范化（RFC 5952）
+```
+
+### 12.2 关键经验教训
+
+- **Add 操作必须 3 阶段提交**：先 nft 成功 → 再更新 in-memory state。之前先更新内存再执行 nft，失败后状态漂移。
+- **`compact_index` 定期清理候选索引**：candidate index 只追加不删除，必须每 300 秒扫描并移除过期条目。
+- **`scope_digest` 使用 newline-joined SHA256**：Go 端 `computeScopeDigest` 必须与 Lua `scope_binding.compute_scope_digest` 字节一致（`scope=...\naddrs=...\nports=...\n...\nsha256`）。
+- **`is_array({})` 返回 true**：schema 中空 table 判定为 array，影响默认值归一化行为。
+- **API promote 需独立安全检查**：controller `handle_promote()` 自身做 IP 格式/保留地址/白名单/capacity 校验，不能依赖 executor。
+- **CC require_challenge_fail 阻止了大部分 NAT 误封**：同一 IP 必须同时满足 `min_violation_windows` 且存在 challenge_fail 证据。
+- **close_socket 只在 had_socket 时 invalidate scope binding**：首次建连前 close 不应 invalidate，避免不必要的 rebind。
+- **evidence slot 索引可能为负**：`slot - i` 在跨窗口边界时可能为负，必须 break 而非继续。
+- **mock 的 reconcile 闭包陷阱**：`idx[key]` 必须在 `add()` 之前捕获（`key_in_idx = idx[key]`），否则 add 会修改 idx 导致判定错误。
+
+### 12.3 API 控制器端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/kernel-blocking/status` | 配置/模式/健康/统计/桶状态 |
+| GET | `/kernel-blocking/entries` | 分页查询期望+实际条目 |
+| GET | `/kernel-blocking/candidates` | 分页查询候选 |
+| POST | `/kernel-blocking/promote` | 手动封禁 |
+| POST | `/kernel-blocking/clear` | 手动解除 |
+| POST | `/kernel-blocking/pause` | 紧急暂停 |
+| POST | `/kernel-blocking/flush-auto` | 清理自动集合 |
+| POST | `/kernel-blocking/reconcile` | 手动触发同步 |
+| GET | `/kernel-blocking/bucket-history` | 令牌桶余额历史 |
+| GET | `/kernel-blocking/diff` | 期望 vs 实际差异 |
+
+> `/kernel-blocking/bucket-history` 和 `/kernel-blocking/diff` 尚无测试覆盖。
+
+### 12.4 Docker 构建
+
+Dockerfile 必须安装 Go 1.21+（官方 tar.gz），不能依赖 Debian Bullseye 的 `golang-go` 包（Go 1.15）。`//go:build` 语法要求 Go 1.17+，且 `go.mod` 声明 `go 1.21`。
+
+---
+
+## 附录：模块文件结构
 verynginx/
 ├── AGENTS.md                ← 本文档 — 开发经验与约束
 ├── Dockerfile               ← 生产镜像 (debian:bullseye-slim + install.py)
@@ -536,6 +602,7 @@ verynginx/
 │   │   ├── audit.lua, context.lua, hmac.lua
 │   │   ├── password_hash.lua, random.lua
 │   │   └── waf_recommender.lua
+│   ├── core/kernel_blocking/ ← 内核层 IP 封禁 (§12)
 │   ├── plugin/
 │   │   ├── filter/          ← WAF + IP 声誉 + GeoIP
 │   │   ├── browser_verify/  ← JS Challenge + Cookie
