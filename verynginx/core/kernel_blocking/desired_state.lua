@@ -86,6 +86,8 @@ function _M.set_desired(ip, family, list, evidence, ttl, extra)
         reconciliation_mode = extra.reconciliation_mode
             or (extra.source == "manual" and "manual")
             or "ensure",
+        promotion_count = extra.promotion_count,
+        ttl_tier = extra.ttl_tier,
         -- kept for Phase 2 test compatibility
         dry_run_state = extra.dry_run_state or "promoted",
         status = "desired",

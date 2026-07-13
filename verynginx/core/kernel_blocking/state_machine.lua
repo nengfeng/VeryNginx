@@ -80,6 +80,8 @@ function _M.upsert(ip, policy, state, evidence, extra)
         expires_at = extra.expires_at,
         source = extra.source or "automatic",
         generation = extra.generation,
+        promotion_count = extra.promotion_count,
+        ttl_tier = extra.ttl_tier,
         updated_at = ngx.time(),
     }
     local key = entry_key(ip, policy)

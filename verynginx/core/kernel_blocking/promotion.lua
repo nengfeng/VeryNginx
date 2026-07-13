@@ -19,6 +19,7 @@ local evidence = require "core.kernel_blocking.evidence"
 local desired = require "core.kernel_blocking.desired_state"
 local config = require "core.config"
 local json = require "dkjson"
+local ttl_ladder = require "core.kernel_blocking.ttl_ladder"
 
 local function detect_family(ip)
     if type(ip) == "string" and ip:find(":", 1, true) then
@@ -198,7 +199,7 @@ end
 ---------------------------------------------------------------------------
 -- Enforce-mode promotion for a single scanner IP.
 -- Consumes a token and calls executor.add() to install into kernel.
--- Updates state machine on success.
+-- Design §6.6: stepped TTL renewal on repeated attacks (never shortens).
 -- @return true on success or rate-limit, false on executor error
 ---------------------------------------------------------------------------
 local function enforce_promote_scanner(ip, block_hits, flagged)
@@ -213,42 +214,59 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
         return true
     end
 
-	-- Check if already installed in scanner_drop (same set) to avoid dups.
-	-- Design §5.1 overlap: if already in cc_drop, we still proceed to
-	-- upgrade to scanner_drop (atomic add + delete cc_drop).
-	local existing = sm.get(ip)
-	if existing and existing.state == "installed" and existing.list == "scanner_drop" then
+	local existing = sm.get_policy(ip, "scanner") or sm.get(ip)
+	local existing_cc = sm.get_policy(ip, "cc")
+	local executor_cleanup = get_installed_auto_set(ip) == "cc_drop"
+
+	-- Design §6.6 stepped TTL
+	local ir_cfg = config.ip_reputation or {}
+	local steps, max_ttl = ttl_ladder.steps_for_policy("scanner", kb_cfg, ir_cfg)
+	local prior_count = 0
+	if existing and existing.promotion_count then
+		prior_count = tonumber(existing.promotion_count) or 0
+	end
+	local existing_expires = existing and existing.expires_at
+	-- Prefer longer of scanner/cc remaining when upgrading from cc
+	if existing_cc and existing_cc.expires_at then
+		if not existing_expires or existing_cc.expires_at > existing_expires then
+			existing_expires = existing_cc.expires_at
+		end
+	end
+	local canary_ttl = nil
+	if prior_count == 0 and not (existing and existing.state == "installed")
+		and kb_cfg.canary and kb_cfg.canary.enabled == true then
+		canary_ttl = kb_cfg.canary.scanner_ttl
+	end
+	local plan = ttl_ladder.plan({
+		steps = steps,
+		max_ttl = max_ttl,
+		promotion_count = prior_count,
+		existing_expires_at = existing_expires,
+		canary_ttl = canary_ttl,
+		now = ngx.time(),
+	})
+	-- Already installed at this/higher ladder rung: no-op (no token).
+	if existing and existing.state == "installed" and existing.list == "scanner_drop"
+		and not plan.extends then
 		return true
 	end
-	-- Capture overlap before intermediate transitions mutate scanner state.
-	local executor_cleanup = get_installed_auto_set(ip) == "cc_drop"
-	local existing_cc = sm.get_policy(ip, "cc")
 
-	-- Consume enforce token
+	-- Consume enforce token only when we will extend desired/kernel state.
+	if not plan.extends then
+		-- First-time path should always extend; if not, nothing to do.
+		return true
+	end
     if not consume_enforce_token() then
         evidence_tbl.result = "rate_limited"
         sm.upsert(ip, "scanner", "rate_limited", evidence_tbl, {})
         return true
     end
 
-	-- Compute TTL: use canary TTL on first install (shorter TTL for canary).
-	-- Design §5.1 overlap: if IP already in cc_drop, preserve the longer TTL.
-	local max_ttl = (kb_cfg.scanner and kb_cfg.scanner.max_ttl) or 86400
-	local canary_ttl = (kb_cfg.canary and kb_cfg.canary.scanner_ttl) or 60
-	local ttl = math.min(canary_ttl, max_ttl)
-	if block_hits >= 10 then
-		ttl = max_ttl
-	end
-	-- If upgrading from cc_drop, use max of existing remaining TTL and new TTL
-	local ttl_source = existing_cc or existing
-	if ttl_source and ttl_source.expires_at then
-		local remaining = ttl_source.expires_at - ngx.time()
-		if remaining and remaining > ttl then
-			ttl = math.min(remaining, max_ttl)
-		end
-	end
-
-    local family = detect_family(ip)
+	local ttl = plan.ttl
+	local family = detect_family(ip)
+	evidence_tbl.ttl_tier = plan.tier
+	evidence_tbl.ttl_reason = plan.reason
+	evidence_tbl.promotion_count = plan.next_promotion_count
     -- Intermediate states: promoted -> dispatch_pending -> installed/degraded
     sm.upsert(ip, "scanner", "promoted", evidence_tbl, {
         list = "scanner_drop",
@@ -291,20 +309,24 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
     end
 
 	-- Success: desired_state + state machine installed
-	evidence_tbl.result = "promoted"
+	evidence_tbl.result = (plan.reason == "stepped_renewal") and "renewed" or "promoted"
 	desired.set_desired(ip, family, "scanner_drop", evidence_tbl, ttl, {
 		source = "automatic",
 		policy = "scanner",
-		reason = "auto_promotion",
+		reason = plan.reason,
 		reconciliation_mode = "ensure",
+		promotion_count = plan.next_promotion_count,
+		ttl_tier = plan.tier,
 	})
 	-- scanner supersedes cc desired entry
 	desired.remove_desired(ip, family, "cc_drop")
 	sm.upsert(ip, "scanner", "installed", evidence_tbl, {
 		list = "scanner_drop",
 		family = family,
-		installed_at = ngx.time(),
-		expires_at = ngx.time() + ttl,
+		installed_at = (existing and existing.installed_at) or ngx.time(),
+		expires_at = plan.expires_at,
+		promotion_count = plan.next_promotion_count,
+		ttl_tier = plan.tier,
 	})
 
 	-- Remove from cc_drop if it was there (scanner_drop > cc_drop)
@@ -319,7 +341,8 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 	end
 
 	ngx.log(ngx.WARN, "kernel_blocking: IP ", ip,
-		" installed into scanner_drop (ttl=", ttl, "s)")
+		" scanner_drop ", plan.reason, " ttl=", ttl, "s tier=", plan.tier,
+		" count=", plan.next_promotion_count)
 	return true
 end
 
@@ -330,18 +353,26 @@ end
 -- In enforce mode: actually installs passing candidates via executor.
 -- ---------------------------------------------------------------------------
 local function evaluate_scanner_candidates()
+    local seen = {}
+    local work = {}
+
     local candidates = sm.list_candidates(0, 100)
-
     for _, c in ipairs(candidates.entries) do
-        if c.policy ~= "scanner" then goto continue end
-        local ip = c.ip
-
-        -- Skip already-installed entries (idempotent re-evaluation)
-        local existing_scanner = sm.get_policy(ip, "scanner")
-        if existing_scanner and existing_scanner.state == "installed" then
-            goto continue
+        if c.policy == "scanner" and c.ip and not seen[c.ip] then
+            seen[c.ip] = true
+            work[#work + 1] = c.ip
         end
+    end
+    -- Design §6.6: also re-evaluate installed scanner entries for stepped renewal.
+    local installed = sm.list(0, 200, "installed", "scanner")
+    for _, e in ipairs(installed.entries or {}) do
+        if e.ip and e.list == "scanner_drop" and not seen[e.ip] then
+            seen[e.ip] = true
+            work[#work + 1] = e.ip
+        end
+    end
 
+    for _, ip in ipairs(work) do
         -- Security gate
         local gate_ok, reason = passes_security_gate(ip, "ipv4")
         if not gate_ok then
@@ -388,15 +419,19 @@ local function evaluate_scanner_candidates()
         }
 
         if mode == "enforce" then
-            -- Enforce mode: actually install
+            -- Enforce mode: install or stepped-renew when still strict
             if strict and not rate_limited then
                 enforce_promote_scanner(ip, block_hits, flagged)
             elseif strict and rate_limited then
                 ev.result = "would_rate_limit"
                 sm.upsert(ip, "scanner", "candidate", ev, {})
             else
-                ev.result = "would_not_promote"
-                sm.upsert(ip, "scanner", "candidate", ev, {})
+                -- Keep installed entries as-is when evidence cooled off.
+                local cur = sm.get_policy(ip, "scanner")
+                if not (cur and cur.state == "installed") then
+                    ev.result = "would_not_promote"
+                    sm.upsert(ip, "scanner", "candidate", ev, {})
+                end
             end
         else
             -- Observe mode (default): log only
@@ -418,8 +453,7 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Enforce-mode promotion for a single CC IP.
--- Consumes a token and calls executor.add() to install into cc_drop.
--- Design §6.4: cc_drop with short TTL, progressive.
+-- Design §6.6: stepped TTL (default 300→600→1800), never shortens.
 -- ---------------------------------------------------------------------------
 local function enforce_promote_cc(ip, violation_count)
 	local kb_cfg = config.kernel_ip_blocking
@@ -439,26 +473,49 @@ local function enforce_promote_cc(ip, violation_count)
 		return true
 	end
 
-	-- Already installed in cc_drop: skip
-	if existing_set == "cc_drop" then
+	local existing = sm.get_policy(ip, "cc")
+	local steps, max_ttl = ttl_ladder.steps_for_policy("cc", kb_cfg, config.ip_reputation)
+	local prior_count = 0
+	if existing and existing.promotion_count then
+		prior_count = tonumber(existing.promotion_count) or 0
+	end
+	local canary_ttl = nil
+	if prior_count == 0 and not (existing and existing.state == "installed")
+		and kb_cfg.canary and kb_cfg.canary.enabled == true then
+		canary_ttl = kb_cfg.canary.cc_ttl
+	end
+	local plan = ttl_ladder.plan({
+		steps = steps,
+		max_ttl = max_ttl,
+		promotion_count = prior_count,
+		existing_expires_at = existing and existing.expires_at,
+		canary_ttl = canary_ttl,
+		now = ngx.time(),
+	})
+
+	if existing and existing.state == "installed" and existing.list == "cc_drop"
+		and not plan.extends then
+		return true
+	end
+	if not plan.extends then
 		return true
 	end
 
-	-- Consume enforce token
+	-- Consume enforce token only when extending
 	if not consume_enforce_token() then
 		sm.upsert(ip, "cc", "rate_limited",
 			{ violation_count = violation_count }, {})
 		return true
 	end
 
-	-- Compute TTL: use cc.ttl (short, Design §5.1: 1-10 min)
-	local ttl = (kb_cfg.cc and kb_cfg.cc.ttl) or 300
-	local max_ttl = (kb_cfg.cc and kb_cfg.cc.max_ttl) or 1800
-	-- Progressive TTL: more violations = longer TTL, up to max_ttl
-	ttl = math.min(ttl + (violation_count - 1) * 60, max_ttl)
-
+	local ttl = plan.ttl
 	local family = detect_family(ip)
-	local ev_tbl = { violation_count = violation_count }
+	local ev_tbl = {
+		violation_count = violation_count,
+		ttl_tier = plan.tier,
+		ttl_reason = plan.reason,
+		promotion_count = plan.next_promotion_count,
+	}
 	sm.upsert(ip, "cc", "promoted", ev_tbl, {
 		list = "cc_drop",
 		family = family,
@@ -501,22 +558,27 @@ local function enforce_promote_cc(ip, violation_count)
 	end
 
 	-- Success: desired_state + installed
-	ev_tbl.result = "promoted"
+	ev_tbl.result = (plan.reason == "stepped_renewal") and "renewed" or "promoted"
 	desired.set_desired(ip, family, "cc_drop", ev_tbl, ttl, {
 		source = "automatic",
 		policy = "cc",
-		reason = "auto_promotion",
+		reason = plan.reason,
 		reconciliation_mode = "ensure",
+		promotion_count = plan.next_promotion_count,
+		ttl_tier = plan.tier,
 	})
 	sm.upsert(ip, "cc", "installed", ev_tbl, {
 		list = "cc_drop",
 		family = family,
-		installed_at = ngx.time(),
-		expires_at = ngx.time() + ttl,
+		installed_at = (existing and existing.installed_at) or ngx.time(),
+		expires_at = plan.expires_at,
+		promotion_count = plan.next_promotion_count,
+		ttl_tier = plan.tier,
 	})
 
 	ngx.log(ngx.WARN, "kernel_blocking: IP ", ip,
-		" installed into cc_drop (ttl=", ttl, "s, violations=", violation_count, ")")
+		" cc_drop ", plan.reason, " ttl=", ttl, "s tier=", plan.tier,
+		" count=", plan.next_promotion_count, " violations=", violation_count)
 	return true
 end
 
@@ -538,45 +600,53 @@ local function evaluate_cc_candidates()
 	local min_windows = (kb_cfg.cc.min_violation_windows) or 3
 	local rule_window = (kb_cfg.cc.ttl) or 300  -- use ttl as window base
 
-    for _, c in ipairs(candidates.entries) do
-        if c.policy ~= "cc" then goto continue end
-        local ip = c.ip
+	local seen = {}
+	local work = {}
+	for _, c in ipairs(candidates.entries) do
+		if c.policy == "cc" and c.ip and not seen[c.ip] then
+			seen[c.ip] = true
+			work[#work + 1] = c.ip
+		end
+	end
+	-- Design §6.6: re-evaluate installed CC for stepped renewal.
+	local installed = sm.list(0, 200, "installed", "cc")
+	for _, e in ipairs(installed.entries or {}) do
+		if e.ip and e.list == "cc_drop" and not seen[e.ip] then
+			seen[e.ip] = true
+			work[#work + 1] = e.ip
+		end
+	end
 
-        -- Skip already-installed CC entries (idempotent re-evaluation)
-        local existing_cc = sm.get_policy(ip, "cc")
-        if existing_cc and existing_cc.state == "installed" then
-            goto continue
-        end
+	for _, ip in ipairs(work) do
+		-- Also skip if already in scanner_drop (higher priority)
+		local existing_scanner = sm.get_policy(ip, "scanner")
+		if existing_scanner and existing_scanner.state == "installed" and existing_scanner.list == "scanner_drop" then
+			sm.upsert(ip, "cc", "candidate",
+				{ result = "already_in_scanner_drop" }, {})
+			goto continue
+		end
 
-        -- Also skip if already in scanner_drop (higher priority)
-        local existing_scanner = sm.get_policy(ip, "scanner")
-        if existing_scanner and existing_scanner.state == "installed" and existing_scanner.list == "scanner_drop" then
-            sm.upsert(ip, "cc", "candidate",
-                { result = "already_in_scanner_drop" }, {})
-            goto continue
-        end
+		-- Security gate
+		local gate_ok, reason = passes_security_gate(ip, "ipv4")
+		if not gate_ok then
+			sm.upsert(ip, "cc", "rejected", { reason = reason }, {})
+			goto continue
+		end
 
-        -- Security gate
-        local gate_ok, reason = passes_security_gate(ip, "ipv4")
-        if not gate_ok then
-            sm.upsert(ip, "cc", "rejected", { reason = reason }, {})
-            goto continue
-        end
-
-        -- Lifecycle evidence cutoff (Design §10.5)
-        do
-            local ok_life, life = pcall(require, "core.kernel_blocking.lifecycle")
-            if ok_life and life and life.evidence_allowed then
-                local allowed, why = life.evidence_allowed("cc", ngx.time())
-                if not allowed then
-                    sm.upsert(ip, "cc", "candidate", {
-                        result = "evidence_cutoff",
-                        reason = why,
-                    }, {})
-                    goto continue
-                end
-            end
-        end
+		-- Lifecycle evidence cutoff (Design §10.5)
+		do
+			local ok_life, life = pcall(require, "core.kernel_blocking.lifecycle")
+			if ok_life and life and life.evidence_allowed then
+				local allowed, why = life.evidence_allowed("cc", ngx.time())
+				if not allowed then
+					sm.upsert(ip, "cc", "candidate", {
+						result = "evidence_cutoff",
+						reason = why,
+					}, {})
+					goto continue
+				end
+			end
+		end
 
 		-- Count violation windows
 		local violations = evidence.count_cc_violations(ip, rule_window, min_windows + 2)
@@ -590,12 +660,15 @@ local function evaluate_cc_candidates()
 			sm.upsert(ip, "cc", "candidate",
 				{ violation_count = violations, result = "would_rate_limit" }, {})
 		else
-			local result_str = "would_not_promote"
-			if mode ~= "enforce" then
-				result_str = (cc_enforce and "cc_observe") or "cc_observe_only"
+			local cur = sm.get_policy(ip, "cc")
+			if not (cur and cur.state == "installed") then
+				local result_str = "would_not_promote"
+				if mode ~= "enforce" then
+					result_str = (cc_enforce and "cc_observe") or "cc_observe_only"
+				end
+				sm.upsert(ip, "cc", "candidate",
+					{ violation_count = violations, result = result_str }, {})
 			end
-			sm.upsert(ip, "cc", "candidate",
-				{ violation_count = violations, result = result_str }, {})
 		end
 
 		::continue::
