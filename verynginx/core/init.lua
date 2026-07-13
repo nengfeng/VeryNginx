@@ -118,7 +118,9 @@ function _M.init_worker()
         local kb = require "core.kernel_blocking.init"
 
         -- Unified persistence every 600s (ip reputation + kernel blocking)
-        ngx.timer.every(600, function()
+        -- Fixed interval: timer.every is fine (not hot-reloaded).
+        ngx.timer.every(600, function(premature)
+            if premature or ngx.worker.exiting() then return end
             pcall(function() ip_reputation.persist() end)
             pcall(function() kb.persist() end)
         end)
@@ -130,52 +132,70 @@ function _M.init_worker()
             if not ok then
                 ngx.log(ngx.WARN, "kernel_blocking bootstrap error: ", err)
             end
-            local rok, rerr = pcall(function() kb.reconcile(ngx.time()) end)
+            local rok, rerr = pcall(function() return kb.reconcile(ngx.time()) end)
             if not rok then
                 ngx.log(ngx.WARN, "kernel_blocking initial reconcile error: ", rerr)
+            elseif type(rerr) == "table" and rerr.skipped == "lease_busy" then
+                ngx.log(ngx.INFO, "kernel_blocking initial reconcile skipped: lease_busy")
             end
         end)
 
-        -- Batch callback: process candidates + flush dispatch queue
-        local function promotion_timer(_batch_interval)
+        -- Batch callback: process candidates + flush dispatch (self-rescheduling).
+        -- Hot-reloadable interval; lease inside process_candidates prevents overlap
+        -- when a slow call outlives the next fire or after graceful reload.
+        local function promotion_timer()
             if ngx.worker.exiting() then return end
-            local ok, err = pcall(function()
-                kb.process_candidates(ngx.time())
+            local ok, res = pcall(function()
+                return kb.process_candidates(ngx.time())
             end)
             if not ok then
-                ngx.log(ngx.WARN, "kernel_blocking promotion eval error: ", err)
+                ngx.log(ngx.WARN, "kernel_blocking promotion eval error: ", res)
+            elseif type(res) == "table" and res.skipped == "lease_busy" then
+                ngx.log(ngx.INFO, "kernel_blocking batch skipped: lease_busy")
             end
+            if ngx.worker.exiting() then return end
             local kb_cfg = config.kernel_ip_blocking
             local interval = (kb_cfg and kb_cfg.batch_interval) or 1
-            ngx.timer.at(math.max(interval, 1), function(premature)
-                if premature then return end
-                promotion_timer(interval)
+            local delay = math.max(tonumber(interval) or 1, 1)
+            local at_ok, at_err = ngx.timer.at(delay, function(premature)
+                if premature or ngx.worker.exiting() then return end
+                promotion_timer()
             end)
+            if not at_ok then
+                ngx.log(ngx.ERR, "kernel_blocking batch timer reschedule failed: ", at_err)
+            end
         end
         ngx.timer.at(2, function(premature)
-            if premature then return end
-            promotion_timer(1)
+            if premature or ngx.worker.exiting() then return end
+            promotion_timer()
         end)
 
-        -- Reconcile callback
-        local function reconcile_timer(_unused)
+        -- Reconcile callback (self-rescheduling, lease-guarded)
+        local function reconcile_timer()
             if ngx.worker.exiting() then return end
-            local ok, err = pcall(function()
-                kb.reconcile(ngx.time())
+            local ok, res = pcall(function()
+                return kb.reconcile(ngx.time())
             end)
             if not ok then
-                ngx.log(ngx.WARN, "kernel_blocking reconcile error: ", err)
+                ngx.log(ngx.WARN, "kernel_blocking reconcile error: ", res)
+            elseif type(res) == "table" and res.skipped == "lease_busy" then
+                ngx.log(ngx.INFO, "kernel_blocking reconcile skipped: lease_busy")
             end
+            if ngx.worker.exiting() then return end
             local kb_cfg = config.kernel_ip_blocking
             local interval = (kb_cfg and kb_cfg.reconcile_interval) or 30
-            ngx.timer.at(math.max(interval, 5), function(premature)
-                if premature then return end
-                reconcile_timer(interval)
+            local delay = math.max(tonumber(interval) or 30, 5)
+            local at_ok, at_err = ngx.timer.at(delay, function(premature)
+                if premature or ngx.worker.exiting() then return end
+                reconcile_timer()
             end)
+            if not at_ok then
+                ngx.log(ngx.ERR, "kernel_blocking reconcile timer reschedule failed: ", at_err)
+            end
         end
         ngx.timer.at(5, function(premature)
-            if premature then return end
-            reconcile_timer(30)
+            if premature or ngx.worker.exiting() then return end
+            reconcile_timer()
         end)
 
         -- Exit polling: persist once when worker is exiting

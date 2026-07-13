@@ -190,5 +190,62 @@ describe("Status facade", function()
         assert.are.equal(1, st.counters.candidates)
         assert.truthy(st.lifecycle)
         assert.truthy(st.promotion_bucket)
+        assert.truthy(st.scheduler_leases)
+        assert.truthy(st.scheduler_leases.batch)
+        assert.is_false(st.scheduler_leases.batch.held == true)
+        assert.is_false(st.scheduler_leases.reconcile.held == true)
+    end)
+end)
+
+describe("Scheduler leases", function()
+    before_each(function()
+        mock.flush_owned("all")
+        ngx.shared.vn_config:flush_all()
+        ngx.shared.vn_locks:flush_all()
+        mock_config.kernel_ip_blocking.enabled = true
+        mock_config.kernel_ip_blocking.mode = "enforce"
+    end)
+
+    it("reconcile single-flight skips when lease held", function()
+        local held = {
+            token = "held-by-test",
+            worker_id = 0,
+            acquired_at = ngx.time(),
+            ttl = 60,
+            name = "kb:lease:reconcile",
+        }
+        local json = require "dkjson"
+        ngx.shared.vn_locks:add("kb:lease:reconcile", json.encode(held), 60)
+        local r = kb.reconcile(ngx.time())
+        assert.are.equal("lease_busy", r.skipped)
+        local st = kb.lease_status()
+        assert.is_true(st.reconcile.held)
+    end)
+
+    it("batch single-flight skips when lease held", function()
+        local json = require "dkjson"
+        ngx.shared.vn_locks:add("kb:lease:batch", json.encode({
+            token = "held-batch", worker_id = 0, acquired_at = ngx.time(), ttl = 30,
+        }), 30)
+        local r = kb.process_candidates(ngx.time())
+        assert.are.equal("lease_busy", r.skipped)
+    end)
+
+    it("dispatch single-flight skips when lease held", function()
+        local json = require "dkjson"
+        ngx.shared.vn_locks:add("kb:lease:dispatch", json.encode({
+            token = "held-dispatch", worker_id = 0, acquired_at = ngx.time(), ttl = 30,
+        }), 30)
+        local r = kb.flush_dispatch_queue(ngx.time())
+        assert.are.equal("lease_busy", r.skipped)
+    end)
+
+    it("releases reconcile lease after success so next call proceeds", function()
+        mock.ensure_base(mock_config.kernel_ip_blocking)
+        local r1 = kb.reconcile(ngx.time())
+        assert.truthy(r1.skipped ~= "lease_busy")
+        local r2 = kb.reconcile(ngx.time())
+        assert.truthy(r2.skipped ~= "lease_busy")
+        assert.is_false(kb.lease_status().reconcile.held == true)
     end)
 end)

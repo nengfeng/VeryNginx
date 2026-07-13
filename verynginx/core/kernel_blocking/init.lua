@@ -16,9 +16,19 @@ local readiness = require "core.kernel_blocking.readiness"
 
 local STATE_VERSION = 1
 local LEASE_DICT = "vn_locks"
+-- Design §10.3: tokenized TTL leases prevent slow-call overlap and dual
+-- worker-generation execution after graceful reload.
 local PERSIST_LEASE = "kb:lease:persist"
 local RECONCILE_LEASE = "kb:lease:reconcile"
 local DISPATCH_LEASE = "kb:lease:dispatch"
+local BATCH_LEASE = "kb:lease:batch"
+
+local DEFAULT_LEASE_TTL = {
+    batch = 30,
+    reconcile = 60,
+    dispatch = 30,
+    persist = 30,
+}
 
 local function worker_id()
     if ngx.worker and ngx.worker.id then
@@ -36,18 +46,65 @@ end
 local function acquire_lease(name, ttl)
     local s = ngx.shared[LEASE_DICT]
     if not s then return true, "no_shared" end
-    local token = tostring(ngx.time()) .. ":" .. tostring(worker_id()) .. ":" .. tostring(math.random(1, 1e9))
-    local ok = s:add(name, token, ttl or 30)
+    ttl = ttl or 30
+    local token = tostring(ngx.time()) .. ":" .. tostring(worker_id()) .. ":"
+        .. tostring(math.random(1, 1e9))
+    local meta = json.encode({
+        token = token,
+        worker_id = worker_id(),
+        acquired_at = ngx.time(),
+        ttl = ttl,
+        name = name,
+    })
+    local ok = s:add(name, meta, ttl)
     if ok then return true, token end
     return false, "busy"
 end
 
 local function release_lease(name, token)
     local s = ngx.shared[LEASE_DICT]
-    if not s then return end
-    if s:get(name) == token then
+    if not s or not token or token == "no_shared" then return end
+    local raw = s:get(name)
+    if not raw then return end
+    if raw == token then
+        s:delete(name)
+        return
+    end
+    local ok, meta = pcall(json.decode, raw)
+    if ok and type(meta) == "table" and meta.token == token then
         s:delete(name)
     end
+end
+
+local function peek_lease(name)
+    local s = ngx.shared[LEASE_DICT]
+    if not s then
+        return { held = false, reason = "no_shared" }
+    end
+    local raw = s:get(name)
+    if not raw then
+        return { held = false }
+    end
+    local ok, meta = pcall(json.decode, raw)
+    if ok and type(meta) == "table" then
+        return {
+            held = true,
+            worker_id = meta.worker_id,
+            acquired_at = meta.acquired_at,
+            ttl = meta.ttl,
+            age = meta.acquired_at and (ngx.time() - meta.acquired_at) or nil,
+        }
+    end
+    return { held = true, opaque = true }
+end
+
+function _M.lease_status()
+    return {
+        batch = peek_lease(BATCH_LEASE),
+        reconcile = peek_lease(RECONCILE_LEASE),
+        dispatch = peek_lease(DISPATCH_LEASE),
+        persist = peek_lease(PERSIST_LEASE),
+    }
 end
 
 function _M.restore()
@@ -118,7 +175,7 @@ end
 
 function _M.persist()
     if worker_id() ~= 0 then return false, "not_worker0" end
-    local got, token = acquire_lease(PERSIST_LEASE, 30)
+    local got, token = acquire_lease(PERSIST_LEASE, DEFAULT_LEASE_TTL.persist)
     if not got then return false, "lease_busy" end
 
     local ok, err = pcall(function()
@@ -250,22 +307,42 @@ function _M.bootstrap()
 end
 
 function _M.process_candidates(now)
-    local promotion = require "core.kernel_blocking.promotion"
-    promotion.process_candidates(now or ngx.time())
-    _M.flush_dispatch_queue(now)
+    local got, token = acquire_lease(BATCH_LEASE, DEFAULT_LEASE_TTL.batch)
+    if not got then return { skipped = "lease_busy" } end
+
+    local ok, err = pcall(function()
+        local promotion = require "core.kernel_blocking.promotion"
+        promotion.process_candidates(now or ngx.time())
+        -- Dispatch flush is independently leased (Design §10.3).
+        _M.flush_dispatch_queue(now)
+    end)
+    release_lease(BATCH_LEASE, token)
+    if not ok then
+        ngx.log(ngx.ERR, "kernel_blocking.process_candidates failed: ", err)
+        return { error = tostring(err) }
+    end
+    return { ok = true }
 end
 
 function _M.flush_dispatch_queue(_now)
     -- In-process path currently installs inline in promotion. This hook is the
     -- design-required extension point for bounded async dispatch/retry.
-    local got, token = acquire_lease(DISPATCH_LEASE, 10)
+    local got, token = acquire_lease(DISPATCH_LEASE, DEFAULT_LEASE_TTL.dispatch)
     if not got then return { skipped = "lease_busy" } end
+
+    local ok, result = pcall(function()
+        return { ok = true, depth = 0 }
+    end)
     release_lease(DISPATCH_LEASE, token)
-    return { ok = true, depth = 0 }
+    if not ok then
+        ngx.log(ngx.ERR, "kernel_blocking.flush_dispatch_queue failed: ", result)
+        return { error = tostring(result) }
+    end
+    return result
 end
 
 function _M.reconcile(now)
-    local got, token = acquire_lease(RECONCILE_LEASE, 60)
+    local got, token = acquire_lease(RECONCILE_LEASE, DEFAULT_LEASE_TTL.reconcile)
     if not got then return { skipped = "lease_busy" } end
     local recon = require "core.kernel_blocking.reconciliation"
     local ok, result = pcall(function()
@@ -408,6 +485,7 @@ function _M.status(_)
         },
         last_reconcile = last_reconcile,
         dispatch_queue = { depth = 0 },
+        scheduler_leases = _M.lease_status(),
         scope_binding = (function()
             local ok, sb = pcall(require, "core.kernel_blocking.scope_binding")
             if ok and sb then return sb.status_view() end
