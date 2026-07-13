@@ -402,21 +402,9 @@ function _M.status(_)
         lifecycle = lifecycle.get_state(),
     })
 
-    local locks = ngx.shared.vn_locks
-    local enforce_bucket = { tokens = 0, last_refill = 0, source = "cold_empty" }
-    local observe_bucket = { tokens = 0, last_refill = 0, source = "cold_empty" }
-    if locks then
-        local eraw = locks:get("kb:enforce_bucket:state")
-        if eraw then
-            local ok, t = pcall(json.decode, eraw)
-            if ok and type(t) == "table" then enforce_bucket = t end
-        end
-        local oraw = locks:get("kb:observe_bucket:state")
-        if oraw then
-            local ok, t = pcall(json.decode, oraw)
-            if ok and type(t) == "table" then observe_bucket = t end
-        end
-    end
+    local token_bucket = require "core.kernel_blocking.token_bucket"
+    local enforce_status = token_bucket.enforce_status()
+    local observe_status = token_bucket.observe_status()
 
     local wlg = require "core.kernel_blocking.whitelist_generation"
     local epoch, seq = wlg.get_generation()
@@ -454,17 +442,21 @@ function _M.status(_)
         },
         promotion_bucket = {
             enforce = {
-                tokens_available = enforce_bucket.tokens or 0,
-                last_refill = enforce_bucket.last_refill or 0,
-                source = enforce_bucket.source or "unknown",
+                tokens_available = enforce_status.tokens or 0,
+                tokens_microunits = enforce_status.tokens_microunits or 0,
+                limit = enforce_status.limit or 0,
+                interval = enforce_status.interval or 0,
+                burst = enforce_status.burst or 0,
+                last_refill_ms = enforce_status.last_refill_ms or 0,
             },
             observe = {
-                tokens_available = observe_bucket.tokens or 0,
-                last_refill = observe_bucket.last_refill or 0,
-                source = observe_bucket.source or "unknown",
+                tokens_available = observe_status.tokens or 0,
+                tokens_microunits = observe_status.tokens_microunits or 0,
+                limit = observe_status.limit or 0,
+                interval = observe_status.interval or 0,
+                burst = observe_status.burst or 0,
+                last_refill_ms = observe_status.last_refill_ms or 0,
             },
-            tokens_available = enforce_bucket.tokens or 0,
-            last_refill = enforce_bucket.last_refill or 0,
             rate_limited_recent = sm.count("rate_limited"),
         },
         counters = {
@@ -486,6 +478,11 @@ function _M.status(_)
         last_reconcile = last_reconcile,
         dispatch_queue = { depth = 0 },
         scheduler_leases = _M.lease_status(),
+        ipc = (function()
+            local ok, client = pcall(require, "core.kernel_blocking.ipc_client")
+            if ok and client and client.stats then return client.stats() end
+            return nil
+        end)(),
         scope_binding = (function()
             local ok, sb = pcall(require, "core.kernel_blocking.scope_binding")
             if ok and sb then return sb.status_view() end

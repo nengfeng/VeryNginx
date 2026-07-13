@@ -163,6 +163,7 @@ end
 function _M.request(operation, source, payload)
     local ok, err = ensure_connected()
     if not ok then
+        _M.record_error(err, operation)
         return nil, err
     end
 
@@ -170,6 +171,7 @@ function _M.request(operation, source, payload)
     local framed, encode_err = proto.encode_request(request_id, operation, source, payload)
     if not framed then
         close_socket()  -- invalid request framing = protocol error
+        _M.record_error(encode_err, operation)
         return nil, encode_err or "encoding_error"
     end
 
@@ -177,6 +179,7 @@ function _M.request(operation, source, payload)
     local bytes = socket:send(framed)
     if not bytes then
         close_socket()
+        _M.record_error("send_error", operation)
         return nil, "send_error"
     end
 
@@ -185,6 +188,7 @@ function _M.request(operation, source, payload)
     while true do
         if ngx.time() > deadline then
             close_socket()
+            _M.record_error("read_timeout", operation)
             return nil, "read_timeout"
         end
         local data, recv_err = socket:receiveany(8192)
@@ -263,6 +267,42 @@ function _M.request_safe(operation, source, payload)
         end
     end
     return resp
+end
+
+-- ---------------------------------------------------------------------------
+-- IPC error statistics (for status API).
+-- Tracks recent error codes with timestamps.
+-- ---------------------------------------------------------------------------
+local ipc_errors = {}  -- circular buffer of { code, time, op }
+local IPC_ERROR_MAX = 50
+
+function _M.record_error(code, op)
+    ipc_errors[#ipc_errors + 1] = {
+        code = code or "unknown",
+        time = ngx.time(),
+        op = op or "unknown",
+    }
+    if #ipc_errors > IPC_ERROR_MAX then
+        table.remove(ipc_errors, 1)
+    end
+end
+
+function _M.error_stats()
+    local recent = {}
+    for _, e in ipairs(ipc_errors) do
+        recent[#recent + 1] = e
+    end
+    return recent
+end
+
+function _M.stats()
+    return {
+        socket_active = socket ~= nil,
+        socket_requests = socket_requests,
+        socket_age = socket_born and (ngx.time() - socket_born) or nil,
+        backoff_interval = backoff_interval,
+        recent_errors = _M.error_stats(),
+    }
 end
 
 return _M
