@@ -7,7 +7,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +124,17 @@ type setEntry struct {
 	ExpiresAt int64 `json:"expires_at,omitempty"`
 }
 
+// ScopeSession is the per-connection protected scope binding (Design §8.3.4).
+type ScopeSession struct {
+	Validated            bool
+	HelperInstanceID     string
+	ScopeDigest          string
+	TableGeneration      int64
+	ActivationGeneration int64
+	LocalAddressDigest   string
+	ValidatedAt          time.Time
+}
+
 // NFTBackend handles state and nftables operations.
 type NFTBackend struct {
 	mu    sync.RWMutex
@@ -130,15 +145,136 @@ type NFTBackend struct {
 	owned map[string]bool
 
 	nftPath string
+
+	// Process-level identity and installed scope.
+	helperInstanceID     string
+	tableGeneration      int64
+	installedScopeDigest string
+	localAddressDigest   string
+	activationGeneration int64
 }
 
 // NewNFTBackend creates a new backend.
 func NewNFTBackend() *NFTBackend {
 	return &NFTBackend{
-		state:  make(map[string]map[string]map[string]*setEntry),
-		owned:  make(map[string]bool),
-		nftPath: NFTPath,
+		state:            make(map[string]map[string]map[string]*setEntry),
+		owned:            make(map[string]bool),
+		nftPath:          NFTPath,
+		helperInstanceID: newHelperInstanceID(),
+		tableGeneration:  0,
 	}
+}
+
+func newHelperInstanceID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Extremely unlikely; still produce a non-empty id.
+		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+func digestHex(parts ...string) string {
+	h := sha256.New()
+	for i, p := range parts {
+		if i > 0 {
+			h.Write([]byte{0})
+		}
+		h.Write([]byte(p))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func sortedStrings(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
+}
+
+func computeScopeDigest(scope string, addrs, ports []string, ipv4, ipv6 bool) string {
+	a := sortedStrings(addrs)
+	p := sortedStrings(ports)
+	v4, v6 := "0", "0"
+	if ipv4 {
+		v4 = "1"
+	}
+	if ipv6 {
+		v6 = "1"
+	}
+	return digestHex(
+		"scope="+scope,
+		"addrs="+strings.Join(a, ","),
+		"ports="+strings.Join(p, ","),
+		"ipv4="+v4,
+		"ipv6="+v6,
+	)
+}
+
+// enumerateLocalAddresses returns non-loopback unicast host addresses.
+func enumerateLocalAddresses() ([]string, string) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, digestHex("ifaces_err")
+	}
+	var addrs []string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		as, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range as {
+			var ip net.IP
+			switch v := a.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+			// Prefer string form without zone.
+			addrs = append(addrs, ip.String())
+		}
+	}
+	addrs = sortedStrings(uniqueStrings(addrs))
+	return addrs, digestHex(addrs...)
+}
+
+func uniqueStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+func isLocalUnicast(ipStr string, local []string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() {
+		return false
+	}
+	for _, l := range local {
+		if l == ip.String() {
+			return true
+		}
+	}
+	// Also accept if the address is assigned with different formatting.
+	for _, l := range local {
+		lip := net.ParseIP(l)
+		if lip != nil && lip.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *NFTBackend) ownedKey(set, family, ip string) string {
@@ -174,7 +310,7 @@ func (b *NFTBackend) Probe() map[string]interface{} {
 	}
 }
 
-// Health returns backend health status.
+// Health returns backend health status including scope binding fields.
 func (b *NFTBackend) Health() map[string]interface{} {
 	b.mu.RLock()
 	count := 0
@@ -183,22 +319,141 @@ func (b *NFTBackend) Health() map[string]interface{} {
 			count += len(ips)
 		}
 	}
+	instanceID := b.helperInstanceID
+	tableGen := b.tableGeneration
+	scopeDigest := b.installedScopeDigest
+	localDigest := b.localAddressDigest
+	actGen := b.activationGeneration
 	b.mu.RUnlock()
+
+	// Refresh local address digest observation without requiring lock long-term.
+	_, liveLocal := enumerateLocalAddresses()
+
 	return map[string]interface{}{
-		"state":            "ok",
-		"instance_id":      "helper",
-		"table_generation": 1,
-		"set_count":        count,
+		"state":                  "ok",
+		"instance_id":            instanceID,
+		"helper_instance_id":     instanceID,
+		"table_generation":       tableGen,
+		"scope_digest":           scopeDigest,
+		"local_address_digest":   localDigest,
+		"live_local_address_digest": liveLocal,
+		"activation_generation":  actGen,
+		"set_count":              count,
 	}
 }
 
-// EnsureBase creates the nft tables, sets, and prerouting chains with jump
-// rules. This implements Design §9.3/§9.4.
-//
-// We use separate ip and ip6 tables (rather than inet) so that set element
-// types are homogeneous within each table. Each table gets its own prerouting
-// chain with allow-return and drop rules.
-func (b *NFTBackend) EnsureBase() error {
+// EnsureBasePayload is the ensure_base request body for scope binding.
+type EnsureBasePayload struct {
+	Scope                string   `json:"scope"`
+	ProtectedAddresses   []string `json:"protected_addresses"`
+	ProtectedPorts       []interface{} `json:"protected_ports"`
+	IPv4                 *struct {
+		Enabled bool `json:"enabled"`
+	} `json:"ipv4"`
+	IPv6 *struct {
+		Enabled bool `json:"enabled"`
+	} `json:"ipv6"`
+	ScopeDigest          string `json:"scope_digest"`
+	ActivationGeneration int64  `json:"activation_generation"`
+}
+
+func portsToStrings(ports []interface{}) []string {
+	out := make([]string, 0, len(ports))
+	for _, p := range ports {
+		switch v := p.(type) {
+		case string:
+			out = append(out, v)
+		case float64:
+			out = append(out, strconv.FormatInt(int64(v), 10))
+		case json.Number:
+			out = append(out, v.String())
+		default:
+			out = append(out, fmt.Sprint(v))
+		}
+	}
+	return out
+}
+
+// EnsureBase creates tables/sets/chains and binds the protected scope session.
+func (b *NFTBackend) EnsureBase(payload EnsureBasePayload, sess *ScopeSession) (map[string]interface{}, error) {
+	skipLocal := os.Getenv("VN_HELPER_SKIP_LOCAL_CHECK") == "1"
+
+	ipv4Enabled := true
+	if payload.IPv4 != nil {
+		ipv4Enabled = payload.IPv4.Enabled
+	}
+	ipv6Enabled := false
+	if payload.IPv6 != nil {
+		ipv6Enabled = payload.IPv6.Enabled
+	}
+	scope := payload.Scope
+	if scope == "" {
+		scope = "web"
+	}
+	addrs := payload.ProtectedAddresses
+	ports := portsToStrings(payload.ProtectedPorts)
+	digest := payload.ScopeDigest
+	if digest == "" {
+		digest = computeScopeDigest(scope, addrs, ports, ipv4Enabled, ipv6Enabled)
+	}
+
+	localAddrs, localDigest := enumerateLocalAddresses()
+	if !skipLocal {
+		if len(addrs) == 0 {
+			return nil, fmt.Errorf("address_not_local: empty protected_addresses")
+		}
+		for _, a := range addrs {
+			if !isLocalUnicast(a, localAddrs) {
+				return nil, fmt.Errorf("address_not_local: %s", a)
+			}
+		}
+	}
+
+	// Create nft objects. Re-running ensure_base is expected; treat "exists"
+	// style errors as success so binding can still be established.
+	if os.Getenv("VN_HELPER_SKIP_NFT") != "1" {
+		if err := b.ensureBaseNFT(); err != nil {
+			msg := err.Error()
+			if !strings.Contains(msg, "File exists") &&
+				!strings.Contains(msg, "already exists") &&
+				!strings.Contains(msg, "exists") {
+				return nil, err
+			}
+		}
+	}
+
+	b.mu.Lock()
+	b.tableGeneration++
+	b.installedScopeDigest = digest
+	b.localAddressDigest = localDigest
+	b.activationGeneration = payload.ActivationGeneration
+	tableGen := b.tableGeneration
+	instanceID := b.helperInstanceID
+	b.mu.Unlock()
+
+	if sess != nil {
+		sess.Validated = true
+		sess.HelperInstanceID = instanceID
+		sess.ScopeDigest = digest
+		sess.TableGeneration = tableGen
+		sess.ActivationGeneration = payload.ActivationGeneration
+		sess.LocalAddressDigest = localDigest
+		sess.ValidatedAt = time.Now()
+	}
+
+	return map[string]interface{}{
+		"helper_instance_id":    instanceID,
+		"instance_id":           instanceID,
+		"scope_digest":          digest,
+		"table_generation":      tableGen,
+		"local_address_digest":  localDigest,
+		"activation_generation": payload.ActivationGeneration,
+		"validated":             true,
+	}, nil
+}
+
+// ensureBaseNFT creates the nft tables, sets, and prerouting chains.
+func (b *NFTBackend) ensureBaseNFT() error {
 	var sb strings.Builder
 
 	// IPv4 table + sets + chain
@@ -235,10 +490,53 @@ func (b *NFTBackend) EnsureBase() error {
 	return err
 }
 
+// checkDropBinding validates session against current backend for DROP writes.
+func (b *NFTBackend) checkDropBinding(sess *ScopeSession, reqBinding map[string]interface{}) string {
+	if sess == nil || !sess.Validated {
+		return "scope_validation_pending"
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if sess.HelperInstanceID != b.helperInstanceID {
+		return "scope_validation_pending"
+	}
+	if sess.ScopeDigest == "" || sess.ScopeDigest != b.installedScopeDigest {
+		return "scope_digest_mismatch"
+	}
+	if sess.TableGeneration != b.tableGeneration {
+		return "scope_validation_pending"
+	}
+	// Optional client-provided binding fields.
+	if reqBinding != nil {
+		if v, ok := reqBinding["helper_instance_id"].(string); ok && v != "" && v != b.helperInstanceID {
+			return "scope_validation_pending"
+		}
+		if v, ok := reqBinding["scope_digest"].(string); ok && v != "" && v != b.installedScopeDigest {
+			return "scope_digest_mismatch"
+		}
+		if v, ok := reqBinding["table_generation"]; ok {
+			switch n := v.(type) {
+			case float64:
+				if int64(n) != b.tableGeneration {
+					return "scope_validation_pending"
+				}
+			case json.Number:
+				iv, _ := n.Int64()
+				if iv != b.tableGeneration {
+					return "scope_validation_pending"
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // Add adds IPs to a logical set with optional TTL.
 func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 
 	// Build nft commands
 	var sb strings.Builder
@@ -261,8 +559,10 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 		} else {
 			elemStr = item.IP
 		}
-		fmt.Fprintf(&sb, "add element %s verynginx %s { %s }\n",
-			tableFamily, item.Set, elemStr)
+		if !skipNFT {
+			fmt.Fprintf(&sb, "add element %s verynginx %s { %s }\n",
+				tableFamily, item.Set, elemStr)
+		}
 
 		// Update in-memory state
 		if b.state[item.Set] == nil {
@@ -284,8 +584,10 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 	}
 
 	// Execute in one atomic batch
-	if _, err := b.execNFT(sb.String()); err != nil {
-		return nil, err
+	if !skipNFT && sb.Len() > 0 {
+		if _, err := b.execNFT(sb.String()); err != nil {
+			return nil, err
+		}
 	}
 	return map[string]interface{}{"added": count}, nil
 }
@@ -295,6 +597,7 @@ func (b *NFTBackend) Delete(items []setEntry) (map[string]interface{}, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 	var sb strings.Builder
 	count := 0
 	for _, item := range items {
@@ -306,14 +609,20 @@ func (b *NFTBackend) Delete(items []setEntry) (map[string]interface{}, error) {
 		if family == "ipv6" {
 			tableFamily = "ip6"
 		}
-		fmt.Fprintf(&sb, "delete element %s verynginx %s { %s }\n",
-			tableFamily, item.Set, item.IP)
-		delete(b.state[item.Set][family], item.IP)
+		if !skipNFT {
+			fmt.Fprintf(&sb, "delete element %s verynginx %s { %s }\n",
+				tableFamily, item.Set, item.IP)
+		}
+		if b.state[item.Set] != nil && b.state[item.Set][family] != nil {
+			delete(b.state[item.Set][family], item.IP)
+		}
 		delete(b.owned, b.ownedKey(item.Set, family, item.IP))
 		count++
 	}
-	if _, err := b.execNFT(sb.String()); err != nil {
-		return nil, err
+	if !skipNFT && sb.Len() > 0 {
+		if _, err := b.execNFT(sb.String()); err != nil {
+			return nil, err
+		}
 	}
 	return map[string]interface{}{"removed": count}, nil
 }
@@ -501,7 +810,7 @@ func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
 }
 
 // handleRequest dispatches a single request to the backend.
-func handleRequest(env *RequestEnvelope, backend *NFTBackend) ResponseEnvelope {
+func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession) ResponseEnvelope {
 	switch env.Operation {
 	case "probe":
 		return resultOK(env.RequestID, backend.Probe())
@@ -510,17 +819,31 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend) ResponseEnvelope {
 		return resultOK(env.RequestID, backend.Health())
 
 	case "ensure_base":
-		if err := backend.EnsureBase(); err != nil {
+		var payload EnsureBasePayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				return resultError(env.RequestID, "invalid payload: "+err.Error())
+			}
+		}
+		result, err := backend.EnsureBase(payload, sess)
+		if err != nil {
+			if sess != nil {
+				sess.Validated = false
+			}
 			return resultError(env.RequestID, err.Error())
 		}
-		return resultOK(env.RequestID, map[string]interface{}{})
+		return resultOK(env.RequestID, result)
 
 	case "add":
 		var payload struct {
-			Items []setEntry `json:"items"`
+			Items   []setEntry             `json:"items"`
+			Binding map[string]interface{} `json:"binding"`
 		}
 		if err := json.Unmarshal(env.Payload, &payload); err != nil {
 			return resultError(env.RequestID, "invalid payload: "+err.Error())
+		}
+		if code := backend.checkDropBinding(sess, payload.Binding); code != "" {
+			return resultError(env.RequestID, code)
 		}
 		result, err := backend.Add(payload.Items)
 		if err != nil {
@@ -535,6 +858,7 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend) ResponseEnvelope {
 		if err := json.Unmarshal(env.Payload, &payload); err != nil {
 			return resultError(env.RequestID, "invalid payload: "+err.Error())
 		}
+		// delete/clear always allowed (reduces blocking surface)
 		result, err := backend.Delete(payload.Items)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
@@ -561,6 +885,7 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend) ResponseEnvelope {
 		if err := json.Unmarshal(env.Payload, &payload); err != nil {
 			return resultError(env.RequestID, "invalid payload: "+err.Error())
 		}
+		// allow refresh always permitted
 		result, err := backend.ReplaceAllowSnapshot(payload.Items)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
@@ -569,10 +894,15 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend) ResponseEnvelope {
 
 	case "reconcile":
 		var payload struct {
-			Snapshot []setEntry `json:"snapshot"`
+			Snapshot []setEntry             `json:"snapshot"`
+			Binding  map[string]interface{} `json:"binding"`
 		}
 		if err := json.Unmarshal(env.Payload, &payload); err != nil {
 			return resultError(env.RequestID, "invalid payload: "+err.Error())
+		}
+		// reconcile may include adds; require binding
+		if code := backend.checkDropBinding(sess, payload.Binding); code != "" {
+			return resultError(env.RequestID, code)
 		}
 		result, err := backend.Reconcile(payload.Snapshot)
 		if err != nil {
@@ -585,6 +915,7 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend) ResponseEnvelope {
 			Scope string `json:"scope"`
 		}
 		_ = json.Unmarshal(env.Payload, &payload)
+		// flush always allowed
 		result, err := backend.FlushOwned(payload.Scope)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
@@ -599,6 +930,8 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend) ResponseEnvelope {
 // handleConnection handles one client connection (sequential request/response).
 func handleConnection(conn net.Conn, backend *NFTBackend) {
 	defer conn.Close()
+	// Each connection starts unvalidated; ensure_base binds the session.
+	sess := &ScopeSession{}
 	for {
 		env, err := readFrame(conn)
 		if err != nil {
@@ -609,10 +942,10 @@ func handleConnection(conn net.Conn, backend *NFTBackend) {
 		}
 		if env.Version != ProtocolVersion {
 			writeFrame(conn, resultError(env.RequestID,
-				fmt.Sprintf("unsupported version: %d", env.Version)))
+				fmt.Sprintf("unsupported_version: %d", env.Version)))
 			continue
 		}
-		resp := handleRequest(env, backend)
+		resp := handleRequest(env, backend, sess)
 		if err := writeFrame(conn, resp); err != nil {
 			fmt.Fprintf(os.Stderr, "write error: %v\n", err)
 			return

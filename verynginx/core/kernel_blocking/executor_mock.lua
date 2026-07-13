@@ -57,7 +57,19 @@ end
 -- ---------------------------------------------------------------------------
 -- ensure_base(config) -> ok, error?
 -- ---------------------------------------------------------------------------
-function _M.ensure_base(_config)
+function _M.ensure_base(config)
+    local ok, sb = pcall(require, "core.kernel_blocking.scope_binding")
+    if ok and sb then
+        local payload = sb.ensure_base_payload(config)
+        sb.mark_validated({
+            helper_instance_id = "mock",
+            instance_id = "mock",
+            scope_digest = payload.scope_digest,
+            table_generation = 1,
+            local_address_digest = "mock-local",
+            activation_generation = payload.activation_generation,
+        }, payload.scope_digest, payload.activation_generation)
+    end
     return true, nil
 end
 
@@ -65,6 +77,25 @@ end
 -- add(set, family, ip, ttl) -> ok, error?
 -- ---------------------------------------------------------------------------
 function _M.add(set, family, ip, ttl)
+    local ok, sb = pcall(require, "core.kernel_blocking.scope_binding")
+    if ok and sb then
+        local allowed, why = sb.drop_writes_allowed()
+        if not allowed then
+            -- Auto-bootstrap mock binding for unit tests that skip ensure_base.
+            local payload = sb.ensure_base_payload()
+            sb.mark_validated({
+                helper_instance_id = "mock",
+                instance_id = "mock",
+                scope_digest = payload.scope_digest,
+                table_generation = 1,
+                local_address_digest = "mock-local",
+            }, payload.scope_digest, payload.activation_generation)
+            allowed, why = sb.drop_writes_allowed()
+            if not allowed then
+                return false, why or "scope_validation_pending"
+            end
+        end
+    end
     if not set or not ip or not family then
         return false, contract.ERRORS.invalid_address
     end
@@ -243,11 +274,17 @@ end
 -- health() -> status table
 -- ---------------------------------------------------------------------------
 function _M.health()
+    local ok, sb = pcall(require, "core.kernel_blocking.scope_binding")
+    local binding = ok and sb and sb.get_binding() or {}
     return {
         state = "ok",
-        instance_id = "mock",
-        table_generation = 1,
+        instance_id = binding.helper_instance_id or "mock",
+        helper_instance_id = binding.helper_instance_id or "mock",
+        table_generation = binding.table_generation or 1,
+        scope_digest = binding.scope_digest,
+        local_address_digest = binding.local_address_digest or "mock-local",
         set_count = 0,
+        scope_validation = binding.validated and "ok" or (binding.reason or "scope_unvalidated"),
     }
 end
 

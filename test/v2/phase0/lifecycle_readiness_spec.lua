@@ -159,6 +159,8 @@ describe("Reconcile preserve_only", function()
     end)
 
     it("does not re-add missing preserve_only entries", function()
+        -- Scope binding must be validated before DROP reconcile apply path.
+        mock.ensure_base(mock_config.kernel_ip_blocking)
         desired.set_desired("198.51.100.9", "ipv4", "scanner_drop", {}, 300, {
             source = "automatic", policy = "scanner", reconciliation_mode = "preserve_only",
         })

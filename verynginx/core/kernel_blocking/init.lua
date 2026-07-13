@@ -205,8 +205,12 @@ function _M.bootstrap()
     end
 
     local executor = require "core.kernel_blocking.executor"
+    local scope_binding = require "core.kernel_blocking.scope_binding"
     local exec = executor.get_executor()
-    local result = { probe = nil, ensure_base = false, allow = false, health = nil }
+    local result = {
+        probe = nil, ensure_base = false, allow = false, health = nil,
+        scope = scope_binding.status_view(),
+    }
 
     local ok_p, probe = pcall(function() return exec.probe() end)
     result.probe = ok_p and probe or { error = tostring(probe) }
@@ -215,13 +219,24 @@ function _M.bootstrap()
     result.health = ok_h and health or { state = "unreachable" }
 
     if not ok_h or not health or health.state ~= "ok" then
+        scope_binding.invalidate("helper_unavailable")
         return result
     end
 
-    local ok_b, berr = pcall(function() return exec.ensure_base(kb) end)
-    result.ensure_base = ok_b and berr ~= false
+    -- Always re-bind scope on bootstrap (Design §8.3.4 / §10.3).
+    local call_ok, ensure_ok, ensure_err = pcall(function()
+        return exec.ensure_base(kb)
+    end)
+    if not call_ok then
+        ensure_err = ensure_ok
+        ensure_ok = false
+    end
+    result.ensure_base = ensure_ok and true or false
     if not result.ensure_base then
-        ngx.log(ngx.WARN, "kernel_blocking bootstrap ensure_base failed: ", tostring(berr))
+        ngx.log(ngx.WARN, "kernel_blocking bootstrap ensure_base failed: ", tostring(ensure_err))
+        scope_binding.invalidate(tostring(ensure_err or "ensure_base_failed"))
+        result.scope = scope_binding.status_view()
+        return result
     end
 
     local wlg = require "core.kernel_blocking.whitelist_generation"
@@ -230,6 +245,7 @@ function _M.bootstrap()
     if not ok_a then
         ngx.log(ngx.WARN, "kernel_blocking bootstrap allow snapshot failed: ", tostring(aerr))
     end
+    result.scope = scope_binding.status_view()
     return result
 end
 
@@ -392,6 +408,11 @@ function _M.status(_)
         },
         last_reconcile = last_reconcile,
         dispatch_queue = { depth = 0 },
+        scope_binding = (function()
+            local ok, sb = pcall(require, "core.kernel_blocking.scope_binding")
+            if ok and sb then return sb.status_view() end
+            return { validated = false, reason = "module_missing" }
+        end)(),
     }
 end
 

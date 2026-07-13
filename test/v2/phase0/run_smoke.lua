@@ -81,6 +81,7 @@ local specs = {
     "test/v2/phase0/reconciliation_spec.lua",
     "test/v2/phase0/promotion_enforce_spec.lua",
     "test/v2/phase0/lifecycle_readiness_spec.lua",
+    "test/v2/phase0/scope_binding_spec.lua",
     "test/v2/phase0/kernel_blocking_controller_spec.lua",
 }
 

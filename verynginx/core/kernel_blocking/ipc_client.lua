@@ -57,12 +57,17 @@ end
 -- ---------------------------------------------------------------------------
 local function close_socket()
     if socket then
-        socket:setkeepalive(IDLE_TIMEOUT * 10, 16)
+        pcall(function() socket:close() end)
         socket = nil
     end
     socket_requests = 0
     socket_born = nil
     partial_buffer = ""
+    -- Design §8.3.4: reconnect invalidates scope binding session.
+    pcall(function()
+        local sb = require "core.kernel_blocking.scope_binding"
+        sb.on_ipc_disconnect()
+    end)
 end
 
 -- ---------------------------------------------------------------------------
@@ -168,7 +173,13 @@ function _M.request(operation, source, payload)
                 if envelope.ok then
                     return envelope, nil
                 else
-                    return nil, (envelope.error and envelope.error.code) or "unknown_error"
+                    local err = envelope.error
+                    if type(err) == "table" then
+                        err = err.code or err.message or "unknown_error"
+                    elseif type(err) ~= "string" or err == "" then
+                        err = "unknown_error"
+                    end
+                    return nil, err
                 end
             elseif frame_err == "incomplete" then
                 ngx.sleep(0.001)  -- brief pause before next read attempt

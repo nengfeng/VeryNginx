@@ -87,11 +87,19 @@ func TestHelperE2E(t *testing.T) {
 	}
 	t.Logf("probe OK: %+v", resp.Result)
 
-	resp = sendRecv("ensure_base", "automatic", nil)
+	// Scope binding: DROP ops require ensure_base on this connection first.
+	_ = os.Setenv("VN_HELPER_SKIP_LOCAL_CHECK", "1")
+	resp = sendRecv("ensure_base", "automatic", map[string]interface{}{
+		"scope":               "web",
+		"protected_addresses": []string{"203.0.113.10"},
+		"protected_ports":     []interface{}{80, 443},
+		"ipv4":                map[string]interface{}{"enabled": true},
+		"ipv6":                map[string]interface{}{"enabled": false},
+	})
 	if !resp.OK {
 		t.Fatalf("ensure_base failed: %s", resp.Error)
 	}
-	t.Log("ensure_base OK")
+	t.Logf("ensure_base OK: %+v", resp.Result)
 
 	resp = sendRecv("add", "automatic", map[string]interface{}{
 		"items": []map[string]interface{}{

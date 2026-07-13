@@ -48,6 +48,21 @@ local function health_check_transitions(exec)
         return "unreachable"
     end
 
+    -- Protected Scope Binding (Design §8.3.4).
+    do
+        local ok_sb, sb = pcall(require, "core.kernel_blocking.scope_binding")
+        if ok_sb and sb then
+            local vok, vreason = sb.validate_health(health)
+            if not vok then
+                local page = state_machine.list(0, 500, "installed")
+                for _, e in ipairs(page.entries) do
+                    state_machine.to_scope_validation_pending(e.ip, e.policy)
+                end
+                return vreason or "scope_validation_pending"
+            end
+        end
+    end
+
     local pending = state_machine.list(0, 500, "scope_validation_pending")
     for _, e in ipairs(pending.entries) do
         local exists = false
@@ -226,8 +241,12 @@ function _M.reconcile(now)
 
     -- Do not mutate kernel while helper is down (fail-open).
     if enforce and health_status ~= "ok" then
+        local skip = "helper_unreachable"
+        if health_status and health_status ~= "unreachable" then
+            skip = health_status
+        end
         return {
-            skipped = "helper_unreachable",
+            skipped = skip,
             health = health_status,
             dry_run = false,
             to_add = {},
