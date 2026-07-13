@@ -254,6 +254,54 @@ function _M.reconcile(snapshot)
 end
 
 -- ---------------------------------------------------------------------------
+-- chunked_reconcile(chunk) -> { added, updated, removed, preserved, failed }, scope_err?
+-- chunk: { snapshot_id, chunk_index, final_chunk, desired, remove, ... }
+-- Design §8.3.3: remove only applied on final_chunk.
+-- ---------------------------------------------------------------------------
+function _M.chunked_reconcile(chunk)
+    local result = { added = 0, updated = 0, removed = 0, preserved = 0, failed = 0 }
+    if not chunk then return result end
+
+    local idx = index_read()
+
+    -- Apply desired entries (add/update).
+    for _, entry in ipairs(chunk.desired or {}) do
+        local s, f, ip = entry.set or entry.list, entry.family, entry.ip
+        if s and f and ip then
+            local ttl = entry.ttl or (entry.expires_at and (entry.expires_at - ngx.time())) or 0
+            local key = set_key(s, f, ip)
+            local ok, _ = _M.add(s, f, ip, ttl)
+            if ok then
+                if idx[key] then
+                    result.updated = result.updated + 1
+                else
+                    result.added = result.added + 1
+                end
+            else
+                result.failed = result.failed + 1
+            end
+        end
+    end
+
+    -- Apply remove operations only on final chunk.
+    if chunk.final_chunk then
+        for _, r in ipairs(chunk.remove or {}) do
+            local s, f, ip = r.set or r.list, r.family, r.ip
+            if s and f and ip then
+                local ok, _ = _M.delete(s, f, ip)
+                if ok then
+                    result.removed = result.removed + 1
+                else
+                    result.failed = result.failed + 1
+                end
+            end
+        end
+    end
+
+    return result
+end
+
+-- ---------------------------------------------------------------------------
 -- flush_owned(scope) -> { removed = n }
 -- scope: "auto" | "all" | "detach"
 -- ---------------------------------------------------------------------------

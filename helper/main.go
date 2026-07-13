@@ -736,8 +736,67 @@ func (b *NFTBackend) ReplaceAllowSnapshot(items []setEntry) (map[string]interfac
 	return map[string]interface{}{"replaced": len(items)}, nil
 }
 
+// reconcileChunk is the chunked reconcile request payload (Design §8.3.3).
+type reconcileChunk struct {
+	SnapshotID        string            `json:"snapshot_id"`
+	ChunkIndex        int               `json:"chunk_index"`
+	FinalChunk        bool              `json:"final_chunk"`
+	DesiredGeneration int64             `json:"desired_generation"`
+	PolicyGenerations map[string]int64  `json:"policy_generations"`
+	TotalDesired      int               `json:"total_desired"`
+	TotalChunks       int               `json:"total_chunks"`
+	Desired           []setEntry        `json:"desired"`
+	Remove            []setEntry        `json:"remove"`
+	Binding           map[string]interface{} `json:"binding"`
+}
+
+// snapshotState tracks an in-progress chunked reconcile on the Helper side.
+type snapshotState struct {
+	id               string
+	totalDesired     int
+	totalRemovals    int
+	totalChunks      int
+	receivedChunks   map[int]bool
+	entries          map[string]setEntry // key: "set:family:ip" -> entry
+	removeKeys       map[string]bool     // keys marked for removal
+	applied          bool                // final_chunk processed
+	// Cumulative counts for idempotent duplicate responses.
+	cumAdded   int
+	cumUpdated int
+	cumRemoved int
+	cumFailed  int
+}
+
+// snapshotStates holds in-progress snapshots keyed by snapshot_id.
+type snapshotStates struct {
+	mu       sync.Mutex
+	snapshots map[string]*snapshotState
+}
+
+var globalSnapshots = &snapshotStates{snapshots: map[string]*snapshotState{}}
+
 // Reconcile applies a full snapshot of desired entries.
-func (b *NFTBackend) Reconcile(snapshot []setEntry) (map[string]interface{}, error) {
+// Supports both legacy full-snapshot (SnapshotID="") and chunked mode (§8.3.3).
+func (b *NFTBackend) Reconcile(payload reconcileChunk) (map[string]interface{}, error) {
+	result := map[string]interface{}{
+		"added":     0,
+		"updated":   0,
+		"removed":   0,
+		"preserved": 0,
+		"failed":    0,
+	}
+
+	// Legacy full-snapshot mode (no snapshot_id).
+	if payload.SnapshotID == "" {
+		return b.reconcileFull(payload.Desired)
+	}
+
+	// Chunked mode (Design §8.3.3).
+	return b.reconcileChunked(payload, result)
+}
+
+// reconcileFull handles legacy non-chunked reconcile.
+func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{}, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -749,7 +808,6 @@ func (b *NFTBackend) Reconcile(snapshot []setEntry) (map[string]interface{}, err
 		"failed":    0,
 	}
 
-	// Build nft script that adds/updates all entries in the snapshot.
 	var sb strings.Builder
 	seen := map[string]bool{}
 
@@ -797,6 +855,166 @@ func (b *NFTBackend) Reconcile(snapshot []setEntry) (map[string]interface{}, err
 	}
 	return result, nil
 }
+
+// reconcileChunked handles chunked reconcile per Design §8.3.3.
+// - Each chunk: idempotent add/update of desired entries.
+// - Remove only applied after the final chunk is received.
+// - Out-of-order chunks are accepted (tracked by chunk_index).
+func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]interface{}) (map[string]interface{}, error) {
+	globalSnapshots.mu.Lock()
+
+	// Initialize or retrieve snapshot state.
+	snap, exists := globalSnapshots.snapshots[payload.SnapshotID]
+	if !exists {
+		snap = &snapshotState{
+			id:             payload.SnapshotID,
+			totalDesired:   payload.TotalDesired,
+			totalRemovals:  len(payload.Remove),
+			totalChunks:    payload.TotalChunks,
+			receivedChunks: map[int]bool{},
+			entries:        map[string]setEntry{},
+			removeKeys:     map[string]bool{},
+		}
+		globalSnapshots.snapshots[payload.SnapshotID] = snap
+	}
+
+	// Detect duplicate chunk (idempotent re-send) — must be checked before
+	// the applied guard so re-sends of already-applied snapshots succeed.
+	if snap.receivedChunks[payload.ChunkIndex] {
+		globalSnapshots.mu.Unlock()
+		return map[string]interface{}{
+			"added":     snap.cumAdded,
+			"updated":   snap.cumUpdated,
+			"removed":   snap.cumRemoved,
+			"preserved": 0,
+			"failed":    snap.cumFailed,
+		}, nil
+	}
+
+	// Reject new chunks after snapshot was fully applied.
+	if snap.applied {
+		globalSnapshots.mu.Unlock()
+		return result, fmt.Errorf("snapshot_already_applied")
+	}
+
+	snap.receivedChunks[payload.ChunkIndex] = true
+	globalSnapshots.mu.Unlock()
+
+	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
+
+	// Phase 1: apply desired entries (add/update) atomically per chunk.
+	{
+		b.mu.Lock()
+		var sb strings.Builder
+		added := 0
+		updated := 0
+
+		for _, entry := range payload.Desired {
+			family := entry.Family
+			if family == "" {
+				family = "ipv4"
+			}
+			tf := "ip"
+			if family == "ipv6" {
+				tf = "ip6"
+			}
+			var elemStr string
+			if entry.TTL > 0 {
+				elemStr = fmt.Sprintf("%s timeout %ds", entry.IP, entry.TTL)
+				entry.ExpiresAt = time.Now().Add(time.Duration(entry.TTL) * time.Second).Unix()
+			} else {
+				elemStr = entry.IP
+			}
+			if !skipNFT {
+				fmt.Fprintf(&sb, "add element %s verynginx %s { %s }\n",
+					tf, entry.Set, elemStr)
+			}
+
+			if b.state[entry.Set] == nil {
+				b.state[entry.Set] = map[string]map[string]*setEntry{}
+			}
+			if b.state[entry.Set][family] == nil {
+				b.state[entry.Set][family] = map[string]*setEntry{}
+			}
+			if _, ok := b.state[entry.Set][family][entry.IP]; ok {
+				updated++
+			} else {
+				added++
+			}
+			e := entry
+			b.state[entry.Set][family][entry.IP] = &e
+			b.owned[b.ownedKey(entry.Set, family, entry.IP)] = true
+		}
+
+		if !skipNFT && sb.Len() > 0 {
+			if _, err := b.execNFT(sb.String()); err != nil {
+				b.mu.Unlock()
+				result["failed"] = result["failed"].(int) + len(payload.Desired)
+				return result, err
+			}
+		}
+		b.mu.Unlock()
+
+		result["added"] = result["added"].(int) + added
+		result["updated"] = result["updated"].(int) + updated
+
+		// Update cumulative counts under snapshot lock.
+		globalSnapshots.mu.Lock()
+		snap.cumAdded = snap.cumAdded + added
+		snap.cumUpdated = snap.cumUpdated + updated
+		globalSnapshots.mu.Unlock()
+	}
+
+	// Phase 2: on final chunk, apply remove operations.
+	if payload.FinalChunk {
+		b.mu.Lock()
+		var sb strings.Builder
+		removed := 0
+
+		for _, r := range payload.Remove {
+			family := r.Family
+			if family == "" {
+				family = "ipv4"
+			}
+			tf := "ip"
+			if family == "ipv6" {
+				tf = "ip6"
+			}
+			key := r.Set + ":" + family + ":" + r.IP
+			if !skipNFT {
+				fmt.Fprintf(&sb, "delete element %s verynginx %s { %s }\n",
+					tf, r.Set, r.IP)
+			}
+
+			if b.state[r.Set] != nil && b.state[r.Set][family] != nil {
+				delete(b.state[r.Set][family], r.IP)
+			}
+			delete(b.owned, key)
+			removed++
+		}
+
+		if !skipNFT && sb.Len() > 0 {
+			if _, err := b.execNFT(sb.String()); err != nil {
+				b.mu.Unlock()
+				result["failed"] = result["failed"].(int) + len(payload.Remove)
+				return result, err
+			}
+		}
+		b.mu.Unlock()
+
+		result["removed"] = result["removed"].(int) + removed
+
+		// Update cumulative removed count and mark snapshot as fully applied.
+		globalSnapshots.mu.Lock()
+		snap.cumRemoved = snap.cumRemoved + removed
+		snap.applied = true
+		globalSnapshots.mu.Unlock()
+	}
+
+	return result, nil
+}
+
+
 
 // FlushOwned removes all entries owned by us.
 func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
@@ -952,10 +1170,7 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		return resultOK(env.RequestID, result)
 
 	case "reconcile":
-		var payload struct {
-			Snapshot []setEntry             `json:"snapshot"`
-			Binding  map[string]interface{} `json:"binding"`
-		}
+		var payload reconcileChunk
 		if err := json.Unmarshal(env.Payload, &payload); err != nil {
 			return resultError(env.RequestID, "invalid payload: "+err.Error())
 		}
@@ -963,10 +1178,19 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		if code := backend.checkDropBinding(sess, payload.Binding); code != "" {
 			return resultError(env.RequestID, code)
 		}
-		if err := validateBatch(payload.Snapshot, false); err != nil {
+		if err := validateBatch(payload.Desired, false); err != nil {
 			return resultError(env.RequestID, err.Error())
 		}
-		result, err := backend.Reconcile(payload.Snapshot)
+		if err := validateBatch(payload.Remove, false); err != nil {
+			return resultError(env.RequestID, err.Error())
+		}
+		// Validate snapshot_id format if present (chunked mode).
+		if payload.SnapshotID != "" {
+			if len(payload.SnapshotID) > 128 {
+				return resultError(env.RequestID, "invalid_snapshot_id")
+			}
+		}
+		result, err := backend.Reconcile(payload)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
 		}

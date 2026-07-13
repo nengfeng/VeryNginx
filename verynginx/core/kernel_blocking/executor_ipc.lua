@@ -141,6 +141,7 @@ end
 
 -- ---------------------------------------------------------------------------
 -- reconcile(desired_snapshot) -> { added, updated, removed, failed }
+-- Legacy full-snapshot reconcile (non-chunked, for backward compat).
 -- ---------------------------------------------------------------------------
 function _M.reconcile(snapshot)
     local allowed, why = scope_binding.drop_writes_allowed()
@@ -165,6 +166,55 @@ function _M.reconcile(snapshot)
         }
     end
     local r = resp.result or {}
+    return {
+        added = r.added or 0,
+        updated = r.updated or 0,
+        removed = r.removed or 0,
+        preserved = r.preserved or 0,
+        failed = r.failed or 0,
+    }
+end
+
+-- ---------------------------------------------------------------------------
+-- chunked_reconcile(chunk) -> result, scope_err?
+-- Design §8.3.3: sends a single chunk with snapshot_id/chunk_index/final_chunk.
+-- Remove operations included only when final_chunk=true.
+-- ---------------------------------------------------------------------------
+function _M.chunked_reconcile(chunk)
+    local allowed, why = scope_binding.drop_writes_allowed()
+    if not allowed then
+        return nil, why or "scope_validation_pending"
+    end
+    local resp, err = client.request("reconcile", "reconcile", {
+        snapshot_id = chunk.snapshot_id,
+        chunk_index = chunk.chunk_index,
+        final_chunk = chunk.final_chunk,
+        desired_generation = chunk.desired_generation,
+        policy_generations = chunk.policy_generations,
+        desired = chunk.desired or {},
+        remove = chunk.remove or {},
+        binding = scope_binding.binding_fields(),
+    })
+    if not resp then
+        local code = err_code(err)
+        if is_scope_err(code) then
+            scope_binding.invalidate(code)
+            return nil, code
+        end
+        return nil, code
+    end
+    local r = resp.result or {}
+    -- If Helper reports a scope issue inside the response.
+    if not resp.ok then
+        local code = type(resp.error) == "string" and resp.error or "reconcile_failed"
+        if is_scope_err(code) then
+            scope_binding.invalidate(code)
+            return nil, code
+        end
+        return {
+            added = 0, updated = 0, removed = 0, preserved = 0, failed = #chunk.desired + #chunk.remove,
+        }, code
+    end
     return {
         added = r.added or 0,
         updated = r.updated or 0,
