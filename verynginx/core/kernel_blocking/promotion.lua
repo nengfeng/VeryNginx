@@ -29,6 +29,32 @@ local function detect_family(ip)
     return "ipv4"
 end
 
+-- Reserved / non-global special addresses that must never enter DROP sets.
+local function is_reserved_address(ip, family)
+    if type(ip) ~= "string" or ip == "" then
+        return true, "invalid"
+    end
+    family = family or detect_family(ip)
+    if family == "ipv4" then
+        if ip == "0.0.0.0" then return true, "unspecified" end
+        if ip:match("^127%.") then return true, "loopback" end
+        if ip:match("^169%.254%.") then return true, "link_local" end
+        local o1 = tonumber(ip:match("^(%d+)%."))
+        if o1 and o1 >= 224 and o1 <= 239 then return true, "multicast" end
+        if ip == "255.255.255.255" then return true, "broadcast" end
+    else
+        local lower = ip:lower()
+        if lower == "::" then return true, "unspecified" end
+        if lower == "::1" then return true, "loopback" end
+        -- fe80::/10 link-local, ff00::/8 multicast
+        if lower:match("^fe[89ab]") or lower:match("^fe80:") then
+            return true, "link_local"
+        end
+        if lower:match("^ff") then return true, "multicast" end
+    end
+    return false, nil
+end
+
 -- Token bucket functions are provided by core.kernel_blocking.token_bucket.
 -- This module uses microunits (1 token = 1,000,000 µu) for precision
 -- and supports hot-reload of rate params with burst clamp (Design §6.2).
@@ -43,6 +69,8 @@ local function passes_security_gate(ip, family)
     local kb_cfg = config.kernel_ip_blocking
     if not kb_cfg then return false, "no_config" end
 
+    family = family or detect_family(ip)
+
     -- Feature enabled
     if kb_cfg.enabled ~= true then return false, "disabled" end
 
@@ -55,7 +83,8 @@ local function passes_security_gate(ip, family)
     end
 
     -- Reserved/special addresses
-    if ip == "127.0.0.1" or ip == "::1" then return false, "loopback" end
+    local reserved, why = is_reserved_address(ip, family)
+    if reserved then return false, why or "reserved" end
 
     -- Whitelist check
     if ir.is_whitelisted(ip) then return false, "whitelisted" end
@@ -68,6 +97,35 @@ local function passes_security_gate(ip, family)
 
     return true, nil
 end
+
+local function capacity_available(list)
+    local kb_cfg = config.kernel_ip_blocking or {}
+    local max_entries = kb_cfg.max_entries or {}
+    local limit
+    if list == "scanner_drop" then
+        limit = tonumber(max_entries.scanner) or 100000
+    elseif list == "cc_drop" then
+        limit = tonumber(max_entries.cc) or 50000
+    else
+        limit = tonumber(max_entries.manual) or 10000
+    end
+    local n = 0
+    if desired.count_by_list then
+        n = desired.count_by_list(list)
+    else
+        n = desired.count_desired()
+    end
+    if n >= limit then
+        return false, n, limit
+    end
+    return true, n, limit
+end
+
+-- Exported for API / tests
+_M.passes_security_gate = passes_security_gate
+_M.is_reserved_address = is_reserved_address
+_M.detect_family = detect_family
+_M.capacity_available = capacity_available
 
 ---------------------------------------------------------------------------
 -- Check if an IP is already installed in any automatic DROP set and return
@@ -101,6 +159,13 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
         sm.upsert(ip, "scanner", "candidate", evidence_tbl, {})
         return true
     end
+
+	local cap_ok = capacity_available("scanner_drop")
+	if not cap_ok then
+		evidence_tbl.result = "capacity_exceeded"
+		sm.upsert(ip, "scanner", "rejected", evidence_tbl, {})
+		return true
+	end
 
 	local existing = sm.get_policy(ip, "scanner") or sm.get(ip)
 	local existing_cc = sm.get_policy(ip, "cc")
@@ -262,7 +327,8 @@ local function evaluate_scanner_candidates()
 
     for _, ip in ipairs(work) do
         -- Security gate
-        local gate_ok, reason = passes_security_gate(ip, "ipv4")
+        local family = detect_family(ip)
+        local gate_ok, reason = passes_security_gate(ip, family)
         if not gate_ok then
             sm.upsert(ip, "scanner", "rejected", { reason = reason }, {})
             goto continue
@@ -349,6 +415,13 @@ local function enforce_promote_cc(ip, violation_count)
 	if kb_cfg.emergency_pause then
 		sm.upsert(ip, "cc", "candidate",
 			{ result = "paused", violation_count = violation_count }, {})
+		return true
+	end
+
+	local cap_ok = capacity_available("cc_drop")
+	if not cap_ok then
+		sm.upsert(ip, "cc", "rejected",
+			{ result = "capacity_exceeded", violation_count = violation_count }, {})
 		return true
 	end
 
@@ -514,7 +587,8 @@ local function evaluate_cc_candidates()
 		end
 
 		-- Security gate
-		local gate_ok, reason = passes_security_gate(ip, "ipv4")
+		local family = detect_family(ip)
+		local gate_ok, reason = passes_security_gate(ip, family)
 		if not gate_ok then
 			sm.upsert(ip, "cc", "rejected", { reason = reason }, {})
 			goto continue
@@ -538,13 +612,29 @@ local function evaluate_cc_candidates()
         -- Count violation windows
         local violations = evidence.count_cc_violations(ip, rule_window, min_windows + 2)
 
+        -- Design §6.4: require_challenge_fail for strict CC promotion.
+        local require_cf = true
+        if kb_cfg.cc and kb_cfg.cc.require_challenge_fail == false then
+            require_cf = false
+        end
+        local has_cf = true
+        if require_cf then
+            has_cf = evidence.has_challenge_fail and evidence.has_challenge_fail(ip) or false
+        end
+
         local mode = kb_cfg.mode
         -- CC candidate observability: check virtual observe bucket for "would_rate_limit"
         local observe_limited = not token_bucket.observe_has_token()
 
-        if cc_enforce and violations >= min_windows then
+        local strict_ready = violations >= min_windows and has_cf
+        if cc_enforce and strict_ready then
             -- CC enforce: enforce_promote_cc consumes the enforce token
             enforce_promote_cc(ip, violations)
+        elseif violations >= min_windows and not has_cf then
+            sm.upsert(ip, "cc", "candidate", {
+                violation_count = violations,
+                result = "missing_challenge_fail",
+            }, {})
         elseif violations >= min_windows and not observe_limited then
             -- Observe: candidate would promote if enforce_ready were true
             sm.upsert(ip, "cc", "candidate",

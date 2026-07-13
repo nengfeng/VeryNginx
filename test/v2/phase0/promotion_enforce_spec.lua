@@ -37,13 +37,17 @@ package.loaded["core.ip_reputation"] = ir
 -- Mock evidence
 local mock_evidence_data = {}
 local mock_cc_violations = {}  -- ip -> count
+local mock_challenge_fail = {} -- ip -> true
 local evidence = {
     sum_scanner_blocks = function(ip) return mock_evidence_data[ip] or 0 end,
     count_cc_violations = function(ip) return mock_cc_violations[ip] or 0 end,
     record_cc_violation_evidence = function() end,
     record_waf_block_evidence = function() end,
+    has_challenge_fail = function(ip) return mock_challenge_fail[ip] == true end,
+    record_challenge_fail_evidence = function(ip) mock_challenge_fail[ip] = true end,
 }
 package.loaded["core.kernel_blocking.evidence"] = evidence
+
 
 -- Mock config
 local mock_config = {
@@ -295,5 +299,56 @@ describe("Scanner/CC overlap", function()
         -- Should be upgraded to scanner_drop
         assert.are.equal("installed", e.state)
         assert.are.equal("scanner_drop", e.list)
+    end)
+end)
+
+describe("CC require_challenge_fail", function()
+    before_each(function()
+        ngx.shared.vn_config:flush_all()
+        ngx.shared.vn_locks:flush_all()
+        for k in pairs(mock_challenge_fail) do mock_challenge_fail[k] = nil end
+        mock_cc_violations["203.0.113.60"] = 5
+        mock_config.kernel_ip_blocking.mode = "enforce"
+        mock_config.kernel_ip_blocking.cc.enforce_ready = true
+        mock_config.kernel_ip_blocking.cc.require_challenge_fail = true
+        mock_config.kernel_ip_blocking.emergency_pause = false
+        local tb_json = require("dkjson").encode({
+            version = 1, tokens_microunits = 100000000,
+            last_refill_ms = ngx.time() * 1000,
+            limit = 1000, interval = 60, burst = 1000,
+        })
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:enforce:state", tb_json, 0)
+    end)
+
+    it("does not install without challenge_fail evidence", function()
+        sm.upsert_candidate("203.0.113.60", "cc", "observed", {}, { rule_id = "freq_rule_1" })
+        promotion.process_candidates(ngx.time())
+        local e = sm.get("203.0.113.60")
+        assert.are.equal("candidate", e.state)
+        assert.are.equal("missing_challenge_fail", e.evidence.result)
+        mock_config.kernel_ip_blocking.cc.require_challenge_fail = false
+    end)
+
+    it("installs when challenge_fail evidence present", function()
+        mock_challenge_fail["203.0.113.60"] = true
+        sm.upsert_candidate("203.0.113.60", "cc", "observed", {}, { rule_id = "freq_rule_1" })
+        promotion.process_candidates(ngx.time())
+        local e = sm.get("203.0.113.60")
+        assert.are.equal("installed", e.state)
+        assert.are.equal("cc_drop", e.list)
+        mock_config.kernel_ip_blocking.cc.require_challenge_fail = false
+    end)
+end)
+
+describe("Security gate reserved", function()
+    it("rejects loopback and link-local", function()
+        local ok1, r1 = promotion.passes_security_gate("127.0.0.1", "ipv4")
+        assert.is_false(ok1)
+        assert.are.equal("loopback", r1)
+        local ok2, r2 = promotion.passes_security_gate("169.254.1.1", "ipv4")
+        assert.is_false(ok2)
+        assert.are.equal("link_local", r2)
+        local ok3 = promotion.passes_security_gate("203.0.113.10", "ipv4")
+        assert.is_true(ok3)
     end)
 end)

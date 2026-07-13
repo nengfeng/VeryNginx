@@ -64,6 +64,12 @@ setmetatable(config_module, {
 })
 package.loaded["core.config"] = config_module
 
+-- Manual promote safety gates use ip_reputation + promotion helpers.
+package.loaded["core.ip_reputation"] = {
+    is_whitelisted = function() return false end,
+    is_flagged = function() return false end,
+}
+
 -- Mock executor (always mock)
 local _mock_exec = require("core.kernel_blocking.executor_mock")
 package.loaded["core.kernel_blocking.executor"] = {
@@ -174,6 +180,27 @@ describe("Kernel blocking controller", function()
         -- Verify in executor (mock checks shared dict)
         local in_set = _mock_exec.contains("scanner_drop", "ipv4", "203.0.113.99")
         assert.is_true(in_set)
+    end)
+
+    it("POST /kernel-blocking/promote rejects reserved and whitelist", function()
+        local route = find_route("/kernel-blocking/promote")
+        ngx.req.get_body_data = function()
+            return require("dkjson").encode({ip = "127.0.0.1", policy = "manual", ttl = 60})
+        end
+        local resp = route.handler()
+        local data = require("dkjson").decode(resp)
+        assert.are.equal("failed", data.ret)
+        assert.are.equal("reserved_address", data.message)
+
+        package.loaded["core.ip_reputation"].is_whitelisted = function() return true end
+        ngx.req.get_body_data = function()
+            return require("dkjson").encode({ip = "203.0.113.88", policy = "manual", ttl = 60})
+        end
+        resp = route.handler()
+        data = require("dkjson").decode(resp)
+        assert.are.equal("failed", data.ret)
+        assert.are.equal("whitelisted", data.message)
+        package.loaded["core.ip_reputation"].is_whitelisted = function() return false end
     end)
 
     it("POST /kernel-blocking/clear removes IP from executor", function()

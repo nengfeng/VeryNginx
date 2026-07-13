@@ -217,4 +217,21 @@ function _M.count_desired()
     return #index_read()
 end
 
+-- Count desired entries for a single list (scanner_drop/cc_drop/manual_drop).
+function _M.count_by_list(list)
+    if not list then return 0 end
+    local s = shared()
+    if not s then return 0 end
+    local n = 0
+    local prefix = DESIRED_STATE_PREFIX
+    for _, key in ipairs(index_read()) do
+        -- key: kb:desired:<family>:<list>:<ip>
+        local fam, lst = key:match("^" .. prefix .. "([^:]+):([^:]+):")
+        if lst == list and s:get(key) then
+            n = n + 1
+        end
+    end
+    return n
+end
+
 return _M

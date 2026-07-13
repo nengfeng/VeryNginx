@@ -144,6 +144,19 @@ type NFTBackend struct {
 	// Key: "set:family:ip"
 	owned map[string]bool
 
+	// allowEntries tracks current allow snapshot for independent cover checks.
+	// Values are exact IPs or CIDR strings.
+	allowEntries map[string]bool
+
+	// Hard independent defenses (Design §16 / Helper must not trust Lua).
+	maxOwnedDropEntries int
+	maxDropAddsPerSec   int
+	dropAddTimes        []time.Time
+
+	// Last ensure_base protected scope (for scoped DROP rebuild).
+	protectedAddrs []string
+	protectedPorts []string
+
 	nftPath string
 
 	// Process-level identity and installed scope.
@@ -157,11 +170,14 @@ type NFTBackend struct {
 // NewNFTBackend creates a new backend.
 func NewNFTBackend() *NFTBackend {
 	return &NFTBackend{
-		state:            make(map[string]map[string]map[string]*setEntry),
-		owned:            make(map[string]bool),
-		nftPath:          NFTPath,
-		helperInstanceID: newHelperInstanceID(),
-		tableGeneration:  0,
+		state:               make(map[string]map[string]map[string]*setEntry),
+		owned:               make(map[string]bool),
+		allowEntries:        make(map[string]bool),
+		maxOwnedDropEntries: 200000,
+		maxDropAddsPerSec:   200,
+		nftPath:             NFTPath,
+		helperInstanceID:    newHelperInstanceID(),
+		tableGeneration:     0,
 	}
 }
 
@@ -192,6 +208,7 @@ func sortedStrings(in []string) []string {
 }
 
 func computeScopeDigest(scope string, addrs, ports []string, ipv4, ipv6 bool) string {
+	// Must match Lua scope_binding.compute_scope_digest: SHA256 of newline-joined parts.
 	a := sortedStrings(addrs)
 	p := sortedStrings(ports)
 	v4, v6 := "0", "0"
@@ -201,13 +218,42 @@ func computeScopeDigest(scope string, addrs, ports []string, ipv4, ipv6 bool) st
 	if ipv6 {
 		v6 = "1"
 	}
-	return digestHex(
-		"scope="+scope,
-		"addrs="+strings.Join(a, ","),
-		"ports="+strings.Join(p, ","),
-		"ipv4="+v4,
-		"ipv6="+v6,
-	)
+	payload := strings.Join([]string{
+		"scope=" + scope,
+		"addrs=" + strings.Join(a, ","),
+		"ports=" + strings.Join(p, ","),
+		"ipv4=" + v4,
+		"ipv6=" + v6,
+	}, "\n")
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:])
+}
+
+func splitAddrsByFamily(addrs []string) (v4, v6 []string) {
+	for _, a := range addrs {
+		ip := net.ParseIP(a)
+		if ip == nil {
+			continue
+		}
+		if ip.To4() != nil {
+			v4 = append(v4, a)
+		} else {
+			v6 = append(v6, a)
+		}
+	}
+	return v4, v6
+}
+
+func isReservedOrSpecialIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+	return false
 }
 
 // enumerateLocalAddresses returns non-loopback unicast host addresses.
@@ -440,7 +486,7 @@ func (b *NFTBackend) EnsureBase(payload EnsureBasePayload, sess *ScopeSession) (
 	// Create nft objects. Re-running ensure_base is expected; treat "exists"
 	// style errors as success so binding can still be established.
 	if os.Getenv("VN_HELPER_SKIP_NFT") != "1" {
-		if err := b.ensureBaseNFT(); err != nil {
+		if err := b.ensureBaseNFT(addrs, ports); err != nil {
 			msg := err.Error()
 			if !strings.Contains(msg, "File exists") &&
 				!strings.Contains(msg, "already exists") &&
@@ -455,6 +501,8 @@ func (b *NFTBackend) EnsureBase(payload EnsureBasePayload, sess *ScopeSession) (
 	b.installedScopeDigest = digest
 	b.localAddressDigest = localDigest
 	b.activationGeneration = payload.ActivationGeneration
+	b.protectedAddrs = append([]string(nil), addrs...)
+	b.protectedPorts = append([]string(nil), ports...)
 	tableGen := b.tableGeneration
 	instanceID := b.helperInstanceID
 	b.mu.Unlock()
@@ -480,9 +528,14 @@ func (b *NFTBackend) EnsureBase(payload EnsureBasePayload, sess *ScopeSession) (
 	}, nil
 }
 
-// ensureBaseNFT creates the nft tables, sets, and prerouting chains.
-func (b *NFTBackend) ensureBaseNFT() error {
+// ensureBaseNFT creates tables/sets/chains and scoped DROP rules (Design §9.4).
+// DROP matches: daddr ∈ protected_addresses, TCP, dport ∈ protected_ports, saddr ∈ drop set.
+// Never host-wide unconditional DROP.
+func (b *NFTBackend) ensureBaseNFT(addrs, ports []string) error {
 	var sb strings.Builder
+	v4addrs, v6addrs := splitAddrsByFamily(addrs)
+	portList := strings.Join(ports, ", ")
+	dropSets := []string{"scanner_drop", "cc_drop", "manual_drop"}
 
 	// IPv4 table + sets + chain
 	sb.WriteString("add table ip verynginx\n")
@@ -493,12 +546,16 @@ func (b *NFTBackend) ensureBaseNFT() error {
 	sb.WriteString("add chain ip verynginx prerouting {\n")
 	sb.WriteString("  type filter hook prerouting priority raw; policy accept;\n")
 	sb.WriteString("}\n")
-	// Whitelist has highest priority: RETURN immediately.
+	// Rebuild rules so re-ensure_base replaces host-wide leftovers with scoped ones.
+	sb.WriteString("flush chain ip verynginx prerouting\n")
 	sb.WriteString("add rule ip verynginx prerouting ip saddr @allow return\n")
-	// DROP rules for each auto/manual set.
-	sb.WriteString("add rule ip verynginx prerouting ip saddr @scanner_drop counter drop\n")
-	sb.WriteString("add rule ip verynginx prerouting ip saddr @cc_drop counter drop\n")
-	sb.WriteString("add rule ip verynginx prerouting ip saddr @manual_drop counter drop\n")
+	if len(v4addrs) > 0 && len(ports) > 0 {
+		daddrs := strings.Join(v4addrs, ", ")
+		for _, set := range dropSets {
+			fmt.Fprintf(&sb, "add rule ip verynginx prerouting ip daddr { %s } tcp dport { %s } ip saddr @%s counter drop\n",
+				daddrs, portList, set)
+		}
+	}
 
 	// IPv6 table + sets + chain
 	sb.WriteString("add table ip6 verynginx\n")
@@ -509,13 +566,67 @@ func (b *NFTBackend) ensureBaseNFT() error {
 	sb.WriteString("add chain ip6 verynginx prerouting {\n")
 	sb.WriteString("  type filter hook prerouting priority raw; policy accept;\n")
 	sb.WriteString("}\n")
+	sb.WriteString("flush chain ip6 verynginx prerouting\n")
 	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @allow return\n")
-	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @scanner_drop counter drop\n")
-	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @cc_drop counter drop\n")
-	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @manual_drop counter drop\n")
+	if len(v6addrs) > 0 && len(ports) > 0 {
+		daddrs := strings.Join(v6addrs, ", ")
+		for _, set := range dropSets {
+			fmt.Fprintf(&sb, "add rule ip6 verynginx prerouting ip6 daddr { %s } tcp dport { %s } ip6 saddr @%s counter drop\n",
+				daddrs, portList, set)
+		}
+	}
 
 	_, err := b.execNFT(sb.String())
 	return err
+}
+
+func (b *NFTBackend) isAllowCoveredLocked(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for entry := range b.allowEntries {
+		if strings.Contains(entry, "/") {
+			_, n, err := net.ParseCIDR(entry)
+			if err == nil && n.Contains(ip) {
+				return true
+			}
+			continue
+		}
+		if entry == ipStr {
+			return true
+		}
+		if other := net.ParseIP(entry); other != nil && other.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *NFTBackend) ownedDropCountLocked() int {
+	n := 0
+	for key := range b.owned {
+		if strings.HasPrefix(key, "allow:") {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+func (b *NFTBackend) dropRateLimitedLocked(now time.Time, n int) bool {
+	if b.maxDropAddsPerSec <= 0 {
+		return false
+	}
+	cutoff := now.Add(-time.Second)
+	kept := b.dropAddTimes[:0]
+	for _, t := range b.dropAddTimes {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	b.dropAddTimes = kept
+	return len(b.dropAddTimes)+n > b.maxDropAddsPerSec
 }
 
 // checkDropBinding validates session against current backend for DROP writes.
@@ -569,6 +680,28 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 
 	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 
+	// Independent defenses: reserved, allow-cover, capacity, DROP hard rate limit.
+	dropAdds := 0
+	for _, item := range items {
+		if item.Set != "allow" {
+			dropAdds++
+			if isReservedOrSpecialIP(item.IP) {
+				return nil, fmt.Errorf("reserved_address")
+			}
+			if b.isAllowCoveredLocked(item.IP) {
+				return nil, fmt.Errorf("allow_covered")
+			}
+		}
+	}
+	if dropAdds > 0 {
+		if b.ownedDropCountLocked()+dropAdds > b.maxOwnedDropEntries {
+			return nil, fmt.Errorf("capacity_exceeded")
+		}
+		if b.dropRateLimitedLocked(time.Now(), dropAdds) {
+			return nil, fmt.Errorf("drop_rate_limited")
+		}
+	}
+
 	// Build nft commands
 	var sb strings.Builder
 	count := 0
@@ -611,6 +744,11 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 			ExpiresAt: item.ExpiresAt,
 		}
 		b.owned[b.ownedKey(item.Set, family, item.IP)] = true
+		if item.Set == "allow" {
+			b.allowEntries[item.IP] = true
+		} else {
+			b.dropAddTimes = append(b.dropAddTimes, time.Now())
+		}
 		count++
 	}
 
@@ -651,6 +789,9 @@ func (b *NFTBackend) Delete(items []setEntry) (map[string]interface{}, error) {
 			delete(b.state[item.Set][family], item.IP)
 		}
 		delete(b.owned, b.ownedKey(item.Set, family, item.IP))
+		if item.Set == "allow" {
+			delete(b.allowEntries, item.IP)
+		}
 		count++
 	}
 	if !skipNFT && sb.Len() > 0 {
@@ -712,6 +853,7 @@ func (b *NFTBackend) ReplaceAllowSnapshot(items []setEntry) (map[string]interfac
 		"ipv4": {},
 		"ipv6": {},
 	}
+	b.allowEntries = make(map[string]bool)
 
 	// Add new entries
 	for _, item := range items {
@@ -728,10 +870,14 @@ func (b *NFTBackend) ReplaceAllowSnapshot(items []setEntry) (map[string]interfac
 			IP: item.IP, Family: family, Set: "allow", Source: "whitelist",
 		}
 		b.owned[b.ownedKey("allow", family, item.IP)] = true
+		b.allowEntries[item.IP] = true
 	}
 
-	if _, err := b.execNFT(sb.String()); err != nil {
-		return nil, err
+	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
+	if !skipNFT {
+		if _, err := b.execNFT(sb.String()); err != nil {
+			return nil, err
+		}
 	}
 	return map[string]interface{}{"replaced": len(items)}, nil
 }

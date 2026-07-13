@@ -116,11 +116,36 @@ local function handle_promote()
         return json.encode({ ret = "failed", message = "invalid policy: " .. policy })
     end
 
+    local family = (type(ip) == "string" and ip:find(":", 1, true)) and "ipv6" or "ipv4"
+
+    -- Independent safety gates for manual promote (Design §16).
+    local promotion = require "core.kernel_blocking.promotion"
+    if promotion.is_reserved_address then
+        local reserved, why = promotion.is_reserved_address(ip, family)
+        if reserved then
+            ngx.status = 400
+            return json.encode({ ret = "failed", message = "reserved_address", reason = why })
+        end
+    end
+    do
+        local ir = require "core.ip_reputation"
+        if ir.is_whitelisted and ir.is_whitelisted(ip) then
+            ngx.status = 403
+            return json.encode({ ret = "failed", message = "whitelisted" })
+        end
+    end
+    if promotion.capacity_available then
+        local cap_ok = promotion.capacity_available(set_name)
+        if not cap_ok then
+            ngx.status = 429
+            return json.encode({ ret = "failed", message = "capacity_exceeded" })
+        end
+    end
+
     local executor_mod = require "core.kernel_blocking.executor"
     local exec = executor_mod.get_executor()
     local sm = require "core.kernel_blocking.state_machine"
 
-    local family = (type(ip) == "string" and ip:find(":", 1, true)) and "ipv6" or "ipv4"
     local call_ok, add_ok, add_err = pcall(function()
         return exec.add(set_name, family, ip, ttl)
     end)

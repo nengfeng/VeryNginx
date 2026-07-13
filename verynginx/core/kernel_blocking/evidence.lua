@@ -116,4 +116,39 @@ function _M.count_cc_violations(ip, window, max_slots)
 	return count
 end
 
+-- ---------------------------------------------------------------------------
+-- Challenge-fail evidence (Design §6.4 require_challenge_fail)
+-- Key: ip_rep:kernel:challenge_fail:<ip>:<slot>
+-- Independent of frequency plugin; recorded when browser_verify/filter
+-- observes a failed challenge for a pending IP.
+-- ---------------------------------------------------------------------------
+function _M.record_challenge_fail_evidence(ip)
+    if not ip or ip == "" then return end
+    local slot_size = ir.slot_size()
+    local window_size = ir.window_size()
+    local slot = math.floor(ngx.time() / slot_size)
+    local key = "ip_rep:kernel:challenge_fail:" .. ip .. ":" .. slot
+    local s = ngx.shared[SCANNER_DICT]
+    if not s then return end
+    s:incr(key, 1, 0, window_size)
+end
+
+function _M.has_challenge_fail(ip)
+    if not ip or ip == "" then return false end
+    local slot_size = ir.slot_size()
+    local window_size = ir.window_size()
+    local num_slots = math.ceil(window_size / slot_size)
+    local slot = math.floor(ngx.time() / slot_size)
+    local key_prefix = "ip_rep:kernel:challenge_fail:" .. ip .. ":"
+    local s = ngx.shared[SCANNER_DICT]
+    if not s then return false end
+    for i = 0, num_slots - 1 do
+        local val = s:get(key_prefix .. (slot - i))
+        if val and tonumber(val) and tonumber(val) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
 return _M

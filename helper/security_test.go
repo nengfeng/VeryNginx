@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -429,4 +431,80 @@ func TestAllowRuleUsesSourceAddress(t *testing.T) {
 	if !strings.Contains(src, "ip6 saddr @allow return") {
 		t.Fatalf("missing ipv6 saddr @allow return rule")
 	}
+	// Design §9.4 scoped DROP: daddr + tcp dport + saddr @*_drop
+	if !strings.Contains(src, "ip daddr { %s } tcp dport { %s } ip saddr @%s counter drop") &&
+		!strings.Contains(src, "ip daddr {") {
+		t.Fatalf("missing scoped ipv4 DROP rule with daddr/dport")
+	}
+	if strings.Contains(src, "ip saddr @scanner_drop counter drop\n") &&
+		!strings.Contains(src, "ip daddr {") {
+		t.Fatalf("host-wide scanner DROP still present without scope")
+	}
 }
+
+func TestScopeDigestMatchesNewlineJoinedSHA256(t *testing.T) {
+	// Fixed vector: same algorithm as Lua scope_binding.compute_scope_digest.
+	// Ports/addrs are sorted lexicographically before joining.
+	d := computeScopeDigest("web", []string{"203.0.113.10"}, []string{"80", "443"}, true, false)
+	payload := "scope=web\naddrs=203.0.113.10\nports=443,80\nipv4=1\nipv6=0"
+	sum := sha256.Sum256([]byte(payload))
+	want := hex.EncodeToString(sum[:])
+	if d != want {
+		t.Fatalf("digest mismatch: got %s want %s", d, want)
+	}
+}
+
+
+func TestAddRejectsReservedAllowCoveredAndRateLimit(t *testing.T) {
+	withSkipEnv(t)
+	backend := NewNFTBackend()
+	backend.maxDropAddsPerSec = 2
+	sess := &ScopeSession{}
+
+	// ensure_base first
+	resp := handleRequest(&RequestEnvelope{
+		Version: ProtocolVersion, RequestID: "eb1", Operation: "ensure_base", Source: "automatic",
+		Payload: []byte(`{"scope":"web","protected_addresses":["203.0.113.10"],"protected_ports":[80,443],"ipv4":{"enabled":true},"ipv6":{"enabled":false}}`),
+	}, backend, sess)
+	if !resp.OK {
+		t.Fatalf("ensure_base: %s", resp.Error)
+	}
+
+	// reserved
+	resp = handleRequest(&RequestEnvelope{
+		Version: ProtocolVersion, RequestID: "r1", Operation: "add", Source: "automatic",
+		Payload: []byte(`{"items":[{"set":"scanner_drop","family":"ipv4","ip":"127.0.0.1","ttl":60}]}`),
+	}, backend, sess)
+	if resp.OK || resp.Error != "reserved_address" {
+		t.Fatalf("expected reserved_address, got ok=%v err=%s", resp.OK, resp.Error)
+	}
+
+	// seed allow cover
+	backend.allowEntries["203.0.113.99"] = true
+	resp = handleRequest(&RequestEnvelope{
+		Version: ProtocolVersion, RequestID: "a1", Operation: "add", Source: "automatic",
+		Payload: []byte(`{"items":[{"set":"scanner_drop","family":"ipv4","ip":"203.0.113.99","ttl":60}]}`),
+	}, backend, sess)
+	if resp.OK || resp.Error != "allow_covered" {
+		t.Fatalf("expected allow_covered, got ok=%v err=%s", resp.OK, resp.Error)
+	}
+
+	// rate limit after 2 successful adds
+	for i, ip := range []string{"203.0.113.1", "203.0.113.2"} {
+		resp = handleRequest(&RequestEnvelope{
+			Version: ProtocolVersion, RequestID: fmt.Sprintf("ok%d", i), Operation: "add", Source: "automatic",
+			Payload: []byte(fmt.Sprintf(`{"items":[{"set":"scanner_drop","family":"ipv4","ip":"%s","ttl":60}]}`, ip)),
+		}, backend, sess)
+		if !resp.OK {
+			t.Fatalf("add %s failed: %s", ip, resp.Error)
+		}
+	}
+	resp = handleRequest(&RequestEnvelope{
+		Version: ProtocolVersion, RequestID: "rl1", Operation: "add", Source: "automatic",
+		Payload: []byte(`{"items":[{"set":"scanner_drop","family":"ipv4","ip":"203.0.113.3","ttl":60}]}`),
+	}, backend, sess)
+	if resp.OK || resp.Error != "drop_rate_limited" {
+		t.Fatalf("expected drop_rate_limited, got ok=%v err=%s", resp.OK, resp.Error)
+	}
+}
+

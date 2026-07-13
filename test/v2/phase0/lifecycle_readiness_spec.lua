@@ -342,3 +342,32 @@ describe("Scheduler leases", function()
         assert.is_false(kb.lease_status().reconcile.held == true)
     end)
 end)
+
+describe("TTL ladder persist fields", function()
+    before_each(function()
+        ngx.shared.vn_config:flush_all()
+    end)
+
+    it("desired and SM store promotion_count and ttl_tier", function()
+        desired.set_desired("203.0.113.77", "ipv4", "scanner_drop", {}, 600, {
+            source = "automatic",
+            policy = "scanner",
+            promotion_count = 2,
+            ttl_tier = 2,
+        })
+        local d = desired.get_desired("203.0.113.77", "ipv4", "scanner_drop")
+        assert.are.equal(2, d.promotion_count)
+        assert.are.equal(2, d.ttl_tier)
+        sm.upsert("203.0.113.77", "scanner", "installed", {}, {
+            list = "scanner_drop",
+            family = "ipv4",
+            promotion_count = 2,
+            ttl_tier = 2,
+            expires_at = ngx.time() + 600,
+        })
+        local e = sm.get("203.0.113.77", "scanner")
+        assert.are.equal(2, e.promotion_count)
+        assert.are.equal(2, e.ttl_tier)
+        assert.are.equal(1, desired.count_by_list("scanner_drop"))
+    end)
+end)

@@ -151,6 +151,8 @@ function _M.restore()
                 policy = e.policy,
                 reason = e.reason or "restore",
                 reconciliation_mode = mode,
+                promotion_count = e.promotion_count,
+                ttl_tier = e.ttl_tier,
             })
             local policy = e.policy
             if not policy then
@@ -165,6 +167,8 @@ function _M.restore()
                 expires_at = e.expires_at,
                 source = e.source or "automatic",
                 reconciliation_mode = mode,
+                promotion_count = e.promotion_count,
+                ttl_tier = e.ttl_tier,
             })
             restored = restored + 1
             ::continue::
@@ -193,6 +197,8 @@ function _M.persist()
                     policy = e.policy,
                     reason = e.reason,
                     evidence = e.evidence,
+                    promotion_count = e.promotion_count,
+                    ttl_tier = e.ttl_tier,
                     reconciliation_mode = e.reconciliation_mode or
                         (e.source == "manual" and "manual" or "ensure"),
                 }
@@ -216,6 +222,8 @@ function _M.persist()
                             source = e.source,
                             policy = e.policy,
                             state = e.state,
+                            promotion_count = e.promotion_count,
+                            ttl_tier = e.ttl_tier,
                             reconciliation_mode = e.reconciliation_mode or
                                 (e.source == "manual" and "manual" or "ensure"),
                         }
@@ -224,6 +232,7 @@ function _M.persist()
             end
             cursor = page.next_cursor
         until not cursor
+
 
         local payload = {
             version = STATE_VERSION,

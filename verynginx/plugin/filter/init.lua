@@ -196,6 +196,12 @@ function _M.on_access(ctx)
     if ip_reputation.has_pending(ip) then
         ip_reputation.record_signal(ip, "challenge_fail")
         ip_reputation.clear_pending(ip)
+        if config.kernel_ip_blocking and config.kernel_ip_blocking.enabled then
+            pcall(function()
+                local evidence = require "core.kernel_blocking.evidence"
+                evidence.record_challenge_fail_evidence(ip)
+            end)
+        end
     end
 
     -- 【阶段二】无有效 cookie 时，执行 challenge 类规则
