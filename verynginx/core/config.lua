@@ -426,25 +426,24 @@ local function normalize_defaults(config, schema, opts)
     opts = opts or {}
     local result = deep_copy(config)
     local seen_keys = {}
+    local all_errors = {}
 
     for name, field in pairs(schema.fields) do
         seen_keys[name] = true
         local raw_val = result[name]
-        if field.children then
-            -- Recursive schema node
-            local child_result = cs.normalize_node(field, raw_val, {
-                path = name,
-                reject_unknown = opts.reject_unknown,
-            })
-            result[name] = child_result.value
-            -- Non-fatal type/shape errors are silently corrected by falling back
-            -- to default values (which is what normalize_node returns).
-        else
-            -- Simple leaf: fill default if missing
-            if raw_val == nil then
-                result[name] = deep_copy(field.default)
-            end
+        -- Route all fields through normalize_node for type/shape checking
+        local child_result = cs.normalize_node(field, raw_val, {
+            path = name,
+            reject_unknown = opts.reject_unknown,
+        })
+        result[name] = child_result.value
+        for _, err in ipairs(child_result.errors or {}) do
+            all_errors[#all_errors + 1] = name .. ": " .. err
         end
+    end
+
+    if #all_errors > 0 then
+        ngx.log(ngx.WARN, "config normalize: " .. table.concat(all_errors, "; "))
     end
 
     -- Preserve any extra top-level fields not in schema (backward compat)
@@ -989,7 +988,7 @@ end
 function _M.save(config)
     local shared = ngx.shared.vn_config
     local lock_key = "config_save_lock"
-    local lock_ttl = math.max((config and config.config_save_lock_ttl) or 10, 5)
+    local lock_ttl = math.max((config and config.config_save_lock_ttl) or 60, 5)
     local lock_token = random.bytes(16)
 
     if shared then

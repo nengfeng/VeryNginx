@@ -94,10 +94,16 @@ end
 function _M.is_cutover_complete()
     local status = _M.get_migration_status()
     if status.status == "completed" then
-        -- Also verify that shared-state cutover_epoch has been recorded
+        -- Verify shared-state cutover_epoch; write if missing (e.g. dict evicted)
         local s = ngx.shared.frequency_limit
         if s then
-            return s:get("fl:v2:cutover_epoch") ~= nil
+            if s:get("fl:v2:cutover_epoch") then
+                return true
+            end
+            -- dict may have been cleared; restore marker from persisted status
+            local epoch = status.cutover_epoch or tostring(ngx.time())
+            s:set("fl:v2:cutover_epoch", epoch)
+            return true
         end
     end
     return false

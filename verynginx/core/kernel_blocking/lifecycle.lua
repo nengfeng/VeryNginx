@@ -115,11 +115,13 @@ local function mark_auto_preserve(policy, reason)
     until not cursor
 
     -- Suspend non-installed automatic candidates so they are not replayed.
+    -- Skip entries already set to preserve_only by the first loop.
     cursor = 0
     repeat
         local page = sm.list(cursor, 500, nil, policy)
         for _, e in ipairs(page.entries or {}) do
-            if e.state ~= "installed" and e.state ~= "cleared" and e.state ~= "expired" then
+            if e.state ~= "installed" and e.state ~= "cleared" and e.state ~= "expired"
+                and e.reconciliation_mode ~= "preserve_only" then
                 sm.transition(e.ip, policy, "rejected", {
                     reason = "suspended_disabled",
                     previous_state = e.state,

@@ -22,6 +22,14 @@ local snapshot = require "core.kernel_blocking.snapshot"
 local DROP_LISTS = { "scanner_drop", "cc_drop", "manual_drop" }
 local FAMILIES = { "ipv4", "ipv6" }
 
+local function is_scope_err(code)
+    return code == "scope_validation_pending"
+        or code == "scope_digest_mismatch"
+        or code == "scope_unvalidated"
+        or code == "helper_instance_changed"
+        or code == "table_generation_changed"
+end
+
 local function list_to_policy(list)
     if list == "scanner_drop" then return "scanner" end
     if list == "cc_drop" then return "cc" end
@@ -241,8 +249,12 @@ local function apply_chunked(exec, drift, _now, kb_cfg, result)
     local desired_gen = kb_cfg._desired_generation or 0
     local policy_gens = kb_cfg._policy_generations or {}
 
+    local desired_entries = {}
+    for _, e in ipairs(drift.to_add) do desired_entries[#desired_entries + 1] = e end
+    for _, e in ipairs(drift.to_update) do desired_entries[#desired_entries + 1] = e end
+
     local chunks, snapshot_id = snapshot.split(
-        drift.to_add,
+        desired_entries,
         drift.to_remove,
         {
             chunk_size = kb_cfg.reconcile_chunk_size or 500,
@@ -274,7 +286,7 @@ local function apply_chunked(exec, drift, _now, kb_cfg, result)
         if not chunk_result then
             result.failed = result.failed + #chunk.desired + #chunk.remove
             result.last_error = scope_err or "chunk_reconcile_failed"
-            if scope_err then
+            if scope_err and is_scope_err(scope_err) then
                 invalidate_scope(scope_err)
             end
             return false
@@ -313,6 +325,23 @@ local function update_state_machine_after_apply(drift, now)
                 source = entry.source or "automatic",
                 reason = "reconcile_add",
             })
+        end
+    end
+
+    for _, entry in ipairs(drift.to_update) do
+        local policy = list_to_policy(entry.list)
+        if policy then
+            local current = state_machine.get_policy(entry.ip, policy)
+            if current and current.state ~= "installed" then
+                state_machine.upsert(entry.ip, policy, "installed", entry.evidence or {}, {
+                    list = entry.list,
+                    family = entry.family,
+                    installed_at = now,
+                    expires_at = entry.expires_at or ((entry.ttl and entry.ttl > 0) and (now + entry.ttl) or nil),
+                    source = entry.source or "automatic",
+                    reason = "reconcile_update",
+                })
+            end
         end
     end
 

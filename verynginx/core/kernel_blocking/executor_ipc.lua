@@ -174,10 +174,14 @@ end
 -- contains(set, family, ip) -> bool, error?
 -- ---------------------------------------------------------------------------
 function _M.contains(set, family, ip)
-    local page = _M.list(set, family, 0)
-    for _, entry in ipairs(page.entries or {}) do
-        if entry.ip == ip then return true, nil end
-    end
+    local cursor = 0
+    repeat
+        local page = _M.list(set, family, cursor)
+        for _, entry in ipairs(page.entries or {}) do
+            if entry.ip == ip then return true, nil end
+        end
+        cursor = page.next_cursor
+    until not cursor
     return false, nil
 end
 

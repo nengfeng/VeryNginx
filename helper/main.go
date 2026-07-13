@@ -489,8 +489,7 @@ func (b *NFTBackend) EnsureBase(payload EnsureBasePayload, sess *ScopeSession) (
 		if err := b.ensureBaseNFT(addrs, ports); err != nil {
 			msg := err.Error()
 			if !strings.Contains(msg, "File exists") &&
-				!strings.Contains(msg, "already exists") &&
-				!strings.Contains(msg, "exists") {
+				!strings.Contains(msg, "already exists") {
 				return nil, err
 			}
 		}
@@ -702,9 +701,11 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 		}
 	}
 
-	// Build nft commands
+	// Phase 1: validate and build nft commands.
 	var sb strings.Builder
 	count := 0
+	type pendingAdd struct{ item setEntry; family string }
+	var pending []pendingAdd
 	for _, item := range items {
 		family := item.Family
 		if family == "" {
@@ -714,12 +715,10 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 		if family == "ipv6" {
 			tableFamily = "ip6"
 		}
-		// Set element with optional timeout
 		var elemStr string
 		if item.TTL > 0 {
 			elemStr = fmt.Sprintf("%s timeout %ds", item.IP, item.TTL)
-			expiresAt := time.Now().Add(time.Duration(item.TTL) * time.Second).Unix()
-			item.ExpiresAt = expiresAt
+			item.ExpiresAt = time.Now().Add(time.Duration(item.TTL) * time.Second).Unix()
 		} else {
 			elemStr = item.IP
 		}
@@ -727,8 +726,20 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 			fmt.Fprintf(&sb, "add element %s verynginx %s { %s }\n",
 				tableFamily, item.Set, elemStr)
 		}
+		pending = append(pending, pendingAdd{item: item, family: family})
+		count++
+	}
 
-		// Update in-memory state
+	// Phase 2: execute nft atomically before mutating memory state.
+	if !skipNFT && sb.Len() > 0 {
+		if _, err := b.execNFT(sb.String()); err != nil {
+			return nil, err
+		}
+	}
+
+	// Phase 3: update in-memory state only after nft succeeded.
+	for _, p := range pending {
+		item, family := p.item, p.family
 		if b.state[item.Set] == nil {
 			b.state[item.Set] = map[string]map[string]*setEntry{}
 		}
@@ -749,14 +760,6 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 		} else {
 			b.dropAddTimes = append(b.dropAddTimes, time.Now())
 		}
-		count++
-	}
-
-	// Execute in one atomic batch
-	if !skipNFT && sb.Len() > 0 {
-		if _, err := b.execNFT(sb.String()); err != nil {
-			return nil, err
-		}
 	}
 	return map[string]interface{}{"added": count}, nil
 }
@@ -772,6 +775,11 @@ func (b *NFTBackend) Delete(items []setEntry) (map[string]interface{}, error) {
 	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 	var sb strings.Builder
 	count := 0
+	type pendingDelete struct {
+		set, family, ip string
+		isAllow          bool
+	}
+	var pending []pendingDelete
 	for _, item := range items {
 		family := item.Family
 		if family == "" {
@@ -785,18 +793,24 @@ func (b *NFTBackend) Delete(items []setEntry) (map[string]interface{}, error) {
 			fmt.Fprintf(&sb, "delete element %s verynginx %s { %s }\n",
 				tableFamily, item.Set, item.IP)
 		}
-		if b.state[item.Set] != nil && b.state[item.Set][family] != nil {
-			delete(b.state[item.Set][family], item.IP)
-		}
-		delete(b.owned, b.ownedKey(item.Set, family, item.IP))
-		if item.Set == "allow" {
-			delete(b.allowEntries, item.IP)
-		}
+		pending = append(pending, pendingDelete{
+			set: item.Set, family: family, ip: item.IP,
+			isAllow: item.Set == "allow",
+		})
 		count++
 	}
 	if !skipNFT && sb.Len() > 0 {
 		if _, err := b.execNFT(sb.String()); err != nil {
 			return nil, err
+		}
+	}
+	for _, p := range pending {
+		if b.state[p.set] != nil && b.state[p.set][p.family] != nil {
+			delete(b.state[p.set][p.family], p.ip)
+		}
+		delete(b.owned, b.ownedKey(p.set, p.family, p.ip))
+		if p.isAllow {
+			delete(b.allowEntries, p.ip)
 		}
 	}
 	return map[string]interface{}{"removed": count}, nil
@@ -842,20 +856,14 @@ func (b *NFTBackend) ReplaceAllowSnapshot(items []setEntry) (map[string]interfac
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 	var sb strings.Builder
-	// Flush existing allow entries from nft
-	fmt.Fprintf(&sb, "flush set ip verynginx allow\n")
-	// Also flush ip6 allow
-	fmt.Fprintf(&sb, "flush set ip6 verynginx allow\n")
-
-	// Clear in-memory allow
-	b.state["allow"] = map[string]map[string]*setEntry{
-		"ipv4": {},
-		"ipv6": {},
+	if !skipNFT {
+		fmt.Fprintf(&sb, "flush set ip verynginx allow\n")
+		fmt.Fprintf(&sb, "flush set ip6 verynginx allow\n")
 	}
-	b.allowEntries = make(map[string]bool)
 
-	// Add new entries
+	// Build new entries
 	for _, item := range items {
 		family := item.Family
 		if family == "" {
@@ -865,19 +873,33 @@ func (b *NFTBackend) ReplaceAllowSnapshot(items []setEntry) (map[string]interfac
 		if family == "ipv6" {
 			tf = "ip6"
 		}
-		fmt.Fprintf(&sb, "add element %s verynginx allow { %s }\n", tf, item.IP)
+		if !skipNFT {
+			fmt.Fprintf(&sb, "add element %s verynginx allow { %s }\n", tf, item.IP)
+		}
+	}
+
+	if !skipNFT && sb.Len() > 0 {
+		if _, err := b.execNFT(sb.String()); err != nil {
+			return nil, err
+		}
+	}
+
+	// Update in-memory state only after nft succeeded.
+	b.state["allow"] = map[string]map[string]*setEntry{
+		"ipv4": {},
+		"ipv6": {},
+	}
+	b.allowEntries = make(map[string]bool)
+	for _, item := range items {
+		family := item.Family
+		if family == "" {
+			family = "ipv4"
+		}
 		b.state["allow"][family][item.IP] = &setEntry{
 			IP: item.IP, Family: family, Set: "allow", Source: "whitelist",
 		}
 		b.owned[b.ownedKey("allow", family, item.IP)] = true
 		b.allowEntries[item.IP] = true
-	}
-
-	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
-	if !skipNFT {
-		if _, err := b.execNFT(sb.String()); err != nil {
-			return nil, err
-		}
 	}
 	return map[string]interface{}{"replaced": len(items)}, nil
 }
@@ -1010,8 +1032,11 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 		"failed":    0,
 	}
 
+	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 	var sb strings.Builder
 	seen := map[string]bool{}
+	type pendingEntry struct{ entry setEntry; family string }
+	var pending []pendingEntry
 
 	for _, entry := range snapshot {
 		family := entry.Family
@@ -1032,9 +1057,22 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 		} else {
 			elemStr = entry.IP
 		}
-		fmt.Fprintf(&sb, "add element %s verynginx %s { %s }\n",
-			tf, entry.Set, elemStr)
+		if !skipNFT {
+			fmt.Fprintf(&sb, "add element %s verynginx %s { %s }\n",
+				tf, entry.Set, elemStr)
+		}
+		pending = append(pending, pendingEntry{entry: entry, family: family})
+	}
 
+	if !skipNFT && sb.Len() > 0 {
+		if _, err := b.execNFT(sb.String()); err != nil {
+			result["failed"] = result["failed"].(int) + len(snapshot)
+			return result, err
+		}
+	}
+
+	for _, p := range pending {
+		entry, family := p.entry, p.family
 		if b.state[entry.Set] == nil {
 			b.state[entry.Set] = map[string]map[string]*setEntry{}
 		}
@@ -1049,11 +1087,6 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 			result["added"] = result["added"].(int) + 1
 		}
 		b.owned[b.ownedKey(entry.Set, family, entry.IP)] = true
-	}
-
-	if _, err := b.execNFT(sb.String()); err != nil {
-		result["failed"] = result["failed"].(int) + len(snapshot)
-		return result, err
 	}
 	return result, nil
 }
@@ -1110,8 +1143,11 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 		var sb strings.Builder
 		added := 0
 		updated := 0
+		type pendingEntry struct{ entry setEntry; family string }
+		var pending []pendingEntry
 
-		for _, entry := range payload.Desired {
+		for _, d := range payload.Desired {
+			entry := d
 			family := entry.Family
 			if family == "" {
 				family = "ipv4"
@@ -1131,7 +1167,19 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 				fmt.Fprintf(&sb, "add element %s verynginx %s { %s }\n",
 					tf, entry.Set, elemStr)
 			}
+			pending = append(pending, pendingEntry{entry: entry, family: family})
+		}
 
+		if !skipNFT && sb.Len() > 0 {
+			if _, err := b.execNFT(sb.String()); err != nil {
+				b.mu.Unlock()
+				result["failed"] = result["failed"].(int) + len(payload.Desired)
+				return result, err
+			}
+		}
+
+		for _, p := range pending {
+			entry, family := p.entry, p.family
 			if b.state[entry.Set] == nil {
 				b.state[entry.Set] = map[string]map[string]*setEntry{}
 			}
@@ -1146,14 +1194,6 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 			e := entry
 			b.state[entry.Set][family][entry.IP] = &e
 			b.owned[b.ownedKey(entry.Set, family, entry.IP)] = true
-		}
-
-		if !skipNFT && sb.Len() > 0 {
-			if _, err := b.execNFT(sb.String()); err != nil {
-				b.mu.Unlock()
-				result["failed"] = result["failed"].(int) + len(payload.Desired)
-				return result, err
-			}
 		}
 		b.mu.Unlock()
 
@@ -1172,6 +1212,8 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 		b.mu.Lock()
 		var sb strings.Builder
 		removed := 0
+		type pendingRemove struct{ set, family, ip, key string }
+		var pending []pendingRemove
 
 		for _, r := range payload.Remove {
 			family := r.Family
@@ -1187,11 +1229,7 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 				fmt.Fprintf(&sb, "delete element %s verynginx %s { %s }\n",
 					tf, r.Set, r.IP)
 			}
-
-			if b.state[r.Set] != nil && b.state[r.Set][family] != nil {
-				delete(b.state[r.Set][family], r.IP)
-			}
-			delete(b.owned, key)
+			pending = append(pending, pendingRemove{r.Set, family, r.IP, key})
 			removed++
 		}
 
@@ -1201,6 +1239,13 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 				result["failed"] = result["failed"].(int) + len(payload.Remove)
 				return result, err
 			}
+		}
+
+		for _, p := range pending {
+			if b.state[p.set] != nil && b.state[p.set][p.family] != nil {
+				delete(b.state[p.set][p.family], p.ip)
+			}
+			delete(b.owned, p.key)
 		}
 		b.mu.Unlock()
 
@@ -1241,6 +1286,8 @@ func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
 	} else {
 		// Remove only owned entries
 		var sb strings.Builder
+		type pendingRemove struct{ set, family, ip, key string }
+		var pending []pendingRemove
 		for key := range b.owned {
 			parts := strings.SplitN(key, ":", 3)
 			if len(parts) != 3 {
@@ -1251,11 +1298,16 @@ func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
 				tf = "ip6"
 			}
 			fmt.Fprintf(&sb, "delete element %s verynginx %s { %s }\n", tf, parts[0], parts[2])
-			delete(b.state[parts[0]][parts[1]], parts[2])
+			pending = append(pending, pendingRemove{parts[0], parts[1], parts[2], key})
 			count++
 		}
 		if _, err := b.execNFT(sb.String()); err != nil {
 			return nil, err
+		}
+		for _, p := range pending {
+			if b.state[p.set] != nil && b.state[p.set][p.family] != nil {
+				delete(b.state[p.set][p.family], p.ip)
+			}
 		}
 		b.owned = map[string]bool{}
 	}

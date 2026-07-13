@@ -24,7 +24,7 @@ local function is_array(t)
             max_idx = k
         end
     end
-    return count > 0 and max_idx == count
+    return max_idx == count
 end
 
 -- ---------------------------------------------------------------------------

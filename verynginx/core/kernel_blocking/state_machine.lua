@@ -47,6 +47,33 @@ local CANDIDATE_KEY_PREFIX = "kb:candidate:"
 local INDEX_KEY = "kb:candidate_index"
 local INDEX_TTL = 7 * 86400  -- 7-day TTL on candidate entries
 local MAX_CANDIDATES = 10000  -- bounded index size
+local COMPACT_INTERVAL = 300  -- seconds between index compactions
+
+local _last_compact = 0
+
+local function compact_index()
+    local s = shared()
+    if not s then return end
+    local now = ngx.time()
+    if now - _last_compact < COMPACT_INTERVAL then return end
+    _last_compact = now
+    local idx_raw = s:get(INDEX_KEY) or "[]"
+    local ok, idx = pcall(json.decode, idx_raw)
+    if not ok or type(idx) ~= "table" then return end
+    local kept = {}
+    for _, composite in ipairs(idx) do
+        local ip, policy = composite:match("^(.+):([^:]+)$")
+        if ip and policy then
+            local raw = s:get(entry_key(ip, policy))
+            if raw then
+                kept[#kept + 1] = composite
+            end
+        end
+    end
+    if #kept < #idx then
+        s:set(INDEX_KEY, json.encode(kept), INDEX_TTL)
+    end
+end
 
 local function shared()
     return ngx.shared[CANDIDATE_DICT]
@@ -201,6 +228,7 @@ function _M.list(cursor, page_size, state_filter, policy_filter)
     page_size = page_size or 50
     local s = shared()
     if not s then return { entries = {}, next_cursor = nil } end
+    compact_index()
     local idx_raw = s:get(INDEX_KEY) or "[]"
     local ok, idx = pcall(json.decode, idx_raw)
     if not ok or type(idx) ~= "table" then

@@ -46,7 +46,9 @@ function _M.sum_scanner_blocks(ip)
     if not s then return 0 end
     local total = 0
     for i = 0, num_slots - 1 do
-        local val = s:get(key_prefix .. (slot - i))
+        local s_idx = slot - i
+        if s_idx < 0 then break end
+        local val = s:get(key_prefix .. s_idx)
         if val then total = total + val end
     end
     return total
@@ -143,7 +145,9 @@ function _M.has_challenge_fail(ip)
     local s = ngx.shared[SCANNER_DICT]
     if not s then return false end
     for i = 0, num_slots - 1 do
-        local val = s:get(key_prefix .. (slot - i))
+        local s_idx = slot - i
+        if s_idx < 0 then break end
+        local val = s:get(key_prefix .. s_idx)
         if val and tonumber(val) and tonumber(val) > 0 then
             return true
         end

@@ -104,6 +104,11 @@ local function handle_promote()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip required" })
     end
+    if type(ip) ~= "string"
+        or not (ip:match("^[%d%.]+$") or ip:match("^[%da-fA-F:]+$")) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid IP format" })
+    end
 
     local config = require "core.config"
     local kb_cfg = config and config.kernel_ip_blocking
@@ -231,10 +236,10 @@ local function handle_clear()
                 return exec.contains(set_name, family, ip)
             end)
             if chk_ok and exists then
-                local rm_ok = pcall(function()
+                local rm_ok, rm_result = pcall(function()
                     return exec.delete(set_name, family, ip)
                 end)
-                if rm_ok then removed = removed + 1 end
+                if rm_ok and rm_result ~= false then removed = removed + 1 end
             end
         end
     end

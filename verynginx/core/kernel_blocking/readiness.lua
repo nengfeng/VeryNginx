@@ -163,7 +163,7 @@ function _M.compute(opts)
 
     local cc_rules = {}
     for _, rid in ipairs(rule_ids) do
-        local ref_valid = true
+        local ref_valid = false
         if ok_freq and freq and freq.id_to_index_map then
             local map = freq.id_to_index_map()
             ref_valid = map[rid] ~= nil

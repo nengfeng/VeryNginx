@@ -219,12 +219,8 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 	evidence_tbl.ttl_tier = plan.tier
 	evidence_tbl.ttl_reason = plan.reason
 	evidence_tbl.promotion_count = plan.next_promotion_count
-    -- Intermediate states: promoted -> dispatch_pending -> installed/degraded
-    sm.upsert(ip, "scanner", "promoted", evidence_tbl, {
-        list = "scanner_drop",
-        family = family,
-    })
-    sm.transition(ip, "scanner", "dispatch_pending", {
+    -- dispatch_pending directly (skip intermediate "promoted" to avoid stuck state on crash)
+    sm.upsert(ip, "scanner", "dispatch_pending", evidence_tbl, {
         list = "scanner_drop",
         family = family,
     })
@@ -475,11 +471,7 @@ local function enforce_promote_cc(ip, violation_count)
 		ttl_reason = plan.reason,
 		promotion_count = plan.next_promotion_count,
 	}
-	sm.upsert(ip, "cc", "promoted", ev_tbl, {
-		list = "cc_drop",
-		family = family,
-	})
-	sm.transition(ip, "cc", "dispatch_pending", {
+	sm.upsert(ip, "cc", "dispatch_pending", ev_tbl, {
 		list = "cc_drop",
 		family = family,
 	})

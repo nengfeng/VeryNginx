@@ -43,9 +43,9 @@ local function normalize_ipv6(ip)
     -- Strip zone identifier (e.g., "%eth0")
     ip = ip:gsub("%%.*$", "")
 
-    -- Handle IPv4-mapped IPv6: ::ffff:a.b.c.d => a.b.c.d
+    -- Handle IPv4-mapped IPv6: ::ffff:a.b.c.d => normalized IPv4
     local ipv4 = ip:match("^::ffff:(%d+%.%d+%.%d+%.%d+)$")
-    if ipv4 then return ipv4 end
+    if ipv4 then return normalize_ipv4(ipv4) end
 
     -- Expand :: to full 8-group form.
     local prefix, suffix = ip:match("^(.*)::(.*)$")

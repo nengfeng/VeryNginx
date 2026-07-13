@@ -233,9 +233,10 @@ function _M.reconcile(snapshot)
     for key, entry in pairs(snapshot) do
         local s, f, ip = entry.set, entry.family, entry.ip
         local ttl = entry.ttl or (entry.expires_at and (entry.expires_at - ngx.time())) or 0
-        local ok, _ = _M.add(s, f, ip, ttl)  -- order matches add(set, family, ip, ttl)
+        local key_in_idx = idx[key] or false
+        local ok, _ = _M.add(s, f, ip, ttl)
         if ok then
-            if idx[key] then
+            if key_in_idx then
                 result.updated = result.updated + 1
             else
                 result.added = result.added + 1
@@ -272,11 +273,12 @@ function _M.chunked_reconcile(chunk)
     for _, entry in ipairs(chunk.desired or {}) do
         local s, f, ip = entry.set or entry.list, entry.family, entry.ip
         if s and f and ip then
-            local ttl = entry.ttl or (entry.expires_at and (entry.expires_at - ngx.time())) or 0
             local key = set_key(s, f, ip)
+            local key_in_idx = idx[key] or false
+            local ttl = entry.ttl or (entry.expires_at and (entry.expires_at - ngx.time())) or 0
             local ok, _ = _M.add(s, f, ip, ttl)
             if ok then
-                if idx[key] then
+                if key_in_idx then
                     result.updated = result.updated + 1
                 else
                     result.added = result.added + 1
