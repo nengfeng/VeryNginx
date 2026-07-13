@@ -390,11 +390,39 @@ func (b *NFTBackend) EnsureBase(payload EnsureBasePayload, sess *ScopeSession) (
 	if scope == "" {
 		scope = "web"
 	}
+	// Scope name must be simple token (no nft injection).
+	if strings.ContainsAny(scope, dangerousChars) || len(scope) > 64 {
+		return nil, fmt.Errorf("invalid_scope")
+	}
 	addrs := payload.ProtectedAddresses
 	ports := portsToStrings(payload.ProtectedPorts)
+	for _, a := range addrs {
+		if err := validateAddress(a); err != nil {
+			return nil, err
+		}
+	}
+	for _, p := range ports {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 1 || n > 65535 {
+			return nil, fmt.Errorf("invalid_port")
+		}
+	}
 	digest := payload.ScopeDigest
 	if digest == "" {
 		digest = computeScopeDigest(scope, addrs, ports, ipv4Enabled, ipv6Enabled)
+	}
+	// Activation generation must not go backwards (replay/downgrade).
+	if sess != nil && sess.Validated && payload.ActivationGeneration > 0 &&
+		sess.ActivationGeneration > 0 &&
+		payload.ActivationGeneration < sess.ActivationGeneration {
+		return nil, fmt.Errorf("activation_generation_downgrade")
+	}
+	b.mu.RLock()
+	lastAct := b.activationGeneration
+	b.mu.RUnlock()
+	if payload.ActivationGeneration > 0 && lastAct > 0 &&
+		payload.ActivationGeneration < lastAct {
+		return nil, fmt.Errorf("activation_generation_downgrade")
 	}
 
 	localAddrs, localDigest := enumerateLocalAddresses()
@@ -533,6 +561,9 @@ func (b *NFTBackend) checkDropBinding(sess *ScopeSession, reqBinding map[string]
 
 // Add adds IPs to a logical set with optional TTL.
 func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
+	if err := validateBatch(items, false); err != nil {
+		return nil, err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -594,6 +625,9 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 
 // Delete removes IPs from a logical set.
 func (b *NFTBackend) Delete(items []setEntry) (map[string]interface{}, error) {
+	if err := validateBatch(items, false); err != nil {
+		return nil, err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -811,6 +845,9 @@ func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
 
 // handleRequest dispatches a single request to the backend.
 func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession) ResponseEnvelope {
+	if code := validateRequestEnvelope(env); code != "" {
+		return resultError(env.RequestID, code)
+	}
 	switch env.Operation {
 	case "probe":
 		return resultOK(env.RequestID, backend.Probe())
@@ -872,6 +909,17 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 			Cursor int    `json:"cursor"`
 		}
 		_ = json.Unmarshal(env.Payload, &payload)
+		if payload.Set != "" {
+			if err := validateSetName(payload.Set); err != nil {
+				return resultError(env.RequestID, err.Error())
+			}
+		}
+		if err := validateFamily(payload.Family); err != nil {
+			return resultError(env.RequestID, err.Error())
+		}
+		if payload.Cursor < 0 {
+			return resultError(env.RequestID, "invalid_cursor")
+		}
 		entries, next := backend.List(payload.Set, payload.Family, payload.Cursor)
 		return resultOK(env.RequestID, map[string]interface{}{
 			"entries":     entries,
@@ -884,6 +932,17 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		}
 		if err := json.Unmarshal(env.Payload, &payload); err != nil {
 			return resultError(env.RequestID, "invalid payload: "+err.Error())
+		}
+		for i := range payload.Items {
+			if payload.Items[i].Set == "" {
+				payload.Items[i].Set = "allow"
+			}
+			if payload.Items[i].Set != "allow" {
+				return resultError(env.RequestID, "invalid_set")
+			}
+		}
+		if err := validateBatch(payload.Items, true); err != nil {
+			return resultError(env.RequestID, err.Error())
 		}
 		// allow refresh always permitted
 		result, err := backend.ReplaceAllowSnapshot(payload.Items)
@@ -904,6 +963,9 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		if code := backend.checkDropBinding(sess, payload.Binding); code != "" {
 			return resultError(env.RequestID, code)
 		}
+		if err := validateBatch(payload.Snapshot, false); err != nil {
+			return resultError(env.RequestID, err.Error())
+		}
 		result, err := backend.Reconcile(payload.Snapshot)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
@@ -915,7 +977,10 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 			Scope string `json:"scope"`
 		}
 		_ = json.Unmarshal(env.Payload, &payload)
-		// flush always allowed
+		if err := validateFlushScope(payload.Scope); err != nil {
+			return resultError(env.RequestID, err.Error())
+		}
+		// flush always allowed once scope is valid
 		result, err := backend.FlushOwned(payload.Scope)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
@@ -930,8 +995,14 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 // handleConnection handles one client connection (sequential request/response).
 func handleConnection(conn net.Conn, backend *NFTBackend) {
 	defer conn.Close()
+	// Peer credentials before any payload processing (Design §16.5).
+	if err := checkPeerAuthorized(conn); err != nil {
+		fmt.Fprintf(os.Stderr, "peer rejected: %v\n", err)
+		return
+	}
 	// Each connection starts unvalidated; ensure_base binds the session.
 	sess := &ScopeSession{}
+	replay := newConnReplay()
 	for {
 		env, err := readFrame(conn)
 		if err != nil {
@@ -940,9 +1011,15 @@ func handleConnection(conn net.Conn, backend *NFTBackend) {
 			}
 			return
 		}
-		if env.Version != ProtocolVersion {
-			writeFrame(conn, resultError(env.RequestID,
-				fmt.Sprintf("unsupported_version: %d", env.Version)))
+		if code := validateRequestEnvelope(env); code != "" {
+			_ = writeFrame(conn, resultError(env.RequestID, code))
+			if code == "invalid_request_id" || strings.HasPrefix(code, "unsupported_version") {
+				return
+			}
+			continue
+		}
+		if replay.checkAndRemember(env.RequestID) {
+			_ = writeFrame(conn, resultError(env.RequestID, "duplicate_request_id"))
 			continue
 		}
 		resp := handleRequest(env, backend, sess)
