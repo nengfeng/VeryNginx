@@ -411,3 +411,22 @@ func TestValidateAddressRejectsInjectionCorpus(t *testing.T) {
 		t.Fatalf("valid cidr rejected: %v", err)
 	}
 }
+
+func TestAllowRuleUsesSourceAddress(t *testing.T) {
+	// Regression guard: whitelist must match client source IPs, not daddr.
+	// ensureBaseNFT is private; assert via source file content next to this package.
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	src := string(data)
+	if strings.Contains(src, "daddr @allow") {
+		t.Fatalf("allow rule still uses daddr; must be saddr for client whitelist")
+	}
+	if !strings.Contains(src, "ip saddr @allow return") {
+		t.Fatalf("missing ipv4 saddr @allow return rule")
+	}
+	if !strings.Contains(src, "ip6 saddr @allow return") {
+		t.Fatalf("missing ipv6 saddr @allow return rule")
+	}
+}

@@ -64,6 +64,7 @@ end
 -- Close current connection (if any).
 -- ---------------------------------------------------------------------------
 local function close_socket()
+    local had_socket = socket ~= nil
     if socket then
         pcall(function() socket:close() end)
         socket = nil
@@ -71,11 +72,13 @@ local function close_socket()
     socket_requests = 0
     socket_born = nil
     partial_buffer = ""
-    -- Design §8.3.4: reconnect invalidates scope binding session.
-    pcall(function()
-        local sb = require "core.kernel_blocking.scope_binding"
-        sb.on_ipc_disconnect()
-    end)
+    -- Design §8.3.4: only real disconnects invalidate scope binding.
+    if had_socket then
+        pcall(function()
+            local sb = require "core.kernel_blocking.scope_binding"
+            sb.on_ipc_disconnect()
+        end)
+    end
     -- Reset backoff on explicit close (not a failure).
     backoff_interval = BACKOFF_INITIAL
     last_connect_fail = 0

@@ -10,6 +10,9 @@ local _M = {}
 
 local client = require "core.kernel_blocking.ipc_client"
 local scope_binding = require "core.kernel_blocking.scope_binding"
+local config = require "core.config"
+
+local rebind_inflight = false
 
 local function err_code(err)
     if type(err) == "string" and err ~= "" then
@@ -26,7 +29,54 @@ local function is_scope_err(code)
         or code == "table_generation_changed"
         or code == "activation_generation_changed"
         or code == "local_address_changed"
+        or code == "ipc_reconnect"
         or (type(code) == "string" and code:find("address_not_local", 1, true) == 1)
+end
+
+-- Re-run ensure_base + allow snapshot after reconnect / binding loss.
+-- Design §8.3.4 / §10.4: DROP writes require a validated session.
+function _M.rebind_scope(cfg)
+    if rebind_inflight then
+        return false, "scope_rebind_busy"
+    end
+    rebind_inflight = true
+    local ok, err = false, "rebind_failed"
+    local call_ok, a, b = pcall(function()
+        return _M.ensure_base(cfg or config.kernel_ip_blocking)
+    end)
+    if call_ok then
+        ok, err = a, b
+    else
+        ok, err = false, tostring(a)
+    end
+    if ok then
+        pcall(function()
+            local wlg = require "core.kernel_blocking.whitelist_generation"
+            if wlg.push_allow_snapshot then
+                wlg.push_allow_snapshot()
+            end
+        end)
+    else
+        ngx.log(ngx.WARN, "kernel_blocking: scope rebind failed: ", tostring(err))
+    end
+    rebind_inflight = false
+    return ok and true or false, err
+end
+
+local function ensure_drop_scope()
+    local allowed, why = scope_binding.drop_writes_allowed()
+    if allowed then
+        return true, nil
+    end
+    local ok, err = _M.rebind_scope()
+    if not ok then
+        return false, err or why or "scope_validation_pending"
+    end
+    allowed, why = scope_binding.drop_writes_allowed()
+    if not allowed then
+        return false, why or "scope_validation_pending"
+    end
+    return true, nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -43,8 +93,8 @@ end
 -- ---------------------------------------------------------------------------
 -- ensure_base(config) -> ok, error?
 -- ---------------------------------------------------------------------------
-function _M.ensure_base(config)
-    local payload = scope_binding.ensure_base_payload(config)
+function _M.ensure_base(config_arg)
+    local payload = scope_binding.ensure_base_payload(config_arg)
     local resp, err = client.request("ensure_base", "automatic", payload)
     if not resp then
         scope_binding.invalidate(err_code(err))
@@ -64,9 +114,9 @@ end
 -- add(set, family, ip, ttl) -> ok, error?
 -- ---------------------------------------------------------------------------
 function _M.add(set, family, ip, ttl)
-    local allowed, why = scope_binding.drop_writes_allowed()
-    if not allowed then
-        return false, why or "scope_validation_pending"
+    local scoped, swhy = ensure_drop_scope()
+    if not scoped then
+        return false, swhy or "scope_validation_pending"
     end
     local resp, err = client.request("add", "automatic", {
         items = {
@@ -79,6 +129,21 @@ function _M.add(set, family, ip, ttl)
         local code = err_code(err)
         if is_scope_err(code) then
             scope_binding.invalidate(code)
+            -- One more rebind+retry after mid-flight invalidation.
+            local rb_ok = _M.rebind_scope()
+            if rb_ok then
+                resp, err = client.request("add", "automatic", {
+                    items = {
+                        { set = set, family = family, ip = ip, ttl = ttl,
+                          source = "automatic", reason = "auto_promotion" },
+                    },
+                    binding = scope_binding.binding_fields(),
+                })
+                if resp and resp.ok then
+                    return true, nil
+                end
+                code = err_code(err or (resp and resp.error))
+            end
         end
         return false, code
     end
@@ -144,11 +209,11 @@ end
 -- Legacy full-snapshot reconcile (non-chunked, for backward compat).
 -- ---------------------------------------------------------------------------
 function _M.reconcile(snapshot)
-    local allowed, why = scope_binding.drop_writes_allowed()
-    if not allowed then
+    local scoped, swhy = ensure_drop_scope()
+    if not scoped then
         return {
             added = 0, updated = 0, removed = 0, preserved = 0, failed = 0,
-            error = why or "scope_validation_pending",
+            error = swhy or "scope_validation_pending",
         }
     end
     local resp, err = client.request("reconcile", "reconcile", {
@@ -181,9 +246,9 @@ end
 -- Remove operations included only when final_chunk=true.
 -- ---------------------------------------------------------------------------
 function _M.chunked_reconcile(chunk)
-    local allowed, why = scope_binding.drop_writes_allowed()
-    if not allowed then
-        return nil, why or "scope_validation_pending"
+    local scoped, swhy = ensure_drop_scope()
+    if not scoped then
+        return nil, swhy or "scope_validation_pending"
     end
     local resp, err = client.request("reconcile", "reconcile", {
         snapshot_id = chunk.snapshot_id,

@@ -54,17 +54,36 @@ local function health_check_transitions(exec)
         return "unreachable"
     end
 
-    -- Protected Scope Binding (Design §8.3.4).
+    -- Protected Scope Binding (Design §8.3.4 / §10.4).
     do
         local ok_sb, sb = pcall(require, "core.kernel_blocking.scope_binding")
         if ok_sb and sb then
             local vok, vreason = sb.validate_health(health)
             if not vok then
-                local page = state_machine.list(0, 500, "installed")
-                for _, e in ipairs(page.entries) do
-                    state_machine.to_scope_validation_pending(e.ip, e.policy)
+                -- Try re-bootstrap before pausing DROP reconcile.
+                local rebound = false
+                if exec.rebind_scope then
+                    local call_ok, ok_rb = pcall(function()
+                        return exec.rebind_scope()
+                    end)
+                    if call_ok and ok_rb and sb.drop_writes_allowed() then
+                        rebound = true
+                    end
+                elseif exec.ensure_base then
+                    local call_ok, ok_eb = pcall(function()
+                        return exec.ensure_base(config.kernel_ip_blocking)
+                    end)
+                    if call_ok and ok_eb and sb.drop_writes_allowed() then
+                        rebound = true
+                    end
                 end
-                return vreason or "scope_validation_pending"
+                if not rebound then
+                    local page = state_machine.list(0, 500, "installed")
+                    for _, e in ipairs(page.entries) do
+                        state_machine.to_scope_validation_pending(e.ip, e.policy)
+                    end
+                    return vreason or "scope_validation_pending"
+                end
             end
         end
     end

@@ -195,6 +195,99 @@ describe("Status facade", function()
         assert.is_false(st.scheduler_leases.batch.held == true)
         assert.is_false(st.scheduler_leases.reconcile.held == true)
     end)
+
+    it("reads last_reconcile from vn_locks", function()
+        local json = require "dkjson"
+        ngx.shared.vn_locks:set("kb:last_reconcile", json.encode({
+            at = 1700000000, to_add = 2, to_remove = 1, dry_run = false,
+        }), 86400)
+        local st = kb.status()
+        assert.truthy(st.last_reconcile)
+        assert.are.equal(2, st.last_reconcile.to_add)
+        assert.are.equal(3, st.counters.drift)
+    end)
+
+    it("get_diff reports missing desired entries", function()
+        mock.ensure_base(mock_config.kernel_ip_blocking)
+        desired.set_desired("198.51.100.77", "ipv4", "scanner_drop", {}, 300, {
+            source = "automatic", policy = "scanner",
+        })
+        local diff = kb.get_diff()
+        assert.truthy(diff.desired_count >= 1)
+        local found = false
+        for _, e in ipairs(diff.missing_in_kernel or {}) do
+            if e.ip == "198.51.100.77" then found = true end
+        end
+        assert.is_true(found)
+    end)
+end)
+
+describe("Lifecycle bucket reset keys", function()
+    before_each(function()
+        ngx.shared.vn_locks:flush_all()
+        mock_config.kernel_ip_blocking.enabled = true
+        mock_config.kernel_ip_blocking.mode = "enforce"
+    end)
+
+    it("reset_buckets clears token_bucket promotion keys", function()
+        local tb = require "core.kernel_blocking.token_bucket"
+        local json = require "dkjson"
+        -- Seed real bucket keys used by token_bucket.
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:enforce:state", json.encode({
+            version = 1, tokens_microunits = 5000000, last_refill_ms = 1,
+            limit = 1000, interval = 60, burst = 1000,
+        }), 0)
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:observe:state", json.encode({
+            version = 1, tokens_microunits = 5000000, last_refill_ms = 1,
+            limit = 1000, interval = 60, burst = 1000,
+        }), 0)
+
+        local old = { kernel_ip_blocking = {
+            enabled = true, mode = "enforce", topology = "direct",
+            scanner = { enabled = true }, cc = { enabled = true, enforce_ready = false, rule_ids = {"r1"} },
+            ipv4 = { enabled = true }, ipv6 = { enabled = false },
+        } }
+        local new = { kernel_ip_blocking = {
+            enabled = false, mode = "enforce", topology = "direct",
+            scanner = { enabled = true }, cc = { enabled = true, enforce_ready = false, rule_ids = {"r1"} },
+            ipv4 = { enabled = true }, ipv6 = { enabled = false },
+        } }
+        lifecycle.on_config_activated(old, new)
+
+        local eraw = ngx.shared.vn_locks:get("kb:promotion_bucket:v1:enforce:state")
+        assert.truthy(eraw)
+        local ok, est = pcall(json.decode, eraw)
+        assert.is_true(ok)
+        assert.are.equal(0, est.tokens_microunits or -1)
+
+        -- Legacy wrong keys must not be the only place reset writes.
+        -- After fix, token_bucket keys are zeroed.
+        local st = tb.enforce_status()
+        assert.are.equal(0, st.tokens or -1)
+    end)
+end)
+
+describe("Scope rebind after disconnect", function()
+    before_each(function()
+        mock.flush_owned("all")
+        ngx.shared.vn_config:flush_all()
+        ngx.shared.vn_locks:flush_all()
+        mock_config.kernel_ip_blocking.enabled = true
+        mock_config.kernel_ip_blocking.mode = "enforce"
+    end)
+
+    it("rebind_scope restores DROP writes after invalidate", function()
+        local sb = require "core.kernel_blocking.scope_binding"
+        mock.ensure_base(mock_config.kernel_ip_blocking)
+        assert.is_true(sb.drop_writes_allowed())
+        sb.on_ipc_disconnect()
+        assert.is_false(sb.drop_writes_allowed())
+        local ok = mock.rebind_scope(mock_config.kernel_ip_blocking)
+        assert.is_true(ok)
+        assert.is_true(sb.drop_writes_allowed())
+        local add_ok = mock.add("scanner_drop", "ipv4", "203.0.113.88", 60)
+        assert.is_true(add_ok)
+    end)
 end)
 
 describe("Scheduler leases", function()

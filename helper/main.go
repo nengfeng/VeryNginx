@@ -494,7 +494,7 @@ func (b *NFTBackend) ensureBaseNFT() error {
 	sb.WriteString("  type filter hook prerouting priority raw; policy accept;\n")
 	sb.WriteString("}\n")
 	// Whitelist has highest priority: RETURN immediately.
-	sb.WriteString("add rule ip verynginx prerouting ip daddr @allow return\n")
+	sb.WriteString("add rule ip verynginx prerouting ip saddr @allow return\n")
 	// DROP rules for each auto/manual set.
 	sb.WriteString("add rule ip verynginx prerouting ip saddr @scanner_drop counter drop\n")
 	sb.WriteString("add rule ip verynginx prerouting ip saddr @cc_drop counter drop\n")
@@ -509,7 +509,7 @@ func (b *NFTBackend) ensureBaseNFT() error {
 	sb.WriteString("add chain ip6 verynginx prerouting {\n")
 	sb.WriteString("  type filter hook prerouting priority raw; policy accept;\n")
 	sb.WriteString("}\n")
-	sb.WriteString("add rule ip6 verynginx prerouting ip6 daddr @allow return\n")
+	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @allow return\n")
 	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @scanner_drop counter drop\n")
 	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @cc_drop counter drop\n")
 	sb.WriteString("add rule ip6 verynginx prerouting ip6 saddr @manual_drop counter drop\n")

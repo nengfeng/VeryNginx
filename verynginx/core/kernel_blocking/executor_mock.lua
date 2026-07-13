@@ -73,6 +73,10 @@ function _M.ensure_base(config)
     return true, nil
 end
 
+function _M.rebind_scope(config)
+    return _M.ensure_base(config)
+end
+
 -- ---------------------------------------------------------------------------
 -- add(set, family, ip, ttl) -> ok, error?
 -- ---------------------------------------------------------------------------

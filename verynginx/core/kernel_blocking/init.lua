@@ -411,6 +411,7 @@ function _M.status(_)
     local epoch, seq = wlg.get_generation()
 
     local last_reconcile = nil
+    local locks = ngx.shared.vn_locks
     if locks then
         local raw = locks:get("kb:last_reconcile")
         if raw then
@@ -539,14 +540,14 @@ end
 
 -- Drift diff: desired vs actual (Design §12.2).
 function _M.get_diff()
-    local desired = {}
+    local desired_map = {}
     local actual = {}
     local cursor = 0
     repeat
-        local page = desired_state.list_desired(cursor, 500)
+        local page = desired.list_desired(cursor, 500)
         for _, e in ipairs(page.entries or {}) do
             local key = (e.list or "") .. ":" .. (e.family or "ipv4") .. ":" .. (e.ip or "")
-            desired[key] = e
+            desired_map[key] = e
         end
         cursor = page.next_cursor
     until not cursor
@@ -570,7 +571,7 @@ function _M.get_diff()
 
     local missing_in_kernel = {}  -- desired but not in kernel
     local orphan_in_kernel = {}   -- in kernel but not desired
-    for key, d in pairs(desired) do
+    for key, d in pairs(desired_map) do
         if not actual[key] then
             missing_in_kernel[#missing_in_kernel + 1] = {
                 ip = d.ip, list = d.list, family = d.family,
@@ -579,7 +580,7 @@ function _M.get_diff()
         end
     end
     for key, a in pairs(actual) do
-        if not desired[key] then
+        if not desired_map[key] then
             orphan_in_kernel[#orphan_in_kernel + 1] = {
                 ip = a.ip, list = a.list, family = a.family,
             }
@@ -589,7 +590,7 @@ function _M.get_diff()
     return {
         missing_in_kernel = missing_in_kernel,
         orphan_in_kernel = orphan_in_kernel,
-        desired_count = desired_state.count_desired(),
+        desired_count = desired.count_desired(),
         actual_count = (function()
             local n = 0
             for _ in pairs(actual) do n = n + 1 end

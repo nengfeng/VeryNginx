@@ -13,8 +13,6 @@ local sm = require "core.kernel_blocking.state_machine"
 
 local LOCKS = "vn_locks"
 local STATE_KEY = "kb:lifecycle:state"
-local OBSERVE_BUCKET_KEY = "kb:observe_bucket:state"
-local ENFORCE_BUCKET_KEY = "kb:enforce_bucket:state"
 
 local function locks()
     return ngx.shared[LOCKS]
@@ -79,11 +77,12 @@ function _M.ensure_initialized()
 end
 
 local function reset_buckets()
-    local s = locks()
-    if not s then return end
-    local empty = json.encode({ tokens = 0, last_refill = ngx.time() * 1000, source = "reconfigured" })
-    s:set(OBSERVE_BUCKET_KEY, empty, 3600)
-    s:set(ENFORCE_BUCKET_KEY, empty, 3600)
+    -- Must use the same keys as token_bucket (Design §6.2 / §10.5).
+    local ok, tb = pcall(require, "core.kernel_blocking.token_bucket")
+    if ok and tb and tb.reset_buckets then
+        tb.reset_buckets()
+        return
+    end
 end
 
 local function mark_auto_preserve(policy, reason)
