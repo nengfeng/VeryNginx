@@ -20,6 +20,7 @@ local desired = require "core.kernel_blocking.desired_state"
 local config = require "core.config"
 local json = require "dkjson"
 local ttl_ladder = require "core.kernel_blocking.ttl_ladder"
+local token_bucket = require "core.kernel_blocking.token_bucket"
 
 local function detect_family(ip)
     if type(ip) == "string" and ip:find(":", 1, true) then
@@ -28,131 +29,9 @@ local function detect_family(ip)
     return "ipv4"
 end
 
--- Virtual promotion bucket (observe-only; separate from enforce bucket).
--- Key: kb:observe_bucket:state  (table with tokens, last_refill)
--- Not persisted to disk.
-local OBSERVE_BUCKET_DICT = "vn_locks"
-local OBSERVE_BUCKET_KEY = "kb:observe_bucket:state"
-
--- Enforce token bucket (consumed when actually installing to kernel).
-local ENFORCE_BUCKET_DICT = "vn_locks"
-local ENFORCE_BUCKET_KEY = "kb:enforce_bucket:state"
-
-local function observe_bucket_shared()
-    return ngx.shared[OBSERVE_BUCKET_DICT]
-end
-
--- Read the virtual observe bucket state.
--- Returns a table (never nil).
-local function read_bucket()
-    local s = observe_bucket_shared()
-    if not s then return { tokens = 0, last_refill = 0 } end
-    local raw = s:get(OBSERVE_BUCKET_KEY)
-    if not raw then return { tokens = 0, last_refill = 0 } end
-    local ok, t = pcall(json.decode, raw)
-    if not ok or type(t) ~= "table" then
-        return { tokens = 0, last_refill = 0 }
-    end
-    return t
-end
-
--- Read the virtual enforce bucket state (used in enforce mode).
-local function read_enforce_bucket()
-    local s = ngx.shared[ENFORCE_BUCKET_DICT]
-    if not s then return { tokens = 0, last_refill = 0 } end
-    local raw = s:get(ENFORCE_BUCKET_KEY)
-    if not raw then return { tokens = 0, last_refill = 0 } end
-    local ok, t = pcall(json.decode, raw)
-    if not ok or type(t) ~= "table" then
-        return { tokens = 0, last_refill = 0 }
-    end
-    return t
-end
-
--- Refill observe-bucket tokens before evaluation round.
--- Uses promotion_rate_limit config (limit, interval, burst).
-local function refill_observe_bucket()
-    local kb_cfg = config.kernel_ip_blocking
-    local rate_cfg = kb_cfg and kb_cfg.promotion_rate_limit
-    if not rate_cfg then return end
-    local now_ms = ngx.time() * 1000  -- millisecond precision
-    local bucket = read_bucket()
-    local burst = rate_cfg.burst or 1000
-    local limit = rate_cfg.limit or 1000
-    local interval = rate_cfg.interval or 60
-    local tokens = bucket.tokens or 0
-    local last_refill = bucket.last_refill or 0
-    local elapsed_ms = now_ms - last_refill
-    if elapsed_ms <= 0 then return end
-    local refill = math.floor(elapsed_ms * limit / (interval * 1000))
-    if refill > 0 then
-        tokens = math.min(tokens + refill, burst)
-        local s = observe_bucket_shared()
-        if s then
-            s:set(OBSERVE_BUCKET_KEY, json.encode({
-                tokens = tokens, last_refill = now_ms,
-            }), 3600)
-        end
-    end
-end
-
--- Refill enforce-bucket tokens (consumed when installing to kernel).
--- Uses same promotion_rate_limit config.
-local function refill_enforce_bucket()
-    local kb_cfg = config.kernel_ip_blocking
-    local rate_cfg = kb_cfg and kb_cfg.promotion_rate_limit
-    if not rate_cfg then return end
-    local now_ms = ngx.time() * 1000
-    local bucket = read_enforce_bucket()
-    local burst = rate_cfg.burst or 1000
-    local limit = rate_cfg.limit or 1000
-    local interval = rate_cfg.interval or 60
-    local tokens = bucket.tokens or 0
-    local last_refill = bucket.last_refill or 0
-    local elapsed_ms = now_ms - last_refill
-    if elapsed_ms <= 0 then return end
-    local refill = math.floor(elapsed_ms * limit / (interval * 1000))
-    if refill > 0 then
-        tokens = math.min(tokens + refill, burst)
-        local s = ngx.shared[ENFORCE_BUCKET_DICT]
-        if s then
-            s:set(ENFORCE_BUCKET_KEY, json.encode({
-                tokens = tokens, last_refill = now_ms,
-            }), 3600)
-        end
-    end
-end
-
--- Consume one enforce token. Returns true if token was available.
--- Uses atomic check-and-decrement semantics via shared dict lock.
-local function consume_enforce_token()
-    local s = ngx.shared[ENFORCE_BUCKET_DICT]
-    if not s then return false end
-    local bucket = read_enforce_bucket()
-    if (bucket.tokens or 0) < 1 then return false end
-    s:set(ENFORCE_BUCKET_KEY, json.encode({
-        tokens = bucket.tokens - 1, last_refill = bucket.last_refill,
-    }), 3600)
-    return true
-end
-
--- Check if this candidate would be observe-rate-limited (virtual bucket).
--- Does NOT consume any token — purely observational for observability metrics.
--- Returns true if no observe token available (i.e. would rate-limit).
-local function would_observe_rate_limit()
-    local rate_cfg = config.kernel_ip_blocking and
-        config.kernel_ip_blocking.promotion_rate_limit
-    if not rate_cfg then return false end
-    local bucket = read_bucket()
-    return (bucket.tokens or 0) < 1
-end
-
--- Check enforce bucket availability (consumes one token).
--- Returns true if token was available and consumed.
-local function would_enforce_rate_limit()
-    local bucket = read_enforce_bucket()
-    return (bucket.tokens or 0) < 1
-end
+-- Token bucket functions are provided by core.kernel_blocking.token_bucket.
+-- This module uses microunits (1 token = 1,000,000 µu) for precision
+-- and supports hot-reload of rate params with burst clamp (Design §6.2).
 
 -- ---------------------------------------------------------------------------
 -- Security gate: returns true if IP is safe to consider for promotion.
@@ -260,12 +139,12 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 		return true
 	end
 
-	-- Consume enforce token only when we will extend desired/kernel state.
+        -- Consume enforce token only when we will extend desired/kernel state.
 	if not plan.extends then
 		-- First-time path should always extend; if not, nothing to do.
 		return true
 	end
-    if not consume_enforce_token() then
+    if not token_bucket.consume_enforce() then
         evidence_tbl.result = "rate_limited"
         sm.upsert(ip, "scanner", "rate_limited", evidence_tbl, {})
         return true
@@ -421,7 +300,7 @@ local function evaluate_scanner_candidates()
         --   observe mode  -> check virtual observe bucket (no consumption)
         --   enforce mode  -> check enforce bucket (consumed in enforce_promote_*)
         local mode = config.kernel_ip_blocking.mode
-        local observe_limited = would_observe_rate_limit()
+        local observe_limited = not token_bucket.observe_has_token()
 
         local ev = {
             strict = strict, loose = loose,
@@ -510,7 +389,7 @@ local function enforce_promote_cc(ip, violation_count)
 	end
 
 	-- Consume enforce token only when extending
-	if not consume_enforce_token() then
+	if not token_bucket.consume_enforce() then
 		sm.upsert(ip, "cc", "rate_limited",
 			{ violation_count = violation_count }, {})
 		return true
@@ -661,7 +540,7 @@ local function evaluate_cc_candidates()
 
         local mode = kb_cfg.mode
         -- CC candidate observability: check virtual observe bucket for "would_rate_limit"
-        local observe_limited = would_observe_rate_limit()
+        local observe_limited = not token_bucket.observe_has_token()
 
         if cc_enforce and violations >= min_windows then
             -- CC enforce: enforce_promote_cc consumes the enforce token
@@ -716,11 +595,11 @@ function _M.process_candidates(now)
     -- Evidence cutoff: only post-transition evidence is eligible.
     -- lifecycle module loaded on demand for evidence enforcement
     pcall(require, "core.kernel_blocking.lifecycle")
-    -- Refill observe-bucket tokens before evaluation round
-    refill_observe_bucket()
+    -- Refill observe-bucket tokens before evaluation round (Design §6.2)
+    token_bucket.refill_observe()
     -- In enforce mode, also refill the enforce bucket
     if config.kernel_ip_blocking.mode == "enforce" then
-        refill_enforce_bucket()
+        token_bucket.refill_enforce()
     end
     _M.evaluate(now)
 end

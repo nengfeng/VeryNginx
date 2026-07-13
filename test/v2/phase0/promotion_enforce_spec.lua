@@ -92,6 +92,14 @@ describe("Enforce promotion", function()
         mock_evidence_data["203.0.113.20"] = 1   -- below threshold
         mock_cc_violations["203.0.113.30"] = 5   -- satisfies min_violation_windows
         mock_cc_violations["203.0.113.40"] = 1   -- below threshold
+        -- Pre-populate enforce bucket with tokens for enforce-mode tests
+        -- (Design §6.2 cold start: tokens_microunits=0, last_refill_ms=now)
+        local tb_json = require("dkjson").encode({
+            version = 1, tokens_microunits = 100000000,  -- 100 tokens
+            last_refill_ms = ngx.time() * 1000,
+            limit = 1000, interval = 60, burst = 1000,
+        })
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:enforce:state", tb_json, 0)
     end)
 
     it("observe mode does NOT install (only logs)", function()
@@ -126,9 +134,13 @@ describe("Enforce promotion", function()
 
     it("enforce mode rate-limited when enforce token empty", function()
         mock_config.kernel_ip_blocking.mode = "enforce"
-        -- Empty enforce bucket: consume_enforce_token() fails → rate_limited.
-        ngx.shared.vn_locks:set("kb:enforce_bucket:state",
-            require("dkjson").encode({ tokens = 0, last_refill = ngx.time() * 1000 }), 3600)
+        -- Empty enforce bucket: consume_enforce() fails → rate_limited.
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:enforce:state",
+            require("dkjson").encode({
+                version = 1, tokens_microunits = 0,
+                last_refill_ms = ngx.time() * 1000,
+                limit = 1000, interval = 60, burst = 1000,
+            }), 0)
         sm.upsert_candidate("203.0.113.10", "scanner", "observed",
             {}, { block_hits = 10, flagged = true })
         promotion.process_candidates(ngx.time())
@@ -139,8 +151,12 @@ describe("Enforce promotion", function()
 
     it("observe mode reports would_rate_limit using virtual observe bucket", function()
         mock_config.kernel_ip_blocking.mode = "observe"
-        ngx.shared.vn_locks:set("kb:observe_bucket:state",
-            require("dkjson").encode({ tokens = 0, last_refill = ngx.time() * 1000 }), 3600)
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:observe:state",
+            require("dkjson").encode({
+                version = 1, tokens_microunits = 0,
+                last_refill_ms = ngx.time() * 1000,
+                limit = 1000, interval = 60, burst = 1000,
+            }), 0)
         sm.upsert_candidate("203.0.113.10", "scanner", "observed",
             {}, { block_hits = 10, flagged = true })
         promotion.process_candidates(ngx.time())
@@ -170,6 +186,13 @@ describe("CC promotion", function()
         mock_config.kernel_ip_blocking.cc.enforce_ready = false
         mock_cc_violations["203.0.113.30"] = 5
         mock_cc_violations["203.0.113.40"] = 1
+        -- Pre-populate enforce bucket with tokens for enforce-mode tests
+        local tb_json = require("dkjson").encode({
+            version = 1, tokens_microunits = 100000000,
+            last_refill_ms = ngx.time() * 1000,
+            limit = 1000, interval = 60, burst = 1000,
+        })
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:enforce:state", tb_json, 0)
     end)
 
     it("observe mode does NOT install CC (only logs)", function()
@@ -238,6 +261,13 @@ describe("Scanner/CC overlap", function()
         mock_cc_violations["203.0.113.50"] = 5
         -- Make is_flagged return true for the overlap test IP
         ir.is_flagged = function(ip) return ip == "203.0.113.10" or ip == "203.0.113.50" end
+        -- Pre-populate enforce bucket with tokens
+        local tb_json = require("dkjson").encode({
+            version = 1, tokens_microunits = 100000000,
+            last_refill_ms = ngx.time() * 1000,
+            limit = 1000, interval = 60, burst = 1000,
+        })
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:enforce:state", tb_json, 0)
     end)
 
     it("CC does not install if IP already in scanner_drop", function()
