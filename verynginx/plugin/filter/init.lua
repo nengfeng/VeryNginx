@@ -198,8 +198,8 @@ function _M.on_access(ctx)
         ip_reputation.clear_pending(ip)
         if config.kernel_ip_blocking and config.kernel_ip_blocking.enabled then
             pcall(function()
-                local evidence = require "core.kernel_blocking.evidence"
-                evidence.record_challenge_fail_evidence(ip)
+                local kb_evidence = require "core.kernel_blocking.evidence"
+                kb_evidence.record_challenge_fail_evidence(ip)
             end)
         end
     end
