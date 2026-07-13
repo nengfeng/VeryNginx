@@ -377,6 +377,11 @@ function _M.reconcile(now)
 end
 
 function _M.status(_)
+    -- Sample bucket history for trend chart (throttled internally).
+    _M.sample_bucket_history()
+    local token_bucket = require "core.kernel_blocking.token_bucket"
+    local enforce_status = token_bucket.enforce_status()
+    local observe_status = token_bucket.observe_status()
     local kb = config.kernel_ip_blocking or {}
     local executor = require "core.kernel_blocking.executor"
     local exec = executor.get_executor()
@@ -401,10 +406,6 @@ function _M.status(_)
         active_auto_entries = active_auto,
         lifecycle = lifecycle.get_state(),
     })
-
-    local token_bucket = require "core.kernel_blocking.token_bucket"
-    local enforce_status = token_bucket.enforce_status()
-    local observe_status = token_bucket.observe_status()
 
     local wlg = require "core.kernel_blocking.whitelist_generation"
     local epoch, seq = wlg.get_generation()
@@ -487,6 +488,112 @@ function _M.status(_)
             local ok, sb = pcall(require, "core.kernel_blocking.scope_binding")
             if ok and sb then return sb.status_view() end
             return { validated = false, reason = "module_missing" }
+        end)(),
+    }
+end
+
+-- Bucket history for trend chart (Design §12.2).
+-- Stores sampled token balance in a circular buffer in vn_locks.
+local BUCKET_HISTORY_KEY = "kb:bucket_history"
+local BUCKET_HISTORY_MAX = 288  -- 24h at 5min intervals
+
+function _M.sample_bucket_history()
+    local locks = ngx.shared.vn_locks
+    if not locks then return end
+    -- Throttle: at most one sample per 5 minutes.
+    local last_raw = locks:get(BUCKET_HISTORY_KEY .. ":last")
+    local now = ngx.time()
+    if last_raw and (now - tonumber(last_raw) or 0) < 300 then return end
+    locks:set(BUCKET_HISTORY_KEY .. ":last", tostring(now), 600)
+
+    local tb = require "core.kernel_blocking.token_bucket"
+    local est = tb.enforce_status()
+    local ost = tb.observe_status()
+    local sample = {
+        t = now,
+        enforce_tokens = est.tokens or 0,
+        observe_tokens = ost.tokens or 0,
+    }
+    local raw = locks:get(BUCKET_HISTORY_KEY)
+    local history = {}
+    if raw then
+        local ok, t = pcall(json.decode, raw)
+        if ok and type(t) == "table" then history = t end
+    end
+    history[#history + 1] = sample
+    while #history > BUCKET_HISTORY_MAX do
+        table.remove(history, 1)
+    end
+    locks:set(BUCKET_HISTORY_KEY, json.encode(history), 0)
+end
+
+function _M.get_bucket_history()
+    local locks = ngx.shared.vn_locks
+    if not locks then return {} end
+    local raw = locks:get(BUCKET_HISTORY_KEY)
+    if not raw then return {} end
+    local ok, t = pcall(json.decode, raw)
+    if ok and type(t) == "table" then return t end
+    return {}
+end
+
+-- Drift diff: desired vs actual (Design §12.2).
+function _M.get_diff()
+    local desired = {}
+    local actual = {}
+    local cursor = 0
+    repeat
+        local page = desired_state.list_desired(cursor, 500)
+        for _, e in ipairs(page.entries or {}) do
+            local key = (e.list or "") .. ":" .. (e.family or "ipv4") .. ":" .. (e.ip or "")
+            desired[key] = e
+        end
+        cursor = page.next_cursor
+    until not cursor
+
+    local exec = require("core.kernel_blocking.executor").get_executor()
+    local DROP_LISTS = { "scanner_drop", "cc_drop", "manual_drop" }
+    local FAMILIES = { "ipv4", "ipv6" }
+    for _, list in ipairs(DROP_LISTS) do
+        for _, family in ipairs(FAMILIES) do
+            local c2 = 0
+            repeat
+                local page = exec.list(list, family, c2)
+                for _, e in ipairs(page.entries or {}) do
+                    local key = list .. ":" .. family .. ":" .. (e.ip or "")
+                    actual[key] = { list = list, family = family, ip = e.ip, ttl = e.TTL }
+                end
+                c2 = page.next_cursor
+            until not c2
+        end
+    end
+
+    local missing_in_kernel = {}  -- desired but not in kernel
+    local orphan_in_kernel = {}   -- in kernel but not desired
+    for key, d in pairs(desired) do
+        if not actual[key] then
+            missing_in_kernel[#missing_in_kernel + 1] = {
+                ip = d.ip, list = d.list, family = d.family,
+                expires_at = d.expires_at, source = d.source,
+            }
+        end
+    end
+    for key, a in pairs(actual) do
+        if not desired[key] then
+            orphan_in_kernel[#orphan_in_kernel + 1] = {
+                ip = a.ip, list = a.list, family = a.family,
+            }
+        end
+    end
+
+    return {
+        missing_in_kernel = missing_in_kernel,
+        orphan_in_kernel = orphan_in_kernel,
+        desired_count = desired_state.count_desired(),
+        actual_count = (function()
+            local n = 0
+            for _ in pairs(actual) do n = n + 1 end
+            return n
         end)(),
     }
 end

@@ -89,6 +89,17 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 @media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}#topnav{padding:0 12px;flex-wrap:wrap;height:auto;padding:8px 12px}#topnav nav{gap:2px}#topnav nav a{padding:6px 10px;font-size:12px}#main{padding:12px}}
 .toast{position:fixed;top:20px;right:20px;z-index:9999;padding:12px 20px;border-radius:8px;color:#fff;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.2);opacity:0;transform:translateY(-10px);transition:all .3s ease;pointer-events:none;max-width:360px}
 .toast.show{opacity:1;transform:translateY(0)}.toast.success{background:var(--success)}.toast.error{background:var(--danger)}.toast.info{background:var(--primary)}
+/* KB Dashboard: per-rule reachability rows (Design §12.2) */
+.kb-rule-row{border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;position:relative}
+.kb-rule-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.kb-rule-id{font-family:ui-monospace,monospace;font-size:12px;font-weight:600;flex:1}
+.kb-rule-bar-wrap{height:6px;background:var(--bg);border-radius:3px;overflow:hidden;margin-bottom:8px}
+.kb-rule-bar{height:100%;background:linear-gradient(90deg,#3b82f6,#10b981);border-radius:3px;transition:width .3s}
+.kb-rule-meta{display:flex;gap:12px;font-size:11px;color:var(--muted);flex-wrap:wrap}
+.kb-rule-reasons{color:var(--warning)}
+.kb-rule-detail{margin-top:8px;padding:8px;background:var(--bg);border-radius:6px}
+.kb-rule-toggle{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px 6px}
+.tag-info{background:#dbeafe;color:#1e40af}
 </style>
 </head>
 <body>
@@ -1377,6 +1388,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <a :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">Installed</a>
           <a :class="{active:kbTab==='candidates'}" @click="kbTab='candidates';loadKbCandidates()">Candidates</a>
           <a :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">Timeline</a>
+          <a :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard'">Dashboard</a>
         </div>
 
         <!-- Filters -->
@@ -1461,6 +1473,117 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             </tbody>
           </table>
         </div>
+
+        <!-- Dashboard (Design §12.2) -->
+        <div v-if="kbTab==='dashboard'">
+          <!-- Bucket balance trend chart -->
+          <div class="card mb-16">
+            <h3 style="font-size:14px;margin-bottom:8px">Promotion bucket balance trend</h3>
+            <div v-if="kbTrendPoints.enforce" style="position:relative">
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:120px;display:block">
+                <defs>
+                  <linearGradient id="enforceGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
+                    <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+                  </linearGradient>
+                  <linearGradient id="observeGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#10b981" stop-opacity="0.2"/>
+                    <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <polygon :points="kbTrendFillObserve" fill="url(#observeGrad)" stroke="none"/>
+                <polygon :points="kbTrendFillEnforce" fill="url(#enforceGrad)" stroke="none"/>
+                <polyline :points="kbTrendPoints.observe" fill="none" stroke="#10b981" stroke-width="0.5"/>
+                <polyline :points="kbTrendPoints.enforce" fill="none" stroke="#3b82f6" stroke-width="0.5"/>
+              </svg>
+              <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:4px">
+                <span><span style="display:inline-block;width:10px;height:3px;background:#3b82f6;vertical-align:middle;margin-right:4px"></span>Enforce</span>
+                <span><span style="display:inline-block;width:10px;height:3px;background:#10b981;vertical-align:middle;margin-right:4px"></span>Observe</span>
+                <span>max {{ kbTrendPoints.max }} tokens</span>
+              </div>
+            </div>
+            <div v-else class="empty">No history data yet (samples every 5 min).</div>
+          </div>
+
+          <!-- Per-rule reachability with visual bars -->
+          <div class="card mb-16" v-if="(kbStatus.cc_rules||[]).length">
+            <h3 style="font-size:14px;margin-bottom:8px">Per-rule reachability</h3>
+            <div v-for="r in kbStatus.cc_rules" :key="r.rule_id" class="kb-rule-row">
+              <div class="kb-rule-head">
+                <span class="kb-rule-id">{{ r.rule_id }}</span>
+                <span :class="r.reference_valid?'tag tag-ok':'tag tag-err'">{{ r.reference_valid ? 'valid' : 'invalid' }}</span>
+                <span :class="r.install_reachable?'tag tag-ok':'tag tag-warn'">{{ r.install_reachable ? 'installable' : 'blocked' }}</span>
+                <span class="tag">{{ r.effective_mode }}</span>
+              </div>
+              <div class="kb-rule-bar-wrap">
+                <div class="kb-rule-bar" :style="{width: r.install_reachable ? '100%' : (r.reference_valid ? '60%' : '20%')}"/>
+              </div>
+              <div class="kb-rule-meta">
+                <span>NS: {{ r.counter_namespace }}</span>
+                <span v-if="r.warmup_until">warmup until {{ formatKbTime(r.warmup_until) }}</span>
+                <span v-if="r.cutover_epoch">epoch {{ r.cutover_epoch }}</span>
+                <span v-if="r.reason_codes && r.reason_codes.length" class="kb-rule-reasons">{{ r.reason_codes.join(', ') }}</span>
+              </div>
+              <!-- Expandable detail -->
+              <div class="kb-rule-detail" v-if="r._expanded">
+                <pre style="font-size:11px;max-height:120px;overflow:auto">{
+                  JSON.stringify({reference_valid:r.reference_valid, counter_namespace:r.counter_namespace,
+                    cutover_epoch:r.cutover_epoch, warmup_until:r.warmup_until, effective_mode:r.effective_mode,
+                    install_reachable:r.install_reachable, reason_codes:r.reason_codes}, null, 2)
+                }</pre>
+              </div>
+              <button class="kb-rule-toggle" @click="r._expanded = !r._expanded">{{ r._expanded ? '▲' : '▼' }}</button>
+            </div>
+          </div>
+
+          <!-- Diff visualization: desired vs actual -->
+          <div class="card mb-16">
+            <h3 style="font-size:14px;margin-bottom:8px">Desired vs Actual drift
+              <span style="font-weight:normal;font-size:12px;color:var(--muted)">
+                ({{ kbDiff.desired_count }} desired / {{ kbDiff.actual_count }} in kernel)
+              </span>
+            </h3>
+            <div v-if="!kbDiff.missing_in_kernel.length && !kbDiff.orphan_in_kernel.length" class="empty" style="color:var(--ok)">
+              In sync — no drift detected.
+            </div>
+            <div v-else>
+              <div v-if="kbDiff.missing_in_kernel.length" style="margin-bottom:12px">
+                <div style="font-size:12px;color:var(--warn);margin-bottom:6px">
+                  ▼ Missing in kernel ({{ kbDiff.missing_in_kernel.length }}) — desired but not installed
+                </div>
+                <table class="data-table">
+                  <thead><tr><th>IP</th><th>Set</th><th>Source</th><th>Expires</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(e, i) in kbDiff.missing_in_kernel" :key="'m'+i">
+                      <td style="font-family:monospace">{{ e.ip }}</td>
+                      <td><span class="tag tag-info">{{ e.list }}</span></td>
+                      <td>{{ e.source || '-' }}</td>
+                      <td style="font-size:12px">{{ formatKbExpiry(e.expires_at) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="kbDiff.orphan_in_kernel.length">
+                <div style="font-size:12px;color:var(--err);margin-bottom:6px">
+                  ▲ Orphan in kernel ({{ kbDiff.orphan_in_kernel.length }}) — installed but not desired
+                </div>
+                <table class="data-table">
+                  <thead><tr><th>IP</th><th>Set</th><th>Family</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(e, i) in kbDiff.orphan_in_kernel" :key="'o'+i">
+                      <td style="font-family:monospace">{{ e.ip }}</td>
+                      <td><span class="tag tag-warn">{{ e.list }}</span></td>
+                      <td>{{ e.family }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
 
         <!-- Detail modal -->
         <div class="modal-overlay" v-if="kbDetail.show" @click.self="kbDetail.show=false">
@@ -1921,6 +2044,8 @@ const app = Vue.createApp({
     const kbEntries = ref([]);
     const kbCandidates = ref([]);
     const kbTimeline = ref([]);
+    const kbBucketHistory = ref([]);
+    const kbDiff = ref({ missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 });
     const kbTab = ref('entries');
     const kbNewIP = ref('');
     const kbNewPolicy = ref('scanner');
@@ -2052,6 +2177,37 @@ const app = Vue.createApp({
 
 
     const s = computed(() => status.value);
+
+    // ---- Bucket trend chart data (Design §12.2) ----
+    const kbTrendPoints = computed(() => {
+      const samples = kbBucketHistory.value;
+      if (samples.length < 2) return { enforce: '', observe: '', max: 1, labels: [] };
+      const max = Math.max(
+        ...samples.map(s => Math.max(s.enforce_tokens || 0, s.observe_tokens || 0)),
+        1
+      );
+      const w = 100 / (samples.length - 1);
+      const toPts = (key) => samples.map((s, i) => {
+        const v = s[key] || 0;
+        return `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`;
+      }).join(' ');
+      const labels = samples.map(s => {
+        const d = new Date(s.t * 1000);
+        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      });
+      return { enforce: toPts('enforce_tokens'), observe: toPts('observe_tokens'), max, labels };
+    });
+
+    const kbTrendFillEnforce = computed(() => {
+      const p = kbTrendPoints.value;
+      if (!p.enforce) return '';
+      return `0,100 ${p.enforce} 100,100`;
+    });
+    const kbTrendFillObserve = computed(() => {
+      const p = kbTrendPoints.value;
+      if (!p.observe) return '';
+      return `0,100 ${p.observe} 100,100`;
+    });
 
     const connLinePoints = computed(() => {
       const pts = connHistory.value;
@@ -3319,6 +3475,8 @@ const app = Vue.createApp({
       if (kbTab.value === 'candidates') await loadKbCandidates();
       else if (kbTab.value === 'timeline') await loadKbTimeline();
       else await loadKbEntries();
+      await loadKbBucketHistory();
+      await loadKbDiff();
     }
 
     async function loadKbEntries(cursor) {
@@ -3373,6 +3531,20 @@ const app = Vue.createApp({
           kbError.value = d.message || 'Failed to load timeline';
         }
       } catch (e) { kbError.value = e.message; }
+    }
+
+    async function loadKbBucketHistory() {
+      try {
+        const d = await api('GET', '/verynginx/kernel-blocking/bucket-history');
+        if (d.ret === 'success') kbBucketHistory.value = d.data.samples || [];
+      } catch (e) { /* non-critical */ }
+    }
+
+    async function loadKbDiff() {
+      try {
+        const d = await api('GET', '/verynginx/kernel-blocking/diff');
+        if (d.ret === 'success') kbDiff.value = d.data || kbDiff.value;
+      } catch (e) { /* non-critical */ }
     }
 
     async function kbSaveSettings() {
@@ -3885,10 +4057,12 @@ const app = Vue.createApp({
       auditEntries, auditError, auditActionClass, loadAudit, clearAuditFilters,
       auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil,
       // Kernel Blocking
-      kbStatus, kbEntries, kbCandidates, kbTimeline, kbTab, kbNewIP, kbNewPolicy, kbNewTTL, kbError, kbBusy,
+      kbStatus, kbEntries, kbCandidates, kbTimeline, kbBucketHistory, kbDiff, kbTab,
+      kbNewIP, kbNewPolicy, kbNewTTL, kbError, kbBusy,
       kbEntriesNext, kbCandidatesNext, kbFilterPolicy, kbFilterState, kbFilterIP,
       kbForm, kbDetail, kbDetailJson, kbReasonItems, kbChecklist,
       kbEffMode, kbEffReachable, formatKbTime, formatKbExpiry, kbEvidenceSummary,
+      kbTrendPoints, kbTrendFillEnforce, kbTrendFillObserve,
       kbOpenDetail, kbReloadList, kbSaveSettings, loadKbTimeline,
       loadKbData, loadKbEntries, loadKbCandidates,
       kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,

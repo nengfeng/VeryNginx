@@ -104,8 +104,8 @@ describe("Kernel blocking controller", function()
         ngx.var.state = nil
     end)
 
-    it("registers 8 routes", function()
-        assert.are.equal(8, #api.routes)
+    it("registers 10 routes", function()
+        assert.are.equal(10, #api.routes)
     end)
 
     it("GET /kernel-blocking/status returns config and counters", function()

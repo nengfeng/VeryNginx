@@ -347,6 +347,26 @@ local function handle_reconcile()
 end
 
 -- ---------------------------------------------------------------------------
+-- GET /kernel-blocking/bucket-history
+-- Returns sampled token balance history for trend chart (Design §12.2).
+-- ---------------------------------------------------------------------------
+local function handle_bucket_history()
+    local kb = require "core.kernel_blocking.init"
+    local history = kb.get_bucket_history()
+    return json.encode({ ret = "success", data = { samples = history } })
+end
+
+-- ---------------------------------------------------------------------------
+-- GET /kernel-blocking/diff
+-- Returns desired-vs-actual drift for diff visualization (Design §12.2).
+-- ---------------------------------------------------------------------------
+local function handle_diff()
+    local kb = require "core.kernel_blocking.init"
+    local diff = kb.get_diff()
+    return json.encode({ ret = "success", data = diff })
+end
+
+-- ---------------------------------------------------------------------------
 -- Route registration
 -- ---------------------------------------------------------------------------
 function _M.register(api)
@@ -358,6 +378,8 @@ function _M.register(api)
     api.register("POST", "/kernel-blocking/pause", handle_pause)
     api.register("POST", "/kernel-blocking/flush-auto", handle_flush_auto)
     api.register("POST", "/kernel-blocking/reconcile", handle_reconcile)
+    api.register("GET", "/kernel-blocking/bucket-history", handle_bucket_history)
+    api.register("GET", "/kernel-blocking/diff", handle_diff)
 end
 
 return _M
