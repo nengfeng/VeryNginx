@@ -10,9 +10,15 @@ RUN apt-get update && apt-get install -y \
     procps \
     python3 \
     nftables \
-    golang-go \
     curl \
+    ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.21+ (Design §11 helper requirement; go:build syntax needs Go 1.17+)
+RUN wget -q https://go.dev/dl/go1.21.13.linux-amd64.tar.gz -O /tmp/go.tar.gz \
+  && tar -C /usr/local -xzf /tmp/go.tar.gz \
+  && rm /tmp/go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 RUN groupadd -r nginx && useradd -r -g nginx nginx
 
