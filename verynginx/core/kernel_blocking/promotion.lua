@@ -124,6 +124,7 @@ local function refill_enforce_bucket()
 end
 
 -- Consume one enforce token. Returns true if token was available.
+-- Uses atomic check-and-decrement semantics via shared dict lock.
 local function consume_enforce_token()
     local s = ngx.shared[ENFORCE_BUCKET_DICT]
     if not s then return false end
@@ -135,13 +136,21 @@ local function consume_enforce_token()
     return true
 end
 
--- Check if this candidate would be observe-rate-limited.
--- Returns true if no token available.
+-- Check if this candidate would be observe-rate-limited (virtual bucket).
+-- Does NOT consume any token — purely observational for observability metrics.
+-- Returns true if no observe token available (i.e. would rate-limit).
 local function would_observe_rate_limit()
     local rate_cfg = config.kernel_ip_blocking and
         config.kernel_ip_blocking.promotion_rate_limit
     if not rate_cfg then return false end
     local bucket = read_bucket()
+    return (bucket.tokens or 0) < 1
+end
+
+-- Check enforce bucket availability (consumes one token).
+-- Returns true if token was available and consumed.
+local function would_enforce_rate_limit()
+    local bucket = read_enforce_bucket()
     return (bucket.tokens or 0) < 1
 end
 
@@ -408,10 +417,11 @@ local function evaluate_scanner_candidates()
             config.kernel_ip_blocking.scanner.min_hard_blocks) or 3
         local strict = flagged and (block_hits >= min_hard)
 
-        -- Observe: check rate limit
-        local rate_limited = would_observe_rate_limit()
-
+        -- Rate-limit gate:
+        --   observe mode  -> check virtual observe bucket (no consumption)
+        --   enforce mode  -> check enforce bucket (consumed in enforce_promote_*)
         local mode = config.kernel_ip_blocking.mode
+        local observe_limited = would_observe_rate_limit()
 
         local ev = {
             strict = strict, loose = loose,
@@ -419,12 +429,10 @@ local function evaluate_scanner_candidates()
         }
 
         if mode == "enforce" then
-            -- Enforce mode: install or stepped-renew when still strict
-            if strict and not rate_limited then
+            -- Enforce mode: install when strict. enforce_promote_scanner
+            -- consumes the enforce token; if bucket empty, marks rate_limited.
+            if strict then
                 enforce_promote_scanner(ip, block_hits, flagged)
-            elseif strict and rate_limited then
-                ev.result = "would_rate_limit"
-                sm.upsert(ip, "scanner", "candidate", ev, {})
             else
                 -- Keep installed entries as-is when evidence cooled off.
                 local cur = sm.get_policy(ip, "scanner")
@@ -434,11 +442,11 @@ local function evaluate_scanner_candidates()
                 end
             end
         else
-            -- Observe mode (default): log only
-            if strict and not rate_limited then
+            -- Observe mode (default): log only, using virtual observe bucket.
+            if strict and not observe_limited then
                 ev.result = "would_promote"
                 sm.upsert(ip, "scanner", "candidate", ev, {})
-            elseif strict and rate_limited then
+            elseif strict and observe_limited then
                 ev.result = "would_rate_limit"
                 sm.upsert(ip, "scanner", "candidate", ev, {})
             else
@@ -648,18 +656,24 @@ local function evaluate_cc_candidates()
 			end
 		end
 
-		-- Count violation windows
-		local violations = evidence.count_cc_violations(ip, rule_window, min_windows + 2)
+        -- Count violation windows
+        local violations = evidence.count_cc_violations(ip, rule_window, min_windows + 2)
 
-		local mode = kb_cfg.mode
-		local rate_limited = would_observe_rate_limit()
+        local mode = kb_cfg.mode
+        -- CC candidate observability: check virtual observe bucket for "would_rate_limit"
+        local observe_limited = would_observe_rate_limit()
 
-		if cc_enforce and violations >= min_windows and not rate_limited then
-			enforce_promote_cc(ip, violations)
-		elseif cc_enforce and violations >= min_windows and rate_limited then
-			sm.upsert(ip, "cc", "candidate",
-				{ violation_count = violations, result = "would_rate_limit" }, {})
-		else
+        if cc_enforce and violations >= min_windows then
+            -- CC enforce: enforce_promote_cc consumes the enforce token
+            enforce_promote_cc(ip, violations)
+        elseif violations >= min_windows and not observe_limited then
+            -- Observe: candidate would promote if enforce_ready were true
+            sm.upsert(ip, "cc", "candidate",
+                { violation_count = violations, result = "would_promote" }, {})
+        elseif violations >= min_windows and observe_limited then
+            sm.upsert(ip, "cc", "candidate",
+                { violation_count = violations, result = "would_rate_limit" }, {})
+        else
 			local cur = sm.get_policy(ip, "cc")
 			if not (cur and cur.state == "installed") then
 				local result_str = "would_not_promote"

@@ -124,8 +124,21 @@ describe("Enforce promotion", function()
         assert.are.equal("paused", e.evidence.result)
     end)
 
-    it("enforce mode rate-limited when observe token empty", function()
+    it("enforce mode rate-limited when enforce token empty", function()
         mock_config.kernel_ip_blocking.mode = "enforce"
+        -- Empty enforce bucket: consume_enforce_token() fails → rate_limited.
+        ngx.shared.vn_locks:set("kb:enforce_bucket:state",
+            require("dkjson").encode({ tokens = 0, last_refill = ngx.time() * 1000 }), 3600)
+        sm.upsert_candidate("203.0.113.10", "scanner", "observed",
+            {}, { block_hits = 10, flagged = true })
+        promotion.process_candidates(ngx.time())
+        local e = sm.get("203.0.113.10")
+        assert.are.equal("rate_limited", e.state)
+        assert.are.equal("rate_limited", e.evidence.result)
+    end)
+
+    it("observe mode reports would_rate_limit using virtual observe bucket", function()
+        mock_config.kernel_ip_blocking.mode = "observe"
         ngx.shared.vn_locks:set("kb:observe_bucket:state",
             require("dkjson").encode({ tokens = 0, last_refill = ngx.time() * 1000 }), 3600)
         sm.upsert_candidate("203.0.113.10", "scanner", "observed",
