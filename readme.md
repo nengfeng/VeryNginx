@@ -43,7 +43,7 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **Canary deployment** — initial short TTL (60s scanner / 30s CC) with automatic escalation to full TTL on high-confidence signals
 - **Emergency break-glass** — pause/resume promotion, flush auto-owned entries, manual IP block/clear
 - **Fail-open design** — any Helper error preserves existing Lua WAF; no single point of failure
-- **Dashboard + API** — full management UI tab and 8 REST endpoints (`/kernel-blocking/status`, `/entries`, `/candidates`, `/promote`, `/clear`, `/pause`, `/flush-auto`, `/reconcile`)
+- **Dashboard + API** — full management UI tab and 10 REST endpoints (`/kernel-blocking/status`, `/entries`, `/candidates`, `/promote`, `/clear`, `/pause`, `/flush-auto`, `/reconcile`, `/bucket-history`, `/diff`)
 - **Auto whitelist sync** — static + auto-whitelist pushed to Helper via generation-qualified cache
 
 ### Management
@@ -127,6 +127,8 @@ All other Nginx workers detect the change via MD5 hash in shared memory (zero fi
 | [Installation Guide](docs/INSTALL_zh.md) | install.py, manual Nginx, Docker, and post-install setup |
 | [Usage Manual](docs/USAGE_zh.md) | matchers, rules, upstreams, plugins, statistics, security, dashboard features |
 | [Architecture Design](docs/DESIGN_V2.md) | v2 design: plugin system, config management, request lifecycle |
+| [Kernel IP Blocking Design](docs/KERNEL_IP_BLOCKING_DESIGN.md) | kernel-level IP blocking: promotion policy, nftables execution, IPC protocol |
+| [Kernel IP Blocking Plan](docs/KERNEL_IP_BLOCKING_IMPL_PLAN.md) | implementation phases: evidence, observe, shadow, canary, install |
 | [IP Reputation Tuning](docs/IP_REPUTATION_TUNING_GUIDE.md) | production tuning: thresholds, false positive troubleshooting, pending TTL coordination |
 | [WAF API Reference](docs/WAF_API.md) | REST API for rule management, testing, statistics, and analytics |
 

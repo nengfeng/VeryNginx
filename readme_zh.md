@@ -43,7 +43,7 @@
 - **金丝雀部署** — 初始短 TTL（扫描器 60s / CC 30s），高置信信号自动升级到完整 TTL
 - **紧急操作** — 暂停/恢复晋升、清空自动集合、手动 IP 封禁/解封
 - **Fail-open 设计** — 任何 Helper 故障不影响现有 Lua WAF
-- **Dashboard + API** — 完整管理面板和 8 个 REST 接口（`/kernel-blocking/status`、`/entries`、`/candidates`、`/promote`、`/clear`、`/pause`、`/flush-auto`、`/reconcile`）
+- **Dashboard + API** — 完整管理面板和 10 个 REST 接口（`/kernel-blocking/status`、`/entries`、`/candidates`、`/promote`、`/clear`、`/pause`、`/flush-auto`、`/reconcile`、`/bucket-history`、`/diff`）
 - **白名单自动同步** — 静态 + 自动白名单通过 generation-qualified 缓存推送到 Helper
 
 ### 管理
@@ -127,6 +127,8 @@ docker run -d --name=verynginx -p 8080:80 verynginx
 | [安装手册](docs/INSTALL_zh.md) | install.py 一键安装、手动 Nginx 编译、Docker、安装后配置 |
 | [使用手册](docs/USAGE_zh.md) | 匹配器、规则、上游配置、插件系统、统计、安全、Dashboard 功能 |
 | [架构设计](docs/DESIGN_V2.md) | v2 设计文档：插件系统、配置管理、请求生命周期 |
+| [内核 IP 拦截设计](docs/KERNEL_IP_BLOCKING_DESIGN.md) | 内核层 IP 拦截：晋升策略、nftables 执行、IPC 协议 |
+| [内核 IP 拦截实施计划](docs/KERNEL_IP_BLOCKING_IMPL_PLAN.md) | 实施阶段：证据采集、observe、影子同步、金丝雀、安装集成 |
 | [IP 信誉调优](docs/IP_REPUTATION_TUNING_GUIDE.md) | 生产调优：阈值推荐、误报排查、pending TTL 协同 |
 | [WAF API 参考](docs/WAF_API.md) | 规则管理、测试、统计、分析的 REST API |
 

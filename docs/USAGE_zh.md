@@ -722,6 +722,8 @@ Dashboard → **Kernel Block** 菜单：
 | POST | `/kernel-blocking/pause` body: `{paused: bool}` | 暂停/恢复晋升 |
 | POST | `/kernel-blocking/flush-auto` | 清空自动集合 |
 | POST | `/kernel-blocking/reconcile` | 手动触发同步 |
+| GET | `/kernel-blocking/bucket-history` | 令牌桶余额历史（5 分钟采样） |
+| GET | `/kernel-blocking/diff` | 期望 vs 实际状态差异 |
 
 所有 mutating API 继承现有中间件（Auth / CSRF / Rate Limit / Idempotency-Key / Audit）。
 
