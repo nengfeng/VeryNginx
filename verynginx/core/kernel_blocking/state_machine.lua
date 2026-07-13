@@ -47,8 +47,17 @@ local CANDIDATE_KEY_PREFIX = "kb:candidate:"
 local INDEX_KEY = "kb:candidate_index"
 local INDEX_TTL = 7 * 86400  -- 7-day TTL on candidate entries
 local MAX_CANDIDATES = 10000  -- bounded index size
-local COMPACT_INTERVAL = 300  -- seconds between index compactions
 
+local function shared()
+    return ngx.shared[CANDIDATE_DICT]
+end
+
+-- Build composite key from IP and policy.
+local function entry_key(ip, policy)
+    return CANDIDATE_KEY_PREFIX .. ip .. ":" .. policy
+end
+
+local COMPACT_INTERVAL = 300  -- seconds between index compactions
 local _last_compact = 0
 
 local function compact_index()
@@ -73,15 +82,6 @@ local function compact_index()
     if #kept < #idx then
         s:set(INDEX_KEY, json.encode(kept), INDEX_TTL)
     end
-end
-
-local function shared()
-    return ngx.shared[CANDIDATE_DICT]
-end
-
--- Build composite key from IP and policy.
-local function entry_key(ip, policy)
-    return CANDIDATE_KEY_PREFIX .. ip .. ":" .. policy
 end
 
 -- ---------------------------------------------------------------------------
