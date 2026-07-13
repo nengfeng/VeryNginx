@@ -239,6 +239,13 @@ describe("Promotion writes desired_state", function()
         mock_config.kernel_ip_blocking.scanner = {
             enabled = true, min_hard_blocks = 3, max_ttl = 86400,
         }
+        -- Pre-populate enforce bucket with tokens (Design §6.2)
+        local tb_json = require("dkjson").encode({
+            version = 1, tokens_microunits = 100000000,
+            last_refill_ms = ngx.time() * 1000,
+            limit = 1000, interval = 60, burst = 1000,
+        })
+        ngx.shared.vn_locks:set("kb:promotion_bucket:v1:enforce:state", tb_json, 0)
     end)
 
     it("enforce promotion installs and records desired entry", function()

@@ -37,6 +37,14 @@ local socket_requests = 0   -- requests on current connection
 local socket_born = nil     -- ngx.time() when current connection was made
 local partial_buffer = ""    -- leftover bytes from reads
 
+-- Reconnect backoff state (Design §8.3.1).
+-- Exponential backoff with jitter: initial 100ms, max 5s.
+local backoff_interval = 0.1   -- current backoff in seconds
+local BACKOFF_INITIAL = 0.1
+local BACKOFF_MAX = 5.0
+local BACKOFF_JITTER = 0.3  -- ±30% jitter
+local last_connect_fail = 0   -- ngx.time() of last failed connect
+
 local function get_socket_path()
     local cfg = config.kernel_ip_blocking
     local path = cfg and cfg.helper_socket
@@ -68,6 +76,9 @@ local function close_socket()
         local sb = require "core.kernel_blocking.scope_binding"
         sb.on_ipc_disconnect()
     end)
+    -- Reset backoff on explicit close (not a failure).
+    backoff_interval = BACKOFF_INITIAL
+    last_connect_fail = 0
 end
 
 -- ---------------------------------------------------------------------------
@@ -101,6 +112,7 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Ensure connection is alive, open new one if needed.
+-- Design §8.3.1: exponential backoff with jitter on reconnect.
 -- ---------------------------------------------------------------------------
 local function ensure_connected()
     if socket then
@@ -117,10 +129,26 @@ local function ensure_connected()
         end
     end
     if not socket then
+        -- Enforce backoff before reconnect attempt.
+        if last_connect_fail > 0 then
+            local elapsed = ngx.time() - last_connect_fail
+            if elapsed < backoff_interval then
+                local sleep_time = backoff_interval - elapsed
+                ngx.sleep(sleep_time)
+            end
+        end
+        last_connect_fail = ngx.time()
         local ok, err = open_socket()
         if not ok then
+            -- Increase backoff for next attempt (exponential with jitter).
+            backoff_interval = math.min(backoff_interval * 2, BACKOFF_MAX)
+            local jitter = 1.0 + (BACKOFF_JITTER * (math.random() * 2 - 1))
+            backoff_interval = math.min(backoff_interval * jitter, BACKOFF_MAX)
             return false, err
         end
+        -- Success: reset backoff.
+        backoff_interval = BACKOFF_INITIAL
+        last_connect_fail = 0
     end
     return true, nil
 end

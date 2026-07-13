@@ -33,18 +33,90 @@ local function normalize_ipv4(ip)
     return string.format("%d.%d.%d.%d", tonumber(a), tonumber(b), tonumber(c), tonumber(d))
 end
 
--- Normalize an IPv6 address: lowercase, full expansion then compression.
--- NOTE (Phase 0): ipv6.enabled defaults to false so this simplified
--- implementation (lowercase only) is acceptable. Before enabling IPv6
--- in production, replace with a full RFC 5952 compressor (expand to
--- 8 groups, compress longest zero run, lowercase) so ::1 and
--- 0:0:0:0:0:0:0:1 are treated as equivalent.
+-- Normalize an IPv6 address per RFC 5952: expand to 8 groups, compress
+-- longest zero run, lowercase. Handles IPv4-mapped IPv6 (::ffff:x.x.x.x)
+-- by converting to pure IPv4 when possible.
 local function normalize_ipv6(ip)
     if not ip then return "unknown" end
     ip = ip:lower()
-    -- Replace longest run of ":0:0:..." with "::"
-    -- Simple approach: return lowercase
-    return ip
+
+    -- Strip zone identifier (e.g., "%eth0")
+    ip = ip:gsub("%%.*$", "")
+
+    -- Handle IPv4-mapped IPv6: ::ffff:a.b.c.d => a.b.c.d
+    local ipv4 = ip:match("^::ffff:(%d+%.%d+%.%d+%.%d+)$")
+    if ipv4 then return ipv4 end
+
+    -- Expand :: to full 8-group form.
+    local prefix, suffix = ip:match("^(.*)::(.*)$")
+    if prefix then
+        local head = prefix ~= "" and prefix or ""
+        local tail = suffix ~= "" and suffix or ""
+        local head_parts = {}
+        for p in head:gmatch("[^:]+") do head_parts[#head_parts + 1] = p end
+        local tail_parts = {}
+        for p in tail:gmatch("[^:]+") do tail_parts[#tail_parts + 1] = p end
+        local missing = 8 - #head_parts - #tail_parts
+        local groups = {}
+        for _, p in ipairs(head_parts) do groups[#groups + 1] = p end
+        for _ = 1, missing do groups[#groups + 1] = "0" end
+        for _, p in ipairs(tail_parts) do groups[#groups + 1] = p end
+        ip = table.concat(groups, ":")
+    end
+
+    -- Parse and zero-pad each group to 4 hex digits, track longest zero run.
+    local groups = {}
+    for part in ip:gmatch("[^:]+") do
+        -- Pad with leading zeros to 4 digits
+        groups[#groups + 1] = string.rep("0", 4 - #part) .. part
+    end
+
+    -- Helper: strip leading zeros (RFC 5952 §4.1): 0000 -> "0", 0001 -> "1".
+    local function strip(g)
+        local s = g:gsub("^0+", "")
+        return s == "" and "0" or s
+    end
+
+    -- RFC 5952: compress the longest run of all-zero groups with "::".
+    -- If tied, compress the leftmost.
+    local best_start, best_len = 0, 0
+    local cur_start, cur_len = 0, 0
+    for i, g in ipairs(groups) do
+        if g == "0000" then
+            if cur_len == 0 then cur_start = i end
+            cur_len = cur_len + 1
+            if cur_len > best_len then
+                best_start = cur_start
+                best_len = cur_len
+            end
+        else
+            cur_len = 0
+        end
+    end
+
+    -- Build result: replace longest zero run with "::" (or ":" edges).
+    if best_len >= 2 then
+        local before = {}
+        for i = 1, best_start - 1 do before[#before + 1] = strip(groups[i]) end
+        local after = {}
+        for i = best_start + best_len, #groups do after[#after + 1] = strip(groups[i]) end
+        if #before == 0 and #after == 0 then
+            return "::"
+        elseif #before == 0 then
+            return "::" .. table.concat(after, ":")
+        elseif #after == 0 then
+            return table.concat(before, ":") .. "::"
+        else
+            return table.concat(before, ":") .. "::" .. table.concat(after, ":")
+        end
+    end
+
+    -- No compressible run (single 0000 groups become "0").
+    local out = {}
+    for _, g in ipairs(groups) do
+        out[#out + 1] = strip(g)
+    end
+    return table.concat(out, ":")
 end
 
 function _M.canonical_ip(ip)

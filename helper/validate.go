@@ -201,10 +201,16 @@ func newConnReplay() *connReplay {
 }
 
 // checkAndRemember returns true if request_id is a replay (already seen).
+// Checks both per-connection cache and global LRU+TTL cache (Design §8.3.5).
 func (c *connReplay) checkAndRemember(id string) bool {
 	if id == "" {
 		return false
 	}
+	// Global cache: cross-connection dedup with TTL.
+	if globalIdemCache.checkAndRemember(id) {
+		return true
+	}
+	// Per-connection cache: fast path for the common case.
 	if _, ok := c.seen[id]; ok {
 		return true
 	}

@@ -750,6 +750,62 @@ type reconcileChunk struct {
 	Binding           map[string]interface{} `json:"binding"`
 }
 
+// idemCache is a bounded LRU+TTL cache for mutating request IDs (Design §8.3.5).
+// Global across all connections. Capacity: 10000 entries, TTL: 10 minutes.
+type idemCache struct {
+	mu      sync.Mutex
+	entries map[string]time.Time
+	order   []string // LRU order: oldest first
+	maxSize int
+	ttl     time.Duration
+}
+
+var globalIdemCache = &idemCache{
+	entries: map[string]time.Time{},
+	order:   make([]string, 0, 10000),
+	maxSize: 10000,
+	ttl:     10 * time.Minute,
+}
+
+func (c *idemCache) checkAndRemember(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Evict expired entries.
+	now := time.Now()
+	c.evictExpired(now)
+
+	if _, exists := c.entries[key]; exists {
+		return true
+	}
+
+	// Add new entry.
+	c.entries[key] = now
+	c.order = append(c.order, key)
+
+	// Evict oldest if over capacity.
+	for len(c.order) > c.maxSize {
+		oldest := c.order[0]
+		c.order = c.order[1:]
+		delete(c.entries, oldest)
+	}
+
+	return false
+}
+
+func (c *idemCache) evictExpired(now time.Time) {
+	cutoff := now.Add(-c.ttl)
+	var valid []string
+	for _, key := range c.order {
+		if ts, ok := c.entries[key]; ok && ts.After(cutoff) {
+			valid = append(valid, key)
+		} else {
+			delete(c.entries, key)
+		}
+	}
+	c.order = valid
+}
+
 // snapshotState tracks an in-progress chunked reconcile on the Helper side.
 type snapshotState struct {
 	id               string
