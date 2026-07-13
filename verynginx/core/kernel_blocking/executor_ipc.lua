@@ -40,7 +40,7 @@ function _M.rebind_scope(cfg)
         return false, "scope_rebind_busy"
     end
     rebind_inflight = true
-    local ok, err = false, "rebind_failed"
+    local ok, err
     local call_ok, a, b = pcall(function()
         return _M.ensure_base(cfg or config.kernel_ip_blocking)
     end)

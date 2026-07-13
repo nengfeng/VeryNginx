@@ -170,7 +170,7 @@ end
 -- Pass 1: collect to_add and to_remove without mutating kernel.
 -- Returns { to_add, to_update, to_remove } in desired-entry format.
 -- ---------------------------------------------------------------------------
-local function collect_drift(exec, all_desired, enforce, now)
+local function collect_drift(exec, all_desired, enforce, _now)
     local result = {
         to_add = {},
         to_update = {},
@@ -237,7 +237,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Pass 2 (enforce): apply chunked writes via executor.
 -- ---------------------------------------------------------------------------
-local function apply_chunked(exec, drift, now, kb_cfg, result)
+local function apply_chunked(exec, drift, _now, kb_cfg, result)
     local desired_gen = kb_cfg._desired_generation or 0
     local policy_gens = kb_cfg._policy_generations or {}
 

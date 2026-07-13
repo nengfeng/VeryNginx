@@ -23,7 +23,7 @@ local config = require "core.config"
 local CONNECT_TIMEOUT = 100
 local READ_TIMEOUT    = 2000
 local WRITE_TIMEOUT   = 2000
-local IDLE_TIMEOUT    = 5000
+-- local IDLE_TIMEOUT = 5000  -- reserved for future idle-purpose logic
 
 -- Connection lifecycle limits
 local MAX_REQUESTS_PER_CONN = 100
@@ -208,13 +208,13 @@ function _M.request(operation, source, payload)
                 if envelope.ok then
                     return envelope, nil
                 else
-                    local err = envelope.error
-                    if type(err) == "table" then
-                        err = err.code or err.message or "unknown_error"
-                    elseif type(err) ~= "string" or err == "" then
-                        err = "unknown_error"
+                    local ecode = envelope.error
+                    if type(ecode) == "table" then
+                        ecode = ecode.code or ecode.message or "unknown_error"
+                    elseif type(ecode) ~= "string" or ecode == "" then
+                        ecode = "unknown_error"
                     end
-                    return nil, err
+                    return nil, ecode
                 end
             elseif frame_err == "incomplete" then
                 ngx.sleep(0.001)  -- brief pause before next read attempt

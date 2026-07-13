@@ -9,8 +9,6 @@
 
 local _M = {}
 
-local json = require "dkjson"
-
 local DEFAULT_CHUNK_SIZE = 500
 
 local function gen_id()

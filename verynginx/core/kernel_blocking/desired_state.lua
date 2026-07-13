@@ -226,7 +226,7 @@ function _M.count_by_list(list)
     local prefix = DESIRED_STATE_PREFIX
     for _, key in ipairs(index_read()) do
         -- key: kb:desired:<family>:<list>:<ip>
-        local fam, lst = key:match("^" .. prefix .. "([^:]+):([^:]+):")
+        local _, lst = key:match("^" .. prefix .. "([^:]+):([^:]+):")
         if lst == list and s:get(key) then
             n = n + 1
         end

@@ -83,7 +83,7 @@ end
 function _M.add(set, family, ip, ttl)
     local ok, sb = pcall(require, "core.kernel_blocking.scope_binding")
     if ok and sb then
-        local allowed, why = sb.drop_writes_allowed()
+        local allowed, _ = sb.drop_writes_allowed()
         if not allowed then
             -- Auto-bootstrap mock binding for unit tests that skip ensure_base.
             local payload = sb.ensure_base_payload()
@@ -94,9 +94,9 @@ function _M.add(set, family, ip, ttl)
                 table_generation = 1,
                 local_address_digest = "mock-local",
             }, payload.scope_digest, payload.activation_generation)
-            allowed, why = sb.drop_writes_allowed()
-            if not allowed then
-                return false, why or "scope_validation_pending"
+            local allowed2, why2 = sb.drop_writes_allowed()
+            if not allowed2 then
+                return false, why2 or "scope_validation_pending"
             end
         end
     end

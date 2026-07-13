@@ -18,7 +18,6 @@ local sm = require "core.kernel_blocking.state_machine"
 local evidence = require "core.kernel_blocking.evidence"
 local desired = require "core.kernel_blocking.desired_state"
 local config = require "core.config"
-local json = require "dkjson"
 local ttl_ladder = require "core.kernel_blocking.ttl_ladder"
 local token_bucket = require "core.kernel_blocking.token_bucket"
 
@@ -109,7 +108,7 @@ local function capacity_available(list)
     else
         limit = tonumber(max_entries.manual) or 10000
     end
-    local n = 0
+    local n
     if desired.count_by_list then
         n = desired.count_by_list(list)
     else
