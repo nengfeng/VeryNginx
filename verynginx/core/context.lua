@@ -8,17 +8,6 @@ local _M = {}
 local config = require "core.config"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
-local ctx_methods = {
-    get_body_args = _M.get_body_args,
-    get_uri_args = _M.get_uri_args,
-    set_action = _M.set_action,
-    has_decision = _M.has_decision,
-    clear_action = _M.clear_action,
-    set_data = _M.set_data,
-    get_data = _M.get_data,
-}
-local ctx_mt = { __index = ctx_methods }
-
 --- Create a new request context (metatable-based to avoid per-request closures).
 function _M.new()
     return setmetatable({
@@ -166,5 +155,16 @@ function _M.get_safe_host(_)
     end
     return ngx.var.host
 end
+
+local ctx_methods = {
+    get_body_args = _M.get_body_args,
+    get_uri_args = _M.get_uri_args,
+    set_action = _M.set_action,
+    has_decision = _M.has_decision,
+    clear_action = _M.clear_action,
+    set_data = _M.set_data,
+    get_data = _M.get_data,
+}
+ctx_mt = { __index = ctx_methods }
 
 return _M

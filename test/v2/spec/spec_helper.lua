@@ -46,6 +46,8 @@ function ngx.req.get_uri_args()    return {} end
 function ngx.req.set_uri()         end
 function ngx.req.get_headers()     return {} end
 
+ngx.ctx = {}
+
 function ngx.random_bytes(len)
     return string.rep("\0", len)
 end
@@ -207,6 +209,7 @@ package.preload["core.config"] = function()
     M.rollback = function() return true end
     M.check_update = function() end
     M.resolve_path = function() return "/opt/verynginx/" end
+    M.atomic_mutate = function(fn) return fn(M) end
     setmetatable(M, {
         __index = function(_, k) return _default_config[k] end,
         __newindex = function(_, k, v) _default_config[k] = v end,

@@ -686,7 +686,7 @@ end
 -- Capture request detail once per request, cache in ngx.ctx for reuse.
 -- ---------------------------------------------------------------------------
 local function capture_request_detail()
-    if ngx.ctx._waf_req_detail then
+    if ngx.ctx and ngx.ctx._waf_req_detail then
         return ngx.ctx._waf_req_detail
     end
     local detail = {
@@ -716,7 +716,9 @@ local function capture_request_detail()
             detail.ja3_fingerprint = ja3
         end
     end)
-    ngx.ctx._waf_req_detail = detail
+    if ngx.ctx then
+        ngx.ctx._waf_req_detail = detail
+    end
     return detail
 end
 
