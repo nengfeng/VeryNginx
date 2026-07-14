@@ -11,7 +11,9 @@ local json = require "dkjson"
 local audit = require "core.audit"
 
 -- Precomputed constants (avoids repeated table.concat / json.encode on hot path)
-local CSP_HEADER = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'"
+local CSP_HEADER = "default-src 'self'; script-src 'self'; "
+    .. "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+    .. "connect-src 'self'; frame-ancestors 'self'"
 local BODY_UNAUTHORIZED = json.encode({ ret = "failed", message = "unauthorized" })
 local BODY_RATE_LIMITED = json.encode({ ret = "failed", message = "too many requests" })
 local BODY_CONFLICT = json.encode({ ret = "failed", message = "conflict: duplicate request" })
