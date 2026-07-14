@@ -61,9 +61,14 @@ local function handle_frequency_rule_save()
     if not updated then
         rules[#rules + 1] = rule
     end
-    config.rule.frequency_limit = rules
-    local cfg_mod = require "core.config"
-    cfg_mod.save(cfg_mod)
+    local mok, merr = config.atomic_mutate(function(cfg)
+        cfg.rule.frequency_limit = rules
+        return cfg
+    end)
+    if not mok then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "save failed: " .. (merr or "unknown") })
+    end
     audit.log("frequency_rule_saved", rule.id, "-")
     return json.encode({ ret = "success", data = { id = rule.id } })
 end
@@ -81,10 +86,14 @@ local function handle_frequency_rule_delete()
             filtered[#filtered + 1] = r
         end
     end
-    if not config.rule then config.rule = {} end
-    config.rule.frequency_limit = filtered
-    local cfg_mod = require "core.config"
-    cfg_mod.save(cfg_mod)
+    local mok, merr = config.atomic_mutate(function(cfg)
+        cfg.rule.frequency_limit = filtered
+        return cfg
+    end)
+    if not mok then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "save failed: " .. (merr or "unknown") })
+    end
     audit.log("frequency_rule_deleted", rule_id, "-")
     return json.encode({ ret = "success", message = "rule deleted" })
 end
