@@ -564,9 +564,9 @@ end
 -- ---------------------------------------------------------------------------
 -- Compile runtime snapshot: resolve references, pre-compile regex
 -- ---------------------------------------------------------------------------
-local function compile_runtime_snapshot(config)
-    -- Create a compiled copy with pre-resolved references
-    local compiled = deep_copy(config)
+local function compile_runtime_snapshot(compiled)
+    -- Mutate the already-normalized config in-place (it's a fresh copy from
+    -- normalize_defaults). No need for a second deep_copy.
 
     -- Pre-resolve matcher references: convert string names to matcher defs
     if compiled.matcher and compiled.rule then
