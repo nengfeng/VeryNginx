@@ -14,7 +14,7 @@ function _M.allow(key, limit, window)
     limit = limit or 10
     window = window or 60
 
-    local shared = ngx.shared.vn_locks
+    local shared = ngx.shared.vn_rate_limit
     if not shared then
         return true
     end

@@ -31,7 +31,7 @@ function _M.generate(ctx)
     local session = get_session_token()
     if session then
         local key = "csrf:" .. ngx.md5(session)
-        local shared = ngx.shared.vn_locks
+        local shared = ngx.shared.vn_session
         if shared then
             shared:set(key, token, 3600)
         end
@@ -56,7 +56,7 @@ function _M.verify(ctx)
         local session = get_session_token()
         if session then
             local key = "csrf:" .. ngx.md5(session)
-            local shared = ngx.shared.vn_locks
+            local shared = ngx.shared.vn_session
             if shared then
                 expected = shared:get(key)
             end

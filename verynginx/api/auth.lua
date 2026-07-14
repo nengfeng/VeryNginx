@@ -67,7 +67,7 @@ _M.strategies["session"] = {
     end,
 
     login = function(user, password)
-        local shared = ngx.shared.vn_locks
+        local shared = ngx.shared.vn_session
 
         -- Account lock check (per-user, independent of IP)
         if shared then

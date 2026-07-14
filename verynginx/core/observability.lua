@@ -22,8 +22,8 @@ function _M._collect_worker_stats()
     -- Connection metrics are not available from timer context;
     -- they are exposed via the /status API endpoint during request processing.
     -- Shared dict usage (approximate)
-    local shared_dicts = {"vn_config", "vn_locks", "statistics",
-                          "metrics", "healthcheck", "dns_cache", "frequency_limit", "ip_reputation"}
+    local shared_dicts = {"vn_config", "vn_locks", "vn_rate_limit", "vn_session",
+                          "statistics", "metrics", "healthcheck", "dns_cache", "frequency_limit", "ip_reputation"}
     for _, name in ipairs(shared_dicts) do
         local shared = ngx.shared[name]
         if shared then

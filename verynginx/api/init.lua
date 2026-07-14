@@ -125,7 +125,7 @@ local function run_route(route, ctx, method, path)
     if method ~= "GET" and method ~= "HEAD" and method ~= "OPTIONS" then
         local idem_key = ngx.req.get_headers()["Idempotency-Key"]
         if idem_key and idem_key ~= "" then
-            local shared = ngx.shared.vn_locks
+            local shared = ngx.shared.vn_session
             if shared then
                 local cache_key = "idempotent:" .. ngx.md5(idem_key)
                 if shared:get(cache_key) then

@@ -42,7 +42,7 @@ local function resolve_host(host)
     -- Sync to shared dict periodically (every 16 requests) so other workers can
     -- approximate total distribution for monitoring/reporting purposes.
     if idx % 16 == 0 then
-        local shared = ngx.shared.vn_locks
+        local shared = ngx.shared.vn_rate_limit
         if shared then
             shared:set("rr_idx:w:" .. tostring(ngx.worker.id()) .. ":" .. host, idx, 86400)
         end
