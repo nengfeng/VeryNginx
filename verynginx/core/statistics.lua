@@ -130,7 +130,6 @@ function _M.log_request(_)
     shared:incr(key .. ":time", time, 0)
     local code_idx = status
     shared:incr(key .. ":status_" .. code_idx, 1, 0)
-    _M._record_seen_code(shared, key, code_idx)
     -- Only update LRU index on sampled requests to reduce JSON overhead
     if math.random(1, LRU_SAMPLE_RATE) == 1 then
         lru_add(shared, "index:1m", uri, max_keys)
@@ -165,40 +164,14 @@ function _M.get_top_paths(limit)
     return results
 end
 
-local function _seen_codes_key(key)
-    return key .. ":seen_codes"
-end
-
-local function _codes_contains(codes, code_str)
-    for c in codes:gmatch("[^,]+") do
-        if c == code_str then
-            return true
-        end
-    end
-    return false
-end
-
-function _M._record_seen_code(shared, key, code)
-    local sk = _seen_codes_key(key)
-    local codes = shared:get(sk)
-    local code_str = tostring(code)
-    if not codes then
-        shared:set(sk, code_str)
-        return
-    end
-    if not _codes_contains(codes, code_str) then
-        shared:set(sk, codes .. "," .. code_str)
-    end
-end
-
+local _common_codes = { "200", "301", "302", "304", "400", "401", "403", "404", "405", "500", "502", "503" }
 local function _get_seen_codes(shared, key)
-    local raw = shared:get(_seen_codes_key(key))
-    if not raw or raw == "" then
-        return {}
-    end
     local codes = {}
-    for c in raw:gmatch("[^,]+") do
-        codes[#codes + 1] = c
+    for _, c in ipairs(_common_codes) do
+        local sc = shared:get(key .. ":status_" .. c)
+        if sc and sc > 0 then
+            codes[#codes + 1] = c
+        end
     end
     return codes
 end
@@ -232,7 +205,6 @@ function _M._flush_bucket(src_bucket, dst_bucket)
                 local sc = shared:get(src_key .. ":status_" .. c)
                 if sc and sc > 0 then
                     shared:incr(dst_key .. ":status_" .. c, sc, 0)
-                    _M._record_seen_code(shared, dst_key, tonumber(c))
                 end
             end
         end
@@ -244,7 +216,6 @@ function _M._flush_bucket(src_bucket, dst_bucket)
         for _, c in ipairs(codes) do
             shared:delete(src_key .. ":status_" .. c)
         end
-        shared:delete(_seen_codes_key(src_key))
     end
     shared:delete("index:" .. src_bucket)
 end
@@ -364,7 +335,6 @@ function _M.restore()
         if entry.status then
             for code, count in pairs(entry.status) do
                 shared:set(key .. ":status_" .. code, count)
-                _M._record_seen_code(shared, key, tonumber(code))
             end
         end
         lru_add(shared, "index:all", uri, (config and config.statistics and config.statistics.max_uri_keys) or 10000)
