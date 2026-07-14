@@ -322,7 +322,9 @@ patch_nginx_conf() {
 \\
     # VeryNginx v2 - shared dictionaries\\
     lua_shared_dict vn_config 2m;\\
-    lua_shared_dict vn_locks 1m;\\
+    lua_shared_dict vn_locks 256k;\\
+    lua_shared_dict vn_rate_limit 4m;\\
+    lua_shared_dict vn_session 2m;\\
     lua_shared_dict statistics 20m;\\
     lua_shared_dict metrics 10m;\\
     lua_shared_dict healthcheck 10m;\\

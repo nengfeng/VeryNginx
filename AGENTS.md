@@ -113,7 +113,7 @@ end
 
 1. **Auth** — `api.auth.middleware(ctx)`，未认证返回 401
 2. **Rate limiting** — 认证路由 60 req/60s（按用户），未认证路由 20 req/60s（按 IP）；`/config` POST 额外限制 30 req/60s
-3. **Idempotency-Key** — mutating 请求可携带 `Idempotency-Key` header，重复 key 返回 409（1 小时 TTL，基于 `vn_locks`）
+3. **Idempotency-Key** — mutating 请求可携带 `Idempotency-Key` header，重复 key 返回 409（1 小时 TTL，基于 `vn_session`）
 4. **Security headers** — 自动注入 `X-Content-Type-Options`/`X-Frame-Options`/`X-XSS-Protection`/`Content-Security-Policy`
 5. **Response size limit** — 超过 10MB 截断为 413
 6. **Audit log** — mutating 请求写入 `core.audit`
@@ -152,7 +152,7 @@ shared:incr("counter:" .. key, 1, 0, ttl)
 
 ### 3.3 shared dict 名称硬编码
 
-当前 shared dict 名称：`vn_config`、`vn_locks`、`ip_reputation`、`frequency_limit`、`healthcheck`、`statistics`、`metrics`、`dns_cache`。新增时要在 `nginx_conf/in_http_block.conf` 的 `lua_shared_dict` 中声明。
+当前 shared dict 名称：`vn_config`、`vn_locks`、`vn_rate_limit`、`vn_session`、`ip_reputation`、`frequency_limit`、`healthcheck`、`statistics`、`metrics`、`dns_cache`。新增时要在 `nginx_conf/in_http_block.conf` 的 `lua_shared_dict` 中声明。
 
 ---
 
@@ -417,7 +417,7 @@ Content-Security-Policy: default-src 'self'; script-src 'self'; ...
 
 ### 10.6 幂等性
 
-mutating 请求可携带 `Idempotency-Key` header，重复 key 返回 409（1 小时 TTL，基于 `vn_locks`）。
+mutating 请求可携带 `Idempotency-Key` header，重复 key 返回 409（1 小时 TTL，基于 `vn_session`）。
 
 ### 10.7 响应大小限制
 
