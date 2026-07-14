@@ -25,7 +25,7 @@ local BATCH_LEASE = "kb:lease:batch"
 
 local DEFAULT_LEASE_TTL = {
     batch = 30,
-    reconcile = 60,
+    reconcile = 300,  -- 5min: large deployments may need >60s for full reconciliation
     dispatch = 30,
     persist = 30,
 }
@@ -530,10 +530,12 @@ function _M.sample_bucket_history()
         local ok, t = pcall(json.decode, raw)
         if ok and type(t) == "table" then history = t end
     end
-    history[#history + 1] = sample
-    while #history > BUCKET_HISTORY_MAX do
-        table.remove(history, 1)
-    end
+    -- Circular buffer: use write-head index to avoid O(n) table.remove
+    local head_key = BUCKET_HISTORY_KEY .. ":head"
+    local head = tonumber(locks:get(head_key) or 0) or 0
+    head = (head % BUCKET_HISTORY_MAX) + 1
+    history[head] = sample
+    locks:set(head_key, tostring(head), 0)
     locks:set(BUCKET_HISTORY_KEY, json.encode(history), 0)
 end
 

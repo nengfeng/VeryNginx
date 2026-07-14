@@ -9,6 +9,7 @@ local config = require "core.config"
 local auth = require "api.auth"
 local json = require "dkjson"
 local audit = require "core.audit"
+local rate_limit = require "api.rate_limit"
 
 -- Precomputed constants (avoids repeated table.concat / json.encode on hot path)
 local CSP_HEADER = "default-src 'self'; script-src 'self'; "
@@ -82,14 +83,13 @@ local function run_route(route, ctx, method, path)
 
     -- Rate limiting for authenticated routes (login has its own)
     if route.auth_required then
-        local rl = require "api.rate_limit"
         local user = ctx and ctx.get_data and ctx.get_data(ctx, "auth:user") or "unknown"
         local rl_key = "api:" .. method .. ":" .. path .. ":" .. tostring(user)
         local limit, window = 60, 60
         if method == "POST" and path == "/config" then
             limit, window = 30, 60
         end
-        if not rl.allow(rl_key, limit, window) then
+        if not rate_limit.allow(rl_key, limit, window) then
             ngx.status = 429
             ctx.set_action(ctx, "response", {
                 code = 429,
@@ -105,10 +105,9 @@ local function run_route(route, ctx, method, path)
 
     -- Rate limiting for unauthenticated routes (by IP)
     if not route.auth_required then
-        local rl = require "api.rate_limit"
         local client_ip = ngx.var.remote_addr or "unknown"
         local rl_key = "api:" .. method .. ":" .. path .. ":" .. client_ip
-        if not rl.allow(rl_key, 20, 60) then
+        if not rate_limit.allow(rl_key, 20, 60) then
             ngx.status = 429
             ctx.set_action(ctx, "response", {
                 code = 429,

@@ -198,26 +198,18 @@ function _M.init_worker()
             reconcile_timer()
         end)
 
-        -- Exit polling: persist once when worker is exiting
-        local function kernel_blocking_persist_on_exit(premature)
+        -- Exit polling: persist state once when worker is exiting.
+        -- Merged kb + ip_rep into a single timer at 3s interval to reduce idle overhead.
+        local function persist_on_exit(premature)
             if premature then return end
             if ngx.worker.exiting() then
                 pcall(function() kb.persist() end)
+                pcall(function() ip_reputation.persist() end)
                 return
             end
-            ngx.timer.at(1, kernel_blocking_persist_on_exit)
+            ngx.timer.at(3, persist_on_exit)
         end
-        ngx.timer.at(1, kernel_blocking_persist_on_exit)
-
-        local function ip_rep_persist_on_exit(premature)
-            if premature then return end
-            if ngx.worker.exiting() then
-                ip_reputation.persist()
-                return
-            end
-            ngx.timer.at(1, ip_rep_persist_on_exit)
-        end
-        ngx.timer.at(1, ip_rep_persist_on_exit)
+        ngx.timer.at(3, persist_on_exit)
     end
 end
 

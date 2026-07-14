@@ -13,9 +13,27 @@ local json = require "dkjson"
 local DESIRED_STATE_DICT = "vn_config"
 local DESIRED_STATE_PREFIX = "kb:desired:"
 local INDEX_KEY = "kb:desired_index"
+local INDEX_LOCK_KEY = "kb:desired_index_lock"
+local INDEX_LOCK_TTL = 5
 
 local function shared()
     return ngx.shared[DESIRED_STATE_DICT]
+end
+
+local function locks()
+    return ngx.shared.vn_locks
+end
+
+local function index_lock()
+    local l = locks()
+    if not l then return false end
+    local wid = (ngx.worker and ngx.worker.id and ngx.worker.id()) or 0
+    return l:add(INDEX_LOCK_KEY, wid, INDEX_LOCK_TTL)
+end
+
+local function index_unlock()
+    local l = locks()
+    if l then l:delete(INDEX_LOCK_KEY) end
 end
 
 local function index_read()
@@ -38,15 +56,28 @@ local function state_key(ip, family, list)
 end
 
 local function index_add(key)
+    local retries = 0
+    while not index_lock() do
+        retries = retries + 1
+        if retries > 100 then return end
+        ngx.sleep(0.001)
+    end
     local idx = index_read()
     for _, v in ipairs(idx) do
-        if v == key then return end
+        if v == key then index_unlock(); return end
     end
     idx[#idx + 1] = key
     index_write(idx)
+    index_unlock()
 end
 
 local function index_remove(key)
+    local retries = 0
+    while not index_lock() do
+        retries = retries + 1
+        if retries > 100 then return end
+        ngx.sleep(0.001)
+    end
     local idx = index_read()
     local filtered = {}
     for _, v in ipairs(idx) do
@@ -55,6 +86,7 @@ local function index_remove(key)
         end
     end
     index_write(filtered)
+    index_unlock()
 end
 
 -- ---------------------------------------------------------------------------
