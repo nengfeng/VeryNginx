@@ -372,31 +372,21 @@ function _M.clear_score(ip)
     end
 end
 
-local function clone_full_config()
-    local cfg_mod = require("core.config")
-    -- config.report() returns JSON string of the full config
-    local src = cfg_mod.report()
-    local j = require("dkjson")
-    local decoded = j.decode(src)
-    if not decoded then
-        decoded = {}
-    end
-    return decoded
-end
-
 function _M.add_whitelist(entry)
-    local cfg = clone_full_config()
-    local ip_rep = cfg.ip_reputation or {}
-    local list = ip_rep.whitelist or {}
-    for _, e in ipairs(list) do
-        if e == entry then return end
-    end
-    table.insert(list, entry)
-    ip_rep.whitelist = list
-    cfg.ip_reputation = ip_rep
     local cfg_mod = require("core.config")
-    local ok, err = cfg_mod.save(cfg)
+    local ok, err = cfg_mod.atomic_mutate(function(cfg)
+        local ip_rep = cfg.ip_reputation or {}
+        local list = ip_rep.whitelist or {}
+        for _, e in ipairs(list) do
+            if e == entry then return nil, "already exists" end
+        end
+        table.insert(list, entry)
+        ip_rep.whitelist = list
+        cfg.ip_reputation = ip_rep
+        return cfg
+    end)
     if not ok then
+        if tostring(err):find("already exists") then return end
         ngx.log(ngx.WARN, "add_whitelist: save failed: ", err)
         return
     end
@@ -406,19 +396,20 @@ function _M.add_whitelist(entry)
 end
 
 function _M.remove_whitelist(entry)
-    local cfg = clone_full_config()
-    local ip_rep = cfg.ip_reputation or {}
-    local list = ip_rep.whitelist or {}
-    local filtered = {}
-    for _, e in ipairs(list) do
-        if e ~= entry then
-            table.insert(filtered, e)
-        end
-    end
-    ip_rep.whitelist = filtered
-    cfg.ip_reputation = ip_rep
     local cfg_mod = require("core.config")
-    local ok, err = cfg_mod.save(cfg)
+    local ok, err = cfg_mod.atomic_mutate(function(cfg)
+        local ip_rep = cfg.ip_reputation or {}
+        local list = ip_rep.whitelist or {}
+        local filtered = {}
+        for _, e in ipairs(list) do
+            if e ~= entry then
+                table.insert(filtered, e)
+            end
+        end
+        ip_rep.whitelist = filtered
+        cfg.ip_reputation = ip_rep
+        return cfg
+    end)
     if not ok then
         ngx.log(ngx.WARN, "remove_whitelist: save failed: ", err)
         return

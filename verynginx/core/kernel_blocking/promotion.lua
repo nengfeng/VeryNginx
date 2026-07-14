@@ -258,16 +258,22 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 
 	-- Success: desired_state + state machine installed
 	evidence_tbl.result = (plan.reason == "stepped_renewal") and "renewed" or "promoted"
-	desired.set_desired(ip, family, "scanner_drop", evidence_tbl, ttl, {
-		source = "automatic",
-		policy = "scanner",
-		reason = plan.reason,
-		reconciliation_mode = "ensure",
-		promotion_count = plan.next_promotion_count,
-		ttl_tier = plan.tier,
-	})
+	local ok_ds, err_ds = pcall(function()
+		desired.set_desired(ip, family, "scanner_drop", evidence_tbl, ttl, {
+			source = "automatic",
+			policy = "scanner",
+			reason = plan.reason,
+			reconciliation_mode = "ensure",
+			promotion_count = plan.next_promotion_count,
+			ttl_tier = plan.tier,
+		})
+	end)
+	if not ok_ds then
+		ngx.log(ngx.ERR, "kernel_blocking: desired.set_desired failed for scanner ", ip,
+			": ", tostring(err_ds))
+	end
 	-- scanner supersedes cc desired entry
-	desired.remove_desired(ip, family, "cc_drop")
+	pcall(function() desired.remove_desired(ip, family, "cc_drop") end)
 	sm.upsert(ip, "scanner", "installed", evidence_tbl, {
 		list = "scanner_drop",
 		family = family,
@@ -510,14 +516,20 @@ local function enforce_promote_cc(ip, violation_count)
 
 	-- Success: desired_state + installed
 	ev_tbl.result = (plan.reason == "stepped_renewal") and "renewed" or "promoted"
-	desired.set_desired(ip, family, "cc_drop", ev_tbl, ttl, {
-		source = "automatic",
-		policy = "cc",
-		reason = plan.reason,
-		reconciliation_mode = "ensure",
-		promotion_count = plan.next_promotion_count,
-		ttl_tier = plan.tier,
-	})
+	local ok_ds, err_ds = pcall(function()
+		desired.set_desired(ip, family, "cc_drop", ev_tbl, ttl, {
+			source = "automatic",
+			policy = "cc",
+			reason = plan.reason,
+			reconciliation_mode = "ensure",
+			promotion_count = plan.next_promotion_count,
+			ttl_tier = plan.tier,
+		})
+	end)
+	if not ok_ds then
+		ngx.log(ngx.ERR, "kernel_blocking: desired.set_desired failed for CC ", ip,
+			": ", tostring(err_ds))
+	end
 	sm.upsert(ip, "cc", "installed", ev_tbl, {
 		list = "cc_drop",
 		family = family,

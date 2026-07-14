@@ -985,13 +985,15 @@ end
 -- ---------------------------------------------------------------------------
 -- Save config: validate + backup + atomic write + activate
 -- ---------------------------------------------------------------------------
-function _M.save(config)
+function _M.save(config, opts)
     local shared = ngx.shared.vn_config
     local lock_key = "config_save_lock"
     local lock_ttl = math.max((config and config.config_save_lock_ttl) or 60, 5)
-    local lock_token = random.bytes(16)
+    local skip_lock = opts and opts._skip_lock
+    local lock_token
 
-    if shared then
+    if shared and not skip_lock then
+        lock_token = random.bytes(16)
         local locked = shared:add(lock_key, lock_token, lock_ttl)
         if not locked then
             return false, "config save is already running"
@@ -1050,7 +1052,11 @@ function _M.save(config)
     local compiled = compile_runtime_snapshot(normalized)
 
     -- encode and hash
-    local encoded = json.encode(normalized, { indent = true })
+    local ok_enc, encoded = pcall(json.encode, normalized, { indent = true })
+    if not ok_enc then
+        release_save_lock(lock_key, lock_token)
+        return false, "encode failed: " .. tostring(encoded)
+    end
     local new_hash = ngx.md5(encoded)
 
     -- prepare file paths
@@ -1099,8 +1105,56 @@ function _M.save(config)
 end
 
 -- ---------------------------------------------------------------------------
--- Rollback: restore from a backup file
+-- Atomic mutate: read-modify-save under the config_save lock.
+-- Prevents lost updates when concurrent workers modify the same field
+-- (e.g. whitelist add/remove races, B4).
+-- @param mutator function(cfg) -> modified_cfg | (nil, error)
+-- @return ok, error?
 -- ---------------------------------------------------------------------------
+function _M.atomic_mutate(mutator)
+    local shared = ngx.shared.vn_config
+    local lock_key = "config_save_lock"
+    local lock_ttl = 60
+    local lock_token = random.bytes(16)
+
+    if shared then
+        local locked = shared:add(lock_key, lock_token, lock_ttl)
+        if not locked then
+            return false, "config save is already running"
+        end
+    end
+
+    -- Read current config from the runtime store inside the lock.
+    -- (Reading from runtime — not disk — avoids file path issues in
+    -- test environments; the lock ensures serialization so worker B
+    -- always sees worker A's saved changes.)
+    local current = deep_copy(config_data)
+    if not current then
+        release_save_lock(lock_key, lock_token)
+        return false, "no active config"
+    end
+
+    -- Apply mutation
+    local ok, modified, merr = pcall(mutator, current)
+    if not ok then
+        release_save_lock(lock_key, lock_token)
+        return false, "mutator error: " .. tostring(modified)
+    end
+    if modified == nil then
+        -- merr is the error from mutator
+        release_save_lock(lock_key, lock_token)
+        return false, tostring(merr or "mutator returned nil")
+    end
+
+    -- Save (skip lock acquisition — we already hold it)
+    local save_ok, save_err = _M.save(modified, { _skip_lock = true })
+    if not save_ok then
+        release_save_lock(lock_key, lock_token)
+        return false, tostring(save_err)
+    end
+    release_save_lock(lock_key, lock_token)
+    return true
+end
 function _M.rollback(backup_path)
     local file, err = io.open(backup_path, "r")
     if not file then
