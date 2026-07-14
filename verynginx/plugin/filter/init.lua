@@ -14,6 +14,9 @@ local geoip = nil -- lazy loaded in on_access()
 local fingerprint_db = nil -- lazy loaded in on_access()
 local evidence = nil -- lazy loaded (kernel blocking evidence)
 
+-- Rule cache: avoids JSON-decoding all chunks on every request
+local _rule_cache = { version = nil, hard_block = nil, challenge = nil }
+
 local function split_rules(all_rules)
     local hard_block, challenge = {}, {}
     for _, rule in ipairs(all_rules) do
@@ -97,6 +100,33 @@ local function evaluate_rules(rules, ctx, ip)
     return false
 end
 
+local function get_cached_rules()
+    local shared = ngx.shared.vn_config
+    if not shared then
+        local rules_obj = waf_manager.load_rules()
+        if not rules_obj then return nil, nil end
+        return split_rules(rules_obj.rules)
+    end
+    local version_raw = shared:get("waf_rules_save_version")
+    if version_raw and tonumber(version_raw) == _rule_cache.version then
+        return _rule_cache.hard_block, _rule_cache.challenge
+    end
+    local rules_obj = waf_manager.load_rules()
+    if not rules_obj or not rules_obj.rules or #rules_obj.rules == 0 then
+        local fallback = require "plugin.filter.rules"
+        local fb = fallback.load_rules()
+        if not fb or #fb == 0 then return nil, nil end
+        local h, c = split_rules(fb)
+        _rule_cache.version = version_raw and tonumber(version_raw) or 0
+        _rule_cache.hard_block, _rule_cache.challenge = h, c
+        return h, c
+    end
+    local h, c = split_rules(rules_obj.rules)
+    _rule_cache.version = version_raw and tonumber(version_raw) or 0
+    _rule_cache.hard_block, _rule_cache.challenge = h, c
+    return h, c
+end
+
 function _M.on_access(ctx)
     local ip = ctx.request.remote_addr
 
@@ -152,19 +182,11 @@ function _M.on_access(ctx)
         return
     end
 
-    -- 加载规则并按类型分组
-    local rules_obj = waf_manager.load_rules()
-    local all_rules
-    if rules_obj and rules_obj.rules and #rules_obj.rules > 0 then
-        all_rules = rules_obj.rules
-    else
-        local fallback = require "plugin.filter.rules"
-        all_rules = fallback.load_rules()
-    end
-    if not all_rules or #all_rules == 0 then
+    -- 加载规则并按类型分组（带版本号缓存）
+    local hard_block_rules, challenge_rules = get_cached_rules()
+    if not hard_block_rules then
         return
     end
-    local hard_block_rules, challenge_rules = split_rules(all_rules)
 
     -- 【阶段一】始终执行硬 block 规则
     local decided = evaluate_rules(hard_block_rules, ctx, ip)
