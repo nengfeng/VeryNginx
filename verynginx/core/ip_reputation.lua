@@ -593,7 +593,6 @@ function _M.restore()
 
     -- Restore pending challenge state (v2 only)
     if payload.pending and type(payload.pending) == "table" then
-        local restored_ips = {}
         for _, p in ipairs(payload.pending) do
             if p.ip and p.remaining and p.remaining > 0 then
                 s:set("ip_rep:pending:" .. p.ip, p.created_at or (now - 1), p.remaining)

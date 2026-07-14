@@ -35,7 +35,6 @@ local SOCK_TEMPLATE = "/run/verynginx/firewall-helper.sock"
 local socket = nil          -- current connection
 local socket_requests = 0   -- requests on current connection
 local socket_born = nil     -- ngx.time() when current connection was made
-local partial_buffer = ""    -- leftover bytes from reads
 
 -- Reconnect backoff state (Design §8.3.1).
 -- Exponential backoff with jitter: initial 100ms, max 5s.
@@ -71,7 +70,6 @@ local function close_socket()
     end
     socket_requests = 0
     socket_born = nil
-    partial_buffer = ""
     -- Design §8.3.4: only real disconnects invalidate scope binding.
     if had_socket then
         pcall(function()
@@ -109,7 +107,6 @@ local function open_socket()
     end
     socket_born = ngx.time()
     socket_requests = 0
-    partial_buffer = ""
     return true, nil
 end
 
@@ -210,17 +207,17 @@ function _M.request(operation, source, payload)
         _M.record_error("frame_too_large", operation)
         return nil, "frame_too_large"
     end
-    local payload, recv_err = socket:receive(payload_len)
-    if not payload then
+    local body, recv_err2 = socket:receive(payload_len)
+    if not body then
         close_socket()
-        _M.record_error(recv_err or "closed", operation)
-        return nil, recv_err or "closed"
+        _M.record_error(recv_err2 or "closed", operation)
+        return nil, recv_err2 or "closed"
     end
-    local envelope, err = proto.decode_response(payload)
+    local envelope, dec_err = proto.decode_response(body)
     if not envelope then
         close_socket()
-        _M.record_error(err or "decode_error", operation)
-        return nil, err or "decode_error"
+        _M.record_error(dec_err or "decode_error", operation)
+        return nil, dec_err or "decode_error"
     end
     if envelope.request_id ~= request_id then
         close_socket()
