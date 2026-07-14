@@ -229,7 +229,8 @@ local function collect_drift(exec, all_desired, enforce, _now)
                 result.to_add[#result.to_add + 1] = entry
             end
         elseif mode == "preserve_only" then
-            result.skipped_preserve = result.skipped_preserve + 1
+            -- Present in both desired and kernel — refresh TTL via update
+            result.to_update[#result.to_update + 1] = entry
         else
             result.to_update[#result.to_update + 1] = entry
         end
