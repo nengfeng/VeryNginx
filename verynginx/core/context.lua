@@ -8,9 +8,20 @@ local _M = {}
 local config = require "core.config"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
---- Create a new request context.
+local ctx_methods = {
+    get_body_args = _M.get_body_args,
+    get_uri_args = _M.get_uri_args,
+    set_action = _M.set_action,
+    has_decision = _M.has_decision,
+    clear_action = _M.clear_action,
+    set_data = _M.set_data,
+    get_data = _M.get_data,
+}
+local ctx_mt = { __index = ctx_methods }
+
+--- Create a new request context (metatable-based to avoid per-request closures).
 function _M.new()
-    return {
+    return setmetatable({
         request = {
             uri = ngx.var.uri,
             method = ngx.req.get_method(),
@@ -33,15 +44,7 @@ function _M.new()
         stat_ref = nil,
 
         data = {},
-
-        get_body_args = _M.get_body_args,
-        get_uri_args = _M.get_uri_args,
-        set_action = _M.set_action,
-        has_decision = _M.has_decision,
-        clear_action = _M.clear_action,
-        set_data = _M.set_data,
-        get_data = _M.get_data,
-    }
+    }, ctx_mt)
 end
 
 --- Read raw body data (respects max_size limit).
