@@ -752,7 +752,7 @@ function _M.record_hit(rule_id, ctx, action)
     -- Ring buffer for recent hits display (keep last 100)
     local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
 
-    -- Build full detail object (stored directly in ring buffer for drill-down)
+    -- Build detail reusing cached request-level data (headers/body/ja3)
     local req_detail = capture_request_detail()
     local detail = {
         rule_id = rule_id,
@@ -767,7 +767,6 @@ function _M.record_hit(rule_id, ctx, action)
         body_snippet = req_detail.body_snippet,
         ja3_fingerprint = req_detail.ja3_fingerprint,
     }
-    -- Store full detail JSON in ring buffer (summary fields are pre-parsed in get_recent_hits)
     shared:set("waf_recent_hits:data:" .. ring_idx, json.encode(detail))
 end
 

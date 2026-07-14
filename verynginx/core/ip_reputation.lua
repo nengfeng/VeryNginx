@@ -195,7 +195,10 @@ function _M.get_score(ip)
     end
     local result = math.floor(score * df + 0.5)
     if s then
-        s:set("ip_rep:score_cache:" .. ip, result, SCORE_CACHE_TTL)
+        -- Adaptive TTL: clean IPs (well below threshold) cache longer
+        local threshold = cfg_val("threshold")
+        local ttl = (result < threshold * 0.5) and 10 or SCORE_CACHE_TTL
+        s:set("ip_rep:score_cache:" .. ip, result, ttl)
     end
     return result
 end
