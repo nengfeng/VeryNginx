@@ -8,6 +8,10 @@ local _M = {}
 local config = require "core.config"
 local metrics = require "core.metrics"
 
+-- Sample rate (percentage) for plugin duration metrics. Avoids 2 shared
+-- writes per plugin per request (14 writes total for 7 plugins) under load.
+local METRICS_SAMPLE_PCT = 1
+
 --- Plugin registry (sorted by priority)
 _M.plugins = {}
 
@@ -89,7 +93,9 @@ function _M.execute_access(ctx)
         if plugin.on_access then
             local t0 = ngx.now()
             local ok, err = pcall(plugin.on_access, ctx)
-            metrics.observe("plugin_duration", ngx.now() - t0, { plugin = plugin.name })
+            if METRICS_SAMPLE_PCT >= 100 or math.random(100) <= METRICS_SAMPLE_PCT then
+                metrics.observe("plugin_duration", ngx.now() - t0, { plugin = plugin.name })
+            end
             if not ok then
                 _M.handle_error(plugin, ctx, "access", err)
             end
