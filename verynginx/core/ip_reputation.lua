@@ -34,6 +34,8 @@ local function shared()
     return ngx.shared[SHARED_DICT_NAME]
 end
 
+local cfg_val -- forward declare (defined below add_to_pending_index)
+
 local function pending_index_key(ip)
     return "ip_rep:pi:" .. ip
 end
@@ -58,7 +60,7 @@ local function raw_cfg()
     return config.ip_reputation or {}
 end
 
-local function cfg_val(key)
+function cfg_val(key)
     local v = raw_cfg()[key]
     if v ~= nil then return v end
     return DEFAULTS[key]
