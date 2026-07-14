@@ -5,6 +5,7 @@
 
 local _M = {}
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
+local config = require "core.config"
 
 _M.registry = {}
 
@@ -34,7 +35,6 @@ end
 -- Checks _matcher_def first (pre-resolved by config compile), then
 -- looks up string names in config.matcher, then uses inline table.
 function _M.resolve(rule)
-    local config = require "core.config"
     local matcher_def = rule._matcher_def
     if not matcher_def and type(rule.matcher) == "string" then
         matcher_def = config.matcher and config.matcher[rule.matcher]

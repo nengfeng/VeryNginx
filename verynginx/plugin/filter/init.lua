@@ -10,6 +10,7 @@ local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 local ip_reputation = require "core.ip_reputation"
 local javascript_verify = require "plugin.browser_verify.javascript_verify"
+local metrics = require "core.metrics"
 local geoip = nil -- lazy loaded in on_access()
 local fingerprint_db = nil -- lazy loaded in on_access()
 local evidence = nil -- lazy loaded (kernel blocking evidence)
@@ -81,7 +82,6 @@ local function evaluate_rules(rules, ctx, ip)
             local pending_key = "ip_rep:pending_rules:" .. ip .. ":" .. rule.id
             ngx.shared.ip_reputation:add(pending_key, "1", 600)
             -- Increment challenge served counter
-            local metrics = require "core.metrics"
             metrics.incr("ip_reputation_challenge_served_total", 1, {})
             ctx.set_action(ctx, "challenge", {
                 javascript_verify = javascript_verify

@@ -6,6 +6,9 @@
 local config = require "core.config"
 local context = require "core.context"
 local rule_engine = require "core.rule_engine"
+local scheme_lock = require "action.scheme_lock"
+local redirect = require "action.redirect"
+local rewrite = require "action.rewrite"
 
 -- 1. Check config update (sampled: 1-in-100 requests, config changes are rare)
 if math.random(100) == 1 then
@@ -21,13 +24,8 @@ ctx.request.waf_start_time = ngx.now()
 ngx.ctx.vn_ctx = ctx
 
 -- 3. Execute rewrite-phase actions
-local scheme_lock = require "action.scheme_lock"
 scheme_lock.run(ctx)
-
-local redirect = require "action.redirect"
 redirect.run(ctx)
-
-local rewrite = require "action.rewrite"
 rewrite.run(ctx)
 
 -- 4. Apply any decisions made during rewrite phase

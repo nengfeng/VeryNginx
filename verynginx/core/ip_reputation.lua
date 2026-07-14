@@ -3,6 +3,7 @@ local _M = {}
 local config = require "core.config"
 local bit = require "bit"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
+local wlg = require "core.kernel_blocking.whitelist_generation"
 local DEFAULTS = {
     slot_size = 60,
     window_size = 300,
@@ -238,19 +239,16 @@ function _M.record_challenge_pass(ip)
     local key = "ip_rep:awl_count:" .. ip
     local count = s:incr(key, 1, 0, awl.ttl)
     if count >= awl.threshold then
-        -- Check max entries
-        local idx_key = "ip_rep:awl_index"
-        local index_raw = s:get(idx_key) or "[]"
-        local ok, index = pcall(json.decode, index_raw)
-        if not ok or type(index) ~= "table" then index = {} end
-        if #index < awl.max_entries then
-            s:set("ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
-            table.insert(index, ip)
-            s:set(idx_key, json.encode(index), 0)
+        -- Atomic max-entries check: individual key + dedicated counter (avoid JSON RMW)
+        local current_count = tonumber(s:get("ip_rep:awl_total") or 0)
+        if not current_count or current_count < awl.max_entries then
+            local added = s:add("ip_rep:awl_idx:" .. ip, "1", awl.ttl)
+            if added then
+                s:set("ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
+                s:incr("ip_rep:awl_total", 1, 0, 0)
+            end
         end
         s:delete(key)
-        -- Phase 1: auto-whitelist created, bump generation sequence
-        local wlg = require "core.kernel_blocking.whitelist_generation"
         wlg.bump_sequence()
     end
 end
@@ -369,7 +367,6 @@ function _M.add_whitelist(entry)
         return
     end
     -- Phase 1: bump generation sequence to invalidate old caches
-    local wlg = require "core.kernel_blocking.whitelist_generation"
     wlg.bump_sequence()
 end
 
@@ -393,7 +390,6 @@ function _M.remove_whitelist(entry)
         return
     end
     -- Phase 1: bump generation sequence to invalidate old caches
-    local wlg = require "core.kernel_blocking.whitelist_generation"
     wlg.bump_sequence()
 end
 
@@ -426,7 +422,6 @@ end
 
 function _M.is_whitelisted(ip)
     -- Phase 1: use generation-qualified cache
-    local wlg = require "core.kernel_blocking.whitelist_generation"
     local cached = wlg.cache_get(ip)
     if cached ~= nil then
         return cached
