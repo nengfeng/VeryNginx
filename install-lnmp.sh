@@ -771,54 +771,6 @@ check_geoip_deps() {
   fi
 }
 
-main() {
-  for arg in "$@"; do
-    case "$arg" in
-      -h|--help) show_help ;;
-      reset-password|reset-admin-password)
-        require_root
-        VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
-        VN_DIR="${VN_PREFIX}"
-        reset_admin_password
-        exit 0
-        ;;
-    esac
-  done
-
-  require_root
-  detect_web_server
-  check_geoip_deps
-  install_files
-
-  echo ""
-  confirm "Patch nginx.conf to enable VeryNginx?" DO_PATCH "y"
-  if [ "$DO_PATCH" = "y" ]; then
-    patch_nginx_conf
-    reload_nginx
-  else
-    info "Skipping nginx.conf patching"
-    info "Manually add these includes to your nginx.conf:"
-    echo "  include ${VN_DIR}/nginx_conf/in_external.conf;       # outside http {}"
-    echo "  include ${VN_DIR}/nginx_conf/in_http_block.conf;     # inside http {}"
-    echo "  include ${VN_DIR}/nginx_conf/in_server_block.conf;   # inside server {}"
-  fi
-
-  # Firewall Helper (kernel IP blocking)
-  echo ""
-  confirm "Install Firewall Helper for kernel IP blocking?" DO_HELPER "y"
-  if [ "$DO_HELPER" = "y" ]; then
-    probe_nftables_capabilities
-    install_firewall_helper
-  else
-    info "Skipping Firewall Helper installation"
-    info "You can install it later by re-running install-lnmp.sh"
-  fi
-
-  show_summary
-}
-
-main "$@"
-
 # ----- Firewall Helper (Go) ------------------------------------------------
 # Probes nftables capabilities and deploys the privileged Helper process.
 # The Helper is a static Go binary that bridges VeryNginx Lua workers to
@@ -1013,3 +965,51 @@ SVCUNIT
   echo "  Socket:  $FIREWALL_HELPER_SOCKET"
   echo "  Mode:    observe (default — change to enforce in Config → Kernel Blocking)"
 }
+main() {
+  for arg in "$@"; do
+    case "$arg" in
+      -h|--help) show_help ;;
+      reset-password|reset-admin-password)
+        require_root
+        VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
+        VN_DIR="${VN_PREFIX}"
+        reset_admin_password
+        exit 0
+        ;;
+    esac
+  done
+
+  require_root
+  detect_web_server
+  check_geoip_deps
+  install_files
+
+  echo ""
+  confirm "Patch nginx.conf to enable VeryNginx?" DO_PATCH "y"
+  if [ "$DO_PATCH" = "y" ]; then
+    patch_nginx_conf
+    reload_nginx
+  else
+    info "Skipping nginx.conf patching"
+    info "Manually add these includes to your nginx.conf:"
+    echo "  include ${VN_DIR}/nginx_conf/in_external.conf;       # outside http {}"
+    echo "  include ${VN_DIR}/nginx_conf/in_http_block.conf;     # inside http {}"
+    echo "  include ${VN_DIR}/nginx_conf/in_server_block.conf;   # inside server {}"
+  fi
+
+  # Firewall Helper (kernel IP blocking)
+  echo ""
+  confirm "Install Firewall Helper for kernel IP blocking?" DO_HELPER "y"
+  if [ "$DO_HELPER" = "y" ]; then
+    probe_nftables_capabilities
+    install_firewall_helper
+  else
+    info "Skipping Firewall Helper installation"
+    info "You can install it later by re-running install-lnmp.sh"
+  fi
+
+  show_summary
+}
+
+main "$@"
+
