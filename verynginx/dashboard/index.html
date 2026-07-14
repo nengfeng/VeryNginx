@@ -107,6 +107,17 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .kb-rule-detail{margin-top:8px;padding:8px;background:var(--bg);border-radius:6px}
 .kb-rule-toggle{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px 6px}
 .tag-info{background:#dbeafe;color:#1e40af}
+/* Sub-tabs (KB page) */
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.tabs a{padding:6px 14px;border-radius:6px 6px 0 0;font-size:13px;cursor:pointer;color:var(--text);border:1px solid transparent;border-bottom:none;margin-bottom:-1px;transition:all .15s}
+.tabs a:hover{background:var(--bg);text-decoration:none}
+.tabs a.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+/* KB controls: normalize mixed checkbox/select field rows */
+.kb-controls .field{display:flex;flex-direction:column;justify-content:flex-end}
+.kb-controls .field>label{font-size:12px;color:var(--muted)}
+.kb-controls .field select,.kb-controls .field input{margin-top:4px}
+.kb-controls .field>label.kb-check{display:flex;align-items:center;gap:6px;min-height:34px}
+.kb-controls .field>label.kb-check>input[type=checkbox]{width:auto;margin:0}
 </style>
 </head>
 <body>
@@ -1293,9 +1304,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- Controls -->
         <div class="card mb-16">
           <h3 style="font-size:14px;margin-bottom:12px">Controls</h3>
-          <div class="grid grid-3 mb-16">
+          <div class="grid grid-3 mb-16 kb-controls">
             <div class="field">
-              <label style="font-size:12px;color:var(--muted)"><input type="checkbox" v-model="kbForm.enabled"> Global enabled</label>
+              <label class="kb-check"><input type="checkbox" v-model="kbForm.enabled"> Global enabled</label>
             </div>
             <div class="field">
               <label style="font-size:12px;color:var(--muted)">Global mode</label>
@@ -1305,13 +1316,13 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </select>
             </div>
             <div class="field">
-              <label style="font-size:12px;color:var(--muted)"><input type="checkbox" v-model="kbForm.cc_enforce_ready"> CC enforce_ready</label>
+              <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enforce_ready"> CC enforce_ready</label>
             </div>
             <div class="field">
-              <label style="font-size:12px;color:var(--muted)"><input type="checkbox" v-model="kbForm.scanner_enabled"> Scanner enabled</label>
+              <label class="kb-check"><input type="checkbox" v-model="kbForm.scanner_enabled"> Scanner enabled</label>
             </div>
             <div class="field">
-              <label style="font-size:12px;color:var(--muted)"><input type="checkbox" v-model="kbForm.cc_enabled"> CC enabled</label>
+              <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enabled"> CC enabled</label>
             </div>
             <div class="field">
               <label style="font-size:12px;color:var(--muted)">Topology (readonly)</label>
@@ -1533,11 +1544,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </div>
               <!-- Expandable detail -->
               <div class="kb-rule-detail" v-if="r._expanded">
-                <pre style="font-size:11px;max-height:120px;overflow:auto">{
-                  JSON.stringify({reference_valid:r.reference_valid, counter_namespace:r.counter_namespace,
-                    cutover_epoch:r.cutover_epoch, warmup_until:r.warmup_until, effective_mode:r.effective_mode,
-                    install_reachable:r.install_reachable, reason_codes:r.reason_codes}, null, 2)
-                }</pre>
+                <pre style="font-size:11px;max-height:120px;overflow:auto">{{ JSON.stringify({reference_valid:r.reference_valid, counter_namespace:r.counter_namespace, cutover_epoch:r.cutover_epoch, warmup_until:r.warmup_until, effective_mode:r.effective_mode, install_reachable:r.install_reachable, reason_codes:r.reason_codes}, null, 2) }}</pre>
               </div>
               <button class="kb-rule-toggle" @click="r._expanded = !r._expanded">{{ r._expanded ? '▲' : '▼' }}</button>
             </div>
