@@ -255,36 +255,21 @@ function _M.record_challenge_pass(ip)
     end
 end
 
+local function flagged_idx_key(ip)
+    return "ip_rep:flagged_idx:" .. ip
+end
+
 local function add_to_flagged_index(ip, duration, now)
     local s = shared()
     if not s then return end
-    local index_raw = s:get("ip_rep:flagged_index") or "[]"
-    local ok, index = pcall(json.decode, index_raw)
-    if not ok or type(index) ~= "table" then index = {} end
-    for _, entry in ipairs(index) do
-        if entry.ip == ip then return end
-    end
-    table.insert(index, {
-        ip = ip,
-        flagged_at = now or ngx.time(),
-        expires_at = (now or ngx.time()) + duration,
-    })
-    s:set("ip_rep:flagged_index", json.encode(index))
+    local expires_at = (now or ngx.time()) + duration
+    s:set(flagged_idx_key(ip), tostring(expires_at), duration)
 end
 
 local function remove_from_flagged_index(ip)
     local s = shared()
     if not s then return end
-    local index_raw = s:get("ip_rep:flagged_index") or "[]"
-    local ok, index = pcall(json.decode, index_raw)
-    if not ok or type(index) ~= "table" then return end
-    local filtered = {}
-    for _, entry in ipairs(index) do
-        if entry.ip ~= ip then
-            table.insert(filtered, entry)
-        end
-    end
-    s:set("ip_rep:flagged_index", json.encode(filtered))
+    s:delete(flagged_idx_key(ip))
 end
 
 function _M.flag_ip(ip, duration)
@@ -469,15 +454,20 @@ end
 function _M.list_flagged()
     local s = shared()
     if not s then return {} end
-    local index_raw = s:get("ip_rep:flagged_index")
-    if not index_raw or index_raw == "" or index_raw == "[]" then return {} end
-    local ok, index = pcall(json.decode, index_raw)
-    if not ok or type(index) ~= "table" then return {} end
     local now = ngx.time()
     local valid = {}
-    for _, entry in ipairs(index) do
-        if entry.expires_at and entry.expires_at > now then
-            table.insert(valid, entry)
+    local keys = s:get_keys(0)
+    for _, key in ipairs(keys) do
+        local ip = key:match("^ip_rep:flagged_idx:(.+)$")
+        if ip then
+            local expires_at = tonumber(s:get(key))
+            if expires_at and expires_at > now then
+                valid[#valid + 1] = {
+                    ip = ip,
+                    expires_at = expires_at,
+                    flagged_at = expires_at - cfg_val("flag_duration"),
+                }
+            end
         end
     end
     return valid
@@ -580,18 +570,14 @@ function _M.restore()
 
     -- Restore flagged IPs
     local flagged = payload.flagged or {}
-    local valid_entries = {}
     for _, entry in ipairs(flagged) do
         if entry.expires_at and entry.expires_at > now then
             local remaining = entry.expires_at - now
             s:set("ip_rep:flagged:" .. entry.ip, entry.flagged_at, remaining)
+            s:set(flagged_idx_key(entry.ip), tostring(entry.expires_at), remaining)
             s:delete("ip_rep:cache:" .. entry.ip)
-            table.insert(valid_entries, entry)
             ngx.log(ngx.WARN, "ip_reputation: restored flagged IP ", entry.ip, " (", remaining, "s remaining)")
         end
-    end
-    if #valid_entries > 0 then
-        s:set("ip_rep:flagged_index", json.encode(valid_entries))
     end
 
     -- Restore pending challenge state (v2 only)
