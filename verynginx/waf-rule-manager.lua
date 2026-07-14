@@ -683,6 +683,44 @@ function _M.check_rate_limit(rule_id, rule)
 end
 
 -- ---------------------------------------------------------------------------
+-- Capture request detail once per request, cache in ngx.ctx for reuse.
+-- ---------------------------------------------------------------------------
+local function capture_request_detail()
+    if ngx.ctx._waf_req_detail then
+        return ngx.ctx._waf_req_detail
+    end
+    local detail = {
+        headers = {},
+        body_snippet = "",
+    }
+    -- Capture headers
+    local headers = ngx.req.get_headers()
+    for k, v in pairs(headers) do
+        if type(v) == "string" and #v < 500 then
+            detail.headers[k] = v
+        end
+    end
+    -- Capture body snippet (first 1KB)
+    pcall(function()
+        ngx.req.read_body()
+        local body = ngx.req.get_body_data()
+        if body and #body > 0 then
+            detail.body_snippet = body:sub(1, 1024)
+        end
+    end)
+    -- Capture TLS/JA3 fingerprint if available
+    pcall(function()
+        local ja3_mod = require "core.ja3"
+        local ja3 = ja3_mod.get_fingerprint()
+        if ja3 then
+            detail.ja3_fingerprint = ja3
+        end
+    end)
+    ngx.ctx._waf_req_detail = detail
+    return detail
+end
+
+-- ---------------------------------------------------------------------------
 -- record_hit  — push a hit event into the async buffer (O(1), non-blocking)
 -- ---------------------------------------------------------------------------
 function _M.record_hit(rule_id, ctx, action)
@@ -713,6 +751,7 @@ function _M.record_hit(rule_id, ctx, action)
     local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
 
     -- Build full detail object (stored directly in ring buffer for drill-down)
+    local req_detail = capture_request_detail()
     local detail = {
         rule_id = rule_id,
         action = hit_action,
@@ -722,32 +761,10 @@ function _M.record_hit(rule_id, ctx, action)
         method = ctx.request.method or "GET",
         user_agent = ctx.request.user_agent or "",
         query_string = ngx.var.query_string or "",
-        headers = {},
-        body_snippet = "",
+        headers = req_detail.headers,
+        body_snippet = req_detail.body_snippet,
+        ja3_fingerprint = req_detail.ja3_fingerprint,
     }
-    -- Capture headers
-    local headers = ngx.req.get_headers()
-    for k, v in pairs(headers) do
-        if type(v) == "string" and #v < 500 then
-            detail.headers[k] = v
-        end
-    end
-    -- Capture body snippet (first 1KB)
-    pcall(function()
-        ngx.req.read_body()
-        local body = ngx.req.get_body_data()
-        if body and #body > 0 then
-            detail.body_snippet = body:sub(1, 1024)
-        end
-    end)
-    -- Capture TLS/JA3 fingerprint if available
-    pcall(function()
-        local ja3_mod = require "core.ja3"
-        local ja3 = ja3_mod.get_fingerprint()
-        if ja3 then
-            detail.ja3_fingerprint = ja3
-        end
-    end)
     -- Store full detail JSON in ring buffer (summary fields are pre-parsed in get_recent_hits)
     shared:set("waf_recent_hits:data:" .. ring_idx, json.encode(detail))
 end
