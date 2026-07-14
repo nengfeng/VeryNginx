@@ -3266,7 +3266,7 @@ const app = Vue.createApp({
 
     async function addToWhitelist(ip) {
       try {
-        await api('POST', '/verynginx/stats/ip-reputation/whitelist/add?ip=' + encodeURIComponent(ip))
+        await api('POST', '/verynginx/reputation/whitelist', { ip })
         showToast('已加入白名单: ' + ip, 'success')
         if (wafHitDetailModal.data) wafHitDetailModal.data.ip_whitelisted = true
       } catch (e) {
