@@ -7,9 +7,8 @@ local _M = {}
 local config = require "core.config"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
--- LRU update sample rate: only update LRU index every N requests to
--- avoid JSON encode/decode hot path. Counter increments stay per-request.
-local LRU_SAMPLE_RATE = 10
+-- Log request sample rate: 1-in-10 requests update shdict stats
+local LOG_SAMPLE_RATE = 10
 
 -- ---------------------------------------------------------------------------
 -- LRU index helpers (stored in shared dict)
@@ -113,6 +112,9 @@ end
 -- Per-request logging
 -- ---------------------------------------------------------------------------
 function _M.log_request(_)
+    -- Sample: only LOG_SAMPLE_RATE-in-1 update detailed stats
+    if math.random(LOG_SAMPLE_RATE) ~= 1 then return end
+
     local status = tonumber(ngx.var.status) or 0
     local bytes = tonumber(ngx.var.body_bytes_sent) or 0
     local time = tonumber(ngx.var.request_time) or 0
@@ -130,10 +132,8 @@ function _M.log_request(_)
     shared:incr(key .. ":time", time, 0)
     local code_idx = status
     shared:incr(key .. ":status_" .. code_idx, 1, 0)
-    -- Only update LRU index on sampled requests to reduce JSON overhead
-    if math.random(1, LRU_SAMPLE_RATE) == 1 then
-        lru_add(shared, "index:1m", uri, max_keys)
-    end
+    -- Update LRU index on sampled requests
+    lru_add(shared, "index:1m", uri, max_keys)
 end
 
 -- ---------------------------------------------------------------------------
