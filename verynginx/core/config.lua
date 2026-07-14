@@ -584,12 +584,24 @@ local function compile_runtime_snapshot(config)
     end
 
     -- Pre-compute matcher cache CRCs to avoid per-request JSON encode + crc32
+    -- Also pre-sort conditions by priority to avoid per-request table allocation + sort
+    local matcher_mod = require "matcher.init"
+    local cond_order = matcher_mod.condition_order and matcher_mod.condition_order()
     for _, rules in pairs(compiled.rule or {}) do
         if type(rules) == "table" then
             for _, rule in ipairs(rules) do
                 local md = rule._matcher_def
                 if md then
                     rule._matcher_crc = ngx and ngx.crc32_short and ngx.crc32_short(json.encode(md))
+                    if cond_order then
+                        local sorted = {}
+                        for condition_type, condition in pairs(md) do
+                            sorted[#sorted + 1] = { type = condition_type, cond = condition,
+                                                    order = cond_order[condition_type] or 50 }
+                        end
+                        table.sort(sorted, function(a, b) return a.order < b.order end)
+                        md._sorted_conditions = sorted
+                    end
                 end
             end
         end

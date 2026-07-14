@@ -26,6 +26,10 @@ function _M.register(name, handler)
     _M.registry[name] = handler
 end
 
+function _M.condition_order()
+    return _CONDITION_ORDER
+end
+
 --- Resolve a rule's matcher definition.
 -- Checks _matcher_def first (pre-resolved by config compile), then
 -- looks up string names in config.matcher, then uses inline table.
@@ -55,13 +59,16 @@ function _M.test(matcher_def, ctx)
     end
 
     local result = true
-    -- Collect conditions and sort by priority for early short-circuit
-    local sorted = {}
-    for condition_type, condition in pairs(matcher_def) do
-        sorted[#sorted + 1] = { type = condition_type, cond = condition,
-                                order = _CONDITION_ORDER[condition_type] or 50 }
+    -- Use pre-sorted conditions if available (compiled at config time)
+    local sorted = matcher_def._sorted_conditions
+    if not sorted then
+        sorted = {}
+        for condition_type, condition in pairs(matcher_def) do
+            sorted[#sorted + 1] = { type = condition_type, cond = condition,
+                                    order = _CONDITION_ORDER[condition_type] or 50 }
+        end
+        table.sort(sorted, function(a, b) return a.order < b.order end)
     end
-    table.sort(sorted, function(a, b) return a.order < b.order end)
     for _, entry in ipairs(sorted) do
         local handler = _M.registry[entry.type]
         if handler then
