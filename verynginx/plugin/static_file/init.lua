@@ -77,6 +77,20 @@ function _M.serve(root, path, expires)
         return ngx.exit(200)
     end
 
+    -- 304 Not Modified support
+    local ok, mtime = pcall(ngx.fs_time, safe_path)
+    if ok and mtime then
+        ngx.header["Last-Modified"] = ngx.http_time(mtime)
+        local ims = ngx.var.http_if_modified_since
+        if ims then
+            local ims_time = ngx.parse_http_time(ims)
+            if ims_time and ims_time >= mtime then
+                f:close()
+                return ngx.exit(304)
+            end
+        end
+    end
+
     _M.set_cache_header(expires)
     ngx.header["Content-Type"] = _M.mime_type(path)
     ngx.say(f:read("*all"))
