@@ -187,14 +187,28 @@ function _M.get_config()
     return config.geoip or {}
 end
 
+--- Cached lookup: returns cached geo data from ngx.ctx or calls lookup().
+-- Eliminates duplicate FFI calls when both check_block and track are used.
+function _M.cached_lookup(ip)
+    if ngx.ctx and ngx.ctx._geoip_data then
+        return ngx.ctx._geoip_data
+    end
+    local geo = _M.lookup(ip)
+    if ngx.ctx then
+        ngx.ctx._geoip_data = geo
+    end
+    return geo
+end
+
 --- Check if an IP should be blocked by GeoIP rules.
 -- @param ip string
+-- @param geo table|nil: precomputed lookup result (optional)
 -- @return boolean, string: blocked, reason
-function _M.check_block(ip)
+function _M.check_block(ip, geo)
     local cfg = _M.get_config()
     if not cfg.enable then return false end
 
-    local geo = _M.lookup(ip)
+    geo = geo or _M.lookup(ip)
     if not geo or not geo.country_code then return false end
 
     local cc = geo.country_code:upper()
@@ -249,9 +263,15 @@ end
 --- Track an IP's country in shared dict for stats.
 -- @param ip string
 -- @param shared_dict ngx.shared dict
-function _M.track(ip, shared_dict)
+-- @param geo table|nil: precomputed lookup result (optional)
+function _M.track(ip, shared_dict, geo)
     if not shared_dict or not ip then return end
-    local cc = _M.country(ip)
+    local cc
+    if geo then
+        cc = geo.country_code
+    else
+        cc = _M.country(ip)
+    end
     if cc then
         local key = "geo_ip:cc:" .. cc
         pcall(function() shared_dict:incr(key, 1, 0, 86400) end)

@@ -145,14 +145,15 @@ function _M.on_access(ctx)
     -- 【前置-1.6】GeoIP 检查（如果在数据库中）
     if not geoip then geoip = require "core.geoip" end
     if geoip.is_available() then
-        local blocked = geoip.check_block(ip)
+        local geo = geoip.cached_lookup(ip)  -- single FFI call, cached in ngx.ctx
+        local blocked = geoip.check_block(ip, geo)
         if blocked then
             ip_reputation.record_signal(ip, "geoip_block")
             ctx.set_action(ctx, "block", { code = 403, response = "forbidden_json" })
             return
         end
-        -- Track country for stats
-        geoip.track(ip, ngx.shared.vn_config)
+        -- Track country for stats (reuses cached geo data)
+        geoip.track(ip, ngx.shared.vn_config, geo)
     end
 
     -- 【前置-1.7】TLS 指纹检查

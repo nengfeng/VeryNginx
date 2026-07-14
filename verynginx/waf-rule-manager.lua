@@ -9,7 +9,7 @@
 --   Layer 2: JSON file (persistent, for durability)
 
 local _M = {}
-local json = require("dkjson")
+local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local config = require("core.config")
 local matcher = require("matcher.init")
 
