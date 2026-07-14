@@ -6,6 +6,28 @@
 local _M = {}
 local json = require "dkjson"
 
+local _resolver_cache = nil
+local _resolver_nameservers = nil
+
+local function get_resolver(nameservers)
+    local ns_key = table.concat(nameservers, ",")
+    if _resolver_cache and _resolver_nameservers == ns_key then
+        return _resolver_cache
+    end
+    local dns_mod = require "resty.dns.resolver"
+    local r, err = dns_mod:new({
+        nameservers = nameservers,
+        retrans = 5,
+        timeout = 2000
+    })
+    if not r then
+        return nil, "resolver init failed: " .. tostring(err)
+    end
+    _resolver_cache = r
+    _resolver_nameservers = ns_key
+    return r
+end
+
 --- Generate a DNS cache key.
 -- @param host string: domain name (lowercased)
 -- @param record_type string: "A" or "AAAA" (default "A")
@@ -39,15 +61,10 @@ function _M.resolve(host, record_type, dns_conf)
     end
 
     -- Resolve via DNS (defensive require: not all OpenResty images include lua-resty-dns)
-    local dns_mod = require "resty.dns.resolver"
     local nameservers = dns_conf.nameservers or { "8.8.8.8", "1.1.1.1" }
-    local r, err = dns_mod:new({
-        nameservers = nameservers,
-        retrans = 5,
-        timeout = 2000
-    })
+    local r, err = get_resolver(nameservers)
     if not r then
-        return _M.resolve_stale(key, dns_conf), "resolver init failed: " .. tostring(err)
+        return _M.resolve_stale(key, dns_conf), err
     end
 
     local answers, err2 = r:query(host, { qtype = record_type })

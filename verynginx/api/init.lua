@@ -10,18 +10,28 @@ local auth = require "api.auth"
 local json = require "dkjson"
 local audit = require "core.audit"
 
+-- Precomputed constants (avoids repeated table.concat / json.encode on hot path)
+local CSP_HEADER = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'"
+local BODY_UNAUTHORIZED = json.encode({ ret = "failed", message = "unauthorized" })
+local BODY_RATE_LIMITED = json.encode({ ret = "failed", message = "too many requests" })
+local BODY_CONFLICT = json.encode({ ret = "failed", message = "conflict: duplicate request" })
+
 -- ---------------------------------------------------------------------------
 -- Route table: { method, path, auth_required, handler }
 -- ---------------------------------------------------------------------------
 _M.routes = {}
 
 function _M.register(method, path, handler, auth_required)
-    table.insert(_M.routes, {
+    local route = {
         method = method,
         path = path,
         auth_required = (auth_required ~= false),
         handler = handler
-    })
+    }
+    if path:find(":id", 1, true) then
+        route._param_pattern = path:gsub(":id", "([^/]+)")
+    end
+    table.insert(_M.routes, route)
 end
 
 -- ---------------------------------------------------------------------------
@@ -61,7 +71,7 @@ local function run_route(route, ctx, method, path)
                 response = {
                     code = 401,
                     content_type = "application/json; charset=utf-8",
-                    body = json.encode({ ret = "failed", message = "unauthorized" })
+                    body = BODY_UNAUTHORIZED
                 }
             })
             return
@@ -84,7 +94,7 @@ local function run_route(route, ctx, method, path)
                 response = {
                     code = 429,
                     content_type = "application/json; charset=utf-8",
-                    body = json.encode({ ret = "failed", message = "too many requests" })
+                    body = BODY_RATE_LIMITED
                 }
             })
             return
@@ -103,7 +113,7 @@ local function run_route(route, ctx, method, path)
                 response = {
                     code = 429,
                     content_type = "application/json; charset=utf-8",
-                    body = json.encode({ ret = "failed", message = "too many requests" })
+                    body = BODY_RATE_LIMITED
                 }
             })
             return
@@ -124,7 +134,7 @@ local function run_route(route, ctx, method, path)
                         response = {
                             code = 409,
                             content_type = "application/json; charset=utf-8",
-                            body = json.encode({ ret = "failed", message = "conflict: duplicate request" })
+                            body = BODY_CONFLICT
                         }
                     })
                     return
@@ -142,14 +152,7 @@ local function run_route(route, ctx, method, path)
     ngx.header["X-Content-Type-Options"] = "nosniff"
     ngx.header["X-Frame-Options"] = "SAMEORIGIN"
     ngx.header["X-XSS-Protection"] = "1; mode=block"
-    ngx.header["Content-Security-Policy"] = table.concat({
-        "default-src 'self';",
-        "script-src 'self';",
-        "style-src 'self' 'unsafe-inline';",
-        "img-src 'self' data:;",
-        "connect-src 'self';",
-        "frame-ancestors 'self'",
-    }, " ")
+    ngx.header["Content-Security-Policy"] = CSP_HEADER
 
     local ok, response = pcall(route.handler)
     if not ok then
@@ -212,9 +215,8 @@ function _M.dispatch(ctx)
 
     -- Pass 2: parameterized (:id) match
     for _, route in ipairs(_M.routes) do
-        if route.method == method and route.path:find(":id", 1, true) then
-            local pattern = route.path:gsub(":id", "([^/]+)")
-            local capture = path:match("^" .. pattern .. "$")
+        if route.method == method and route._param_pattern then
+            local capture = path:match("^" .. route._param_pattern .. "$")
             if capture then
                 ngx.ctx.waf_rule_id = capture
                 return run_route(route, ctx, method, path)

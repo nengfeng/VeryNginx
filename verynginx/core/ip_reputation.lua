@@ -29,41 +29,29 @@ local SHARED_DICT_NAME = "ip_reputation"
 local CACHE_TTL = 10
 local SCORE_CACHE_TTL = 2
 local MAX_UA_DISTINCT = 20
-local PENDING_INDEX_KEY = "ip_rep:pending_index"
 
 local function shared()
     return ngx.shared[SHARED_DICT_NAME]
+end
+
+local function pending_index_key(ip)
+    return "ip_rep:pi:" .. ip
 end
 
 -- Update pending_index after add/remove
 local function add_to_pending_index(ip)
     local s = shared()
     if not s then return end
-    local raw = s:get(PENDING_INDEX_KEY)
-    local index = {}
-    if raw and raw ~= "[]" then
-        local ok = pcall(function() index = json.decode(raw) end)
-        if not ok then index = {} end
-    end
-    for _, e in ipairs(index) do
-        if e == ip then return end -- already present
-    end
-    index[#index + 1] = ip
-    s:set(PENDING_INDEX_KEY, json.encode(index), 0)
+    local ttl = cfg_val("pending_ttl")
+    s:set(pending_index_key(ip), "1", ttl)
+    s:incr("ip_rep:pi_version", 1, 0, 0)
 end
 
 local function remove_from_pending_index(ip)
     local s = shared()
     if not s then return end
-    local raw = s:get(PENDING_INDEX_KEY)
-    if not raw or raw == "[]" then return end
-    local ok, index = pcall(function() return json.decode(raw) end)
-    if not ok or type(index) ~= "table" then return end
-    local filtered = {}
-    for _, e in ipairs(index) do
-        if e ~= ip then filtered[#filtered + 1] = e end
-    end
-    s:set(PENDING_INDEX_KEY, json.encode(filtered), 0)
+    s:delete(pending_index_key(ip))
+    s:incr("ip_rep:pi_version", 1, 0, 0)
 end
 
 local function raw_cfg()
@@ -534,24 +522,33 @@ function _M.persist()
 end
 
 -- Collect pending challenge state from shared dict (no-lru scan)
+-- Uses version counter to avoid repeated get_keys(0) scans when nothing changed.
+local _last_pi_version = nil
+local _cached_pending = nil
 function _M._collect_pending()
     local s = shared()
     if not s then return {} end
-    local raw = s:get(PENDING_INDEX_KEY)
-    if not raw or raw == "[]" then return {} end
-    local ok, index = pcall(function() return json.decode(raw) end)
-    if not ok or type(index) ~= "table" then return {} end
+    local version = s:get("ip_rep:pi_version")
+    if version and version == _last_pi_version and _cached_pending then
+        return _cached_pending
+    end
+    _last_pi_version = version
+    local all_keys = s:get_keys(0)
     local pending = {}
     local ttl = cfg_val("pending_ttl")
-    for _, ip in ipairs(index) do
-        local created = s:get("ip_rep:pending:" .. ip)
-        if created then
-            local remaining = ttl - (ngx.time() - created)
-            if remaining > 0 then
-                pending[#pending + 1] = { ip = ip, created_at = created, remaining = remaining }
+    for _, key in ipairs(all_keys) do
+        local ip = key:match("^ip_rep:pi:(.+)$")
+        if ip then
+            local created = s:get("ip_rep:pending:" .. ip)
+            if created then
+                local remaining = ttl - (ngx.time() - created)
+                if remaining > 0 then
+                    pending[#pending + 1] = { ip = ip, created_at = created, remaining = remaining }
+                end
             end
         end
     end
+    _cached_pending = pending
     return pending
 end
 
@@ -598,12 +595,9 @@ function _M.restore()
         for _, p in ipairs(payload.pending) do
             if p.ip and p.remaining and p.remaining > 0 then
                 s:set("ip_rep:pending:" .. p.ip, p.created_at or (now - 1), p.remaining)
-                restored_ips[#restored_ips + 1] = p.ip
+                s:set(pending_index_key(p.ip), "1", p.remaining)
                 ngx.log(ngx.WARN, "ip_reputation: restored pending IP ", p.ip, " (", p.remaining, "s remaining)")
             end
-        end
-        if #restored_ips > 0 then
-            s:set(PENDING_INDEX_KEY, json.encode(restored_ips), 0)
         end
     end
 end

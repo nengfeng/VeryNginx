@@ -186,55 +186,56 @@ function _M.request(operation, source, payload)
         return nil, "send_error"
     end
 
-    -- Read response (loop until we have a complete frame)
-    local deadline = ngx.time() + (READ_TIMEOUT / 1000) + 1  -- extra margin
-    while true do
-        if ngx.time() > deadline then
-            close_socket()
+    -- Read response via event-driven receive (2-phase: length prefix then payload)
+    socket:settimeout(READ_TIMEOUT)
+    local len_data, recv_err = socket:receive(4)
+    if not len_data then
+        close_socket()
+        if recv_err == "timeout" then
             _M.record_error("read_timeout", operation)
             return nil, "read_timeout"
         end
-        local data, recv_err = socket:receiveany(8192)
-        if data then
-            partial_buffer = partial_buffer .. data
-            local envelope, remainder, frame_err = proto.read_frame(partial_buffer)
-            if envelope then
-                partial_buffer = remainder
-                -- Verify request_id matches
-                if envelope.request_id ~= request_id then
-                    close_socket()
-                    return nil, "idempotency_conflict"
-                end
-                if envelope.ok then
-                    return envelope, nil
-                else
-                    local ecode = envelope.error
-                    if type(ecode) == "table" then
-                        ecode = ecode.code or ecode.message or "unknown_error"
-                    elseif type(ecode) ~= "string" or ecode == "" then
-                        ecode = "unknown_error"
-                    end
-                    return nil, ecode
-                end
-            elseif frame_err == "incomplete" then
-                ngx.sleep(0.001)  -- brief pause before next read attempt
-            else
-                -- Protocol error — close and give up on this connection
-                close_socket()
-                return nil, frame_err or "frame_error"
-            end
-        elseif recv_err == "timeout" then
-            -- Check overall deadline
-            if ngx.time() > deadline then
-                close_socket()
-                return nil, "read_timeout"
-            end
-            -- Short sleep before retry
-            ngx.sleep(0.001)
-        else
-            close_socket()
-            return nil, "closed"
+        _M.record_error(recv_err or "closed", operation)
+        return nil, recv_err or "closed"
+    end
+    if #len_data ~= 4 then
+        close_socket()
+        _M.record_error("short_read", operation)
+        return nil, "short_read"
+    end
+    local b1, b2, b3, b4 = len_data:byte(1, 4)
+    local payload_len = (b1 * 16777216) + (b2 * 65536) + (b3 * 256) + b4
+    if payload_len > proto.max_frame_bytes() then
+        close_socket()
+        _M.record_error("frame_too_large", operation)
+        return nil, "frame_too_large"
+    end
+    local payload, recv_err = socket:receive(payload_len)
+    if not payload then
+        close_socket()
+        _M.record_error(recv_err or "closed", operation)
+        return nil, recv_err or "closed"
+    end
+    local envelope, err = proto.decode_response(payload)
+    if not envelope then
+        close_socket()
+        _M.record_error(err or "decode_error", operation)
+        return nil, err or "decode_error"
+    end
+    if envelope.request_id ~= request_id then
+        close_socket()
+        return nil, "idempotency_conflict"
+    end
+    if envelope.ok then
+        return envelope, nil
+    else
+        local ecode = envelope.error
+        if type(ecode) == "table" then
+            ecode = ecode.code or ecode.message or "unknown_error"
+        elseif type(ecode) ~= "string" or ecode == "" then
+            ecode = "unknown_error"
         end
+        return nil, ecode
     end
 end
 

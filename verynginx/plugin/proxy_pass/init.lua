@@ -35,14 +35,17 @@ local function resolve_host(host)
         return nil, "no A records found"
     end
 
-    -- Cross-worker round-robin via shared dict; fallback to per-worker counter
-    local shared = ngx.shared.vn_locks
-    local idx
-    if shared then
-        idx = shared:incr("rr_idx:" .. host, 1, 0, 86400)
-    else
-        rr_idx[host] = (rr_idx[host] or 0) + 1
-        idx = rr_idx[host]
+    -- Per-worker round-robin: avoids cross-worker shared dict contention.
+    -- Each worker maintains its own counter; lazy-sync to shared dict for visibility.
+    rr_idx[host] = (rr_idx[host] or 0) + 1
+    local idx = rr_idx[host]
+    -- Sync to shared dict periodically (every 16 requests) so other workers can
+    -- approximate total distribution for monitoring/reporting purposes.
+    if idx % 16 == 0 then
+        local shared = ngx.shared.vn_locks
+        if shared then
+            shared:set("rr_idx:w:" .. tostring(ngx.worker.id()) .. ":" .. host, idx, 86400)
+        end
     end
     return addrs[(idx % #addrs) + 1], nil
 end
