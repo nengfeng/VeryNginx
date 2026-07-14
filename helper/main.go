@@ -34,6 +34,12 @@ const (
 	SocketPath = "/run/verynginx/firewall-helper.sock"
 	// NFTPath is the path to the nft binary.
 	NFTPath = "/usr/sbin/nft"
+
+	globalIdemCapacity = 10000
+	globalIdemTTL      = 10 * time.Minute
+	maxSnapshotStates  = 1024
+	maxSnapshotChunks  = 4096
+	snapshotStateTTL   = 10 * time.Minute
 )
 
 // RequestEnvelope is the wire-format request from VeryNginx.
@@ -116,12 +122,12 @@ func writeFrame(conn net.Conn, env ResponseEnvelope) error {
 
 // setState tracks one IP entry in a logical set.
 type setEntry struct {
-	IP       string `json:"ip"`
-	Family   string `json:"family"`
-	Set      string `json:"set"`
-	TTL      int    `json:"ttl,omitempty"`
-	Source   string `json:"source,omitempty"`
-	ExpiresAt int64 `json:"expires_at,omitempty"`
+	IP        string `json:"ip"`
+	Family    string `json:"family"`
+	Set       string `json:"set"`
+	TTL       int    `json:"ttl,omitempty"`
+	Source    string `json:"source,omitempty"`
+	ExpiresAt int64  `json:"expires_at,omitempty"`
 }
 
 // ScopeSession is the per-connection protected scope binding (Design §8.3.4).
@@ -341,10 +347,10 @@ func (b *NFTBackend) execNFT(input string) (string, error) {
 	return out.String(), nil
 }
 
-//Probe returns backend capabilities.
+// Probe returns backend capabilities.
 func (b *NFTBackend) Probe() map[string]interface{} {
 	return map[string]interface{}{
-		"protocol_min":  ProtocolVersion,
+		"protocol_min": ProtocolVersion,
 		"protocol_max": ProtocolVersion,
 		"capabilities": map[string]bool{
 			"inet_family":        true,
@@ -376,24 +382,24 @@ func (b *NFTBackend) Health() map[string]interface{} {
 	_, liveLocal := enumerateLocalAddresses()
 
 	return map[string]interface{}{
-		"state":                  "ok",
-		"instance_id":            instanceID,
-		"helper_instance_id":     instanceID,
-		"table_generation":       tableGen,
-		"scope_digest":           scopeDigest,
-		"local_address_digest":   localDigest,
+		"state":                     "ok",
+		"instance_id":               instanceID,
+		"helper_instance_id":        instanceID,
+		"table_generation":          tableGen,
+		"scope_digest":              scopeDigest,
+		"local_address_digest":      localDigest,
 		"live_local_address_digest": liveLocal,
-		"activation_generation":  actGen,
-		"set_count":              count,
+		"activation_generation":     actGen,
+		"set_count":                 count,
 	}
 }
 
 // EnsureBasePayload is the ensure_base request body for scope binding.
 type EnsureBasePayload struct {
-	Scope                string   `json:"scope"`
-	ProtectedAddresses   []string `json:"protected_addresses"`
-	ProtectedPorts       []interface{} `json:"protected_ports"`
-	IPv4                 *struct {
+	Scope              string        `json:"scope"`
+	ProtectedAddresses []string      `json:"protected_addresses"`
+	ProtectedPorts     []interface{} `json:"protected_ports"`
+	IPv4               *struct {
 		Enabled bool `json:"enabled"`
 	} `json:"ipv4"`
 	IPv6 *struct {
@@ -704,7 +710,10 @@ func (b *NFTBackend) Add(items []setEntry) (map[string]interface{}, error) {
 	// Phase 1: validate and build nft commands.
 	var sb strings.Builder
 	count := 0
-	type pendingAdd struct{ item setEntry; family string }
+	type pendingAdd struct {
+		item   setEntry
+		family string
+	}
 	var pending []pendingAdd
 	for _, item := range items {
 		family := item.Family
@@ -777,7 +786,7 @@ func (b *NFTBackend) Delete(items []setEntry) (map[string]interface{}, error) {
 	count := 0
 	type pendingDelete struct {
 		set, family, ip string
-		isAllow          bool
+		isAllow         bool
 	}
 	var pending []pendingDelete
 	for _, item := range items {
@@ -906,41 +915,53 @@ func (b *NFTBackend) ReplaceAllowSnapshot(items []setEntry) (map[string]interfac
 
 // reconcileChunk is the chunked reconcile request payload (Design §8.3.3).
 type reconcileChunk struct {
-	SnapshotID        string            `json:"snapshot_id"`
-	ChunkIndex        int               `json:"chunk_index"`
-	FinalChunk        bool              `json:"final_chunk"`
-	DesiredGeneration int64             `json:"desired_generation"`
-	PolicyGenerations map[string]int64  `json:"policy_generations"`
-	TotalDesired      int               `json:"total_desired"`
-	TotalChunks       int               `json:"total_chunks"`
-	Desired           []setEntry        `json:"desired"`
-	Remove            []setEntry        `json:"remove"`
+	SnapshotID        string                 `json:"snapshot_id"`
+	ChunkIndex        int                    `json:"chunk_index"`
+	FinalChunk        bool                   `json:"final_chunk"`
+	DesiredGeneration int64                  `json:"desired_generation"`
+	PolicyGenerations map[string]int64       `json:"policy_generations"`
+	TotalDesired      int                    `json:"total_desired"`
+	TotalChunks       int                    `json:"total_chunks"`
+	Desired           []setEntry             `json:"desired"`
+	Remove            []setEntry             `json:"remove"`
 	Binding           map[string]interface{} `json:"binding"`
 }
 
-// idemCache is a bounded LRU+TTL cache for mutating request IDs (Design §8.3.5).
+// idemCache is a bounded FIFO+TTL cache for mutating request IDs (Design §8.3.5).
 // Global across all connections. Capacity: 10000 entries, TTL: 10 minutes.
 type idemCache struct {
 	mu      sync.Mutex
 	entries map[string]time.Time
-	order   []string // LRU order: oldest first
+	order   []string // insertion order: oldest first
+	head    int
 	maxSize int
 	ttl     time.Duration
 }
 
-var globalIdemCache = &idemCache{
-	entries: map[string]time.Time{},
-	order:   make([]string, 0, 10000),
-	maxSize: 10000,
-	ttl:     10 * time.Minute,
+func newIdemCache(maxSize int, ttl time.Duration) *idemCache {
+	capacity := maxSize
+	if capacity < 0 {
+		capacity = 0
+	}
+	return &idemCache{
+		entries: make(map[string]time.Time),
+		order:   make([]string, 0, capacity),
+		maxSize: maxSize,
+		ttl:     ttl,
+	}
 }
 
+var globalIdemCache = newIdemCache(globalIdemCapacity, globalIdemTTL)
+
 func (c *idemCache) checkAndRemember(key string) bool {
+	return c.checkAndRememberAt(key, time.Now())
+}
+
+func (c *idemCache) checkAndRememberAt(key string, now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Evict expired entries.
-	now := time.Now()
 	c.evictExpired(now)
 
 	if _, exists := c.entries[key]; exists {
@@ -952,52 +973,156 @@ func (c *idemCache) checkAndRemember(key string) bool {
 	c.order = append(c.order, key)
 
 	// Evict oldest if over capacity.
-	for len(c.order) > c.maxSize {
-		oldest := c.order[0]
-		c.order = c.order[1:]
+	maxSize := c.maxSize
+	if maxSize < 0 {
+		maxSize = 0
+	}
+	for len(c.entries) > maxSize && c.head < len(c.order) {
+		oldest := c.order[c.head]
+		c.head++
 		delete(c.entries, oldest)
 	}
+	c.compactOrder()
 
 	return false
 }
 
 func (c *idemCache) evictExpired(now time.Time) {
 	cutoff := now.Add(-c.ttl)
-	var valid []string
-	for _, key := range c.order {
-		if ts, ok := c.entries[key]; ok && ts.After(cutoff) {
-			valid = append(valid, key)
-		} else {
-			delete(c.entries, key)
+	for c.head < len(c.order) {
+		key := c.order[c.head]
+		ts, ok := c.entries[key]
+		if ok && ts.After(cutoff) {
+			break
 		}
+		delete(c.entries, key)
+		c.head++
 	}
-	c.order = valid
+	c.compactOrder()
+}
+
+// compactOrder periodically releases the consumed prefix. The copy is
+// amortized across entries removed since the previous compaction.
+func (c *idemCache) compactOrder() {
+	if c.head == len(c.order) {
+		c.order = c.order[:0]
+		c.head = 0
+		return
+	}
+	if c.head*2 >= len(c.order) {
+		copy(c.order, c.order[c.head:])
+		c.order = c.order[:len(c.order)-c.head]
+		c.head = 0
+	}
 }
 
 // snapshotState tracks an in-progress chunked reconcile on the Helper side.
 type snapshotState struct {
-	id               string
-	totalDesired     int
-	totalRemovals    int
-	totalChunks      int
-	receivedChunks   map[int]bool
-	entries          map[string]setEntry // key: "set:family:ip" -> entry
-	removeKeys       map[string]bool     // keys marked for removal
-	applied          bool                // final_chunk processed
+	mu             sync.Mutex
+	totalChunks    int
+	receivedChunks map[int]bool
+	finalReceived  bool
+	finalRemovals  []setEntry
+	applied        bool
+
 	// Cumulative counts for idempotent duplicate responses.
 	cumAdded   int
 	cumUpdated int
 	cumRemoved int
-	cumFailed  int
+
+	// Lifecycle fields are protected by snapshotStates.mu.
+	lastUsed time.Time
+	inUse    int
 }
 
 // snapshotStates holds in-progress snapshots keyed by snapshot_id.
 type snapshotStates struct {
-	mu       sync.Mutex
+	mu        sync.Mutex
 	snapshots map[string]*snapshotState
+	maxSize   int
+	ttl       time.Duration
 }
 
-var globalSnapshots = &snapshotStates{snapshots: map[string]*snapshotState{}}
+func newSnapshotStates(maxSize int, ttl time.Duration) *snapshotStates {
+	return &snapshotStates{
+		snapshots: make(map[string]*snapshotState),
+		maxSize:   maxSize,
+		ttl:       ttl,
+	}
+}
+
+var globalSnapshots = newSnapshotStates(maxSnapshotStates, snapshotStateTTL)
+
+// acquire returns a locked snapshot. The global store lock is released before
+// waiting on the per-snapshot lock, so nft execution never blocks the store.
+func (s *snapshotStates) acquire(id string, totalChunks int, now time.Time) (*snapshotState, error) {
+	s.mu.Lock()
+	s.cleanupExpiredLocked(now)
+
+	snap, exists := s.snapshots[id]
+	if exists {
+		if snap.totalChunks != totalChunks {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("snapshot_chunk_count_mismatch")
+		}
+		snap.inUse++
+		snap.lastUsed = now
+		s.mu.Unlock()
+		snap.mu.Lock()
+		return snap, nil
+	}
+
+	if s.maxSize <= 0 {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("snapshot_capacity_exceeded")
+	}
+	for len(s.snapshots) >= s.maxSize {
+		oldestID := ""
+		var oldest time.Time
+		for candidateID, candidate := range s.snapshots {
+			if candidate.inUse != 0 {
+				continue
+			}
+			if oldestID == "" || candidate.lastUsed.Before(oldest) {
+				oldestID = candidateID
+				oldest = candidate.lastUsed
+			}
+		}
+		if oldestID == "" {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("snapshot_capacity_exceeded")
+		}
+		delete(s.snapshots, oldestID)
+	}
+
+	snap = &snapshotState{
+		totalChunks:    totalChunks,
+		receivedChunks: make(map[int]bool),
+		lastUsed:       now,
+		inUse:          1,
+	}
+	s.snapshots[id] = snap
+	s.mu.Unlock()
+	snap.mu.Lock()
+	return snap, nil
+}
+
+func (s *snapshotStates) release(snap *snapshotState, now time.Time) {
+	snap.mu.Unlock()
+	s.mu.Lock()
+	snap.inUse--
+	snap.lastUsed = now
+	s.mu.Unlock()
+}
+
+func (s *snapshotStates) cleanupExpiredLocked(now time.Time) {
+	cutoff := now.Add(-s.ttl)
+	for id, snap := range s.snapshots {
+		if snap.inUse == 0 && !snap.lastUsed.After(cutoff) {
+			delete(s.snapshots, id)
+		}
+	}
+}
 
 // Reconcile applies a full snapshot of desired entries.
 // Supports both legacy full-snapshot (SnapshotID="") and chunked mode (§8.3.3).
@@ -1013,6 +1138,9 @@ func (b *NFTBackend) Reconcile(payload reconcileChunk) (map[string]interface{}, 
 	// Legacy full-snapshot mode (no snapshot_id).
 	if payload.SnapshotID == "" {
 		return b.reconcileFull(payload.Desired)
+	}
+	if err := validateReconcileChunk(payload); err != nil {
+		return result, err
 	}
 
 	// Chunked mode (Design §8.3.3).
@@ -1035,7 +1163,10 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 	var sb strings.Builder
 	seen := map[string]bool{}
-	type pendingEntry struct{ entry setEntry; family string }
+	type pendingEntry struct {
+		entry  setEntry
+		family string
+	}
 	var pending []pendingEntry
 
 	for _, entry := range snapshot {
@@ -1093,57 +1224,48 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 
 // reconcileChunked handles chunked reconcile per Design §8.3.3.
 // - Each chunk: idempotent add/update of desired entries.
-// - Remove only applied after the final chunk is received.
+// - Remove only applied after every chunk has succeeded.
 // - Out-of-order chunks are accepted (tracked by chunk_index).
 func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]interface{}) (map[string]interface{}, error) {
-	globalSnapshots.mu.Lock()
-
-	// Initialize or retrieve snapshot state.
-	snap, exists := globalSnapshots.snapshots[payload.SnapshotID]
-	if !exists {
-		snap = &snapshotState{
-			id:             payload.SnapshotID,
-			totalDesired:   payload.TotalDesired,
-			totalRemovals:  len(payload.Remove),
-			totalChunks:    payload.TotalChunks,
-			receivedChunks: map[int]bool{},
-			entries:        map[string]setEntry{},
-			removeKeys:     map[string]bool{},
-		}
-		globalSnapshots.snapshots[payload.SnapshotID] = snap
+	snapshots := globalSnapshots
+	snap, err := snapshots.acquire(payload.SnapshotID, payload.TotalChunks, time.Now())
+	if err != nil {
+		return result, err
 	}
+	defer func() {
+		snapshots.release(snap, time.Now())
+	}()
 
-	// Detect duplicate chunk (idempotent re-send) — must be checked before
-	// the applied guard so re-sends of already-applied snapshots succeed.
-	if snap.receivedChunks[payload.ChunkIndex] {
-		globalSnapshots.mu.Unlock()
+	cumulativeResult := func() map[string]interface{} {
 		return map[string]interface{}{
 			"added":     snap.cumAdded,
 			"updated":   snap.cumUpdated,
 			"removed":   snap.cumRemoved,
 			"preserved": 0,
-			"failed":    snap.cumFailed,
-		}, nil
+			"failed":    0,
+		}
 	}
 
-	// Reject new chunks after snapshot was fully applied.
+	duplicate := snap.receivedChunks[payload.ChunkIndex]
 	if snap.applied {
-		globalSnapshots.mu.Unlock()
+		if duplicate {
+			return cumulativeResult(), nil
+		}
 		return result, fmt.Errorf("snapshot_already_applied")
 	}
-
-	snap.receivedChunks[payload.ChunkIndex] = true
-	globalSnapshots.mu.Unlock()
 
 	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 
 	// Phase 1: apply desired entries (add/update) atomically per chunk.
-	{
+	if !duplicate {
 		b.mu.Lock()
 		var sb strings.Builder
 		added := 0
 		updated := 0
-		type pendingEntry struct{ entry setEntry; family string }
+		type pendingEntry struct {
+			entry  setEntry
+			family string
+		}
 		var pending []pendingEntry
 
 		for _, d := range payload.Desired {
@@ -1200,22 +1322,26 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 		result["added"] = result["added"].(int) + added
 		result["updated"] = result["updated"].(int) + updated
 
-		// Update cumulative counts under snapshot lock.
-		globalSnapshots.mu.Lock()
-		snap.cumAdded = snap.cumAdded + added
-		snap.cumUpdated = snap.cumUpdated + updated
-		globalSnapshots.mu.Unlock()
+		// A chunk becomes received only after its nft transaction succeeds.
+		snap.receivedChunks[payload.ChunkIndex] = true
+		snap.cumAdded += added
+		snap.cumUpdated += updated
+		if payload.FinalChunk {
+			snap.finalReceived = true
+			snap.finalRemovals = append([]setEntry(nil), payload.Remove...)
+		}
 	}
 
-	// Phase 2: on final chunk, apply remove operations.
-	if payload.FinalChunk {
+	// Phase 2: apply removals once every desired chunk has succeeded. A
+	// duplicate call retries this phase if an earlier nft removal failed.
+	if snap.finalReceived && len(snap.receivedChunks) == snap.totalChunks {
 		b.mu.Lock()
 		var sb strings.Builder
 		removed := 0
 		type pendingRemove struct{ set, family, ip, key string }
 		var pending []pendingRemove
 
-		for _, r := range payload.Remove {
+		for _, r := range snap.finalRemovals {
 			family := r.Family
 			if family == "" {
 				family = "ipv4"
@@ -1236,7 +1362,7 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 		if !skipNFT && sb.Len() > 0 {
 			if _, err := b.execNFT(sb.String()); err != nil {
 				b.mu.Unlock()
-				result["failed"] = result["failed"].(int) + len(payload.Remove)
+				result["failed"] = result["failed"].(int) + len(snap.finalRemovals)
 				return result, err
 			}
 		}
@@ -1251,17 +1377,17 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 
 		result["removed"] = result["removed"].(int) + removed
 
-		// Update cumulative removed count and mark snapshot as fully applied.
-		globalSnapshots.mu.Lock()
-		snap.cumRemoved = snap.cumRemoved + removed
+		snap.cumRemoved += removed
 		snap.applied = true
-		globalSnapshots.mu.Unlock()
+		if duplicate {
+			return cumulativeResult(), nil
+		}
+	} else if duplicate {
+		return cumulativeResult(), nil
 	}
 
 	return result, nil
 }
-
-
 
 // FlushOwned removes all entries owned by us.
 func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
@@ -1442,6 +1568,9 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		if payload.SnapshotID != "" {
 			if len(payload.SnapshotID) > 128 {
 				return resultError(env.RequestID, "invalid_snapshot_id")
+			}
+			if err := validateReconcileChunk(payload); err != nil {
+				return resultError(env.RequestID, err.Error())
 			}
 		}
 		result, err := backend.Reconcile(payload)

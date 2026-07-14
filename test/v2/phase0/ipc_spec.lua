@@ -148,3 +148,51 @@ describe("IPC Protocol client (mock socket)", function()
         assert.are.equal(1, sent_count)
     end)
 end)
+
+describe("IPC executor reconcile metadata", function()
+    it("forwards chunk totals required by the helper", function()
+        local saved_client = package.loaded["core.kernel_blocking.ipc_client"]
+        local saved_binding = package.loaded["core.kernel_blocking.scope_binding"]
+        local saved_config = package.loaded["core.config"]
+        local saved_executor = package.loaded["core.kernel_blocking.executor_ipc"]
+        local captured
+
+        package.loaded["core.kernel_blocking.ipc_client"] = {
+            request = function(operation, source, payload)
+                assert.are.equal("reconcile", operation)
+                assert.are.equal("reconcile", source)
+                captured = payload
+                return { ok = true, result = {} }, nil
+            end,
+        }
+        package.loaded["core.kernel_blocking.scope_binding"] = {
+            drop_writes_allowed = function() return true, nil end,
+            binding_fields = function() return { scope_digest = "test" } end,
+            invalidate = function() end,
+        }
+        package.loaded["core.config"] = { kernel_ip_blocking = {} }
+        package.loaded["core.kernel_blocking.executor_ipc"] = nil
+
+        local ok, err = pcall(function()
+            local executor = require "core.kernel_blocking.executor_ipc"
+            local result = executor.chunked_reconcile({
+                snapshot_id = "snapshot-1",
+                chunk_index = 1,
+                final_chunk = true,
+                total_desired = 12,
+                total_chunks = 2,
+                desired = {},
+                remove = {},
+            })
+            assert.truthy(result)
+            assert.are.equal(12, captured.total_desired)
+            assert.are.equal(2, captured.total_chunks)
+        end)
+
+        package.loaded["core.kernel_blocking.ipc_client"] = saved_client
+        package.loaded["core.kernel_blocking.scope_binding"] = saved_binding
+        package.loaded["core.config"] = saved_config
+        package.loaded["core.kernel_blocking.executor_ipc"] = saved_executor
+        assert.is_true(ok, tostring(err))
+    end)
+end)

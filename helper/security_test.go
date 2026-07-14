@@ -17,10 +17,16 @@ import (
 
 func withSkipEnv(t *testing.T) {
 	t.Helper()
+	previousIdemCache := globalIdemCache
+	previousSnapshots := globalSnapshots
+	globalIdemCache = newIdemCache(globalIdemCapacity, globalIdemTTL)
+	globalSnapshots = newSnapshotStates(maxSnapshotStates, snapshotStateTTL)
 	_ = os.Setenv("VN_HELPER_SKIP_NFT", "1")
 	_ = os.Setenv("VN_HELPER_SKIP_LOCAL_CHECK", "1")
 	_ = os.Setenv("VN_HELPER_SKIP_PEER_CHECK", "1")
 	t.Cleanup(func() {
+		globalIdemCache = previousIdemCache
+		globalSnapshots = previousSnapshots
 		_ = os.Unsetenv("VN_HELPER_SKIP_NFT")
 		_ = os.Unsetenv("VN_HELPER_SKIP_LOCAL_CHECK")
 		_ = os.Unsetenv("VN_HELPER_SKIP_PEER_CHECK")
@@ -454,7 +460,6 @@ func TestScopeDigestMatchesNewlineJoinedSHA256(t *testing.T) {
 	}
 }
 
-
 func TestAddRejectsReservedAllowCoveredAndRateLimit(t *testing.T) {
 	withSkipEnv(t)
 	backend := NewNFTBackend()
@@ -508,3 +513,109 @@ func TestAddRejectsReservedAllowCoveredAndRateLimit(t *testing.T) {
 	}
 }
 
+func TestIdemCacheTTLAndCapacity(t *testing.T) {
+	now := time.Unix(1000, 0)
+
+	ttlCache := newIdemCache(2, 10*time.Second)
+	if ttlCache.checkAndRememberAt("ttl", now) {
+		t.Fatal("first request was reported as duplicate")
+	}
+	if !ttlCache.checkAndRememberAt("ttl", now.Add(9*time.Second)) {
+		t.Fatal("unexpired request was not reported as duplicate")
+	}
+	if ttlCache.checkAndRememberAt("ttl", now.Add(10*time.Second)) {
+		t.Fatal("request at the TTL boundary was not expired")
+	}
+
+	capacityCache := newIdemCache(2, time.Hour)
+	if capacityCache.checkAndRememberAt("a", now) ||
+		capacityCache.checkAndRememberAt("b", now.Add(time.Second)) ||
+		capacityCache.checkAndRememberAt("c", now.Add(2*time.Second)) {
+		t.Fatal("first request was reported as duplicate")
+	}
+	if capacityCache.checkAndRememberAt("a", now.Add(3*time.Second)) {
+		t.Fatal("oldest request was not evicted at capacity")
+	}
+	if !capacityCache.checkAndRememberAt("c", now.Add(3*time.Second)) {
+		t.Fatal("recent request was evicted instead of the oldest")
+	}
+	if len(capacityCache.entries) > capacityCache.maxSize {
+		t.Fatalf("cache size %d exceeds capacity %d", len(capacityCache.entries), capacityCache.maxSize)
+	}
+}
+
+func TestConnReplayChecksLocalBeforeGlobal(t *testing.T) {
+	previous := globalIdemCache
+	globalIdemCache = newIdemCache(4, time.Minute)
+	t.Cleanup(func() {
+		globalIdemCache = previous
+	})
+
+	replay := newConnReplay()
+	replay.seen["local-only"] = struct{}{}
+	if !replay.checkAndRemember("local-only") {
+		t.Fatal("per-connection replay was not detected")
+	}
+	if len(globalIdemCache.entries) != 0 {
+		t.Fatal("per-connection replay unnecessarily touched the global cache")
+	}
+}
+
+func TestSnapshotStatesCleanupAndCapacity(t *testing.T) {
+	now := time.Unix(2000, 0)
+	store := newSnapshotStates(2, time.Minute)
+
+	first, err := store.acquire("first", 2, now)
+	if err != nil {
+		t.Fatalf("acquire first snapshot: %v", err)
+	}
+	first.receivedChunks[0] = true
+	store.release(first, now)
+
+	duplicate, err := store.acquire("first", 2, now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("reacquire first snapshot: %v", err)
+	}
+	if duplicate != first || !duplicate.receivedChunks[0] {
+		t.Fatal("recent snapshot did not preserve duplicate-chunk state")
+	}
+	store.release(duplicate, now.Add(time.Second))
+
+	if _, err := store.acquire("first", 3, now.Add(2*time.Second)); err == nil ||
+		err.Error() != "snapshot_chunk_count_mismatch" {
+		t.Fatalf("chunk-count mismatch error = %v", err)
+	}
+
+	second, err := store.acquire("second", 1, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("acquire second snapshot: %v", err)
+	}
+	store.release(second, now.Add(2*time.Second))
+
+	third, err := store.acquire("third", 1, now.Add(3*time.Second))
+	if err != nil {
+		t.Fatalf("acquire third snapshot: %v", err)
+	}
+	store.release(third, now.Add(3*time.Second))
+
+	store.mu.Lock()
+	if len(store.snapshots) != 2 {
+		t.Fatalf("snapshot count %d exceeds hard capacity", len(store.snapshots))
+	}
+	if _, ok := store.snapshots["first"]; ok {
+		t.Error("least recently used snapshot was not evicted")
+	}
+	store.mu.Unlock()
+
+	fourth, err := store.acquire("fourth", 1, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("acquire after TTL: %v", err)
+	}
+	store.release(fourth, now.Add(2*time.Minute))
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.snapshots) != 1 || store.snapshots["fourth"] == nil {
+		t.Fatalf("expired snapshots were not cleaned up: %#v", store.snapshots)
+	}
+}

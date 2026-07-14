@@ -1406,7 +1406,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <a :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">Installed</a>
           <a :class="{active:kbTab==='candidates'}" @click="kbTab='candidates';loadKbCandidates()">Candidates</a>
           <a :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">Timeline</a>
-          <a :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard'">Dashboard</a>
+          <a :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard';loadKbDashboard()">Dashboard</a>
         </div>
 
         <!-- Filters -->
@@ -3473,22 +3473,25 @@ const app = Vue.createApp({
     // ---- Kernel Blocking ----
     async function loadKbData() {
       kbError.value = '';
-      try {
-        const d = await api('GET', '/verynginx/kernel-blocking/status');
-        if (d.ret === 'success') {
-          kbStatus.value = Object.assign({}, kbStatus.value, d.data || {});
-          kbSyncFormFromStatus();
-        } else {
-          kbError.value = d.message || 'Failed to load status';
+      const statusRequest = (async () => {
+        try {
+          const d = await api('GET', '/verynginx/kernel-blocking/status');
+          if (d.ret === 'success') {
+            kbStatus.value = Object.assign({}, kbStatus.value, d.data || {});
+            kbSyncFormFromStatus();
+          } else {
+            kbError.value = d.message || 'Failed to load status';
+          }
+        } catch (e) {
+          kbError.value = e.message;
         }
-      } catch (e) {
-        kbError.value = e.message;
-      }
-      if (kbTab.value === 'candidates') await loadKbCandidates();
-      else if (kbTab.value === 'timeline') await loadKbTimeline();
-      else await loadKbEntries();
-      await loadKbBucketHistory();
-      await loadKbDiff();
+      })();
+      let tabRequest;
+      if (kbTab.value === 'candidates') tabRequest = loadKbCandidates();
+      else if (kbTab.value === 'timeline') tabRequest = loadKbTimeline();
+      else if (kbTab.value === 'dashboard') tabRequest = loadKbDashboard();
+      else tabRequest = loadKbEntries();
+      await Promise.all([statusRequest, tabRequest]);
     }
 
     async function loadKbEntries(cursor) {
@@ -3557,6 +3560,10 @@ const app = Vue.createApp({
         const d = await api('GET', '/verynginx/kernel-blocking/diff');
         if (d.ret === 'success') kbDiff.value = d.data || kbDiff.value;
       } catch (e) { /* non-critical */ }
+    }
+
+    async function loadKbDashboard() {
+      await Promise.all([loadKbBucketHistory(), loadKbDiff()]);
     }
 
     async function kbSaveSettings() {
@@ -4076,7 +4083,7 @@ const app = Vue.createApp({
       kbEffMode, kbEffReachable, formatKbTime, formatKbExpiry, kbEvidenceSummary,
       kbTrendPoints, kbTrendFillEnforce, kbTrendFillObserve,
       kbOpenDetail, kbReloadList, kbSaveSettings, loadKbTimeline,
-      loadKbData, loadKbEntries, loadKbCandidates,
+      loadKbData, loadKbEntries, loadKbCandidates, loadKbDashboard,
       kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,
     };
   }

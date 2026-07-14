@@ -188,11 +188,19 @@ end
 -- ---------------------------------------------------------------------------
 -- list(set, family, cursor) -> { entries = {...}, next_cursor = n|nil }
 -- ---------------------------------------------------------------------------
-function _M.list(set, family, cursor)
-    local resp = client.request_safe("list", "automatic", {
+function _M.list_strict(set, family, cursor)
+    local resp, err = client.request("list", "automatic", {
         set = set, family = family, cursor = cursor or 0,
     })
-    return resp.result or { entries = {}, next_cursor = nil }
+    if not resp then
+        return nil, err or "list_failed"
+    end
+    return resp.result or { entries = {}, next_cursor = nil }, nil
+end
+
+function _M.list(set, family, cursor)
+    local page = _M.list_strict(set, family, cursor)
+    return page or { entries = {}, next_cursor = nil }
 end
 
 -- ---------------------------------------------------------------------------
@@ -260,6 +268,8 @@ function _M.chunked_reconcile(chunk)
         final_chunk = chunk.final_chunk,
         desired_generation = chunk.desired_generation,
         policy_generations = chunk.policy_generations,
+        total_desired = chunk.total_desired,
+        total_chunks = chunk.total_chunks,
         desired = chunk.desired or {},
         remove = chunk.remove or {},
         binding = scope_binding.binding_fields(),

@@ -37,17 +37,45 @@ local function handle_entries()
     local sm = require "core.kernel_blocking.state_machine"
     local page = sm.list(cursor, page_size, "installed", policy_filter)
 
-    -- Enrich with executor contains-check
+    -- Enrich from one executor listing per set/family instead of one full
+    -- contains scan per row.
     local executor_mod = require "core.kernel_blocking.executor"
     local exec = executor_mod.get_executor()
+    local groups = {}
     for _, e in ipairs(page.entries) do
         if e.list then
-            local ok, exists = pcall(function()
-                return exec.contains(e.list, e.family or "ipv4", e.ip)
-            end)
-            e.in_kernel = (ok and exists) and true or false
+            local family = e.family or "ipv4"
+            local group_key = e.list .. ":" .. family
+            groups[group_key] = groups[group_key] or {
+                list = e.list,
+                family = family,
+                entries = {},
+            }
+            groups[group_key].entries[#groups[group_key].entries + 1] = e
         else
             e.in_kernel = false
+        end
+    end
+
+    for _, group in pairs(groups) do
+        local present = {}
+        local cursor2 = 0
+        local list_ok = true
+        repeat
+            local ok, actual_page = pcall(function()
+                return exec.list(group.list, group.family, cursor2)
+            end)
+            if not ok or type(actual_page) ~= "table" then
+                list_ok = false
+                break
+            end
+            for _, actual in ipairs(actual_page.entries or {}) do
+                if actual.ip then present[actual.ip] = true end
+            end
+            cursor2 = actual_page.next_cursor
+        until not cursor2
+        for _, e in ipairs(group.entries) do
+            e.in_kernel = list_ok and present[e.ip] == true
         end
     end
 

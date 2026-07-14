@@ -179,6 +179,58 @@ describe("Reconciliation dry-run and apply", function()
         assert.is_false(ok)
     end)
 
+    it("lists each kernel set once instead of contains-scanning per desired entry", function()
+        mock_config.kernel_ip_blocking.mode = "observe"
+        for i = 1, 10 do
+            desired.set_desired("203.0.113." .. i, "ipv4", "scanner_drop", {}, 300)
+        end
+
+        local original_list = mock.list
+        local original_contains = mock.contains
+        local list_calls = 0
+        local contains_calls = 0
+        mock.list = function(...)
+            list_calls = list_calls + 1
+            return original_list(...)
+        end
+        mock.contains = function(...)
+            contains_calls = contains_calls + 1
+            return original_contains(...)
+        end
+
+        local ok, err = pcall(function()
+            local r = reconcil.reconcile(ngx.time())
+            assert.are.equal(10, #r.to_add)
+            assert.are.equal(6, list_calls)
+            assert.are.equal(0, contains_calls)
+        end)
+        mock.list = original_list
+        mock.contains = original_contains
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("does not infer drift when a kernel set cannot be listed", function()
+        mock_config.kernel_ip_blocking.mode = "observe"
+        desired.set_desired("203.0.113.20", "ipv4", "scanner_drop", {}, 300)
+
+        local original_list_strict = mock.list_strict
+        mock.list_strict = function(set, family, cursor)
+            if set == "scanner_drop" and family == "ipv4" then
+                return nil, "helper_unavailable"
+            end
+            return mock.list(set, family, cursor)
+        end
+
+        local ok, err = pcall(function()
+            local r = reconcil.reconcile(ngx.time())
+            assert.are.equal(0, #r.to_add)
+            assert.are.equal(0, #r.to_remove)
+            assert.are.equal(1, r.failed)
+        end)
+        mock.list_strict = original_list_strict
+        assert.is_true(ok, tostring(err))
+    end)
+
     it("enforce mode applies missing desired entries", function()
         mock_config.kernel_ip_blocking.mode = "enforce"
         desired.set_desired("203.0.113.9", "ipv4", "scanner_drop",

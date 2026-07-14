@@ -21,10 +21,10 @@ const (
 
 var (
 	allowedSets = map[string]bool{
-		"allow":         true,
-		"scanner_drop":  true,
-		"cc_drop":       true,
-		"manual_drop":   true,
+		"allow":        true,
+		"scanner_drop": true,
+		"cc_drop":      true,
+		"manual_drop":  true,
 	}
 	allowedSources = map[string]bool{
 		"automatic": true,
@@ -183,6 +183,22 @@ func validateBatch(items []setEntry, allowCIDR bool) error {
 	return nil
 }
 
+func validateReconcileChunk(payload reconcileChunk) error {
+	if payload.TotalChunks < 1 || payload.TotalChunks > maxSnapshotChunks {
+		return fmt.Errorf("invalid_total_chunks")
+	}
+	if payload.ChunkIndex < 0 || payload.ChunkIndex >= payload.TotalChunks {
+		return fmt.Errorf("invalid_chunk_index")
+	}
+	if payload.FinalChunk != (payload.ChunkIndex == payload.TotalChunks-1) {
+		return fmt.Errorf("invalid_final_chunk")
+	}
+	if payload.TotalDesired < 0 {
+		return fmt.Errorf("invalid_total_desired")
+	}
+	return nil
+}
+
 func validateFlushScope(scope string) error {
 	if !allowedFlushScopes[scope] {
 		return fmt.Errorf("invalid_scope")
@@ -206,12 +222,12 @@ func (c *connReplay) checkAndRemember(id string) bool {
 	if id == "" {
 		return false
 	}
-	// Global cache: cross-connection dedup with TTL.
-	if globalIdemCache.checkAndRemember(id) {
-		return true
-	}
 	// Per-connection cache: fast path for the common case.
 	if _, ok := c.seen[id]; ok {
+		return true
+	}
+	// Global cache: cross-connection dedup with TTL.
+	if globalIdemCache.checkAndRemember(id) {
 		return true
 	}
 	c.seen[id] = struct{}{}

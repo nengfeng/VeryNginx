@@ -15,6 +15,8 @@ local DESIRED_STATE_PREFIX = "kb:desired:"
 local INDEX_KEY = "kb:desired_index"
 local INDEX_LOCK_KEY = "kb:desired_index_lock"
 local INDEX_LOCK_TTL = 5
+local COMPACT_INTERVAL = 300
+local _last_compact = 0
 
 local function shared()
     return ngx.shared[DESIRED_STATE_DICT]
@@ -86,6 +88,29 @@ local function index_remove(key)
         end
     end
     index_write(filtered)
+    index_unlock()
+end
+
+local function compact_index_if_due()
+    local now = ngx.time()
+    if now - _last_compact < COMPACT_INTERVAL then return end
+    if not index_lock() then return end
+    _last_compact = now
+
+    local s = shared()
+    local idx = index_read()
+    local compact = {}
+    local changed = false
+    for _, key in ipairs(idx) do
+        if s:get(key) then
+            compact[#compact + 1] = key
+        else
+            changed = true
+        end
+    end
+    if changed then
+        index_write(compact)
+    end
     index_unlock()
 end
 
@@ -210,21 +235,8 @@ function _M.list_desired(cursor, page_size)
     page_size = page_size or 50
     local s = shared()
     if not s then return { entries = {}, next_cursor = nil } end
+    compact_index_if_due()
     local idx = index_read()
-    -- Compact stale index slots once before paging.
-    local compact = {}
-    local changed = false
-    for _, key in ipairs(idx) do
-        if s:get(key) then
-            compact[#compact + 1] = key
-        else
-            changed = true
-        end
-    end
-    if changed then
-        index_write(compact)
-        idx = compact
-    end
 
     local entries = {}
     local i = cursor + 1

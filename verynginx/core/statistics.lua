@@ -9,6 +9,7 @@ local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
 -- Log request sample rate: 1-in-10 requests update shdict stats
 local LOG_SAMPLE_RATE = 10
+local _common_codes = { "200", "301", "302", "304", "400", "401", "403", "404", "405", "500", "502", "503" }
 
 -- ---------------------------------------------------------------------------
 -- LRU index helpers (stored in shared dict)
@@ -77,6 +78,10 @@ end
 -- Initialization
 -- ---------------------------------------------------------------------------
 function _M.init()
+    if ngx.worker.id() ~= 0 then
+        return
+    end
+
     local persist_interval = (config and config.statistics and config.statistics.persist_interval) or 300
     ngx.timer.every(60, function()
         _M._flush_bucket("1m", "5m")
@@ -87,24 +92,22 @@ function _M.init()
     ngx.timer.every(3600, function()
         _M._flush_bucket("1h", "all")
     end)
-    if ngx.worker.id() == 0 then
-        ngx.timer.every(persist_interval, function()
+    ngx.timer.every(persist_interval, function()
+        _M.persist()
+    end)
+    -- Persist on worker shutdown (flush short-term buckets into "all" first)
+    local function persist_on_exit(premature)
+        if premature then return end
+        if ngx.worker.exiting() then
+            _M._flush_bucket("1m", "5m")
+            _M._flush_bucket("5m", "1h")
+            _M._flush_bucket("1h", "all")
             _M.persist()
-        end)
-        -- Persist on worker shutdown (flush short-term buckets into "all" first)
-        local function persist_on_exit(premature)
-            if premature then return end
-            if ngx.worker.exiting() then
-                _M._flush_bucket("1m", "5m")
-                _M._flush_bucket("5m", "1h")
-                _M._flush_bucket("1h", "all")
-                _M.persist()
-                return
-            end
-            ngx.timer.at(1, persist_on_exit)
+            return
         end
         ngx.timer.at(1, persist_on_exit)
     end
+    ngx.timer.at(1, persist_on_exit)
     _M.restore()
 end
 
@@ -164,7 +167,6 @@ function _M.get_top_paths(limit)
     return results
 end
 
-local _common_codes = { "200", "301", "302", "304", "400", "401", "403", "404", "405", "500", "502", "503" }
 local function _get_seen_codes(shared, key)
     local codes = {}
     for _, c in ipairs(_common_codes) do
@@ -192,6 +194,7 @@ function _M._flush_bucket(src_bucket, dst_bucket)
         local count = shared:get(src_key .. ":count") or 0
         local bytes = shared:get(src_key .. ":bytes") or 0
         local time = shared:get(src_key .. ":time") or 0
+        local codes = _get_seen_codes(shared, src_key)
 
         if count > 0 then
             local dst_key = dst_bucket .. ":" .. uri
@@ -200,7 +203,6 @@ function _M._flush_bucket(src_bucket, dst_bucket)
             shared:incr(dst_key .. ":time", time, 0)
             lru_add(shared, "index:" .. dst_bucket, uri, max_keys)
             -- Merge status codes (only codes that were actually recorded)
-            local codes = _get_seen_codes(shared, src_key)
             for _, c in ipairs(codes) do
                 local sc = shared:get(src_key .. ":status_" .. c)
                 if sc and sc > 0 then
@@ -212,7 +214,6 @@ function _M._flush_bucket(src_bucket, dst_bucket)
         shared:delete(src_key .. ":count")
         shared:delete(src_key .. ":bytes")
         shared:delete(src_key .. ":time")
-        local codes = _get_seen_codes(shared, src_key)
         for _, c in ipairs(codes) do
             shared:delete(src_key .. ":status_" .. c)
         end
@@ -327,18 +328,30 @@ function _M.restore()
     if not shared then
         return
     end
+    local max_keys = (config and config.statistics and config.statistics.max_uri_keys) or 10000
+    local restored_uris = lru_list(shared, "index:all")
+    local indexed = {}
+    for _, uri in ipairs(restored_uris) do
+        indexed[uri] = true
+    end
     for uri, entry in pairs(decoded) do
         local key = "all:" .. uri
-        shared:set(key .. ":count", entry.count or 0)
-        shared:set(key .. ":bytes", entry.bytes or 0)
-        shared:set(key .. ":time", entry.time or 0)
-        if entry.status then
-            for code, count in pairs(entry.status) do
-                shared:set(key .. ":status_" .. code, count)
+        if not shared:get(key .. ":count") then
+            shared:set(key .. ":count", entry.count or 0)
+            shared:set(key .. ":bytes", entry.bytes or 0)
+            shared:set(key .. ":time", entry.time or 0)
+            if entry.status then
+                for code, count in pairs(entry.status) do
+                    shared:set(key .. ":status_" .. code, count)
+                end
             end
         end
-        lru_add(shared, "index:all", uri, (config and config.statistics and config.statistics.max_uri_keys) or 10000)
+        if not indexed[uri] and #restored_uris < max_keys then
+            restored_uris[#restored_uris + 1] = uri
+            indexed[uri] = true
+        end
     end
+    shared:set("index:all", json.encode(restored_uris))
 end
 
 function _M._json_path()

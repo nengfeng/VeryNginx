@@ -399,16 +399,11 @@ function _M.status(_)
         health = { state = "unreachable", error = tostring(health) }
     end
 
-    local installed = sm.count("installed")
-    local active_auto = 0
-    do
-        local page = sm.list(0, 500, "installed")
-        for _, e in ipairs(page.entries or {}) do
-            if e.policy == "scanner" or e.policy == "cc" then
-                active_auto = active_auto + 1
-            end
-        end
-    end
+    local sm_summary = sm.summarize()
+    local by_state = sm_summary.by_state
+    local installed_by_policy = sm_summary.by_state_policy.installed or {}
+    local installed = by_state.installed or 0
+    local active_auto = sm_summary.active_auto_installed or 0
 
     local matrix = readiness.compute({
         health = health,
@@ -468,18 +463,18 @@ function _M.status(_)
                 burst = observe_status.burst or 0,
                 last_refill_ms = observe_status.last_refill_ms or 0,
             },
-            rate_limited_recent = sm.count("rate_limited"),
+            rate_limited_recent = by_state.rate_limited or 0,
         },
         counters = {
-            candidates = math.max(sm.count() - installed, 0),
+            candidates = math.max(sm_summary.total - installed, 0),
             installed = installed,
-            installed_scanner = sm.count("installed", "scanner"),
-            installed_cc = sm.count("installed", "cc"),
-            installed_manual = sm.count("installed", "manual"),
-            rejected = sm.count("rejected"),
-            degraded = sm.count("degraded"),
-            rate_limited = sm.count("rate_limited"),
-            paused = sm.count("scope_validation_pending"),
+            installed_scanner = installed_by_policy.scanner or 0,
+            installed_cc = installed_by_policy.cc or 0,
+            installed_manual = installed_by_policy.manual or 0,
+            rejected = by_state.rejected or 0,
+            degraded = by_state.degraded or 0,
+            rate_limited = by_state.rate_limited or 0,
+            paused = by_state.scope_validation_pending or 0,
             desired = desired.count_desired(),
             active_auto_while_disabled = (kb.enabled ~= true) and active_auto or 0,
             drift = last_reconcile and (

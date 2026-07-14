@@ -289,6 +289,51 @@ function _M.count(state_filter, policy_filter)
 end
 
 -- ---------------------------------------------------------------------------
+-- Aggregate state/policy counters in one index pass.
+-- ---------------------------------------------------------------------------
+function _M.summarize()
+    local summary = {
+        total = 0,
+        by_state = {},
+        by_policy = {},
+        by_state_policy = {},
+        active_auto_installed = 0,
+    }
+    local s = shared()
+    if not s then return summary end
+    compact_index()
+    local idx_raw = s:get(INDEX_KEY) or "[]"
+    local ok, idx = pcall(json.decode, idx_raw)
+    if not ok or type(idx) ~= "table" then return summary end
+
+    for _, composite in ipairs(idx) do
+        local ip, policy = composite:match("^(.+):([^:]+)$")
+        if ip and policy then
+            local raw = s:get(entry_key(ip, policy))
+            if raw then
+                local decoded, entry = pcall(json.decode, raw)
+                if decoded and type(entry) == "table" then
+                    local state = entry.state or "unknown"
+                    summary.total = summary.total + 1
+                    summary.by_state[state] = (summary.by_state[state] or 0) + 1
+                    summary.by_policy[policy] = (summary.by_policy[policy] or 0) + 1
+                    local state_policies = summary.by_state_policy[state]
+                    if not state_policies then
+                        state_policies = {}
+                        summary.by_state_policy[state] = state_policies
+                    end
+                    state_policies[policy] = (state_policies[policy] or 0) + 1
+                    if state == STATE.installed and (policy == "scanner" or policy == "cc") then
+                        summary.active_auto_installed = summary.active_auto_installed + 1
+                    end
+                end
+            end
+        end
+    end
+    return summary
+end
+
+-- ---------------------------------------------------------------------------
 -- Health-check-driven scope_validation_pending transitions.
 -- When Helper connection is lost, installed entries transition to
 -- scope_validation_pending. Once connection is restored (and entries

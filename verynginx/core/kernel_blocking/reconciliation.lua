@@ -164,14 +164,39 @@ local function collect_all_desired(now)
     return all
 end
 
-local function safe_contains(exec, list, family, ip)
-    local call_ok, present = pcall(function()
-        return exec.contains(list, family, ip)
-    end)
-    if not call_ok then
-        return false, "contains_error"
+local function collect_actual(exec)
+    local actual_by_key = {}
+    local actual_entries = {}
+    local failed_groups = {}
+    local list_fn = exec.list_strict or exec.list
+
+    for _, list in ipairs(DROP_LISTS) do
+        for _, family in ipairs(FAMILIES) do
+            local group_key = list .. ":" .. family
+            local cursor = 0
+            repeat
+                local list_ok, page, list_err = pcall(function()
+                    return list_fn(list, family, cursor)
+                end)
+                if not list_ok or type(page) ~= "table" or list_err then
+                    failed_groups[group_key] = true
+                    break
+                end
+                for _, actual in ipairs(page.entries or {}) do
+                    if actual.ip then
+                        actual.set = actual.set or list
+                        actual.family = actual.family or family
+                        local key = list .. ":" .. family .. ":" .. tostring(actual.ip)
+                        actual_by_key[key] = actual
+                        actual_entries[#actual_entries + 1] = actual
+                    end
+                end
+                cursor = page.next_cursor
+            until not cursor
+        end
     end
-    return present and true or false, nil
+
+    return actual_by_key, actual_entries, failed_groups
 end
 
 -- ---------------------------------------------------------------------------
@@ -188,54 +213,34 @@ local function collect_drift(exec, all_desired, enforce, _now)
     }
 
     local desired_set = {}
-    local preserve_set = {}
+    local actual_by_key, actual_entries, failed_groups = collect_actual(exec)
 
     for _, entry in ipairs(all_desired) do
         local key = entry.list .. ":" .. entry.family .. ":" .. entry.ip
+        local group_key = entry.list .. ":" .. entry.family
         desired_set[key] = true
         local mode = entry.reconciliation_mode or "ensure"
-        if mode == "preserve_only" then
-            preserve_set[key] = true
-        end
-        local present, cerr = safe_contains(exec, entry.list, entry.family, entry.ip)
-        if cerr then
+        if failed_groups[group_key] then
             result.failed = (result.failed or 0) + 1
-        elseif not present then
+        elseif not actual_by_key[key] then
             if mode == "preserve_only" then
                 result.skipped_preserve = result.skipped_preserve + 1
             else
                 result.to_add[#result.to_add + 1] = entry
             end
+        elseif mode == "preserve_only" then
+            result.skipped_preserve = result.skipped_preserve + 1
         else
             result.to_update[#result.to_update + 1] = entry
         end
     end
 
-    for _, list in ipairs(DROP_LISTS) do
-        for _, family in ipairs(FAMILIES) do
-            local cursor = 0
-            repeat
-                local page = { entries = {}, next_cursor = nil }
-                local list_ok, list_page = pcall(function()
-                    return exec.list(list, family, cursor)
-                end)
-                if list_ok and type(list_page) == "table" then
-                    page = list_page
-                end
-                for _, actual in ipairs(page.entries or {}) do
-                    local ip = actual.ip
-                    local key = list .. ":" .. family .. ":" .. tostring(ip)
-                    if ip and not desired_set[key] then
-                        actual.set = actual.set or list
-                        actual.family = actual.family or family
-                        result.to_remove[#result.to_remove + 1] = actual
-                    elseif ip and preserve_set[key] then
-                        -- present preserve_only entry: keep until natural TTL
-                        result.to_update[#result.to_update + 1] = actual
-                    end
-                end
-                cursor = page.next_cursor
-            until not cursor
+    for _, actual in ipairs(actual_entries) do
+        local list = actual.set or actual.list
+        local family = actual.family or "ipv4"
+        local key = list .. ":" .. family .. ":" .. tostring(actual.ip)
+        if not desired_set[key] and not failed_groups[list .. ":" .. family] then
+            result.to_remove[#result.to_remove + 1] = actual
         end
     end
 
@@ -430,6 +435,7 @@ function _M.reconcile(now)
     result.to_update = drift.to_update
     result.to_remove = drift.to_remove
     result.skipped_preserve = drift.skipped_preserve
+    result.failed = drift.failed or 0
 
     -- Compute snapshot metadata (chunk count) for observability even in dry-run.
     local total_chunks = snapshot.chunk_count(drift.to_add, drift.to_remove,

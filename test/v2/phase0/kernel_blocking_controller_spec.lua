@@ -159,6 +159,44 @@ describe("Kernel blocking controller", function()
         assert.is_true(#data.data.entries >= 1)
     end)
 
+    it("GET /kernel-blocking/entries batches executor membership checks", function()
+        for i = 1, 3 do
+            local ip = "203.0.113." .. i
+            _sm.upsert(ip, "scanner", "installed", {}, {
+                list = "scanner_drop",
+                family = "ipv4",
+            })
+            _mock_exec.add("scanner_drop", "ipv4", ip, 300)
+        end
+
+        local original_list = _mock_exec.list
+        local original_contains = _mock_exec.contains
+        local list_calls = 0
+        local contains_calls = 0
+        _mock_exec.list = function(...)
+            list_calls = list_calls + 1
+            return original_list(...)
+        end
+        _mock_exec.contains = function(...)
+            contains_calls = contains_calls + 1
+            return original_contains(...)
+        end
+
+        local ok, err = pcall(function()
+            local resp = find_route("/kernel-blocking/entries").handler()
+            local data = require("dkjson").decode(resp)
+            assert.are.equal(3, #data.data.entries)
+            for _, entry in ipairs(data.data.entries) do
+                assert.is_true(entry.in_kernel)
+            end
+            assert.are.equal(1, list_calls)
+            assert.are.equal(0, contains_calls)
+        end)
+        _mock_exec.list = original_list
+        _mock_exec.contains = original_contains
+        assert.is_true(ok, tostring(err))
+    end)
+
     it("POST /kernel-blocking/promote installs IP via executor", function()
         ngx.req.get_body_data = function()
             return require("dkjson").encode({ip = "203.0.113.99", policy = "scanner", ttl = 300})
