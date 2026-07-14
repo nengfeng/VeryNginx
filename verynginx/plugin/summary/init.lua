@@ -22,11 +22,16 @@ function _M.on_log(ctx)
 
     statistics.log_request(ctx)
 
-    -- IP reputation signal: 404 responses (only from unverified clients)
+    -- IP reputation signal: 404 responses (sampled to avoid MD5 flood under scan)
     local status = tonumber(ngx.var.status) or 0
     if status == 404 then
-        if not javascript_verify.check(ctx) then
-            ip_reputation.record_signal(ctx.request.remote_addr, "not_found")
+        local ip = ctx.request.remote_addr
+        -- Sample: only 1-in-10 404s trigger the full cookie check + signal
+        local counter = ngx.shared.ip_reputation:incr("ip_rep:404_sample:" .. ip, 1, 0, 60)
+        if counter and (counter % 10) == 1 then
+            if not javascript_verify.check(ctx) then
+                ip_reputation.record_signal(ip, "not_found")
+            end
         end
     end
 end
