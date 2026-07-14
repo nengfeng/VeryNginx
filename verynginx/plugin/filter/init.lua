@@ -69,7 +69,7 @@ local function evaluate_rules(rules, ctx, ip)
             return true
         elseif action == "challenge" then
             ip_reputation.record_signal(ip, "waf_challenge")
-            if ip_reputation.is_flagged(ip, { no_cache = true }) then
+            if ngx.ctx.is_flagged then
                 ctx.set_action(ctx, "block", { code = 403, response = rule.response })
                 return true
             end
@@ -146,7 +146,8 @@ function _M.on_access(ctx)
     end
 
     -- 【前置-3】IP 已被标记为扫描器 → 直接封禁
-    if ip_reputation.is_flagged(ip) then
+    ngx.ctx.is_flagged = ip_reputation.is_flagged(ip)
+    if ngx.ctx.is_flagged then
         ctx.set_action(ctx, "block", { code = 403, response = "forbidden_json" })
         return
     end
