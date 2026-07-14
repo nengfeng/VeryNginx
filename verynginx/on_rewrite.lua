@@ -7,8 +7,10 @@ local config = require "core.config"
 local context = require "core.context"
 local rule_engine = require "core.rule_engine"
 
--- 1. Check config update (zero file I/O, hash compare only)
-config.check_update()
+-- 1. Check config update (sampled: 1-in-100 requests, config changes are rare)
+if math.random(100) == 1 then
+    config.check_update()
+end
 
 -- 2. Create request context
 local ctx = context.new()
