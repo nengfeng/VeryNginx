@@ -79,12 +79,29 @@ function _M._is_terminal(ctx)
     return TERMINAL_ACTIONS[action.type] == true
 end
 
+--- Classify request once per access phase.
+-- Sets ctx._is_admin to skip admin-only plugins (frequency_limit, browser_verify)
+-- on backend requests, and skip backend plugins on admin requests.
+local function classify_request(ctx)
+    local base_uri = config.base_uri or "/verynginx"
+    local uri = ctx.request.uri
+    ctx._is_admin = uri:find(base_uri, 1, true) == 1
+end
+
+-- Plugins that only apply to backend (non-admin) traffic.
+local BACKEND_ONLY = { frequency_limit = true, browser_verify = true }
+
 --- Execute the access phase for all plugins.
 -- Only terminal actions (block/redirect/response) short-circuit the loop;
 -- non-terminal actions like accept, proxy, static allow downstream plugins to run.
 function _M.execute_access(ctx)
+    classify_request(ctx)
     for _, plugin in ipairs(_M.plugins) do
         if not _M.is_enabled(plugin) then
+            goto continue
+        end
+        -- Skip backend-only plugins for admin requests
+        if ctx._is_admin and BACKEND_ONLY[plugin.name] then
             goto continue
         end
         if ctx.has_decision(ctx) and _M._is_terminal(ctx) then
