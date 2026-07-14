@@ -945,7 +945,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                   <td>{{ r.limit }}</td>
                   <td>{{ r.window }}s</td>
                   <td><span class="tag">{{ r.code || 429 }}</span></td>
-                  <td><input type="checkbox" :checked="r.enable !== false" @change="toggleFreqRule(r)" disabled></td>
+                  <td><input type="checkbox" :checked="r.enable !== false" disabled></td>
                   <td><button class="outline small" @click="deleteFreqRule(r)">Delete</button></td>
                 </tr>
               </tbody>
@@ -3195,6 +3195,16 @@ const app = Vue.createApp({
       }
     }
 
+    const hasTimelineData = computed(() => {
+      const buckets = (wafTimeline.value && wafTimeline.value.buckets) || [];
+      for (const b of buckets) {
+        for (const c in (b.counts || {})) {
+          if (b.counts[c] > 0) return true;
+        }
+      }
+      return false;
+    });
+
     function timelineBarHeight(counts, cat) {
       let max = 1;
       for (const b of wafTimeline.value.buckets) {
@@ -4039,7 +4049,7 @@ const app = Vue.createApp({
       ruleOpenCreate, ruleOpenEdit, ruleEditModalChanged, ruleSave, ruleDelete, ruleToggle,
       // WAF
       wafTab, wafError, wafRules, wafCategories, wafPagination,
-      wafFilterCat, wafFilterSev, wafStatsData, wafStatsError,
+      wafFilterCat, wafFilterSev, wafFilterChange, wafStatsData, wafStatsError,
       wafHistory, wafHistError, wafRolling,
       wafEditModal, wafEditError, wafSaving,
       wafTestRuleJson, wafTestCasesJson, wafTestError, wafTesting, wafTestResults,
@@ -4052,7 +4062,7 @@ const app = Vue.createApp({
       wafHits, wafHitsError, wafHitsTime, loadWafHits,
       wafAnalytics, loadWafAnalytics, gradeStyle,
       wafPendingChanges, loadPendingRules, confirmPendingChange, discardPendingChange,
-      wafTimeline, wafTimelineHours, wafTimelineBucket, loadWafTimeline,
+      wafTimeline, wafTimelineHours, wafTimelineBucket, loadWafTimeline, hasTimelineData,
       categoryColor, wafDiffLines, timelineBarHeight,
       wafTestHistory, loadTestHistory, clearTestHistory,
       wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
