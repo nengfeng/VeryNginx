@@ -9,9 +9,18 @@
 --   Layer 2: JSON file (persistent, for durability)
 
 local _M = {}
-local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
+local cjson_ok = pcall(require, "cjson")
+local json = cjson_ok and require("cjson") or require("dkjson")
 local config = require("core.config")
 local matcher = require("matcher.init")
+
+-- cjson.encode takes exactly 1 arg; dkjson accepts {indent=true} as 2nd arg
+local function jencode(data, opts)
+    if opts and not cjson_ok then
+        return json.encode(data, opts)
+    end
+    return json.encode(data)
+end
 
 
 -- ---------------------------------------------------------------------------
@@ -270,7 +279,7 @@ function _M.save_rules(rules, action)
     local tmp_path = path .. ".tmp"
     local f = io.open(tmp_path, "w")
     if not f then return false, "cannot open temp file" end
-    local encoded, err = json.encode(data, { indent = true })
+    local encoded, err = jencode(data, { indent = true })
     if not encoded then
         f:close()
         os.remove(tmp_path)
@@ -369,7 +378,7 @@ function _M.record_history(rules, version, timestamp, action)
     local tmp_path = path .. ".tmp"
     local wf = io.open(tmp_path, "w")
     if wf then
-        local encoded = json.encode(history, { indent = true })
+        local encoded = jencode(history, { indent = true })
         if encoded then
             wf:write(encoded)
         end
