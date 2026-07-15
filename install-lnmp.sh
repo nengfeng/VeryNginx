@@ -115,6 +115,17 @@ install_files() {
   mkdir -p "${VN_DIR}" "${BACKUP_DIR}"
   cp -r "${src_dir}/verynginx/"* "${VN_DIR}/"
 
+  # Write version + git commit info for dashboard display
+  if command -v git &>/dev/null && git -C "$src_dir" rev-parse --short HEAD &>/dev/null; then
+    git -C "$src_dir" describe --tags --always > "${VN_DIR}/VERSION" 2>/dev/null \
+      || echo "dev" > "${VN_DIR}/VERSION"
+    git -C "$src_dir" rev-parse HEAD > "${VN_DIR}/COMMIT"
+    info "Wrote version info ✓"
+  else
+    echo "dev" > "${VN_DIR}/VERSION"
+    echo "unknown" > "${VN_DIR}/COMMIT"
+  fi
+
   # config.json from template
   local config_file="${VN_DIR}/configs/config.json"
   if [ ! -f "$config_file" ]; then

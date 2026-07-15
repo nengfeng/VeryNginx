@@ -1226,7 +1226,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <!-- About -->
       <div v-if="page==='about'" style="text-align:center;padding-top:60px">
         <h1>VeryNginx</h1>
-        <p style="color:var(--muted);font-size:18px;margin:8px 0 4px">v2.0</p>
+        <p style="color:var(--muted);font-size:18px;margin:8px 0 4px">{{ versionInfo.version || 'v2.0' }}</p>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:4px">
+          <code :title="versionInfo.commit || ''">{{ versionInfo.commit ? versionInfo.commit.slice(0,8) : '' }}</code>
+        </p>
         <p style="color:var(--muted);font-size:14px">A WAF, reverse proxy and request management engine built on Nginx + Lua.</p>
         <p style="margin-top:24px"><a href="https://github.com/nengfeng/VeryNginx" target="_blank">GitHub</a></p>
       </div>
@@ -2024,6 +2027,7 @@ const app = Vue.createApp({
 
     const plugins = ref([]);
     const pluginsError = ref('');
+    const versionInfo = ref({ version: '', commit: '' });
     const toastMsg = ref('');
     const toastType = ref('info');
     const toastVisible = ref(false);
@@ -2250,6 +2254,7 @@ const app = Vue.createApp({
       } catch {}
     }
     checkSession();
+    loadVersion();
 
     // ---- Login ----
     async function doLogin() {
@@ -2573,6 +2578,14 @@ const app = Vue.createApp({
           });
         }
         dictUsage.value = dicts;
+      } catch {}
+    }
+
+    // ---- Version ----
+    async function loadVersion() {
+      try {
+        const d = await api('GET', '/verynginx/version');
+        if (d.ret === 'success') versionInfo.value = d.data;
       } catch {}
     }
 
@@ -4076,6 +4089,7 @@ const app = Vue.createApp({
       plugins, pluginsError, loadPlugins, togglePlugin,
       toastMsg, toastType, toastVisible, formatAgo, showToast, parsePrometheus,
       configImportError, configImportOk, importFileInput,
+      versionInfo,
       exportConfig, importConfig, onImportFile,
       topPaths, loadTopPaths,
       // Reputation

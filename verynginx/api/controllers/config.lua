@@ -167,6 +167,11 @@ local function handle_get_audit()
     return json.encode({ ret = "success", data = entries })
 end
 
+local function handle_get_version()
+    local ver = require "core.version"
+    return json.encode({ ret = "success", data = { version = ver.get(), commit = ver.commit() } })
+end
+
 function _M.register(api)
     api.register("GET", "/config", handle_get_config, true)
     api.register("POST", "/config", handle_set_config, true)
@@ -177,6 +182,7 @@ function _M.register(api)
     api.register("GET", "/audit", handle_get_audit, true)
     api.register("GET", "/config/export", handle_export_config, true)
     api.register("POST", "/config/import", handle_import_config, true)
+    api.register("GET", "/version", handle_get_version, true)
 end
 
 return _M
