@@ -10,6 +10,8 @@ local config = require "core.config"
 
 local PREFIX = "waf_rec:"
 local INDEX_KEY = PREFIX .. "index"
+local LOCK_KEY = PREFIX .. "index_lock"
+local LOCK_TTL = 5
 
 -- ---------------------------------------------------------------------------
 -- Config
@@ -165,19 +167,70 @@ end
 -- ---------------------------------------------------------------------------
 -- CRUD for rule suggestions
 -- ---------------------------------------------------------------------------
+-- Atomic index mutation via spin-lock (TOCTOU-safe across workers).
+local function with_index_lock(fn)
+    local s = ngx.shared.vn_config
+    if not s then return false end
+    for _ = 1, 20 do
+        local ok = s:add(LOCK_KEY, 1, LOCK_TTL)
+        if ok then
+            local result = { pcall(fn) }
+            s:delete(LOCK_KEY)
+            if result[1] then return true, result[2] end
+            return false, result[2]
+        end
+        ngx.sleep(0.01)
+    end
+    return false, "index_lock_timeout"
+end
+
+local function index_append(id)
+    local s = ngx.shared.vn_config
+    local index_raw = s:get(INDEX_KEY) or "[]"
+    local index = {}
+    if type(index_raw) == "string" then
+        local ok, t = pcall(json.decode, index_raw)
+        if ok and type(t) == "table" then index = t end
+    end
+    -- Dedup: skip if already present (idempotent re-add).
+    for _, v in ipairs(index) do
+        if v == id then return end
+    end
+    table.insert(index, id)
+    s:set(INDEX_KEY, json.encode(index), 86400 * 7)
+end
+
+local function index_remove(id)
+    local s = ngx.shared.vn_config
+    local index_raw = s:get(INDEX_KEY) or "[]"
+    local index = {}
+    if type(index_raw) == "string" then
+        local ok, t = pcall(json.decode, index_raw)
+        if ok and type(t) == "table" then index = t end
+    end
+    local filtered = {}
+    for _, v in ipairs(index) do
+        if v ~= id then table.insert(filtered, v) end
+    end
+    s:set(INDEX_KEY, json.encode(filtered), 86400 * 7)
+end
+
 function _M.add(suggestion)
     local s = ngx.shared.vn_config
     if not s then return false end
 
     local key = PREFIX .. suggestion.id
-    s:set(key, json.encode(suggestion), 86400 * 7)  -- 7 day TTL
+    s:set(key, json.encode(suggestion), 86400 * 7)
 
-    -- Update index
-    local index_raw = s:get(INDEX_KEY) or "[]"
-    local ok, index = pcall(json.decode, index_raw)
-    if not ok or type(index) ~= "table" then index = {} end
-    table.insert(index, suggestion.id)
-    s:set(INDEX_KEY, json.encode(index), 86400 * 7)
+    -- Atomic index update (TOCTOU-safe across workers)
+    local ok, err = with_index_lock(function()
+        index_append(suggestion.id)
+    end)
+    if not ok then
+        -- Entry written but index update failed — log and continue.
+        -- The orphaned entry will be skipped by list() (it just won't appear).
+        ngx.log(ngx.WARN, "waf_recommender: index append failed: ", tostring(err))
+    end
     return true
 end
 
@@ -227,15 +280,13 @@ function _M.delete(id)
     local s = ngx.shared.vn_config
     if not s then return false end
     s:delete(PREFIX .. id)
-    -- Remove from index
-    local index_raw = s:get(INDEX_KEY) or "[]"
-    local ok, index = pcall(json.decode, index_raw)
-    if not ok or type(index) ~= "table" then return true end
-    local filtered = {}
-    for _, i in ipairs(index) do
-        if i ~= id then table.insert(filtered, i) end
+    -- Atomic index update (TOCTOU-safe across workers)
+    local ok, err = with_index_lock(function()
+        index_remove(id)
+    end)
+    if not ok then
+        ngx.log(ngx.WARN, "waf_recommender: index remove failed: ", tostring(err))
     end
-    s:set(INDEX_KEY, json.encode(filtered), 86400 * 7)
     return true
 end
 
