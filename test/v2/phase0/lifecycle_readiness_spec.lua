@@ -187,6 +187,25 @@ describe("Readiness matrix", function()
         assert.is_true(mock.contains("manual_drop", "ipv4", "198.51.100.50"))
     end)
 
+    it("reconcile converts expires_at to ttl with floor of 1s", function()
+        mock.flush_owned("all")
+        local now = ngx.time()
+        local snapshot = {
+            ["kb_mock:nft:scanner_drop:ipv4:203.0.113.99"] = {
+                set = "scanner_drop", family = "ipv4", ip = "203.0.113.99",
+                expires_at = now - 10,  -- already expired → ttl floored to 1
+            },
+            ["kb_mock:nft:cc_drop:ipv4:203.0.113.88"] = {
+                set = "cc_drop", family = "ipv4", ip = "203.0.113.88",
+                expires_at = now + 300,  -- future → ttl = 300
+            },
+        }
+        local r = mock.reconcile(snapshot)
+        assert.are.equal(2, r.added)
+        assert.is_true(mock.contains("scanner_drop", "ipv4", "203.0.113.99"))
+        assert.is_true(mock.contains("cc_drop", "ipv4", "203.0.113.88"))
+    end)
+
     it("flush_owned('all') removes everything", function()
         mock.flush_owned("all")
         mock.add("scanner_drop", "ipv4", "203.0.113.10", 300)

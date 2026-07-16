@@ -227,12 +227,15 @@ function _M.reconcile(snapshot)
     for key, _ in pairs(snapshot) do
         desired_keys[key] = true
     end
-    -- Add/update entries from snapshot
-    -- NOTE: snapshot from desired_state uses expires_at (absolute),
-    -- but add() expects ttl (relative). TODO(Phase 4): convert.
+    -- Add/update entries from snapshot.
+    -- Snapshot from desired_state uses expires_at (absolute), but add()
+    -- expects ttl (relative). Convert with floor of 1s to match
+    -- reconciliation.remaining_ttl and avoid negative/zero TTLs on
+    -- clock-skew or already-expired entries.
+    local now = ngx.time()
     for key, entry in pairs(snapshot) do
         local s, f, ip = entry.set, entry.family, entry.ip
-        local ttl = entry.ttl or (entry.expires_at and (entry.expires_at - ngx.time())) or 0
+        local ttl = entry.ttl or (entry.expires_at and math.max(entry.expires_at - now, 1)) or 0
         local key_in_idx = idx[key] or false
         local ok, _ = _M.add(s, f, ip, ttl)
         if ok then
