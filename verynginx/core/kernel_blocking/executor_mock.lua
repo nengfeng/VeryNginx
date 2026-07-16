@@ -311,16 +311,24 @@ end
 -- flush_owned(scope) -> { removed = n }
 -- scope: "auto" | "all" | "detach"
 -- ---------------------------------------------------------------------------
-function _M.flush_owned(_scope)
+function _M.flush_owned(scope)
     local idx = index_read()
     local count = 0
-    -- In mock, flush everything (scope filtering deferred to Phase 3+)
+    local auto_sets = { scanner_drop = true, cc_drop = true }
+    local new_idx = {}
     for key, _ in pairs(idx) do
-        local s = shared()
-        if s then s:delete(key) end
-        count = count + 1
+        local sname = key:match(DATA_PREFIX .. "([^:]+):([^:]+):(.+)")
+        local should_remove = (scope == "all" or scope == "detach")
+            or (scope == "auto" and auto_sets[sname])
+        if should_remove then
+            local s = shared()
+            if s then s:delete(key) end
+            count = count + 1
+        else
+            new_idx[key] = true
+        end
     end
-    index_write({})
+    index_write(new_idx)
     return { removed = count }
 end
 

@@ -174,6 +174,29 @@ describe("Readiness matrix", function()
         assert.is_false(m.effective.cc.auto_ready)
     end)
 
+    it("flush_owned('auto') preserves manual_drop entries", function()
+        mock.flush_owned("all")
+        mock.add("scanner_drop", "ipv4", "203.0.113.10", 300)
+        mock.add("cc_drop", "ipv4", "203.0.113.20", 300)
+        mock.add("manual_drop", "ipv4", "198.51.100.50", 600)
+        -- auto flush should only remove scanner + cc, not manual
+        local r = mock.flush_owned("auto")
+        assert.are.equal(2, r.removed)
+        assert.is_false(mock.contains("scanner_drop", "ipv4", "203.0.113.10"))
+        assert.is_false(mock.contains("cc_drop", "ipv4", "203.0.113.20"))
+        assert.is_true(mock.contains("manual_drop", "ipv4", "198.51.100.50"))
+    end)
+
+    it("flush_owned('all') removes everything", function()
+        mock.flush_owned("all")
+        mock.add("scanner_drop", "ipv4", "203.0.113.10", 300)
+        mock.add("manual_drop", "ipv4", "198.51.100.50", 600)
+        local r = mock.flush_owned("all")
+        assert.are.equal(2, r.removed)
+        assert.is_false(mock.contains("scanner_drop", "ipv4", "203.0.113.10"))
+        assert.is_false(mock.contains("manual_drop", "ipv4", "198.51.100.50"))
+    end)
+
     it("global disabled with active auto entries emits warning reason", function()
         mock_config.kernel_ip_blocking.enabled = false
         local m = readiness.compute({
