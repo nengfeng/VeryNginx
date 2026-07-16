@@ -1304,9 +1304,20 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           Warning: disabled_with_active_entries — {{ kbStatus.counters.active_auto_while_disabled }} auto entries still active in kernel. Use Flush Auto only if you intend to remove them.
         </div>
 
-        <!-- Controls -->
-        <div class="card mb-16">
-          <h3 style="font-size:14px;margin-bottom:12px">Controls</h3>
+         <!-- CC auto-ready banner -->
+         <div v-if="ccAutoReady" class="card mb-16" style="border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)">
+           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+             <div>
+               <strong style="color:var(--accent)">⚡ CC enforce ready</strong>
+               <div style="font-size:12px;color:var(--muted);margin-top:4px">All prerequisites met (migration, cutover, rule refs, helper). Enable CC enforce_ready to activate.</div>
+             </div>
+             <button class="primary small" :disabled="kbBusy" @click="enableCcEnforceReady">Enable CC enforce</button>
+           </div>
+         </div>
+
+         <!-- Controls -->
+         <div class="card mb-16">
+           <h3 style="font-size:14px;margin-bottom:12px">Controls</h3>
           <div class="grid grid-3 mb-16 kb-controls">
             <div class="field">
               <label class="kb-check"><input type="checkbox" v-model="kbForm.enabled"> Global enabled</label>
@@ -1352,9 +1363,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div class="card mb-16">
           <h3 style="font-size:14px;margin-bottom:8px">Enforce readiness checklist</h3>
           <div v-for="step in kbChecklist" :key="step.id" style="font-size:13px;margin-bottom:6px">
-            <span :class="step.ok ? 'tag tag-ok' : 'tag tag-warn'" style="margin-right:6px">{{ step.ok ? 'OK' : 'TODO' }}</span>
-            {{ step.label }}
-          </div>
+             <span :class="step.ok ? 'tag tag-ok' : (step.auto_ready ? 'tag tag-info' : 'tag tag-warn')" style="margin-right:6px">{{ step.ok ? 'OK' : (step.auto_ready ? 'READY' : 'TODO') }}</span>
+             {{ step.label }}
+             <span v-if="step.auto_ready" style="font-size:11px;color:var(--accent);margin-left:6px">— click "Enable CC enforce" above</span>
+           </div>
         </div>
 
         <!-- Manual block -->
@@ -2129,6 +2141,11 @@ const app = Vue.createApp({
       return !!eff.global_install_reachable;
     }
 
+    const ccAutoReady = computed(() => {
+      const e = kbStatus.value.effective || {};
+      return !!(e.cc && e.cc.auto_ready);
+    });
+
     const kbChecklist = computed(() => {
       const c = kbStatus.value.configured || {};
       const m = kbStatus.value.migration || {};
@@ -2144,7 +2161,7 @@ const app = Vue.createApp({
         { id: 'cc_rules', label: 'CC rule_ids present (if using CC)', ok: !!hasRules || c.cc_enabled === false },
         { id: 'migration', label: 'Frequency ID migration completed', ok: m.status === 'completed' || m.status === 'no_rules' },
         { id: 'v2', label: 'v2 counter namespace cut over', ok: ns === 'v2' || m.status === 'no_rules' },
-        { id: 'cc_ready', label: 'cc.enforce_ready confirmed (only if CC enforce desired)', ok: !!c.cc_enforce_ready || c.cc_enabled === false },
+        { id: 'cc_ready', label: 'cc.enforce_ready confirmed (only if CC enforce desired)', ok: !!c.cc_enforce_ready || c.cc_enabled === false, auto_ready: kbStatus.value.effective && kbStatus.value.effective.cc && kbStatus.value.effective.cc.auto_ready },
       ];
     });
 
@@ -3589,6 +3606,27 @@ const app = Vue.createApp({
       await Promise.all([loadKbBucketHistory(), loadKbDiff()]);
     }
 
+    async function enableCcEnforceReady() {
+      if (!confirm('Enable CC enforce_ready? This will activate automatic CC kernel blocking for qualifying IPs.')) return;
+      kbBusy.value = true;
+      try {
+        const full = await api('GET', '/verynginx/config');
+        if (!full || typeof full !== 'object') throw new Error('config load failed');
+        const kb = Object.assign({}, full.kernel_ip_blocking || {});
+        kb.cc = Object.assign({}, kb.cc || {}, { enforce_ready: true });
+        full.kernel_ip_blocking = kb;
+        const d = await api('POST', '/verynginx/config', full);
+        if (d.ret === 'success') {
+          showToast('CC enforce_ready enabled — CC auto-promotion active', 'success');
+          cfg.value = full;
+          await loadKbData();
+        } else {
+          showToast(d.message || 'Save failed', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
     async function kbSaveSettings() {
       if (kbForm.mode === 'enforce' && !kbForm.enabled) {
         showToast('Enable must be true before enforce mode', 'error'); return;
@@ -4106,6 +4144,7 @@ const app = Vue.createApp({
       kbForm, kbDetail, kbDetailJson, kbReasonItems, kbChecklist,
       kbEffMode, kbEffReachable, formatKbTime, formatKbExpiry, kbEvidenceSummary,
       kbTrendPoints, kbTrendFillEnforce, kbTrendFillObserve,
+      ccAutoReady, enableCcEnforceReady,
       kbOpenDetail, kbReloadList, kbSaveSettings, loadKbTimeline,
       loadKbData, loadKbEntries, loadKbCandidates, loadKbDashboard,
       kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,

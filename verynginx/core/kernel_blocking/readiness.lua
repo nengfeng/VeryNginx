@@ -151,6 +151,19 @@ function _M.compute(opts)
         migration = freq.get_migration_status() or migration
         cutover = freq.is_cutover_complete and freq.is_cutover_complete() or false
     end
+
+    -- auto_ready: all prerequisites for CC enforce are met but enforce_ready
+    -- is still false.  Used by the dashboard to prompt one-click activation.
+    local cc_auto_ready = false
+    if global_mode == "enforce" and configured.cc_enabled and
+        type(rule_ids) == "table" and #rule_ids > 0 and
+        not configured.cc_enforce_ready then
+        local mig_ok = (migration.status == "completed" or migration.status == "no_rules")
+        if mig_ok and cutover then
+            cc_auto_ready = global_reachable
+        end
+    end
+
     if cc_mode == "enforce" then
         if migration.status ~= "completed" and migration.status ~= "no_rules" then
             cc_reachable = false
@@ -197,6 +210,7 @@ function _M.compute(opts)
             cc = {
                 mode = cc_mode,
                 install_reachable = cc_reachable,
+                auto_ready = cc_auto_ready,
                 reason_codes = cc_reasons,
             },
         },

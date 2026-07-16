@@ -134,6 +134,46 @@ describe("Readiness matrix", function()
         assert.is_true(found)
     end)
 
+    it("CC auto_ready=true when all prerequisites met but enforce_ready=false", function()
+        -- Mock frequency module: migration completed + cutover done
+        local freq_mod = {
+            get_migration_status = function() return { status = "completed" } end,
+            is_cutover_complete = function() return true end,
+            id_to_index_map = function() return { freq_rule_1 = 1 } end,
+        }
+        package.loaded["core.frequency"] = freq_mod
+        mock_config.kernel_ip_blocking.cc.enforce_ready = false
+        local m = readiness.compute({ health = { state = "ok" } })
+        assert.are.equal("observe", m.effective.cc.mode)
+        assert.is_true(m.effective.cc.auto_ready)
+    end)
+
+    it("CC auto_ready=false when global mode is observe", function()
+        local freq_mod = {
+            get_migration_status = function() return { status = "completed" } end,
+            is_cutover_complete = function() return true end,
+            id_to_index_map = function() return { freq_rule_1 = 1 } end,
+        }
+        package.loaded["core.frequency"] = freq_mod
+        mock_config.kernel_ip_blocking.mode = "observe"
+        mock_config.kernel_ip_blocking.cc.enforce_ready = false
+        local m = readiness.compute({ health = { state = "ok" } })
+        assert.is_false(m.effective.cc.auto_ready)
+        mock_config.kernel_ip_blocking.mode = "enforce"
+    end)
+
+    it("CC auto_ready=false when migration not completed", function()
+        local freq_mod = {
+            get_migration_status = function() return { status = "pending" } end,
+            is_cutover_complete = function() return false end,
+            id_to_index_map = function() return { freq_rule_1 = 1 } end,
+        }
+        package.loaded["core.frequency"] = freq_mod
+        mock_config.kernel_ip_blocking.cc.enforce_ready = false
+        local m = readiness.compute({ health = { state = "ok" } })
+        assert.is_false(m.effective.cc.auto_ready)
+    end)
+
     it("global disabled with active auto entries emits warning reason", function()
         mock_config.kernel_ip_blocking.enabled = false
         local m = readiness.compute({
