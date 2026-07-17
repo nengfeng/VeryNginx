@@ -87,6 +87,7 @@ _M.schema = {
                 fp_min_challenges = 5,
                 unknown_pattern_min_hits = 5,
                 ja3_cross_ip_threshold = 5,
+                shared_dict_alert_threshold = 80,
                 window_seconds = 360,
             },
             children = {
@@ -98,6 +99,7 @@ _M.schema = {
                 fp_min_challenges    = leaf({ type = "integer", default = 5, min = 1, max = 1000 }),
                 unknown_pattern_min_hits = leaf({ type = "integer", default = 5, min = 1, max = 1000 }),
                 ja3_cross_ip_threshold   = leaf({ type = "integer", default = 5, min = 2, max = 1000 }),
+                shared_dict_alert_threshold = leaf({ type = "integer", default = 80, min = 10, max = 99 }),
                 window_seconds      = leaf({ type = "integer", default = 360, min = 60, max = 86400 }),
             },
             preserve_unknown = true,

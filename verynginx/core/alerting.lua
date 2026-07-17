@@ -26,7 +26,9 @@ local DEFAULTS = {
     -- Unknown attack pattern detection
     unknown_pattern_min_hits = 5,   -- min hits with same pattern to trigger alert
     -- JA3 cross-IP correlation (distributed scanner detection)
-    ja3_cross_ip_threshold = 5,     -- min distinct IPs sharing same JA3 to trigger alert
+    ja3_cross_ip_threshold = 5,   -- min distinct IPs sharing same JA3 to trigger alert
+    -- Shared dict capacity
+    shared_dict_alert_threshold = 80,  -- alert when dict usage exceeds this percentage
     -- Detection window
     window_seconds = 360,           -- 1 hour evaluation window (6x per day)
 }
@@ -44,6 +46,7 @@ local function cfg()
         hit_spike_min_hits = c.hit_spike_min_hits or DEFAULTS.hit_spike_min_hits,
         fp_pass_rate_threshold = c.fp_pass_rate_threshold or DEFAULTS.fp_pass_rate_threshold,
         fp_min_challenges = c.fp_min_challenges or DEFAULTS.fp_min_challenges,
+        shared_dict_alert_threshold = c.shared_dict_alert_threshold or DEFAULTS.shared_dict_alert_threshold,
         window_seconds = c.window_seconds or DEFAULTS.window_seconds,
     }
 end
@@ -292,6 +295,29 @@ function _M.evaluate()
                 ip_count = #ips,
                 sample_ips = table.concat({ips[1] or "", ips[2] or "", ips[3] or ""}, ","),
             })
+        end
+    end
+
+    -- 5) Shared dict capacity monitoring
+    local dict_names = {"vn_config", "vn_locks", "vn_rate_limit", "vn_session",
+                        "statistics", "metrics", "healthcheck", "dns_cache",
+                        "frequency_limit", "ip_reputation"}
+    for _, name in ipairs(dict_names) do
+        local dict = ngx.shared[name]
+        if dict then
+            local capacity = dict:capacity()
+            local free_space = dict:free_space()
+            if capacity > 0 then
+                local used_pct = math.floor(((capacity - free_space) / capacity) * 100)
+                if used_pct >= conf.shared_dict_alert_threshold then
+                    fire_alert("shared_dict_high_usage", nil, {
+                        dict = name,
+                        usage_pct = used_pct,
+                        capacity_kb = math.floor(capacity / 1024),
+                        free_kb = math.floor(free_space / 1024),
+                    })
+                end
+            end
         end
     end
 
