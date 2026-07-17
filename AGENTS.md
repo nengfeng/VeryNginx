@@ -481,6 +481,10 @@ GeoIP 数据库目录**禁止 777**。`install-lnmp.sh` 已设置 755 + chown ng
 - 下载的 `.mmdb` 文件应 `chmod 644`（owner rw, others r）
 - 目录写权限通过 ownership（nginx user）实现，不依赖 world-writable
 
+### 10.10 core/random PRNG 种子
+
+`math.random` **禁止**未播种直接使用（每次进程启动产生相同序列，影响 CSRF token、session ID、密码 salt）。`core/random.lua` 的 `seed_prng()` 在首次 `math.random` 回退前自动播种（熵源：PID + worker_id + ngx.now + os.clock 经 XOR 混合）。即使在 `ngx.random_bytes` 和 `/dev/urandom` 均不可用的极端环境下，也不会产生可预测输出。
+
 ---
 
 ## 11. Firewall Helper (Go)
