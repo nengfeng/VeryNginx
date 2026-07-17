@@ -50,12 +50,15 @@ function _M.rebind_scope(cfg)
         ok, err = false, tostring(a)
     end
     if ok then
-        pcall(function()
+        local ok_wlg, err_wlg = pcall(function()
             local wlg = require "core.kernel_blocking.whitelist_generation"
             if wlg.push_allow_snapshot then
                 wlg.push_allow_snapshot()
             end
         end)
+        if not ok_wlg then
+            ngx.log(ngx.WARN, "kernel_blocking: push_allow_snapshot after rebind failed: ", tostring(err_wlg))
+        end
     else
         ngx.log(ngx.WARN, "kernel_blocking: scope rebind failed: ", tostring(err))
     end

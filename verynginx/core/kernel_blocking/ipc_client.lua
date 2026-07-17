@@ -65,17 +65,23 @@ end
 local function close_socket()
     local had_socket = socket ~= nil
     if socket then
-        pcall(function() socket:close() end)
+        local ok_close, err_close = pcall(function() socket:close() end)
+        if not ok_close then
+            ngx.log(ngx.WARN, "kernel_blocking: socket:close failed: ", tostring(err_close))
+        end
         socket = nil
     end
     socket_requests = 0
     socket_born = nil
     -- Design §8.3.4: only real disconnects invalidate scope binding.
     if had_socket then
-        pcall(function()
+        local ok_disc, err_disc = pcall(function()
             local sb = require "core.kernel_blocking.scope_binding"
             sb.on_ipc_disconnect()
         end)
+        if not ok_disc then
+            ngx.log(ngx.WARN, "kernel_blocking: on_ipc_disconnect failed: ", tostring(err_disc))
+        end
     end
     -- Reset backoff on explicit close (not a failure).
     backoff_interval = BACKOFF_INITIAL

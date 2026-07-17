@@ -363,7 +363,7 @@ function _M.reconcile(now)
         return { error = tostring(result) }
     end
     -- Cache compact last-reconcile summary for dashboard.
-    pcall(function()
+    local ok_cache, err_cache = pcall(function()
         local s = ngx.shared[LEASE_DICT]
         if s and type(result) == "table" then
             s:set("kb:last_reconcile", json.encode({
@@ -381,7 +381,13 @@ function _M.reconcile(now)
             }), 86400)
         end
     end)
-    pcall(_M.update_metrics, result)
+    if not ok_cache then
+        ngx.log(ngx.WARN, "kernel_blocking: last_reconcile cache failed: ", tostring(err_cache))
+    end
+    local ok_metrics, err_metrics = pcall(_M.update_metrics, result)
+    if not ok_metrics then
+        ngx.log(ngx.WARN, "kernel_blocking: update_metrics failed: ", tostring(err_metrics))
+    end
     return result
 end
 

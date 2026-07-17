@@ -233,16 +233,22 @@ function _M.on_config_activated(old_cfg, new_cfg)
         st.last_transition_at = now
         st.last_transition = table.concat(reasons, ",")
         _M.set_state(st)
-        pcall(function()
+        local ok_audit, err_audit = pcall(function()
             local audit = require "core.audit"
             audit.log("kernel_blocking.lifecycle", st.last_transition)
         end)
-        pcall(function()
+        if not ok_audit then
+            ngx.log(ngx.WARN, "kernel_blocking: audit.log failed: ", tostring(err_audit))
+        end
+        local ok_metrics, err_metrics = pcall(function()
             local metrics = require "core.metrics"
             metrics.incr("verynginx_kernel_block_lifecycle_transitions_total", 1, {
                 reason = reasons[1] or "unknown",
             })
         end)
+        if not ok_metrics then
+            ngx.log(ngx.WARN, "kernel_blocking: metrics.incr failed: ", tostring(err_metrics))
+        end
     else
         -- keep digests current even without generation bump
         st.digests = new_d

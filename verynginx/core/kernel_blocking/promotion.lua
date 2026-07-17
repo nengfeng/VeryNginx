@@ -273,7 +273,10 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 			": ", tostring(err_ds))
 	end
 	-- scanner supersedes cc desired entry
-	pcall(function() desired.remove_desired(ip, family, "cc_drop") end)
+	local ok_rm, err_rm = pcall(function() desired.remove_desired(ip, family, "cc_drop") end)
+	if not ok_rm then
+		ngx.log(ngx.WARN, "kernel_blocking: remove_desired(cc_drop) failed for ", ip, ": ", tostring(err_rm))
+	end
 	sm.upsert(ip, "scanner", "installed", evidence_tbl, {
 		list = "scanner_drop",
 		family = family,
@@ -285,9 +288,12 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 
 	-- Remove from cc_drop if it was there (scanner_drop > cc_drop)
 	if executor_cleanup then
-		pcall(function()
+		local ok_del, err_del = pcall(function()
 			exec.delete("cc_drop", family, ip)
 		end)
+		if not ok_del then
+			ngx.log(ngx.WARN, "kernel_blocking: delete(cc_drop) failed for ", ip, ": ", tostring(err_del))
+		end
 		sm.transition(ip, "cc", "cleared", {
 			reason = "superseded_by_scanner",
 			cleared_at = ngx.time(),
@@ -687,7 +693,10 @@ function _M.process_candidates(now)
     end
     -- Evidence cutoff: only post-transition evidence is eligible.
     -- lifecycle module loaded on demand for evidence enforcement
-    pcall(require, "core.kernel_blocking.lifecycle")
+    local ok_life_warm, _ = pcall(require, "core.kernel_blocking.lifecycle")
+    if not ok_life_warm then
+        ngx.log(ngx.WARN, "kernel_blocking: failed to preload lifecycle module")
+    end
     -- Refill observe-bucket tokens before evaluation round (Design §6.2)
     token_bucket.refill_observe()
     -- In enforce mode, also refill the enforce bucket
