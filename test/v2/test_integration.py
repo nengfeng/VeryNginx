@@ -271,14 +271,139 @@ def test_fingerprints():
     print(f"  [PASS] Fingerprints: {len(resp.get('data',[]))} entries")
 
 
+def test_kernel_blocking():
+    """Test kernel blocking status and endpoints."""
+    cookies = get_shared_session()
+
+    # GET /kernel-blocking/status (should return config/mode/counters)
+    status, body = curl("GET", "/verynginx/kernel-blocking/status", cookies=cookies)
+    assert status == 200, f"KB status failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"KB status response: {body[:200]}"
+    data = resp.get("data", {})
+    assert "configured" in data, f"KB status missing configured: {body[:200]}"
+    assert "effective" in data, f"KB status missing effective: {body[:200]}"
+    assert "counters" in data, f"KB status missing counters: {body[:200]}"
+    print(f"  [PASS] KB status: mode={data.get('configured',{}).get('mode','?')}")
+
+    # GET /kernel-blocking/entries (empty initially)
+    status, body = curl("GET", "/verynginx/kernel-blocking/entries", cookies=cookies)
+    assert status == 200, f"KB entries failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"KB entries response: {body[:200]}"
+    print(f"  [PASS] KB entries: {len(resp.get('data',{}).get('entries',[]))} entries")
+
+    # GET /kernel-blocking/candidates (empty initially)
+    status, body = curl("GET", "/verynginx/kernel-blocking/candidates", cookies=cookies)
+    assert status == 200, f"KB candidates failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"KB candidates response: {body[:200]}"
+    print(f"  [PASS] KB candidates: {len(resp.get('data',{}).get('entries',[]))} candidates")
+
+    # GET /kernel-blocking/bucket-history
+    status, body = curl("GET", "/verynginx/kernel-blocking/bucket-history", cookies=cookies)
+    assert status == 200, f"KB bucket-history failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"KB bucket-history response: {body[:200]}"
+    print(f"  [PASS] KB bucket-history")
+
+    # GET /kernel-blocking/diff
+    status, body = curl("GET", "/verynginx/kernel-blocking/diff", cookies=cookies)
+    assert status == 200, f"KB diff failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"KB diff response: {body[:200]}"
+    assert "desired_count" in resp.get("data", {}), f"KB diff missing desired_count: {body[:200]}"
+    print(f"  [PASS] KB diff: desired={resp.get('data',{}).get('desired_count',0)}")
+
+
+def test_reputation():
+    """Test IP reputation endpoints."""
+    cookies = get_shared_session()
+
+    # GET /reputation/stats
+    status, body = curl("GET", "/verynginx/reputation/stats", cookies=cookies)
+    assert status == 200, f"Rep stats failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Rep stats response: {body[:200]}"
+    print(f"  [PASS] Rep stats")
+
+    # GET /reputation/flagged
+    status, body = curl("GET", "/verynginx/reputation/flagged", cookies=cookies)
+    assert status == 200, f"Rep flagged failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Rep flagged response: {body[:200]}"
+    print(f"  [PASS] Rep flagged")
+
+    # GET /reputation/whitelist (empty initially)
+    status, body = curl("GET", "/verynginx/reputation/whitelist", cookies=cookies)
+    assert status == 200, f"Rep whitelist failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Rep whitelist response: {body[:200]}"
+    print(f"  [PASS] Rep whitelist")
+
+
+def test_frequency():
+    """Test frequency limit endpoints."""
+    cookies = get_shared_session()
+
+    # GET /frequency/rules (empty initially)
+    status, body = curl("GET", "/verynginx/frequency/rules", cookies=cookies)
+    assert status == 200, f"Freq rules failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Freq rules response: {body[:200]}"
+    print(f"  [PASS] Freq rules: {len(resp.get('data',[]))} rules")
+
+    # GET /frequency/stats
+    status, body = curl("GET", "/verynginx/frequency/stats", cookies=cookies)
+    assert status == 200, f"Freq stats failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Freq stats response: {body[:200]}"
+    print(f"  [PASS] Freq stats")
+
+    # GET /frequency/templates (8 preset scenarios)
+    status, body = curl("GET", "/verynginx/frequency/templates", cookies=cookies)
+    assert status == 200, f"Freq templates failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Freq templates response: {body[:200]}"
+    templates = resp.get("data", [])
+    assert len(templates) >= 8, f"Expected >=8 templates, got {len(templates)}"
+    print(f"  [PASS] Freq templates: {len(templates)} templates")
+
+    # GET /frequency/templates/:name (preview one)
+    if templates:
+        name = templates[0].get("name", "login_bruteforce")
+        status, body = curl("GET", f"/verynginx/frequency/templates/{name}", cookies=cookies)
+        assert status == 200, f"Freq template {name} failed: {status}"
+        resp = json.loads(body)
+        assert resp.get("ret") == "success", f"Freq template response: {body[:200]}"
+        assert "rule" in resp.get("data", {}), f"Freq template missing rule: {body[:200]}"
+        print(f"  [PASS] Freq template preview: {name}")
+
+
 def test_routes():
     """Test that all API routes respond correctly."""
+    cookies = get_shared_session()
     tests = [
-        ("POST /verynginx/login", lambda: curl("POST", "/verynginx/login", data="user=test&password=test")),
+        ("GET /status", "/verynginx/status", None),
+        ("GET /config", "/verynginx/config", None),
+        ("GET /waf/rules", "/verynginx/waf/rules", None),
+        ("GET /waf/stats", "/verynginx/waf/stats", None),
+        ("GET /reputation/stats", "/verynginx/reputation/stats", None),
+        ("GET /frequency/rules", "/verynginx/frequency/rules", None),
+        ("GET /frequency/templates", "/verynginx/frequency/templates", None),
+        ("GET /kernel-blocking/status", "/verynginx/kernel-blocking/status", None),
+        ("GET /kernel-blocking/entries", "/verynginx/kernel-blocking/entries", None),
+        ("GET /kernel-blocking/diff", "/verynginx/kernel-blocking/diff", None),
     ]
-    for name, fn in tests:
-        status, body = fn()
-        print(f"  [INFO] {name}: {status}")
+    passed = 0
+    for name, path, _ in tests:
+        status, body = curl("GET", path, cookies=cookies)
+        if status == 200:
+            passed += 1
+        else:
+            print(f"  [WARN] {name}: {status}")
+    assert passed == len(tests), f"Route check: {passed}/{len(tests)} passed"
+    print(f"  [PASS] All {len(tests)} routes respond 200")
 
 def main():
     print("VeryNginx v2 Integration Tests")
@@ -293,6 +418,10 @@ def main():
         ("WAF Rules", test_waf_rules),
         ("GeoIP", test_geoip),
         ("Fingerprints", test_fingerprints),
+        ("Kernel Blocking", test_kernel_blocking),
+        ("Reputation", test_reputation),
+        ("Frequency", test_frequency),
+        ("Route Coverage", test_routes),
     ]
 
     passed = 0
