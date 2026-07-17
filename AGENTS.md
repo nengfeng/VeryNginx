@@ -190,6 +190,16 @@ signals = {
 }
 ```
 
+### 4.5 CC enforce 自动就绪
+
+`readiness.compute()` 返回 `effective.cc.auto_ready`，当以下条件全部满足时为 `true`：
+- 全局 `mode == "enforce"` + `cc.enabled == true` + `rule_ids` 非空
+- Frequency migration 完成 + v2 counter namespace cutover
+- Helper 健康 + topology = direct
+- **但** `cc.enforce_ready` 仍为 `false`
+
+Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enforce" 按钮，PATCH `cc.enforce_ready=true`。
+
 ---
 
 ## 5. GeoIP
@@ -236,7 +246,38 @@ signals = {
 
 `config.lua` 和 `init.lua` 通过 `debug.getinfo(1, "S").source:match("^@(.+)/core/")` 自动检测安装前缀，无需 `VN_PREFIX` 环境变量。模块路径基于此解析。
 
-### 6.6 新增 config section
+### 6.6 频率限制规则模板库
+
+`core/frequency_templates.lua` 提供 8 个预置场景模板，用户可通过 Dashboard 一键应用：
+
+| 模板 | 场景 | 默认参数 |
+|------|------|---------|
+| `login_bruteforce` | 登录爆破防护 | limit=5, window=60s, block, path=/login |
+| `api_abuse` | API 滥用 | limit=60, window=60s, block, path=/api/ |
+| `crawler` | 爬虫/扫描 | limit=30, window=60s, challenge |
+| `global_cc` | 全局 CC 防护 | limit=300, window=60s, challenge |
+| `sensitive_api` | 敏感接口 | limit=10, window=60s, block, path=/reset-password |
+| `per_user` | 按用户限速 | key=user, limit=100, window=60s |
+| `host_based` | 按域名限速 | key=host, limit=120, window=60s |
+| `aggressive_block` | 严格拦截 | limit=3, window=60s, code=403 |
+
+- 端点：`GET /frequency/templates`（列表）、`GET /frequency/templates/:name`（预览）、`POST /frequency/templates/:name`（应用）
+- `apply(name, overrides?)` 返回 rule table，deep-copy 模板，去重避免重复插入
+- Dashboard：模板画廊卡片 → 预览弹窗（可调参数） → Apply → 保存为正式规则
+
+### 6.7 Shared Dict 使用率告警
+
+`core/alerting.lua` 第 5 种告警类型 `shared_dict_high_usage`：
+
+| 配置 | 默认 | 说明 |
+|------|------|------|
+| `shared_dict_alert_threshold` | 80 | 触发告警的使用率百分比（10-99） |
+| 监控范围 | 全部 10 个 dict | vn_config/vn_locks/vn_rate_limit/vn_session/statistics/metrics/healthcheck/dns_cache/frequency_limit/ip_reputation |
+| cooldown | 2x window | 避免重复告警 |
+
+使用率指标 `shared_dict_usage_pct` 同时通过 Prometheus `/metrics` 暴露（来自 `observability.lua`）。
+
+### 6.8 新增 config section
 
 ```lua
 waf_recommender = { type = "table", default = {
@@ -304,8 +345,7 @@ auto_whitelist = { type = "table", default = {
 - 分类：path_traversal / rce / sqli / scanner（基于关键词匹配）
 - 存储：建议写入 `vn_config` shared dict（7 天 TTL），通过 INDEX_KEY 索引
 - 应用：`apply(id)` 调用 `waf-rule-manager` 创建正式规则并 reload
-
-**注意**：`add()`/`delete()` 的 index 读写存在竞态条件。
+- Index 更新使用 `shared:add()` spin-lock 保证原子性（TOCTOU-safe），`add()` 内置去重
 
 ---
 
@@ -358,7 +398,7 @@ docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
 - 集成测试：`test/v2/test_integration.py`
 - Docker Compose：`test/v2/docker-compose.yml`
 
-### 9.4 单元测试覆盖（phase0 — kernel_blocking 相关）
+### 9.4 单元测试覆盖（phase0）
 
 | Spec 文件 | 覆盖范围 |
 |-----------|----------|
@@ -368,6 +408,7 @@ docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
 | `evidence_spec.lua` | scanner/CC 证据采集、slot 边界 |
 | `executor_spec.lua` | Nft Executor contract 测试 |
 | `frequency_rule_id_migration_spec.lua` | Frequency Rule ID m1 迁移算法 |
+| `frequency_templates_spec.lua` | 频率限制规则模板库 |
 | `frequency_v2_namespace_spec.lua` | v2 counter namespace 冷切换 |
 | `ipc_spec.lua` | IPC Protocol v1 framing/envelope |
 | `kernel_blocking_controller_spec.lua` | API 控制器 10 个端点 |
@@ -378,7 +419,10 @@ docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
 | `reconciliation_spec.lua` | 全量 reconcile、scope rebind |
 | `scope_binding_spec.lua` | Protected Scope Binding、scope_digest |
 | `ttl_ladder_spec.lua` | TTL 阶梯续期 |
+| `waf_recommender_spec.lua` | WAF 推荐引擎 index 原子性 |
 | `whitelist_generation_spec.lua` | 白名单 epoch/sequence 缓存 |
+| `bucket_history_diff_spec.lua` | bucket-history / diff 端点 |
+| `shared_dict_alert_spec.lua` | shared dict 使用率告警 |
 
 ---
 
@@ -542,6 +586,8 @@ verynginx/core/kernel_blocking/
 - **close_socket 只在 had_socket 时 invalidate scope binding**：首次建连前 close 不应 invalidate，避免不必要的 rebind。
 - **evidence slot 索引可能为负**：`slot - i` 在跨窗口边界时可能为负，必须 break 而非继续。
 - **mock 的 reconcile 闭包陷阱**：`idx[key]` 必须在 `add()` 之前捕获（`key_in_idx = idx[key]`），否则 add 会修改 idx 导致判定错误。
+- **mock `flush_owned` 区分 scope**：`auto` 只删 scanner_drop + cc_drop，`all`/`detach` 才包含 manual_drop。
+- **mock `reconcile` expires_at→ttl 转换**：使用 `math.max(expires_at - now, 1)`，不允许负 TTL。
 
 ### 12.3 API 控制器端点
 
@@ -557,8 +603,6 @@ verynginx/core/kernel_blocking/
 | POST | `/kernel-blocking/reconcile` | 手动触发同步 |
 | GET | `/kernel-blocking/bucket-history` | 令牌桶余额历史 |
 | GET | `/kernel-blocking/diff` | 期望 vs 实际差异 |
-
-> `/kernel-blocking/bucket-history` 和 `/kernel-blocking/diff` 尚无测试覆盖。
 
 ### 12.4 Docker 构建
 
@@ -588,7 +632,7 @@ verynginx/
 │   │   │   ├── reputation.lua ← IP 声誉
 │   │   │   ├── geoip.lua    ← GeoIP 查询/配置
 │   │   │   ├── fingerprint.lua ← TLS 指纹
-│   │   │   ├── frequency.lua ← 频率限制
+│   │   │   ├── frequency.lua ← 频率限制 + 模板库
 │   │   │   └── plugins.lua  ← 插件管理/上游健康
 │   │   ├── auth.lua         ← 认证 middleware
 │   │   ├── csrf.lua
@@ -601,7 +645,8 @@ verynginx/
 │   │   ├── metrics.lua, observability.lua
 │   │   ├── audit.lua, context.lua, hmac.lua
 │   │   ├── password_hash.lua, random.lua
-│   │   └── waf_recommender.lua
+│   │   ├── waf_recommender.lua
+│   │   └── frequency_templates.lua
 │   ├── core/kernel_blocking/ ← 内核层 IP 封禁 (§12)
 │   ├── plugin/
 │   │   ├── filter/          ← WAF + IP 声誉 + GeoIP
