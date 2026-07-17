@@ -473,6 +473,14 @@ API 响应超过 10MB 截断为 413。
 - 以 `https://` 开头
 - 不指向私有 IP 段（`127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、`169.254.0.0/16`）
 
+### 10.9 GeoIP 目录权限
+
+GeoIP 数据库目录**禁止 777**。`install-lnmp.sh` 已设置 755 + chown nginx_user，因此：
+- `geoip.lua` 的 `mkdir` 应使用 `-m 755`（非 777）
+- `geoip_updater.lua` 的 `ensure_dir` 不应 `chmod 777`
+- 下载的 `.mmdb` 文件应 `chmod 644`（owner rw, others r）
+- 目录写权限通过 ownership（nginx user）实现，不依赖 world-writable
+
 ---
 
 ## 11. Firewall Helper (Go)

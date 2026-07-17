@@ -34,8 +34,8 @@ local function ensure_dir(path)
         else
             os.execute("mkdir -p '" .. d .. "' 2>/dev/null")
         end
-        -- Ensure worker process (www) can write; silent on failure
-        pcall(function() os.execute("chmod 777 '" .. d .. "' 2>/dev/null") end)
+        -- Restrict to owner-write + world-readable (no group/other write).
+        pcall(function() os.execute("chmod 755 '" .. d .. "' 2>/dev/null") end)
     end
 end
 
@@ -92,6 +92,7 @@ local function download_file(url, dest, timeout)
         if not f then return false, "cannot write: " .. tostring(ferr) end
         f:write(res.body)
         f:close()
+        pcall(function() os.execute("chmod 644 '" .. dest .. "' 2>/dev/null") end)
         return true
     end
     -- Fallback: curl CLI
@@ -108,6 +109,7 @@ local function download_file(url, dest, timeout)
         return false, "curl did not create file: " .. tostring(output):sub(0, 200)
     end
     check:close()
+    pcall(function() os.execute("chmod 644 '" .. dest .. "' 2>/dev/null") end)
     return true
 end
 

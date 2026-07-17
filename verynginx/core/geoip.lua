@@ -38,7 +38,7 @@ function _M.init(geodb_path)
                 current = current:match("^(.-)/[^/]+$")
             end
             for _, d in ipairs(parts) do
-                os.execute("mkdir -p -m 777 '" .. d .. "' 2>/dev/null")
+                os.execute("mkdir -p -m 755 '" .. d .. "' 2>/dev/null")
             end
         end
     end)
