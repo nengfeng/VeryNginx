@@ -261,7 +261,7 @@ Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enfor
 | `host_based` | 按域名限速 | key=host, limit=120, window=60s |
 | `aggressive_block` | 严格拦截 | limit=3, window=60s, code=403 |
 
-- 端点：`GET /frequency/templates`（列表）、`GET /frequency/templates/:name`（预览）、`POST /frequency/templates/:name`（应用）
+- 端点：`GET /frequency/templates`（列表）、`GET /frequency/templates/:id`（预览）、`POST /frequency/templates/:id`（应用）
 - `apply(name, overrides?)` 返回 rule table，deep-copy 模板，去重避免重复插入
 - Dashboard：模板画廊卡片 → 预览弹窗（可调参数） → Apply → 保存为正式规则
 

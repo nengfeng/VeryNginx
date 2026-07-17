@@ -369,15 +369,13 @@ def test_frequency():
     assert len(templates) >= 8, f"Expected >=8 templates, got {len(templates)}"
     print(f"  [PASS] Freq templates: {len(templates)} templates")
 
-    # GET /frequency/templates/:name (preview one)
-    if templates:
-        name = templates[0].get("name", "login_bruteforce")
-        status, body = curl("GET", f"/verynginx/frequency/templates/{name}", cookies=cookies)
-        assert status == 200, f"Freq template {name} failed: {status}"
-        resp = json.loads(body)
-        assert resp.get("ret") == "success", f"Freq template response: {body[:200]}"
-        assert "rule" in resp.get("data", {}), f"Freq template missing rule: {body[:200]}"
-        print(f"  [PASS] Freq template preview: {name}")
+    # GET /frequency/templates/:id (preview one)
+    status, body = curl("GET", "/verynginx/frequency/templates/login_bruteforce", cookies=cookies)
+    assert status == 200, f"Freq template preview failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Freq template response: {body[:200]}"
+    assert "rule" in resp.get("data", {}), f"Freq template missing rule: {body[:200]}"
+    print(f"  [PASS] Freq template preview: login_bruteforce")
 
 
 def test_routes():

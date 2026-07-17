@@ -170,8 +170,8 @@ function _M.register(api)
     api.register("POST",   "/frequency/rules",              handle_frequency_rule_save,   true)
     api.register("DELETE", "/frequency/rules/:id",          handle_frequency_rule_delete, true)
     api.register("GET",    "/frequency/templates",          handle_template_list,         true)
-    api.register("GET",    "/frequency/templates/:name",     handle_template_get,          true)
-    api.register("POST",   "/frequency/templates/:name",     handle_template_apply,        true)
+    api.register("GET",    "/frequency/templates/:id",      handle_template_get,          true)
+    api.register("POST",   "/frequency/templates/:id",      handle_template_apply,        true)
 end
 
 return _M
