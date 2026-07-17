@@ -32,7 +32,14 @@ else
 end
 
 function _M.hmac_sha256(key, data)
-    return hmac_sha256(key, data)
+    if not hmac_sha256 then
+        return nil, "HMAC-SHA256 not available"
+    end
+    local sig = hmac_sha256(key, data)
+    if not sig then
+        return nil, "HMAC computation failed"
+    end
+    return sig
 end
 
 return _M

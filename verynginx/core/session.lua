@@ -94,7 +94,10 @@ function _M.sign(payload, secret)
         return nil, "payload and secret required"
     end
     local data = json.encode(payload)
-    local sig = hmac.hmac_sha256(secret, data)
+    local sig, err = hmac.hmac_sha256(secret, data)
+    if not sig then
+        return nil, err or "HMAC sign failed"
+    end
     local token = ngx.encode_base64(data) .. "." .. ngx.encode_base64(sig)
     return token
 end
@@ -126,7 +129,10 @@ function _M.verify(token, secret)
     end
 
     -- Verify signature
-    local expected_sig = hmac.hmac_sha256(secret, data)
+    local expected_sig, hmac_err = hmac.hmac_sha256(secret, data)
+    if not expected_sig then
+        return false, "HMAC unavailable: " .. (hmac_err or "unknown")
+    end
     local actual_sig = ngx.decode_base64(sig_b64)
     if not actual_sig or not constant_time_compare(expected_sig, actual_sig) then
         return false, "invalid signature"
