@@ -111,18 +111,18 @@ local function ensure_writable_dir()
         local cached = shared:get(WRIATBLE_DIR_KEY)
         if cached and cached ~= "" then
             _writable_base = cached
-            os.execute('mkdir -p "' .. cached .. '" 2>/dev/null')
+            os.execute("mkdir -p '" .. cached .. "' 2>/dev/null")
             return _writable_base
         end
     end
 
     local primary = config.resolve_path() .. "configs/"
-    os.execute('mkdir -p "' .. primary .. '" 2>/dev/null')
+    os.execute("mkdir -p '" .. primary .. "' 2>/dev/null")
     local f = io.open(primary .. ".waf_write_test", "w")
     if f then f:close(); os.remove(primary .. ".waf_write_test") _writable_base = primary
     else
         local fallback = "/tmp/verynginx/configs/"
-        os.execute('mkdir -p "' .. fallback .. '" 2>/dev/null')
+        os.execute("mkdir -p '" .. fallback .. "' 2>/dev/null")
         _writable_base = fallback
     end
 
