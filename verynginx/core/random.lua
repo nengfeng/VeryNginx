@@ -21,6 +21,27 @@ local function get_pid()
     return 0
 end
 
+-- XOR implementation compatible with Lua 5.1 / 5.2 / LuaJIT.
+local xor = (function()
+    local ok, bitmod = pcall(require, "bit")
+    if ok then
+        return bitmod.bxor
+    end
+    -- Pure arithmetic XOR for Lua 5.1 without bit library.
+    return function(a, b)
+        local r, p = 0, 1
+        a = math.floor(a)
+        b = math.floor(b)
+        while a > 0 or b > 0 do
+            if (a % 2) ~= (b % 2) then r = r + p end
+            a = math.floor(a / 2)
+            b = math.floor(b / 2)
+            p = p * 2
+        end
+        return r
+    end
+end)()
+
 local function seed_prng()
     if seeded then return end
     seeded = true
@@ -34,7 +55,7 @@ local function seed_prng()
     local s1 = math.floor(t * 1000000)
     local s2 = math.floor(clock * 1000000000)
     local s3 = pid * 7919 + worker_id * 104729
-    local seed = s1 ~ s2 ~ s3
+    local seed = xor(xor(s1, s2), s3)
     -- Ensure positive seed (math.randomseed may truncate negatives).
     if seed < 0 then seed = -seed end
     math.randomseed(seed)
