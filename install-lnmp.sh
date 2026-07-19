@@ -120,6 +120,14 @@ install_files() {
       || echo "dev" > "${VN_DIR}/VERSION"
     git -C "$src_dir" rev-parse HEAD > "${VN_DIR}/COMMIT"
     info "Wrote version info ✓"
+  elif [ -f "${src_dir}/VERSION" ]; then
+    cp "${src_dir}/VERSION" "${VN_DIR}/VERSION"
+    if [ -f "${src_dir}/COMMIT" ]; then
+      cp "${src_dir}/COMMIT" "${VN_DIR}/COMMIT"
+    else
+      echo "unknown" > "${VN_DIR}/COMMIT"
+    fi
+    info "Wrote version info (from source VERSION file) ✓"
   else
     echo "dev" > "${VN_DIR}/VERSION"
     echo "unknown" > "${VN_DIR}/COMMIT"
