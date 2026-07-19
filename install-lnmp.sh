@@ -1031,6 +1031,7 @@ SVCUNIT
 
     systemctl daemon-reload
     systemctl enable firewall-helper.socket
+    systemctl enable firewall-helper.service
     systemctl start firewall-helper.socket 2>/dev/null || true
     info "systemd units installed and started ✓"
     if systemctl is-active --quiet firewall-helper.socket 2>/dev/null; then
