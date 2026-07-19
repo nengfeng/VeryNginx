@@ -377,6 +377,13 @@ def test_frequency():
     assert "rule" in resp.get("data", {}), f"Freq template missing rule: {body[:200]}"
     print(f"  [PASS] Freq template preview: login_bruteforce")
 
+    # POST /frequency/templates/:id (apply — this was failing with unknown action 'nil')
+    status, body = curl("POST", "/verynginx/frequency/templates/login_bruteforce", cookies=cookies)
+    assert status == 200, f"Freq template apply failed: {status} {body[:300]}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Freq template apply response: {body[:300]}"
+    print(f"  [PASS] Freq template apply: login_bruteforce")
+
 
 def test_routes():
     """Test that all API routes respond correctly."""
