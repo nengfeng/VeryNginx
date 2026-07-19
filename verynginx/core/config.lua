@@ -1042,18 +1042,33 @@ function _M.save(config, opts)
         end
     end
 
-    -- Hash plaintext passwords in admin entries before validation
-    pcall(function()
+    -- Hash plaintext passwords in admin entries before validation.
+    -- Returns (ok, err_msg) so pcall + inner check both surface errors.
+    local ok_hash, hash_ok, hash_err = pcall(function()
         local password_hash_mod = require "core.password_hash"
+        if not password_hash_mod or not password_hash_mod.hash then
+            return false, "password_hash module unavailable"
+        end
         if config.admin then
-            for _, a in ipairs(config.admin) do
+            for i, a in ipairs(config.admin) do
                 if a.password and a.password ~= "" then
-                    a.password_hash = password_hash_mod.hash(a.password)
+                    local hashed = password_hash_mod.hash(a.password)
+                    if not hashed or hashed == "" then
+                        return false, string.format("admin[%d]: password hash() returned nil", i)
+                    end
+                    a.password_hash = hashed
                     a.password = nil
                 end
             end
         end
+        return true, nil
     end)
+    if not ok_hash or not hash_ok then
+        release_save_lock(lock_key, lock_token)
+        -- hash_err (inner return) or ok_hash itself (pcall error message)
+        local msg = hash_err or (not ok_hash and tostring(hash_ok)) or "admin password hashing failed"
+        return false, msg
+    end
 
     -- validate
     local ok, err_or_normalized = validate_config(config)
