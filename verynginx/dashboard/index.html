@@ -3412,9 +3412,21 @@ const app = Vue.createApp({
       try {
         const d = await api('GET', '/verynginx/frequency/templates/' + name);
         if (d.ret === 'success') {
-          Object.assign(freqTemplateModal, d.data, { name: name, show: true });
+          const r = d.data.rule || {};
+          Object.assign(freqTemplateModal, {
+            show: true,
+            name: name,
+            label: d.data.label || '',
+            description: d.data.description || '',
+            id: r.id || '',
+            key: r.key || 'ip',
+            limit: r.limit || 60,
+            window: r.window || 60,
+            code: r.code || 429,
+            matcherJson: r.matcherJson || '{}',
+          });
         } else {
-          showToast(d.message || 'Template not found', 'error');
+          showToast(d.message || '模板未找到', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
     }
