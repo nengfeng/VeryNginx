@@ -93,6 +93,14 @@ end
 -- ---------------------------------------------------------------------------
 function _M.is_cutover_complete()
     local status = _M.get_migration_status()
+    -- No rules means nothing to migrate — treat as already cut over.
+    if status.status == "no_rules" then
+        local s = ngx.shared.frequency_limit
+        if s and not s:get("fl:v2:cutover_epoch") then
+            s:set("fl:v2:cutover_epoch", tostring(ngx.time()))
+        end
+        return true
+    end
     if status.status == "completed" then
         -- Verify shared-state cutover_epoch; write if missing (e.g. dict evicted)
         local s = ngx.shared.frequency_limit
