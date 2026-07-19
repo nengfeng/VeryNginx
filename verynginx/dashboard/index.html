@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VeryNginx v2</title>
+<title>VeryNginx v2 管理面板</title>
 <!-- Vue 3: local copy with SRI, CDN fallback for air-gapped/offline safety -->
 <script src="/verynginx/static/vue.global.prod.js" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
 <script>
@@ -128,17 +128,17 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
   <div id="login-page" v-if="!store.loggedIn">
     <div class="login-box">
       <h1>VeryNginx</h1>
-      <p class="sub">v2.0 — WAF &amp; Reverse Proxy Manager</p>
+      <p class="sub">v2.0 — WAF 与反向代理管理</p>
       <div class="error" v-if="loginError">{{ loginError }}</div>
       <div class="field">
-        <label>User</label>
-        <input v-model.trim="loginUser" type="text" placeholder="admin username" @keyup.enter="doLogin">
+        <label>用户名</label>
+        <input v-model.trim="loginUser" type="text" placeholder="管理员用户名" @keyup.enter="doLogin">
       </div>
       <div class="field">
-        <label>Password</label>
-        <input v-model.trim="loginPass" type="password" placeholder="password" @keyup.enter="doLogin">
+        <label>密码</label>
+        <input v-model.trim="loginPass" type="password" placeholder="输入密码" @keyup.enter="doLogin">
       </div>
-      <button class="primary" :disabled="loading" @click="doLogin">{{ loading ? 'Signing in…' : 'Sign in' }}</button>
+      <button class="primary" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
     </div>
   </div>
 
@@ -147,44 +147,44 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     <div id="topnav">
       <span class="brand">VeryNginx <small>v2</small></span>
       <nav>
-        <a :class="{active:page==='overview'}" @click="page='overview';loadOverview()">Overview</a>
-        <a :class="{active:page==='status'}" @click="page='status'">Status</a>
-        <a :class="{active:page==='config'}" @click="page='config'">Config</a>
-        <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">Stats</a>
+         <a :class="{active:page==='overview'}" @click="page='overview';loadOverview()">概览</a>
+        <a :class="{active:page==='status'}" @click="page='status'">状态</a>
+        <a :class="{active:page==='config'}" @click="page='config'">配置</a>
+        <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">统计</a>
         <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
-        <a :class="{active:page==='frequency'}" @click="page='frequency';loadFrequencyData()">Frequency</a>
-         <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">Reputation</a>
+        <a :class="{active:page==='frequency'}" @click="page='frequency';loadFrequencyData()">频率限制</a>
+         <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">IP 声誉</a>
          <a :class="{active:page==='geoip'}" @click="page='geoip';loadGeoIP();loadGeoIPStatus()">GeoIP</a>
-         <a :class="{active:page==='fingerprints'}" @click="page='fingerprints';loadFingerprints()">Fingerprints</a>
-         <a :class="{active:page==='audit'}" @click="page='audit';loadAudit()">Audit</a>
-         <a :class="{active:page==='kb'}" @click="page='kb';loadKbData()">Kernel Block</a>
-        <a :class="{active:page==='about'}" @click="page='about'">About</a>
+         <a :class="{active:page==='fingerprints'}" @click="page='fingerprints';loadFingerprints()">TLS 指纹</a>
+         <a :class="{active:page==='audit'}" @click="page='audit';loadAudit()">审计日志</a>
+         <a :class="{active:page==='kb'}" @click="page='kb';loadKbData()">内核锁阻</a>
+        <a :class="{active:page==='about'}" @click="page='about'">关于</a>
       </nav>
       <div class="user-area">
-        <button class="outline small" @click="toggleTheme" :title="theme==='dark'?'切换浅色':'切换深色'" style="padding:4px 8px">
+        <button class="outline small" @click="toggleTheme" :title="theme==='dark'?'切换到浅色模式':'切换到深色模式'" style="padding:4px 8px">
           {{ theme === 'dark' ? '☀' : '🌙' }}
         </button>
         <span>{{ store.user }}</span>
-        <button class="outline small" @click="doLogout">Logout</button>
+        <button class="outline small" @click="doLogout">退出</button>
       </div>
     </div>
 
     <div id="main">
       <!-- Overview -->
       <div v-if="page==='overview'">
-        <h2 class="page-title">System Overview</h2>
+        <h2 class="page-title">系统概览</h2>
         <!-- Top row: connections + upstream -->
         <div class="grid grid-4 mb-16">
           <div class="stat-card">
-            <div class="stat-label">Active Connections</div>
+            <div class="stat-label">活跃连接</div>
             <div class="stat-value" :style="{color: (overview.conn_active||0) > 1000 ? '#ef4444' : ''}">{{ overview.conn_active || 0 }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Requests (last min)</div>
+            <div class="stat-label">请求/分钟</div>
             <div class="stat-value">{{ formatNumber(overview.req_rate || 0) }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Upstream Healthy</div>
+            <div class="stat-label">上游健康</div>
             <div class="stat-value">
               <span :style="{color: overview.up_healthy === overview.up_total && overview.up_total > 0 ? '#22c55e' : overview.up_healthy > 0 ? '#eab308' : '#ef4444'}">
                 {{ overview.up_healthy || 0 }}
@@ -193,18 +193,18 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             </div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">WAF Hits (last min)</div>
+            <div class="stat-label">WAF 命中/分钟</div>
             <div class="stat-value" :style="{color: (overview.waf_hits||0) > 100 ? '#f97316' : ''}">{{ formatNumber(overview.waf_hits || 0) }}</div>
           </div>
           <div class="stat-card" v-if="overview.flagged !== undefined">
-            <div class="stat-label">Flagged IPs</div>
+            <div class="stat-label">已标记 IP</div>
             <div class="stat-value" :style="{color: (overview.flagged||0) > 0 ? '#ef4444' : ''}">{{ overview.flagged }}</div>
           </div>
         </div>
         <!-- Second row: memory + errors -->
         <div class="grid grid-3 mb-16">
           <div class="stat-card" v-for="d in overview.dicts || []" :key="d.name">
-            <div class="stat-label">Shared Dict: {{ d.name }}</div>
+            <div class="stat-label">共享字典: {{ d.name }}</div>
             <div class="stat-value" style="font-size:20px" :style="{color: d.pct > 80 ? '#ef4444' : d.pct > 60 ? '#eab308' : ''}">{{ d.pct.toFixed(1) }}%</div>
             <div style="font-size:11px;color:var(--muted)">{{ formatBytes(d.used) }} / {{ formatBytes(d.cap) }}</div>
           </div>
@@ -212,9 +212,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- Third row: top URIs + plugin errors -->
         <div class="grid grid-2 mb-16">
           <div class="card">
-            <strong>Top URIs by Requests</strong>
+            <strong>请求最多 URI</strong>
             <table style="font-size:12px;margin-top:8px" v-if="(overview.top_uris || []).length">
-              <thead><tr><th>URI</th><th>Count</th><th>Bytes</th><th>Success</th></tr></thead>
+              <thead><tr><th>URI</th><th>次数</th><th>流量</th><th>成功率</th></tr></thead>
               <tbody>
                 <tr v-for="u in overview.top_uris" :key="u.uri">
                   <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ u.uri }}</td>
@@ -224,55 +224,55 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                 </tr>
               </tbody>
             </table>
-            <div v-else class="empty">No data</div>
+             <div v-else class="empty">暂无数据</div>
           </div>
           <div class="card">
-            <strong>Plugin Performance</strong>
+            <strong>插件性能</strong>
             <table style="font-size:12px;margin-top:8px" v-if="(overview.plugin_perf || []).length">
-              <thead><tr><th>Plugin</th><th>Phase</th><th>Avg Dur</th><th>Errors</th></tr></thead>
+              <thead><tr><th>插件</th><th>阶段</th><th>平均耗时</th><th>错误</th></tr></thead>
               <tbody>
-                <tr v-for="e in overview.plugin_perf" :key="e.plugin + e.phase">
-                  <td>{{ e.plugin }}</td>
-                  <td>{{ e.phase }}</td>
-                  <td :style="{color: e.avg_ms > 50 ? '#f97316' : ''}">{{ e.avg_ms.toFixed(1) }}ms</td>
-                  <td><span :style="{color: e.errors > 0 ? '#ef4444' : ''}">{{ formatNumber(e.errors) }}</span></td>
+                 <tr v-for="e in overview.plugin_perf" :key="e.plugin + e.phase">
+                   <td>{{ e.plugin }}</td>
+                   <td>{{ e.phase }}</td>
+                   <td :style="{color: e.avg_ms > 50 ? '#f97316' : ''}">{{ e.avg_ms.toFixed(1) }}ms</td>
+                   <td><span :style="{color: e.errors > 0 ? '#ef4444' : ''}">{{ formatNumber(e.errors) }}</span></td>
                 </tr>
               </tbody>
             </table>
-            <div v-else class="empty">No data</div>
+            <div v-else class="empty">暂无数据</div>
           </div>
         </div>
       </div>
 
       <!-- Status -->
       <div v-if="page==='status'">
-        <h2 class="page-title">Status</h2>
+        <h2 class="page-title">系统状态</h2>
         <div class="grid grid-4 mb-16">
-          <div class="stat-card"><div class="stat-label">Active Connections</div><div class="stat-value">{{ s.connections_active || 0 }}</div></div>
-          <div class="stat-card"><div class="stat-label">Reading</div><div class="stat-value">{{ s.connections_reading || 0 }}</div></div>
-          <div class="stat-card"><div class="stat-label">Writing</div><div class="stat-value">{{ s.connections_writing || 0 }}</div></div>
-          <div class="stat-card"><div class="stat-label">Waiting</div><div class="stat-value">{{ s.connections_waiting || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">活跃连接</div><div class="stat-value">{{ s.connections_active || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">读取中</div><div class="stat-value">{{ s.connections_reading || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">写入中</div><div class="stat-value">{{ s.connections_writing || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">等待中</div><div class="stat-value">{{ s.connections_waiting || 0 }}</div></div>
         </div>
         <!-- Connection trend chart -->
         <div class="card mb-16" v-if="connHistory.length > 1">
-          <strong>Connections Trend (last 3 min)</strong>
+            <strong>连接趋势 (最近 3 分钟)</strong>
           <svg width="100%" height="120" style="margin-top:8px">
             <polyline :points="connLinePoints" fill="none" stroke="#4f8af0" stroke-width="2" />
             <polyline :points="connFillPoints" fill="rgba(79,138,240,0.1)" stroke="none" />
           </svg>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:2px">
-            <span>{{ connHistory.length * 3 }}s ago</span>
-            <span>now</span>
+            <span>{{ connHistory.length * 3 }}秒前</span>
+            <span>现在</span>
           </div>
         </div>
         <div class="card">
           <div class="flex flex-between mb-8">
-            <strong>Status Info</strong>
-            <button class="outline small" @click="loadStatus">Refresh</button>
+            <strong>状态信息</strong>
+            <button class="outline small" @click="loadStatus">刷新</button>
           </div>
           <table>
-            <tr><th>Time</th><td>{{ formatTime(s.time) }}</td></tr>
-            <tr><th>Uptime Status</th><td><span class="tag tag-ok">Online</span></td></tr>
+            <tr><th>时间</th><td>{{ formatTime(s.time) }}</td></tr>
+            <tr><th>运行状态</th><td><span class="tag tag-ok">在线</span></td></tr>
           </table>
         </div>
       </div>
@@ -280,86 +280,86 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <!-- Config -->
       <div v-if="page==='config'">
         <div class="flex flex-between" style="align-items:flex-start">
-          <h2 class="page-title" style="margin-bottom:0">Configuration</h2>
+          <h2 class="page-title" style="margin-bottom:0">配置管理</h2>
           <div class="flex gap-8">
-            <button class="outline small" @click="exportConfig">Export</button>
-            <button class="outline small" @click="importConfig">Import</button>
+            <button class="outline small" @click="exportConfig">导出</button>
+            <button class="outline small" @click="importConfig">导入</button>
             <input ref="importFileInput" type="file" accept=".json" style="display:none" @change="onImportFile">
           </div>
         </div>
         <div v-if="configImportError" class="error" style="margin-bottom:8px">{{ configImportError }}</div>
         <div v-if="configImportOk" style="background:#d1fae5;color:#065f46;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:8px">{{ configImportOk }}</div>
         <div class="config-tabs">
-          <a :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">Matchers</a>
-          <a :class="{active:cfgTab==='rules'}" @click="cfgTab='rules'">Rules</a>
-          <a :class="{active:cfgTab==='upstreams'}" @click="cfgTab='upstreams'">Upstreams</a>
+          <a :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">匹配器</a>
+          <a :class="{active:cfgTab==='rules'}" @click="cfgTab='rules'">规则</a>
+          <a :class="{active:cfgTab==='upstreams'}" @click="cfgTab='upstreams'">上游</a>
           <a :class="{active:cfgTab==='responses'}" @click="cfgTab='responses'">Responses</a>
-          <a :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins';loadPlugins()">Plugins</a>
-          <a :class="{active:cfgTab==='system'}" @click="cfgTab='system'">System</a>
-          <a :class="{active:cfgTab==='json'}" @click="cfgTab='json'">Raw JSON</a>
+          <a :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins';loadPlugins()">插件</a>
+          <a :class="{active:cfgTab==='system'}" @click="cfgTab='system'">系统</a>
+          <a :class="{active:cfgTab==='json'}" @click="cfgTab='json'">原始 JSON</a>
         </div>
 
         <!-- Matchers -->
         <div class="config-section" v-if="cfgTab==='matchers'">
           <div class="flex flex-between mb-16">
-            <h3>Matchers <small>{{ matcherKeys.length }} defined</small></h3>
-            <button class="primary small" @click="editMatcher(null)">+ Add</button>
+            <h3>匹配器 <small>{{ matcherKeys.length }} 个已定义</small> <small style="color:var(--muted);font-weight:400">定义请求匹配条件</small></h3>
+            <button class="primary small" @click="editMatcher(null)">+ 添加</button>
           </div>
           <table v-if="matcherKeys.length">
-            <thead><tr><th>Name</th><th>Conditions</th><th></th></tr></thead>
+             <thead><tr><th>名称</th><th>条件</th><th></th></tr></thead>
             <tbody>
               <tr v-for="name in matcherKeys" :key="name">
                 <td><strong>{{ name }}</strong></td>
                 <td><span class="json-inline">{{ JSON.stringify(cfg.matcher[name]) }}</span></td>
                 <td class="actions">
-                  <button class="outline small" @click="editMatcher(name)">Edit</button>
-                  <button class="danger small" @click="deleteMatcher(name)">Del</button>
+                  <button class="outline small" @click="editMatcher(name)">编辑</button>
+                  <button class="danger small" @click="deleteMatcher(name)">删除</button>
                 </td>
               </tr>
             </tbody>
           </table>
-          <div v-else class="empty">No matchers defined.</div>
+          <div v-else class="empty">未定义匹配器。</div>
         </div>
 
         <!-- Rules -->
         <div class="config-section" v-if="cfgTab==='rules'">
-          <h3>Rule Groups</h3>
+          <h3>规则组</h3>
           <div v-for="(rules, group) in cfg.rule || {}" :key="group" class="card" style="padding:16px">
             <div class="flex flex-between mb-8">
               <strong style="font-size:14px">{{ group }}</strong>
               <div class="flex gap-4">
-                <span class="tag tag-ok" v-if="rules && rules.length">{{ rules.length }} rules</span>
-                <span class="tag tag-warn" v-else>empty</span>
-                <button class="primary small" @click="ruleOpenCreate(group)">+ Add</button>
+                 <span class="tag tag-ok" v-if="rules && rules.length">{{ rules.length }} 条规则</span>
+                 <span class="tag tag-warn" v-else>空</span>
+                 <button class="primary small" @click="ruleOpenCreate(group)">+ 添加</button>
               </div>
             </div>
             <table v-if="rules && rules.length" style="font-size:13px">
-              <thead><tr><th>#</th><th>Enable</th><th>Matcher</th><th>Action</th><th>Detail</th><th></th></tr></thead>
+               <thead><tr><th>#</th><th>启用</th><th>匹配器</th><th>动作</th><th>详情</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="(r,i) in rules" :key="i">
                   <td>{{ i }}</td>
                   <td><input type="checkbox" :checked="r.enable!==false" @change="ruleToggle(r, group)"></td>
-                  <td>{{ typeof r.matcher === 'string' ? r.matcher : '(inline)' }}</td>
-                  <td><span class="tag" :class="actionClass(r.action)">{{ r.action }}</span></td>
-                  <td><span class="json-inline">{{ summarizeRule(r) }}</span></td>
-                  <td class="actions">
-                    <button class="outline small" @click="ruleOpenEdit(r, group, i)">Edit</button>
-                    <button class="danger small" @click="ruleDelete(r, group)">Del</button>
-                  </td>
+                   <td>{{ typeof r.matcher === 'string' ? r.matcher : '(内联)' }}</td>
+                   <td><span class="tag" :class="actionClass(r.action)">{{ r.action }}</span></td>
+                   <td><span class="json-inline">{{ summarizeRule(r) }}</span></td>
+                   <td class="actions">
+                     <button class="outline small" @click="ruleOpenEdit(r, group, i)">编辑</button>
+                     <button class="danger small" @click="ruleDelete(r, group)">删除</button>
+                   </td>
                 </tr>
               </tbody>
             </table>
-            <div v-else class="empty">No rules in this group.</div>
+            <div v-else class="empty">此组中无规则。</div>
           </div>
         </div>
 
         <!-- Upstreams -->
         <div class="config-section" v-if="cfgTab==='upstreams'">
-          <h3>Backend Upstreams</h3>
+          <h3>后端上游服务器</h3>
           <div v-for="(up, name) in cfg.backend_upstream || {}" :key="name" class="card" style="padding:16px">
             <strong>{{ name }}</strong>
             <table style="font-size:13px;margin-top:8px">
-              <thead><tr><th>Health</th><th>Host</th><th>Port</th><th>Weight</th><th>Info</th></tr></thead>
+               <thead><tr><th>健康</th><th>主机</th><th>端口</th><th>权重</th><th>信息</th></tr></thead>
               <tbody>
                 <tr v-for="(node,ni) in up.nodes || []" :key="ni">
                   <td>
@@ -372,10 +372,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                   <td>{{ node.host }}</td><td>{{ node.port }}</td><td>{{ node.weight || 1 }}</td>
                   <td style="font-size:11px;color:var(--muted)">
                     <template v-if="healthData[name] && healthData[name][ni]">
-                      <span v-if="healthData[name][ni].circuit_open">CB open</span>
-                      <span v-else-if="!healthData[name][ni].healthy">{{ healthData[name][ni].last_error || 'down' }}</span>
-                      <span v-else-if="healthData[name][ni].failures > 0">{{ healthData[name][ni].failures }} fails</span>
-                      <span v-else>ok</span>
+                       <span v-if="healthData[name][ni].circuit_open">熔断开启</span>
+                       <span v-else-if="!healthData[name][ni].healthy">{{ healthData[name][ni].last_error || '下线' }}</span>
+                       <span v-else-if="healthData[name][ni].failures > 0">{{ healthData[name][ni].failures }} 次失败</span>
+                       <span v-else>正常</span>
                     </template>
                     <span v-else>---</span>
                   </td>
@@ -388,14 +388,14 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               Method: {{ up.method || 'round_robin' }}
             </div>
           </div>
-          <div v-if="!cfg.backend_upstream || !Object.keys(cfg.backend_upstream).length" class="empty">No upstreams defined.</div>
+          <div v-if="!cfg.backend_upstream || !Object.keys(cfg.backend_upstream).length" class="empty">未定义上游。</div>
         </div>
 
         <!-- Responses -->
         <div class="config-section" v-if="cfgTab==='responses'">
-          <h3>Response Templates</h3>
+          <h3>响应模板</h3>
           <table v-if="respKeys.length">
-            <thead><tr><th>Name</th><th>Content-Type</th><th>Body</th></tr></thead>
+             <thead><tr><th>名称</th><th>Content-Type</th><th>内容</th></tr></thead>
             <tbody>
               <tr v-for="name in respKeys" :key="name">
                 <td><strong>{{ name }}</strong></td>
@@ -404,18 +404,18 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tr>
             </tbody>
           </table>
-          <div v-else class="empty">No response templates.</div>
+          <div v-else class="empty">没有响应模板。</div>
         </div>
 
         <!-- Plugins -->
         <div class="config-section" v-if="cfgTab==='plugins'">
           <div class="flex flex-between mb-8">
-            <h3>Plugin Settings <small>Toggle plugins on/off</small></h3>
-            <button class="outline small" @click="loadPlugins">Refresh</button>
+            <h3>插件设置 <small>启用或停用插件</small></h3>
+            <button class="outline small" @click="loadPlugins">刷新</button>
           </div>
           <div v-if="pluginsError" class="error" style="margin-bottom:8px">{{ pluginsError }}</div>
           <table>
-            <thead><tr><th>Plugin</th><th>Enable</th><th>Priority</th><th>Critical</th><th>Description</th></tr></thead>
+             <thead><tr><th>插件</th><th>启用</th><th>优先级</th><th>关键</th><th>说明</th></tr></thead>
             <tbody>
               <tr v-for="p in plugins" :key="p.name">
                 <td><strong>{{ p.name }}</strong></td>
@@ -426,12 +426,12 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tr>
             </tbody>
           </table>
-          <div v-if="!plugins.length" class="empty">No plugins registered.</div>
+          <div v-if="!plugins.length" class="empty">没有注册插件。</div>
         </div>
 
         <!-- System -->
         <div class="config-section" v-if="cfgTab==='system'">
-          <h3>System Settings</h3>
+          <h3>系统设置</h3>
           <table>
             <tbody>
               <tr><td>base_uri</td><td>{{ cfg.base_uri }}</td></tr>
@@ -442,18 +442,18 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <tr><td>proxy.health_check_interval</td><td>{{ cfg.proxy?.health_check_interval || '-' }}s</td></tr>
             </tbody>
           </table>
-          <h3 style="margin-top:16px">Admin Users</h3>
+          <h3 style="margin-top:16px">管理员用户</h3>
           <table>
-            <thead><tr><th>User</th><th>Enable</th><th>Password</th></tr></thead>
+            <thead><tr><th>用户</th><th>启用</th><th>密码</th></tr></thead>
             <tbody>
               <tr v-for="(a,i) in cfg.admin || []" :key="i">
                 <td>{{ a.user }}</td>
-                <td>{{ a.enable ? '✓' : '✗' }}</td>
-                <td><span class="json-inline">{{ a.password_hash ? '(set)' : '(not set)' }}</span></td>
+                 <td>{{ a.enable ? '✓' : '✗' }}</td>
+                 <td><span class="json-inline">{{ a.password_hash ? '(已设置)' : '(未设置)' }}</span></td>
               </tr>
             </tbody>
           </table>
-          <h3 style="margin-top:16px">Shared Dictionary Memory <small>{{ dictUsage.length }} dicts</small></h3>
+          <h3 style="margin-top:16px">共享字典内存 <small>{{ dictUsage.length }} 个字典</small></h3>
           <div v-if="dictUsage.length">
             <div v-for="d in dictUsage" :key="d.name" style="margin-bottom:10px">
               <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
@@ -474,17 +474,17 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             </div>
           </div>
           <div v-else style="font-size:12px;color:var(--muted);margin-top:8px">
-            <button class="outline small" @click="loadDictUsage">Load</button>
+            <button class="outline small" @click="loadDictUsage">加载</button>
           </div>
         </div>
 
         <!-- Raw JSON -->
         <div class="config-section" v-if="cfgTab==='json'">
           <div class="flex flex-between mb-16">
-            <h3>Raw Configuration</h3>
+            <h3>原始配置</h3>
             <div class="flex gap-8">
-              <button class="outline small" @click="loadConfig">Reload</button>
-              <button class="primary small" :disabled="jsonSaving" @click="saveRawConfig">{{ jsonSaving ? 'Saving…' : 'Save' }}</button>
+              <button class="outline small" @click="loadConfig">重新加载</button>
+              <button class="primary small" :disabled="jsonSaving" @click="saveRawConfig">{{ jsonSaving ? '保存中…' : '保存' }}</button>
             </div>
           </div>
           <div class="error" v-if="jsonError" style="margin-bottom:8px">{{ jsonError }}</div>
@@ -495,22 +495,22 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <!-- Stats -->
       <div v-if="page==='stats'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">Request Statistics</h2>
+          <h2 class="page-title" style="margin-bottom:0">请求统计</h2>
           <div class="flex gap-8">
             <select v-model="statsType" style="width:auto" @change="loadStats">
-              <option value="long">All</option>
-              <option value="medium">5 Minutes</option>
-              <option value="short">Temporary</option>
+               <option value="long">全部</option>
+               <option value="medium">5 分钟</option>
+               <option value="short">临时</option>
             </select>
-            <button class="outline small" @click="loadStats">Refresh</button>
+             <button class="outline small" @click="loadStats">刷新</button>
           </div>
         </div>
         <div v-if="statsError" class="error" style="margin-bottom:8px">{{ statsError }}</div>
         <div v-if="statsData">
-          <h3 style="font-size:14px;margin-bottom:8px;">URI Statistics <small>{{ Object.keys(statsData || {}).length }} entries</small></h3>
+          <h3 style="font-size:14px;margin-bottom:8px;">URI 统计 <small>{{ Object.keys(statsData || {}).length }} 个条目</small></h3>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th style="width:24px"></th><th>URI</th><th>Count</th><th>Size</th><th>Avg Size</th><th>Success</th><th>Time</th><th>Avg Time</th></tr></thead>
+               <thead><tr><th style="width:24px"></th><th>URI</th><th>次数</th><th>大小</th><th>平均大小</th><th>成功率</th><th>耗时</th><th>平均耗时</th></tr></thead>
               <tbody>
                 <template v-for="(v,key) in statsData || {}" :key="key">
                   <tr @click="expandedUri = expandedUri === key ? null : key" style="cursor:pointer">
@@ -525,13 +525,13 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                   </tr>
                   <tr v-if="expandedUri === key">
                     <td colspan="8" style="padding:4px 16px 12px 36px">
-                      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Status Code Distribution:</div>
+                      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">状态码分布:</div>
                       <div style="display:flex;gap:12px;flex-wrap:wrap">
                         <span v-for="(cnt, code) in v.status || {}" :key="code" style="white-space:nowrap">
                           <span class="tag" :class="parseInt(code) < 400 ? 'tag-ok' : parseInt(code) < 500 ? 'tag-warn' : 'tag-err'">{{ code }}</span>
                           {{ cnt }}
                         </span>
-                        <span v-if="!v.status || !Object.keys(v.status).length" style="color:var(--muted)">No status data</span>
+                        <span v-if="!v.status || !Object.keys(v.status).length" style="color:var(--muted)">无状态数据</span>
                       </div>
                     </td>
                   </tr>
@@ -543,12 +543,12 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- Top Paths -->
         <div class="card mt-16" v-if="topPaths.length">
           <div class="flex flex-between mb-8">
-            <strong>Top Request Paths (last 1 minute)</strong>
-            <button class="outline small" @click="loadTopPaths">Refresh</button>
+            <strong>请求最多路径 (最近 1 分钟)</strong>
+            <button class="outline small" @click="loadTopPaths">刷新</button>
           </div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>#</th><th>URI</th><th>Count</th><th>Bytes</th><th>Avg Time</th></tr></thead>
+               <thead><tr><th>#</th><th>URI</th><th>次数</th><th>流量</th><th>平均耗时</th></tr></thead>
               <tbody>
                 <tr v-for="(tp,idx) in topPaths" :key="tp.uri">
                   <td>{{ idx+1 }}</td>
@@ -566,46 +566,46 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <!-- WAF -->
       <div v-if="page==='waf'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">WAF Rule Management</h2>
+          <h2 class="page-title" style="margin-bottom:0">WAF 规则管理</h2>
           <div class="flex gap-8">
-            <button class="outline small" @click="wafRefreshAll">Refresh</button>
-            <button class="primary small" @click="wafOpenCreate">+ New Rule</button>
+            <button class="outline small" @click="wafRefreshAll">刷新</button>
+            <button class="primary small" @click="wafOpenCreate">+ 新建规则</button>
           </div>
         </div>
 
         <!-- WAF Tabs -->
         <div class="config-tabs">
-          <a :class="{active:wafTab==='rules'}" @click="wafTab='rules'">Rules</a>
-          <a :class="{active:wafTab==='stats'}" @click="wafTab='stats';loadWafStats()">Stats</a>
-          <a :class="{active:wafTab==='timeline'}" @click="wafTab='timeline';loadWafTimeline()">Timeline</a>
-          <a :class="{active:wafTab==='analytics'}" @click="wafTab='analytics';loadWafAnalytics()">Analytics</a>
-          <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">History</a>
-          <a :class="{active:wafTab==='hits'}" @click="wafTab='hits';loadWafHits()">Hits</a>
-          <a :class="{active:wafTab==='recommendations'}" @click="wafTab='recommendations';loadRecs()">Recommendations</a>
-          <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">Tester</a>
+          <a :class="{active:wafTab==='rules'}" @click="wafTab='rules'">规则</a>
+          <a :class="{active:wafTab==='stats'}" @click="wafTab='stats';loadWafStats()">统计</a>
+          <a :class="{active:wafTab==='timeline'}" @click="wafTab='timeline';loadWafTimeline()">时间线</a>
+          <a :class="{active:wafTab==='analytics'}" @click="wafTab='analytics';loadWafAnalytics()">分析</a>
+          <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">历史</a>
+          <a :class="{active:wafTab==='hits'}" @click="wafTab='hits';loadWafHits()">命中</a>
+          <a :class="{active:wafTab==='recommendations'}" @click="wafTab='recommendations';loadRecs()">推荐</a>
+          <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">测试</a>
         </div>
 
         <!-- Analytics Panel -->
         <div v-if="wafTab==='analytics'">
           <div v-if="wafAnalytics.dead_rules && wafAnalytics.dead_rules.length" class="warn" style="margin-bottom:8px; padding:10px 14px; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; font-size:13px">
-            ⚠ 以下规则 30 天内未命中：
+             ⚠ 以下规则 30 天未命中：
             <span v-for="dr in wafAnalytics.dead_rules" :key="dr.id" style="margin-right:8px">
               <strong>{{ dr.name || dr.id }}</strong>
-              <span v-if="dr.enable !== false" style="color:#92400e">(启用中)</span>
-              <span v-else style="color:#9ca3af">(已禁用)</span>
-            </span>
-            <span style="color:#6b7280">建议：检查正则是否需要更新，或删除无用规则</span>
+               <span v-if="dr.enable !== false" style="color:#92400e">(启用中)</span>
+               <span v-else style="color:#9ca3af">(已禁用)</span>
+             </span>
+             <span style="color:#6b7280">建议：检查正则是否需要更新，或删除无用的规则</span>
           </div>
           <table class="table">
             <thead>
-              <tr><th>规则</th><th>动作</th><th>命中</th><th>拦截</th><th>Challenge</th><th>通过率</th><th>效果评级</th><th>最后触发</th></tr>
+               <tr><th>规则</th><th>动作</th><th>命中</th><th>拦截</th><th>质询</th><th>通过率</th><th>效果评级</th><th>最后触发</th></tr>
             </thead>
             <tbody>
               <tr v-for="r in wafAnalytics.rules || []" :key="r.id" :style="{opacity: r.dead ? 0.5 : 1}">
                 <td>
                   <strong>{{ r.name || r.id }}</strong>
                   <span v-if="r.dead" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px;font-size:10px">休眠</span>
-                  <span v-if="r.enable === false" class="tag" style="background:#f3f4f6;color:#6b7280;margin-left:4px;font-size:10px">禁用</span>
+                  <span v-if="r.enable === false" class="tag" style="background:#f3f4f6;color:#6b7280;margin-left:4px;font-size:10px">已禁用</span>
                 </td>
                 <td>{{ r.action }}</td>
                 <td>{{ r.hits }}</td>
@@ -615,7 +615,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                 <td>
                   <span :class="'grade-' + r.grade" class="tag" :style="gradeStyle(r.grade)">{{ r.grade }}</span>
                 </td>
-                <td style="font-size:12px;color:#6b7280">{{ r.last_triggered_ago ? formatAgo(r.last_triggered_ago) : '从未' }}</td>
+                 <td style="font-size:12px;color:#6b7280">{{ r.last_triggered_ago ? formatAgo(r.last_triggered_ago) : '从未触发' }}</td>
               </tr>
               <tr v-if="!(wafAnalytics.rules || []).length">
                 <td colspan="8" class="empty">暂无分析数据</td>
@@ -628,51 +628,51 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div v-if="wafTab==='rules'">
           <div v-if="wafError" class="error" style="margin-bottom:8px">{{ wafError }}</div>
           <div class="flex gap-8 mb-8" style="flex-wrap:wrap">
-            <select v-model="wafFilterCat" @change="wafFilterChange" style="width:auto">
-              <option value="">All Categories</option>
+             <select v-model="wafFilterCat" @change="wafFilterChange" style="width:auto">
+               <option value="">全部分类</option>
               <option v-for="(cnt,cat) in wafCategories" :key="cat" :value="cat">{{ cat }} ({{ cnt }})</option>
             </select>
-            <select v-model="wafFilterSev" @change="wafFilterChange" style="width:auto">
-              <option value="">All Severities</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
+             <select v-model="wafFilterSev" @change="wafFilterChange" style="width:auto">
+               <option value="">全部严重级别</option>
+               <option value="critical">严重</option>
+               <option value="high">高</option>
+               <option value="medium">中</option>
+               <option value="low">低</option>
+             </select>
           </div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr>
-                <th style="width:40px">On</th>
-                <th>Name</th>
-                <th style="width:80px">Category</th>
-                <th style="width:70px">Severity</th>
-                <th style="width:70px">Hits</th>
-                <th style="width:100px">Last Triggered</th>
-                <th style="width:140px">Actions</th>
-              </tr></thead>
+               <thead><tr>
+                 <th style="width:40px">启用</th>
+                 <th>名称</th>
+                 <th style="width:80px">分类</th>
+                 <th style="width:70px">严重级别</th>
+                 <th style="width:70px">命中</th>
+                 <th style="width:100px">最后触发</th>
+                 <th style="width:140px">操作</th>
+               </tr></thead>
               <tbody>
                 <tr v-for="r in wafRules" :key="r.id">
                   <td style="text-align:center"><input type="checkbox" :checked="r.enable!==false" @change="wafToggleRule(r)"></td>
-                  <td><a style="cursor:pointer;text-decoration:underline" @click="wafOpenEdit(r)">{{ r.name }}</a></td>
-                  <td><span class="tag">{{ r.category }}</span></td>
-                  <td><span class="tag" :class="sevClass(r.severity)">{{ r.severity }}</span></td>
-                  <td>{{ r.hit_count || 0 }}</td>
-                  <td style="white-space:nowrap">{{ r.last_triggered ? fmtTime(r.last_triggered) : '-' }}</td>
-                  <td>
-                    <button class="outline small" @click="wafOpenEdit(r)">Edit</button>
-                    <button class="danger small" @click="wafDeleteRule(r)">Del</button>
-                  </td>
+                   <td><a style="cursor:pointer;text-decoration:underline" @click="wafOpenEdit(r)">{{ r.name }}</a></td>
+                   <td><span class="tag">{{ r.category }}</span></td>
+                   <td><span class="tag" :class="sevClass(r.severity)">{{ r.severity }}</span></td>
+                   <td>{{ r.hit_count || 0 }}</td>
+                   <td style="white-space:nowrap">{{ r.last_triggered ? fmtTime(r.last_triggered) : '-' }}</td>
+                   <td>
+                     <button class="outline small" @click="wafOpenEdit(r)">编辑</button>
+                     <button class="danger small" @click="wafDeleteRule(r)">删除</button>
+                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div v-if="wafPagination.total_pages > 1" class="flex flex-between mt-8">
-            <span style="font-size:13px;color:var(--muted)">Page {{ wafPagination.page }} of {{ wafPagination.total_pages }} ({{ wafPagination.total }} rules)</span>
-            <div class="flex gap-4">
-              <button class="outline small" :disabled="wafPagination.page<=1" @click="wafPage(wafPagination.page-1)">Prev</button>
-              <button class="outline small" :disabled="wafPagination.page>=wafPagination.total_pages" @click="wafPage(wafPagination.page+1)">Next</button>
-            </div>
+             <span style="font-size:13px;color:var(--muted)">第 {{ wafPagination.page }} / {{ wafPagination.total_pages }} 页 (共 {{ wafPagination.total }} 条规则)</span>
+             <div class="flex gap-4">
+               <button class="outline small" :disabled="wafPagination.page<=1" @click="wafPage(wafPagination.page-1)">上一页</button>
+               <button class="outline small" :disabled="wafPagination.page>=wafPagination.total_pages" @click="wafPage(wafPagination.page+1)">下一页</button>
+             </div>
           </div>
         </div>
 
@@ -680,16 +680,16 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div v-if="wafTab==='stats'">
           <div v-if="wafStatsError" class="error" style="margin-bottom:8px">{{ wafStatsError }}</div>
           <div v-if="wafStatsData" class="grid grid-4 mb-16">
-            <div class="stat-card"><div class="stat-label">Total Rules</div><div class="stat-value">{{ wafStatsData.total_rules }}</div></div>
-            <div class="stat-card"><div class="stat-label">Enabled</div><div class="stat-value">{{ wafStatsData.enabled_rules }}</div></div>
-            <div class="stat-card"><div class="stat-label">Total Hits</div><div class="stat-value">{{ formatNumber(wafStatsData.total_hits) }}</div></div>
-            <div class="stat-card"><div class="stat-label">Today Hits</div><div class="stat-value">{{ formatNumber(wafStatsData.today_hits) }}</div></div>
+             <div class="stat-card"><div class="stat-label">规则总数</div><div class="stat-value">{{ wafStatsData.total_rules }}</div></div>
+             <div class="stat-card"><div class="stat-label">已启用</div><div class="stat-value">{{ wafStatsData.enabled_rules }}</div></div>
+             <div class="stat-card"><div class="stat-label">总命中</div><div class="stat-value">{{ formatNumber(wafStatsData.total_hits) }}</div></div>
+             <div class="stat-card"><div class="stat-label">今日命中</div><div class="stat-value">{{ formatNumber(wafStatsData.today_hits) }}</div></div>
           </div>
           <div v-if="wafStatsData" class="grid-2">
             <div class="card">
-              <h3 style="font-size:14px;margin-bottom:8px">By Category</h3>
-              <table>
-                <thead><tr><th>Category</th><th>Rules</th><th>Hits</th></tr></thead>
+               <h3 style="font-size:14px;margin-bottom:8px">按分类</h3>
+               <table>
+                 <thead><tr><th>分类</th><th>规则数</th><th>命中</th></tr></thead>
                 <tbody>
                   <tr v-for="(v,k) in wafStatsData.by_category" :key="k">
                     <td>{{ k }}</td><td>{{ v.rules }}</td><td>{{ formatNumber(v.hits) }}</td>
@@ -698,9 +698,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </table>
             </div>
             <div class="card">
-              <h3 style="font-size:14px;margin-bottom:8px">By Severity</h3>
-              <table>
-                <thead><tr><th>Severity</th><th>Rules</th><th>Hits</th></tr></thead>
+               <h3 style="font-size:14px;margin-bottom:8px">按严重级别</h3>
+               <table>
+                 <thead><tr><th>严重级别</th><th>规则数</th><th>命中</th></tr></thead>
                 <tbody>
                   <tr v-for="(v,k) in wafStatsData.by_severity" :key="k">
                     <td>{{ k }}</td><td>{{ v.rules }}</td><td>{{ formatNumber(v.hits) }}</td>
@@ -710,9 +710,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             </div>
           </div>
           <div v-if="wafStatsData && wafStatsData.top_rules && wafStatsData.top_rules.length" class="card mt-16">
-            <h3 style="font-size:14px;margin-bottom:8px">Top Rules by Hits</h3>
-            <table>
-              <thead><tr><th>#</th><th>Name</th><th>Hits</th></tr></thead>
+             <h3 style="font-size:14px;margin-bottom:8px">命中最多规则</h3>
+             <table>
+               <thead><tr><th>#</th><th>名称</th><th>命中</th></tr></thead>
               <tbody>
                 <tr v-for="(tr,idx) in wafStatsData.top_rules" :key="tr.id">
                   <td>{{ idx+1 }}</td><td>{{ tr.name }}</td><td>{{ formatNumber(tr.hits) }}</td>
@@ -763,12 +763,12 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div v-if="wafTab==='hits'">
           <div v-if="wafHitsError" class="error" style="margin-bottom:8px">{{ wafHitsError }}</div>
           <div class="flex flex-between mb-8">
-            <span style="font-size:13px;color:var(--muted)">Last {{ wafHitsTime }} — showing {{ wafHits.length }} records</span>
-            <button class="outline small" @click="loadWafHits">Refresh</button>
+             <span style="font-size:13px;color:var(--muted)">最近 {{ wafHitsTime }} — 显示 {{ wafHits.length }} 条记录</span>
+             <button class="outline small" @click="loadWafHits">刷新</button>
           </div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>Time</th><th>Rule ID</th><th>Method</th><th>URI</th><th>Source IP</th></tr></thead>
+               <thead><tr><th>时间</th><th>规则 ID</th><th>方法</th><th>URI</th><th>来源 IP</th></tr></thead>
               <tbody>
                 <tr v-for="h in wafHits" :key="h.time + h.rule_id + h.uri + (h.ring_idx || '')" @click="openHitDetail(h)" style="cursor:pointer">
                   <td style="white-space:nowrap">{{ fmtTime(h.time) }}</td>
@@ -780,7 +780,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tbody>
             </table>
           </div>
-          <div v-if="!wafHits.length" class="empty">No recent hits</div>
+          <div v-if="!wafHits.length" class="empty">无最近命中</div>
         </div>
 
         <!-- History -->
@@ -788,9 +788,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div v-if="wafHistError" class="error" style="margin-bottom:8px">{{ wafHistError }}</div>
           <!-- Pending Changes -->
           <div v-if="wafPendingChanges.length" class="card" style="padding:16px;margin-bottom:16px;border-color:#f59e0b">
-            <h4 style="font-size:14px;margin-bottom:8px;color:#92400e">⏳ 待确认变更 ({{ wafPendingChanges.length }})</h4>
-            <table style="font-size:13px">
-              <thead><tr><th>Rule ID</th><th>Staged At</th><th>Action</th><th></th></tr></thead>
+             <h4 style="font-size:14px;margin-bottom:8px;color:#92400e">⏳ 待确认变更 ({{ wafPendingChanges.length }})</h4>
+             <table style="font-size:13px">
+               <thead><tr><th>规则 ID</th><th>暂存时间</th><th>动作</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="p in wafPendingChanges" :key="p.rule_id">
                   <td><code>{{ p.rule_id }}</code></td>
@@ -809,33 +809,33 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <!-- History -->
           <div v-if="wafHistory.length">
             <table>
-              <thead><tr><th>Version</th><th>Timestamp</th><th>Action</th><th>Rules</th><th></th></tr></thead>
+               <thead><tr><th>版本</th><th>时间戳</th><th>动作</th><th>规则数</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="h in wafHistory" :key="h.version">
                   <td>{{ h.version }}</td>
                   <td style="white-space:nowrap">{{ h.timestamp }}</td>
                   <td><span class="tag">{{ h.action }}</span></td>
                   <td>{{ h.rule_count }}</td>
-                  <td><button class="outline small" @click="wafRollback(h.version)" :disabled="wafRolling">Rollback</button></td>
+                   <td><button class="outline small" @click="wafRollback(h.version)" :disabled="wafRolling">回滚</button></td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <div v-else style="color:var(--muted)">No history available.</div>
+          <div v-else style="color:var(--muted)">无可用历史。</div>
         </div>
 
         <!-- Tester -->
         <div v-if="wafTab==='recommendations'">
           <div class="flex flex-between mb-16">
-            <h3 style="font-size:14px;margin:0">Rule Recommendations
-              <span class="tag tag-ok" v-if="recStats" style="vertical-align:middle">{{ recStats.pending }} pending</span>
+            <h3 style="font-size:14px;margin:0">规则推荐
+              <span class="tag tag-ok" v-if="recStats" style="vertical-align:middle">{{ recStats.pending }} 条待处理</span>
             </h3>
-            <button class="primary small" @click="runRecAnalysis" :disabled="recLoading">{{ recLoading ? 'Analyzing...' : 'Analyze Traffic' }}</button>
+            <button class="primary small" @click="runRecAnalysis" :disabled="recLoading">{{ recLoading ? '分析中...' : '分析流量' }}</button>
           </div>
           <div v-if="recError" class="error" style="margin-bottom:8px">{{ recError }}</div>
-          <div v-if="recs.length === 0" class="empty">No recommendations yet. Click "Analyze Traffic" to scan recent blocked hits.</div>
-          <table v-else style="font-size:13px">
-            <thead><tr><th>Pattern</th><th>Category</th><th>Severity</th><th>Action</th><th>Hits</th><th>Status</th><th></th></tr></thead>
+          <div v-if="recs.length === 0" class="empty">暂无推荐。点击"分析流量"扫描最近被拦截的命中。</div>
+           <table v-else style="font-size:13px">
+             <thead><tr><th>模式</th><th>分类</th><th>严重级别</th><th>动作</th><th>命中</th><th>状态</th><th></th></tr></thead>
             <tbody>
               <tr v-for="r in recs" :key="r.id">
                 <td><code style="font-size:11px">{{ r.pattern }}</code></td>
@@ -845,8 +845,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                 <td>{{ r.hit_count }}</td>
                 <td>{{ r.status }}</td>
                 <td>
-                  <button v-if="r.status === 'pending'" class="primary small" @click="applyRec(r.id)" style="margin-right:4px">Apply</button>
-                  <button v-if="r.status === 'pending'" class="outline small" @click="dismissRec(r.id)">Dismiss</button>
+                  <button v-if="r.status === 'pending'" class="primary small" @click="applyRec(r.id)" style="margin-right:4px">应用</button>
+                  <button v-if="r.status === 'pending'" class="outline small" @click="dismissRec(r.id)">忽略</button>
                 </td>
               </tr>
             </tbody>
@@ -854,22 +854,22 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
         <div v-if="wafTab==='tester'">
           <div class="card">
-            <h3 style="font-size:14px;margin-bottom:8px">Test Rule</h3>
-            <div class="field">
-              <label>Rule (JSON)</label>
+             <h3 style="font-size:14px;margin-bottom:8px">测试规则</h3>
+             <div class="field">
+               <label>规则 (JSON)</label>
               <textarea v-model="wafTestRuleJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"matcher":{"URI":{"operator":"≈","value":"/api/*"}},"action":"block"}'></textarea>
             </div>
-            <div class="field">
-              <label>Test Cases (JSON array)</label>
+             <div class="field">
+               <label>测试用例 (JSON 数组)</label>
               <textarea v-model="wafTestCasesJson" spellcheck="false" class="code-editor" style="min-height:120px" placeholder='[{"name":"normal","uri":"/api/users","expected":false},{"name":"attack","uri":"/api/../../etc","expected":true}]'></textarea>
             </div>
             <div class="error" v-if="wafTestError" style="margin-bottom:8px">{{ wafTestError }}</div>
-            <button class="primary small" :disabled="wafTesting" @click="wafRunTest">{{ wafTesting ? 'Testing…' : 'Run Test' }}</button>
+             <button class="primary small" :disabled="wafTesting" @click="wafRunTest">{{ wafTesting ? '测试中…' : '运行测试' }}</button>
           </div>
            <div v-if="wafTestResults" class="card mt-16">
-            <h3 style="font-size:14px;margin-bottom:8px">Results: {{ wafTestResults.passed }}/{{ wafTestResults.total }} passed</h3>
-            <table>
-              <thead><tr><th>Name</th><th>URI</th><th>Matched</th><th>Passed</th></tr></thead>
+             <h3 style="font-size:14px;margin-bottom:8px">结果: {{ wafTestResults.passed }}/{{ wafTestResults.total }} 通过</h3>
+             <table>
+               <thead><tr><th>名称</th><th>URI</th><th>匹配</th><th>通过</th></tr></thead>
               <tbody>
                 <tr v-for="res in wafTestResults.results" :key="res.name" :style="{color:res.passed?'var(--green)':'var(--red)'}">
                   <td>{{ res.name }}</td>
@@ -908,10 +908,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <!-- Frequency Limit -->
       <div v-if="page==='frequency'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">Frequency Limit</h2>
+          <h2 class="page-title" style="margin-bottom:0">频率限制</h2>
           <div class="flex gap-8">
-            <button class="outline small" @click="loadFrequencyData">Refresh</button>
-            <button class="primary small" @click="openFreqRuleCreate">+ New Rule</button>
+            <button class="outline small" @click="loadFrequencyData">刷新</button>
+            <button class="primary small" @click="openFreqRuleCreate">+ 新建规则</button>
           </div>
         </div>
 
@@ -920,7 +920,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <h3 style="font-size:14px;margin-bottom:8px">当前活跃计数 (Top 50)</h3>
           <div v-if="freqStats.length">
             <table>
-              <thead><tr><th>Key</th><th>Count</th></tr></thead>
+               <thead><tr><th>键</th><th>计数</th></tr></thead>
               <tbody>
                 <tr v-for="s in freqStats.slice(0, 50)" :key="s.key">
                   <td><code style="font-size:11px">{{ s.key }}</code></td>
@@ -929,7 +929,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tbody>
             </table>
           </div>
-          <div v-else class="empty">No active counters.</div>
+          <div v-else class="empty">无活跃计数。</div>
         </div>
 
         <!-- Template Gallery -->
@@ -942,7 +942,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <button class="primary small" style="width:100%" @click="previewFreqTemplate(t.name)">使用模板</button>
             </div>
           </div>
-          <div v-else class="empty">Loading templates...</div>
+          <div v-else class="empty">加载模板中...</div>
         </div>
 
         <!-- Rules -->
@@ -950,7 +950,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <h3 style="font-size:14px;margin-bottom:8px">限流规则</h3>
           <div v-if="freqRules.length">
             <table>
-              <thead><tr><th>ID</th><th>Key</th><th>Limit</th><th>Window</th><th>Action</th><th>Enable</th><th></th></tr></thead>
+               <thead><tr><th>ID</th><th>键</th><th>限制</th><th>窗口</th><th>动作</th><th>启用</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="r in freqRules" :key="r.id">
                   <td><code style="font-size:11px">{{ r.id }}</code></td>
@@ -959,12 +959,12 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                   <td>{{ r.window }}s</td>
                   <td><span class="tag">{{ r.code || 429 }}</span></td>
                   <td><input type="checkbox" :checked="r.enable !== false" disabled></td>
-                  <td><button class="outline small" @click="deleteFreqRule(r)">Delete</button></td>
+                   <td><button class="outline small" @click="deleteFreqRule(r)">删除</button></td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <div v-else class="empty">No frequency limit rules configured.</div>
+          <div v-else class="empty">未配置频率限制规则。</div>
         </div>
 
         <!-- Template Preview/Apply Modal -->
@@ -972,8 +972,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div class="modal">
             <h3>{{ freqTemplateModal.label }}</h3>
             <p style="font-size:13px;color:var(--muted);margin-bottom:12px">{{ freqTemplateModal.description }}</p>
-            <div class="field"><label>Rule ID</label><input v-model="freqTemplateModal.id"></div>
-            <div class="field"><label>Key Dimension</label>
+             <div class="field"><label>规则 ID</label><input v-model="freqTemplateModal.id"></div>
+             <div class="field"><label>键维度</label>
               <select v-model="freqTemplateModal.key" style="width:100%">
                 <option value="ip">IP</option>
                 <option value="uri">URI</option>
@@ -982,16 +982,16 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </select>
             </div>
             <div class="grid grid-2 mb-8">
-              <div class="field"><label>Limit (max hits)</label><input v-model.number="freqTemplateModal.limit" type="number" min="1"></div>
-              <div class="field"><label>Window (seconds)</label><input v-model.number="freqTemplateModal.window" type="number" min="1"></div>
+               <div class="field"><label>限制 (最大命中)</label><input v-model.number="freqTemplateModal.limit" type="number" min="1"></div>
+               <div class="field"><label>窗口 (秒)</label><input v-model.number="freqTemplateModal.window" type="number" min="1"></div>
             </div>
             <div class="grid grid-2 mb-8">
-              <div class="field"><label>Block Code</label><input v-model.number="freqTemplateModal.code" type="number" min="200" max="599"></div>
-              <div class="field"><label>Matcher JSON (optional)</label><input v-model="freqTemplateModal.matcherJson"></div>
+               <div class="field"><label>阻止代码</label><input v-model.number="freqTemplateModal.code" type="number" min="200" max="599"></div>
+               <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqTemplateModal.matcherJson"></div>
             </div>
             <div class="modal-actions">
-              <button class="outline" @click="freqTemplateModal.show=false">Cancel</button>
-              <button class="primary" @click="applyFreqTemplate">Apply</button>
+             <button class="outline" @click="freqTemplateModal.show=false">取消</button>
+             <button class="primary" @click="applyFreqTemplate">应用</button>
             </div>
           </div>
         </div>
@@ -999,9 +999,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- Create Rule Modal -->
         <div class="modal-overlay" v-if="freqRuleModal.show" @click.self="freqRuleModal.show=false">
           <div class="modal">
-            <h3>{{ freqRuleModal._isNew ? 'Create Frequency Rule' : 'Edit Frequency Rule' }}</h3>
-            <div class="field"><label>Rule ID</label><input v-model="freqRuleModal.id" placeholder="freq_login" :disabled="!freqRuleModal._isNew"></div>
-            <div class="field"><label>Key Dimension</label>
+             <h3>{{ freqRuleModal._isNew ? '创建频率规则' : '编辑频率规则' }}</h3>
+             <div class="field"><label>规则 ID</label><input v-model="freqRuleModal.id" placeholder="freq_login" :disabled="!freqRuleModal._isNew"></div>
+             <div class="field"><label>键维度</label>
               <select v-model="freqRuleModal.key" style="width:100%">
                 <option value="ip">IP</option>
                 <option value="uri">URI</option>
@@ -1010,16 +1010,16 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </select>
             </div>
             <div class="grid grid-2 mb-8">
-              <div class="field"><label>Limit (max hits)</label><input v-model.number="freqRuleModal.limit" type="number" min="1" placeholder="60"></div>
-              <div class="field"><label>Window (seconds)</label><input v-model.number="freqRuleModal.window" type="number" min="1" placeholder="60"></div>
+               <div class="field"><label>限制 (最大命中)</label><input v-model.number="freqRuleModal.limit" type="number" min="1" placeholder="60"></div>
+               <div class="field"><label>窗口 (秒)</label><input v-model.number="freqRuleModal.window" type="number" min="1" placeholder="60"></div>
             </div>
             <div class="grid grid-2 mb-8">
-              <div class="field"><label>Block Code</label><input v-model.number="freqRuleModal.code" type="number" min="200" max="599" placeholder="429"></div>
-              <div class="field"><label>Matcher JSON (optional)</label><input v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}'></div>
+               <div class="field"><label>阻止代码</label><input v-model.number="freqRuleModal.code" type="number" min="200" max="599" placeholder="429"></div>
+               <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}'></div>
             </div>
             <div class="modal-actions">
-              <button class="outline" @click="freqRuleModal.show=false">Cancel</button>
-              <button class="primary" @click="saveFreqRule">Save</button>
+             <button class="outline" @click="freqRuleModal.show=false">取消</button>
+             <button class="primary" @click="saveFreqRule">保存</button>
             </div>
           </div>
         </div>
@@ -1028,78 +1028,78 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <!-- Reputation -->
       <div v-if="page==='reputation'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">IP Reputation</h2>
+          <h2 class="page-title" style="margin-bottom:0">IP 声誉</h2>
           <div class="flex gap-8">
-            <button class="outline small" @click="loadRepData">Refresh</button>
-            <button class="outline small" @click="repPersist">Persist Now</button>
+            <button class="outline small" @click="loadRepData">刷新</button>
+            <button class="outline small" @click="repPersist">立即持久化</button>
           </div>
         </div>
         <div v-if="repError" class="error" style="margin-bottom:8px">{{ repError }}</div>
         <!-- Stats -->
         <div v-if="repStats" class="grid grid-4 mb-16">
-          <div class="stat-card"><div class="stat-label">Flagged IPs</div><div class="stat-value">{{ repStats.flagged }}</div></div>
-          <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value">{{ repStats.pending }}</div></div>
-          <div class="stat-card"><div class="stat-label">Flagged Today</div><div class="stat-value">{{ repStats.flagged_today }}</div></div>
-          <div class="stat-card"><div class="stat-label">Whitelist</div><div class="stat-value">{{ repWhitelist.length }}</div></div>
+          <div class="stat-card"><div class="stat-label">已标记 IP</div><div class="stat-value">{{ repStats.flagged }}</div></div>
+          <div class="stat-card"><div class="stat-label">待处理</div><div class="stat-value">{{ repStats.pending }}</div></div>
+          <div class="stat-card"><div class="stat-label">今日标记</div><div class="stat-value">{{ repStats.flagged_today }}</div></div>
+          <div class="stat-card"><div class="stat-label">白名单</div><div class="stat-value">{{ repWhitelist.length }}</div></div>
         </div>
         <!-- Flagged IPs -->
         <div class="card mb-16">
           <div class="flex flex-between mb-8">
-            <strong>Flagged IPs</strong>
+             <strong>已标记 IP</strong>
           </div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>IP</th><th>Flagged At</th><th>Expires At</th><th>Remaining</th><th></th></tr></thead>
+               <thead><tr><th>IP</th><th>标记时间</th><th>过期时间</th><th>剩余</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="ip in repFlagged" :key="ip.ip">
                   <td><code>{{ ip.ip }}</code></td>
                   <td>{{ fmtTime(ip.flagged_at) }}</td>
                   <td>{{ fmtTime(ip.expires_at) }}</td>
                   <td>{{ remaining(ip.expires_at) }}</td>
-                  <td><button class="danger small" @click="repClear(ip.ip)">Clear</button></td>
+                   <td><button class="danger small" @click="repClear(ip.ip)">清除</button></td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <div v-if="!repFlagged.length" class="empty">No flagged IPs.</div>
+          <div v-if="!repFlagged.length" class="empty">无已标记 IP。</div>
         </div>
         <!-- Whitelist -->
         <div class="card mb-16">
           <div class="flex flex-between mb-8">
-            <strong>Whitelist</strong>
-            <div class="flex gap-8">
-              <input v-model="repNewWhitelist" placeholder="IP or CIDR" style="width:180px;font-size:13px" @keyup.enter="repAddWhitelist">
-              <button class="primary small" @click="repAddWhitelist" :disabled="!repNewWhitelist">Add</button>
-            </div>
+             <strong>白名单</strong>
+             <div class="flex gap-8">
+               <input v-model="repNewWhitelist" placeholder="IP 或 CIDR" style="width:180px;font-size:13px" @keyup.enter="repAddWhitelist">
+               <button class="primary small" @click="repAddWhitelist" :disabled="!repNewWhitelist">添加</button>
+             </div>
           </div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>Entry</th><th></th></tr></thead>
+               <thead><tr><th>条目</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="e in repWhitelist" :key="e">
                   <td><code>{{ e }}</code></td>
-                  <td><button class="danger small" @click="repRemoveWhitelist(e)">Remove</button></td>
+                   <td><button class="danger small" @click="repRemoveWhitelist(e)">移除</button></td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <div v-if="!repWhitelist.length" class="empty">No whitelist entries.</div>
+          <div v-if="!repWhitelist.length" class="empty">无白名单条目。</div>
         </div>
         <!-- Score Lookup -->
         <div class="card">
           <div class="flex flex-between mb-8">
-            <strong>Score Lookup</strong>
-            <div class="flex gap-8">
-              <input v-model="repLookupIP" placeholder="IP address" style="width:180px;font-size:13px" @keyup.enter="repLookup">
-              <button class="primary small" @click="repLookup" :disabled="!repLookupIP">Lookup</button>
-            </div>
+             <strong>分数查询</strong>
+             <div class="flex gap-8">
+               <input v-model="repLookupIP" placeholder="IP 地址" style="width:180px;font-size:13px" @keyup.enter="repLookup">
+               <button class="primary small" @click="repLookup" :disabled="!repLookupIP">查询</button>
+             </div>
           </div>
           <div v-if="repLookupResult" style="font-size:13px">
             <div class="flex gap-16" style="flex-wrap:wrap">
-              <span><strong>Score:</strong> <code>{{ repLookupResult.score }}</code></span>
-              <span><strong>Flagged:</strong> <code>{{ repLookupResult.flagged ? 'Yes' : 'No' }}</code></span>
-              <span><strong>Pending:</strong> <code>{{ repLookupResult.pending ? 'Yes' : 'No' }}</code></span>
-              <span><strong>Whitelisted:</strong> <code>{{ repLookupResult.whitelisted ? 'Yes' : 'No' }}</code></span>
+               <span><strong>分数:</strong> <code>{{ repLookupResult.score }}</code></span>
+               <span><strong>已标记:</strong> <code>{{ repLookupResult.flagged ? '是' : '否' }}</code></span>
+               <span><strong>待处理:</strong> <code>{{ repLookupResult.pending ? '是' : '否' }}</code></span>
+               <span><strong>白名单:</strong> <code>{{ repLookupResult.whitelisted ? '是' : '否' }}</code></span>
             </div>
           </div>
         </div>
@@ -1109,7 +1109,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <div v-if="page==='geoip'">
         <div class="flex flex-between mb-16">
           <h2 class="page-title" style="margin-bottom:0">GeoIP</h2>
-          <button class="outline small" @click="loadGeoIP">Refresh</button>
+          <button class="outline small" @click="loadGeoIP">刷新</button>
         </div>
         <!-- Lookup -->
         <div class="card" style="padding:16px;margin-bottom:16px">
@@ -1124,11 +1124,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div v-if="geoipLookupResult" style="margin-top:12px;font-size:13px">
             <div v-if="geoipLookupResult.data">
               <table>
-                <tr><td>Country</td><td><code>{{ geoipLookupResult.data.country_code }}</code> {{ geoipLookupResult.data.country_name }}</td></tr>
-                <tr><td>City</td><td>{{ geoipLookupResult.data.city_name || '-' }}</td></tr>
-                <tr><td>Continent</td><td>{{ geoipLookupResult.data.continent || '-' }}</td></tr>
-                <tr><td>Location</td><td>{{ geoipLookupResult.data.latitude }}, {{ geoipLookupResult.data.longitude }}</td></tr>
-                <tr><td>ASN</td><td>{{ geoipLookupResult.data.asn || '-' }} {{ geoipLookupResult.data.asn_org }}</td></tr>
+                 <tr><td>国家</td><td><code>{{ geoipLookupResult.data.country_code }}</code> {{ geoipLookupResult.data.country_name }}</td></tr>
+                 <tr><td>城市</td><td>{{ geoipLookupResult.data.city_name || '-' }}</td></tr>
+                 <tr><td>大洲</td><td>{{ geoipLookupResult.data.continent || '-' }}</td></tr>
+                 <tr><td>位置</td><td>{{ geoipLookupResult.data.latitude }}, {{ geoipLookupResult.data.longitude }}</td></tr>
+                 <tr><td>ASN</td><td>{{ geoipLookupResult.data.asn || '-' }} {{ geoipLookupResult.data.asn_org }}</td></tr>
               </table>
             </div>
             <div v-else style="color:#6b7280">{{ geoipLookupResult.message || '未找到' }}</div>
@@ -1139,7 +1139,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <h3 style="font-size:14px;margin-bottom:8px">国家/地区分布 (Top 20)</h3>
           <div v-if="geoipStats.length">
             <table>
-              <thead><tr><th>Country</th><th>Hits</th></tr></thead>
+               <thead><tr><th>国家</th><th>命中</th></tr></thead>
               <tbody>
                 <tr v-for="s in geoipStats" :key="s.code">
                   <td><code>{{ s.code }}</code></td>
@@ -1148,16 +1148,16 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tbody>
             </table>
           </div>
-          <div v-else class="empty">No GeoIP data available. Ensure MaxMind DB is configured.</div>
+          <div v-else class="empty">无可用 GeoIP 数据。请确保 MaxMind 数据库已配置。</div>
         </div>
         <!-- Config -->
         <div class="card" style="padding:16px;margin-bottom:16px">
           <h3 style="font-size:14px;margin-bottom:8px">GeoIP 配置</h3>
           <table>
-            <tr><td>Enable</td><td><input type="checkbox" v-model="geoipConfig.enable" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>DB Path</td><td><input v-model="geoipConfig.geodb_path" placeholder="/opt/verynginx/geoip/GeoLite2-City.mmdb" style="width:350px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>Whitelist</td><td><input v-model="geoipConfig.whitelistStr" placeholder="US,GB,DE (comma-separated)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>Blocklist</td><td><input v-model="geoipConfig.blocklistStr" placeholder="CN,RU,KP (comma-separated)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>启用</td><td><input type="checkbox" v-model="geoipConfig.enable" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>数据库路径</td><td><input v-model="geoipConfig.geodb_path" placeholder="/opt/verynginx/geoip/GeoLite2-City.mmdb" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>白名单</td><td><input v-model="geoipConfig.whitelistStr" placeholder="US,GB,DE (逗号分隔)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>黑名单</td><td><input v-model="geoipConfig.blocklistStr" placeholder="CN,RU,KP (逗号分隔)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
           </table>
         </div>
         <!-- Auto-Update -->
@@ -1174,13 +1174,13 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                  <option value="loyalsoldier_release">Loyalsoldier Country (GitHub Release)</option>
                  <option value="custom">自定义 URL</option>
                </select>
-             </td></tr>
-             <tr v-if="geoipConfig.mirror === 'custom'"><td>Custom URL</td><td><input v-model="geoipConfig.custom_mirror_url" placeholder="https://..." style="width:350px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>当前 DB</td><td><code>{{ geoipStatus.geodb_path || '-' }}</code></td></tr>
-            <tr><td>DB 大小</td><td>{{ geoipStatus.size ? (geoipStatus.size / 1024 / 1024).toFixed(1) + ' MB' : '-' }}</td></tr>
-            <tr><td>DB 状态</td><td><span :class="geoipStatus.available ? 'tag tag-ok' : 'tag tag-err'">{{ geoipStatus.available ? '可用' : '未加载' }}</span></td></tr>
-            <tr><td>上次检查</td><td>{{ geoipStatus.last_check ? new Date(geoipStatus.last_check * 1000).toLocaleString() : '从未' }}</td></tr>
-            <tr><td>上次更新</td><td>{{ geoipStatus.last_update ? new Date(geoipStatus.last_update * 1000).toLocaleString() : '从未' }}</td></tr>
+              </td></tr>
+             <tr v-if="geoipConfig.mirror === 'custom'"><td>自定义 URL</td><td><input v-model="geoipConfig.custom_mirror_url" placeholder="https://..." style="width:350px" @change="saveGeoIPConfig"></td></tr>
+             <tr><td>当前数据库</td><td><code>{{ geoipStatus.geodb_path || '-' }}</code></td></tr>
+             <tr><td>数据库大小</td><td>{{ geoipStatus.size ? (geoipStatus.size / 1024 / 1024).toFixed(1) + ' MB' : '-' }}</td></tr>
+             <tr><td>数据库状态</td><td><span :class="geoipStatus.available ? 'tag tag-ok' : 'tag tag-err'">{{ geoipStatus.available ? '可用' : '未加载' }}</span></td></tr>
+             <tr><td>上次检查</td><td>{{ geoipStatus.last_check ? new Date(geoipStatus.last_check * 1000).toLocaleString() : '从未' }}</td></tr>
+             <tr><td>上次更新</td><td>{{ geoipStatus.last_update ? new Date(geoipStatus.last_update * 1000).toLocaleString() : '从未' }}</td></tr>
           </table>
           <div style="margin-top:8px"><button class="primary small" @click="triggerGeoIPUpdate">立即检查更新</button></div>
         </div>
@@ -1189,21 +1189,21 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <!-- Fingerprints -->
       <div v-if="page==='fingerprints'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">TLS Fingerprints</h2>
+          <h2 class="page-title" style="margin-bottom:0">TLS 指纹</h2>
           <div class="flex gap-8">
-            <button class="outline small" @click="loadFingerprints">Refresh</button>
-            <button class="primary small" @click="openFpAdd">+ Add</button>
+            <button class="outline small" @click="loadFingerprints">刷新</button>
+            <button class="primary small" @click="openFpAdd">+ 添加</button>
           </div>
         </div>
         <!-- Stats -->
         <div class="grid grid-2 mb-16">
-          <div class="stat-card"><div class="stat-label">Total Fingerprints</div><div class="stat-value">{{ fingerprints.length }}</div></div>
-          <div class="stat-card"><div class="stat-label">Categories</div><div class="stat-value">{{ Object.keys(fpCategories).length }}</div></div>
+          <div class="stat-card"><div class="stat-label">指纹总数</div><div class="stat-value">{{ fingerprints.length }}</div></div>
+          <div class="stat-card"><div class="stat-label">分类数</div><div class="stat-value">{{ Object.keys(fpCategories).length }}</div></div>
         </div>
         <!-- Table -->
         <div class="card" style="padding:16px">
           <table>
-            <thead><tr><th>JA3 Hash</th><th>Name</th><th>Category</th><th>Action</th><th>Enable</th><th></th></tr></thead>
+             <thead><tr><th>JA3 哈希</th><th>名称</th><th>分类</th><th>动作</th><th>启用</th><th></th></tr></thead>
             <tbody>
               <tr v-for="fp in fingerprints" :key="fp.hash">
                 <td><code style="font-size:10px">{{ fp.hash }}</code></td>
@@ -1211,10 +1211,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                 <td><span class="tag">{{ fp.category }}</span></td>
                 <td><span class="tag" :style="{background:fp.action==='block'?'#fee2e2':'#fef3c7'}">{{ fp.action }}</span></td>
                 <td><input type="checkbox" :checked="fp.enabled" @change="toggleFp(fp)"></td>
-                <td><button class="outline small" @click="deleteFp(fp)">Delete</button></td>
+                 <td><button class="outline small" @click="deleteFp(fp)">删除</button></td>
               </tr>
               <tr v-if="!fingerprints.length">
-                <td colspan="6" class="empty">No fingerprints configured.</td>
+                <td colspan="6" class="empty">未配置指纹。</td>
               </tr>
             </tbody>
           </table>
@@ -1224,29 +1224,29 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <!-- Audit -->
       <div v-if="page==='audit'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">Audit Log</h2>
-          <button class="outline small" @click="loadAudit">Refresh</button>
+          <h2 class="page-title" style="margin-bottom:0">审计日志</h2>
+          <button class="outline small" @click="loadAudit">刷新</button>
         </div>
         <!-- Filters -->
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">
-          <div>
-            <label style="font-size:11px;color:#6b7280">用户</label>
-            <input v-model="auditFilterUser" placeholder="all" style="width:100px" @keyup.enter="loadAudit">
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">
+           <div>
+             <label style="font-size:11px;color:#6b7280">用户</label>
+             <input v-model="auditFilterUser" placeholder="全部" style="width:100px" @keyup.enter="loadAudit">
+           </div>
+           <div>
+             <label style="font-size:11px;color:#6b7280">操作类型</label>
+             <input v-model="auditFilterAction" placeholder="全部" style="width:120px" @keyup.enter="loadAudit">
+           </div>
+           <div>
+             <label style="font-size:11px;color:#6b7280">起始时间</label>
+             <input v-model="auditFilterSince" type="datetime-local" style="width:160px" @change="loadAudit">
+           </div>
+           <div>
+             <label style="font-size:11px;color:#6b7280">结束时间</label>
+             <input v-model="auditFilterUntil" type="datetime-local" style="width:160px" @change="loadAudit">
+           </div>
+           <button class="outline small" @click="clearAuditFilters">清除筛选</button>
           </div>
-          <div>
-            <label style="font-size:11px;color:#6b7280">操作类型</label>
-            <input v-model="auditFilterAction" placeholder="all" style="width:120px" @keyup.enter="loadAudit">
-          </div>
-          <div>
-            <label style="font-size:11px;color:#6b7280">起始时间</label>
-            <input v-model="auditFilterSince" type="datetime-local" style="width:160px" @change="loadAudit">
-          </div>
-          <div>
-            <label style="font-size:11px;color:#6b7280">结束时间</label>
-            <input v-model="auditFilterUntil" type="datetime-local" style="width:160px" @change="loadAudit">
-          </div>
-          <button class="outline small" @click="clearAuditFilters">清除筛选</button>
-        </div>
         <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
         <div style="font-size:13px;color:#6b7280;margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
         <div style="overflow-x:auto">
@@ -1261,7 +1261,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tr>
             </tbody>
           </table>
-          <div v-if="!auditEntries.length" class="empty">No audit entries.</div>
+           <div v-if="!auditEntries.length" class="empty">无审计记录。</div>
         </div>
       </div>
 
@@ -1272,157 +1272,157 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <p style="color:var(--muted);font-size:12px;margin-bottom:4px">
           <code :title="versionInfo.commit || ''">{{ versionInfo.commit ? versionInfo.commit.slice(0,8) : '' }}</code>
         </p>
-        <p style="color:var(--muted);font-size:14px">A WAF, reverse proxy and request management engine built on Nginx + Lua.</p>
+        <p style="color:var(--muted);font-size:14px">基于 Nginx + Lua 构建的 WAF、反向代理与请求管理引擎。</p>
         <p style="margin-top:24px"><a href="https://github.com/nengfeng/VeryNginx" target="_blank">GitHub</a></p>
       </div>
 
       <!-- Kernel Blocking -->
       <div v-if="page==='kb'">
-        <h2 class="page-title">Kernel IP Blocking</h2>
+        <h2 class="page-title">内核 IP 封禁</h2>
         <div v-if="kbError" class="error" style="margin-bottom:8px">{{ kbError }}</div>
-        <div v-if="kbBusy" class="empty" style="text-align:left;padding:8px 0">Working…</div>
+          <div v-if="kbBusy" class="empty" style="text-align:left;padding:8px 0">处理中…</div>
 
         <!-- Status cards -->
         <div class="grid grid-4 mb-16">
           <div class="stat-card">
-            <div class="stat-label">Configured</div>
+            <div class="stat-label">已配置</div>
             <div class="stat-value" style="font-size:18px">{{ kbStatus.configured.mode || '-' }}</div>
-            <div class="stat-sub" :class="kbStatus.configured.enabled?'enabled':'disabled'">{{ kbStatus.configured.enabled ? 'Enabled' : 'Disabled' }}</div>
+            <div class="stat-sub" :class="kbStatus.configured.enabled?'enabled':'disabled'">{{ kbStatus.configured.enabled ? '已启用' : '已禁用' }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Effective Global</div>
+            <div class="stat-label">有效全局</div>
             <div class="stat-value" style="font-size:18px">{{ (kbStatus.effective && kbStatus.effective.global_mode) || '-' }}</div>
             <div class="stat-sub" :class="kbStatus.effective && kbStatus.effective.global_install_reachable ? 'enabled' : 'disabled'">
-              {{ kbStatus.effective && kbStatus.effective.global_install_reachable ? 'Install reachable' : 'Not reachable' }}
+              {{ kbStatus.effective && kbStatus.effective.global_install_reachable ? '可安装' : '不可达' }}
             </div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Installed</div>
+            <div class="stat-label">已安装</div>
             <div class="stat-value">{{ kbStatus.counters.installed || 0 }}</div>
-            <div class="stat-sub">S {{ kbStatus.counters.installed_scanner || 0 }} / CC {{ kbStatus.counters.installed_cc || 0 }} / M {{ kbStatus.counters.installed_manual || 0 }}</div>
+            <div class="stat-sub">扫描器 {{ kbStatus.counters.installed_scanner || 0 }} / CC {{ kbStatus.counters.installed_cc || 0 }} / 手动 {{ kbStatus.counters.installed_manual || 0 }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Helper</div>
-            <div class="stat-value" style="font-size:18px">{{ (kbStatus.health && kbStatus.health.state) || 'unknown' }}</div>
+            <div class="stat-value" style="font-size:18px">{{ (kbStatus.health && kbStatus.health.state) || '未知' }}</div>
             <div class="stat-sub" :class="(kbStatus.health && kbStatus.health.state)==='ok'?'enabled':'disabled'">
-              {{ kbStatus.helper_instance_id ? ('id ' + String(kbStatus.helper_instance_id).slice(0,8)) : ((kbStatus.health && kbStatus.health.state)==='ok' ? 'Reachable' : 'Unreachable') }}
+              {{ kbStatus.helper_instance_id ? ('id ' + String(kbStatus.helper_instance_id).slice(0,8)) : ((kbStatus.health && kbStatus.health.state)==='ok' ? '可达' : '不可达') }}
             </div>
           </div>
         </div>
 
         <div class="grid grid-4 mb-16">
           <div class="stat-card">
-            <div class="stat-label">Scanner Effective</div>
+            <div class="stat-label">扫描器有效</div>
             <div class="stat-value" style="font-size:16px">{{ kbEffMode('scanner') }}</div>
-            <div class="stat-sub">{{ kbEffReachable('scanner') ? 'reachable' : 'blocked' }}</div>
+            <div class="stat-sub">{{ kbEffReachable('scanner') ? '可达' : '已阻止' }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">CC Effective</div>
+            <div class="stat-label">CC 有效</div>
             <div class="stat-value" style="font-size:16px">{{ kbEffMode('cc') }}</div>
-            <div class="stat-sub">{{ kbEffReachable('cc') ? 'reachable' : 'blocked' }}</div>
+            <div class="stat-sub">{{ kbEffReachable('cc') ? '可达' : '已阻止' }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Promotion Tokens</div>
+            <div class="stat-label">晋升令牌</div>
             <div class="stat-value">{{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.tokens_available) || 0 }}</div>
-            <div class="stat-sub">rate-limited {{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.rate_limited_recent) || kbStatus.counters.rate_limited || 0 }} · candidates {{ kbStatus.counters.candidates || 0 }}</div>
+            <div class="stat-sub">限流 {{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.rate_limited_recent) || kbStatus.counters.rate_limited || 0 }} · 候选 {{ kbStatus.counters.candidates || 0 }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Migration / NS</div>
+            <div class="stat-label">迁移 / NS</div>
             <div class="stat-value" style="font-size:16px">{{ (kbStatus.migration && kbStatus.migration.status) || '-' }}</div>
-            <div class="stat-sub">{{ kbStatus.counter_namespace || 'v1' }} · desired {{ kbStatus.counters.desired || 0 }} · drift {{ kbStatus.counters.drift || 0 }}</div>
+            <div class="stat-sub">{{ kbStatus.counter_namespace || 'v1' }} · 期望 {{ kbStatus.counters.desired || 0 }} · 漂移 {{ kbStatus.counters.drift || 0 }}</div>
           </div>
         </div>
 
         <!-- Reasons with remediation -->
         <div class="card mb-16" v-if="kbReasonItems.length">
-          <h3 style="font-size:14px;margin-bottom:8px">Blocking reasons &amp; next actions</h3>
+          <h3 style="font-size:14px;margin-bottom:8px">阻止原因与后续操作</h3>
           <div v-for="item in kbReasonItems" :key="item.code" style="margin-bottom:8px;font-size:13px">
             <span class="tag tag-warn" style="margin-right:6px">{{ item.code }}</span>
             <strong>{{ item.title }}</strong>
             <div style="color:var(--muted);margin-left:4px">{{ item.advice }}</div>
           </div>
         </div>
-        <div v-if="kbStatus.counters && kbStatus.counters.active_auto_while_disabled" class="error" style="margin-bottom:12px">
-          Warning: disabled_with_active_entries — {{ kbStatus.counters.active_auto_while_disabled }} auto entries still active in kernel. Use Flush Auto only if you intend to remove them.
-        </div>
+          <div v-if="kbStatus.counters && kbStatus.counters.active_auto_while_disabled" class="error" style="margin-bottom:12px">
+           警告: disabled_with_active_entries — {{ kbStatus.counters.active_auto_while_disabled }} 个自动条目在内核中仍处于活动状态。仅在打算移除它们时使用"刷新自动集合"。
+          </div>
 
          <!-- CC auto-ready banner -->
-         <div v-if="ccAutoReady" class="card mb-16" style="border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)">
-           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-             <div>
-               <strong style="color:var(--accent)">⚡ CC enforce ready</strong>
-               <div style="font-size:12px;color:var(--muted);margin-top:4px">All prerequisites met (migration, cutover, rule refs, helper). Enable CC enforce_ready to activate.</div>
-             </div>
-             <button class="primary small" :disabled="kbBusy" @click="enableCcEnforceReady">Enable CC enforce</button>
-           </div>
-         </div>
+           <div v-if="ccAutoReady" class="card mb-16" style="border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+              <div>
+                <strong style="color:var(--accent)">⚡ CC 执行就绪</strong>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px">所有先决条件已满足（迁移、切换、规则引用、Helper）。启用 CC enforce_ready 以激活。</div>
+              </div>
+              <button class="primary small" :disabled="kbBusy" @click="enableCcEnforceReady">启用 CC 执行</button>
+            </div>
+          </div>
 
          <!-- Controls -->
-         <div class="card mb-16">
-           <h3 style="font-size:14px;margin-bottom:12px">Controls</h3>
-          <div class="grid grid-3 mb-16 kb-controls">
-            <div class="field">
-              <label class="kb-check"><input type="checkbox" v-model="kbForm.enabled"> Global enabled</label>
-            </div>
-            <div class="field">
-              <label style="font-size:12px;color:var(--muted)">Global mode</label>
-              <select v-model="kbForm.mode" style="margin-top:4px">
-                <option value="observe">observe</option>
-                <option value="enforce">enforce</option>
-              </select>
-            </div>
-            <div class="field">
-              <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enforce_ready"> CC enforce_ready</label>
-            </div>
-            <div class="field">
-              <label class="kb-check"><input type="checkbox" v-model="kbForm.scanner_enabled"> Scanner enabled</label>
-            </div>
-            <div class="field">
-              <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enabled"> CC enabled</label>
-            </div>
-            <div class="field">
-              <label style="font-size:12px;color:var(--muted)">Topology (readonly)</label>
-              <input :value="kbStatus.configured.topology || 'unknown'" disabled style="margin-top:4px">
-            </div>
+           <div class="card mb-16">
+            <h3 style="font-size:14px;margin-bottom:12px">控制</h3>
+           <div class="grid grid-3 mb-16 kb-controls">
+             <div class="field">
+               <label class="kb-check"><input type="checkbox" v-model="kbForm.enabled"> 全局启用</label>
+             </div>
+             <div class="field">
+               <label style="font-size:12px;color:var(--muted)">全局模式</label>
+               <select v-model="kbForm.mode" style="margin-top:4px">
+                 <option value="observe">observe (观察)</option>
+                 <option value="enforce">enforce (执行)</option>
+               </select>
+             </div>
+             <div class="field">
+               <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enforce_ready"> CC 执行就绪</label>
+             </div>
+             <div class="field">
+               <label class="kb-check"><input type="checkbox" v-model="kbForm.scanner_enabled"> 扫描器启用</label>
+             </div>
+             <div class="field">
+               <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enabled"> CC 启用</label>
+             </div>
+             <div class="field">
+               <label style="font-size:12px;color:var(--muted)">拓扑 (只读)</label>
+               <input :value="kbStatus.configured.topology || '未知'" disabled style="margin-top:4px">
+             </div>
+           </div>
+           <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
+             <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
+             <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)">
+               {{ kbStatus.configured.emergency_pause ? '恢复晋升' : '暂停晋升' }}
+             </button>
+             <button class="outline small" :disabled="kbBusy" @click="kbReconcile">立即协调</button>
+             <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto">刷新自动集合</button>
+             <button class="outline small" :disabled="kbBusy" @click="loadKbData">刷新</button>
+           </div>
+           <div style="font-size:12px;color:var(--muted)">
+             拓扑 / 受保护地址和端口是安全门控 — 请在配置中编辑。当前范围:
+             地址={{ (kbStatus.configured.protected_addresses||[]).join(', ') || '(空)' }},
+             端口={{ (kbStatus.configured.protected_ports||[]).join(', ') || '(空)' }}。
+           </div>
           </div>
-          <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
-            <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">Save policy settings</button>
-            <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)">
-              {{ kbStatus.configured.emergency_pause ? 'Resume promotions' : 'Pause promotions' }}
-            </button>
-            <button class="outline small" :disabled="kbBusy" @click="kbReconcile">Reconcile now</button>
-            <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto">Flush auto sets</button>
-            <button class="outline small" :disabled="kbBusy" @click="loadKbData">Refresh</button>
-          </div>
-          <div style="font-size:12px;color:var(--muted)">
-            Topology / protected addresses &amp; ports are safety gates — edit them in Config. Current scope:
-            addrs={{ (kbStatus.configured.protected_addresses||[]).join(', ') || '(empty)' }},
-            ports={{ (kbStatus.configured.protected_ports||[]).join(', ') || '(empty)' }}.
-          </div>
-        </div>
 
         <!-- Readiness checklist -->
         <div class="card mb-16">
-          <h3 style="font-size:14px;margin-bottom:8px">Enforce readiness checklist</h3>
+          <h3 style="font-size:14px;margin-bottom:8px">执行就绪检查清单</h3>
           <div v-for="step in kbChecklist" :key="step.id" style="font-size:13px;margin-bottom:6px">
-             <span :class="step.ok ? 'tag tag-ok' : (step.auto_ready ? 'tag tag-info' : 'tag tag-warn')" style="margin-right:6px">{{ step.ok ? 'OK' : (step.auto_ready ? 'READY' : 'TODO') }}</span>
-             {{ step.label }}
-             <span v-if="step.auto_ready" style="font-size:11px;color:var(--accent);margin-left:6px">— click "Enable CC enforce" above</span>
+              <span :class="step.ok ? 'tag tag-ok' : (step.auto_ready ? 'tag tag-info' : 'tag tag-warn')" style="margin-right:6px">{{ step.ok ? 'OK' : (step.auto_ready ? '就绪' : '待办') }}</span>
+              {{ step.label }}
+              <span v-if="step.auto_ready" style="font-size:11px;color:var(--accent);margin-left:6px">— 点击上方"启用 CC 执行"</span>
            </div>
         </div>
 
         <!-- Manual block -->
         <div class="card mb-16">
-          <h3 style="font-size:14px;margin-bottom:8px">Manual block</h3>
+          <h3 style="font-size:14px;margin-bottom:8px">手动封禁</h3>
           <div class="flex" style="gap:8px;align-items:center;flex-wrap:wrap">
-            <input v-model="kbNewIP" placeholder="IP to block" style="width:180px">
+            <input v-model="kbNewIP" placeholder="要封禁的 IP" style="width:180px">
             <select v-model="kbNewPolicy" style="width:120px">
-              <option value="scanner">Scanner</option>
+              <option value="scanner">扫描器</option>
               <option value="cc">CC</option>
-              <option value="manual">Manual</option>
+              <option value="manual">手动</option>
             </select>
-            <input v-model.number="kbNewTTL" placeholder="TTL (s)" type="number" min="60" style="width:100px">
-            <button class="small primary" :disabled="kbBusy" @click="kbPromote">Block IP</button>
+            <input v-model.number="kbNewTTL" placeholder="TTL (秒)" type="number" min="60" style="width:100px">
+            <button class="small primary" :disabled="kbBusy" @click="kbPromote">封禁 IP</button>
           </div>
         </div>
 
@@ -1442,17 +1442,17 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
         <!-- CC rules -->
         <div class="card mb-16" v-if="(kbStatus.cc_rules||[]).length">
-          <h3 style="font-size:14px;margin-bottom:8px">CC rule readiness</h3>
+          <h3 style="font-size:14px;margin-bottom:8px">CC 规则就绪</h3>
           <table class="data-table">
-            <thead><tr><th>Rule ID</th><th>Ref</th><th>NS</th><th>Mode</th><th>Install</th><th>Reasons</th></tr></thead>
+             <thead><tr><th>规则 ID</th><th>引用</th><th>NS</th><th>模式</th><th>安装</th><th>原因</th></tr></thead>
             <tbody>
               <tr v-for="r in kbStatus.cc_rules" :key="r.rule_id">
                 <td style="font-family:monospace;font-size:12px">{{ r.rule_id }}</td>
-                <td><span :class="r.reference_valid?'tag tag-ok':'tag tag-err'">{{ r.reference_valid ? 'valid' : 'invalid' }}</span></td>
-                <td>{{ r.counter_namespace }}</td>
-                <td>{{ r.effective_mode }}</td>
-                <td><span :class="r.install_reachable?'tag tag-ok':'tag tag-warn'">{{ r.install_reachable ? 'yes' : 'no' }}</span></td>
-                <td style="font-size:12px">{{ (r.reason_codes||[]).join(', ') || '-' }}</td>
+                 <td><span :class="r.reference_valid?'tag tag-ok':'tag tag-err'">{{ r.reference_valid ? '有效' : '无效' }}</span></td>
+                 <td>{{ r.counter_namespace }}</td>
+                 <td>{{ r.effective_mode }}</td>
+                 <td><span :class="r.install_reachable?'tag tag-ok':'tag tag-warn'">{{ r.install_reachable ? '是' : '否' }}</span></td>
+                 <td style="font-size:12px">{{ (r.reason_codes||[]).join(', ') || '-' }}</td>
               </tr>
             </tbody>
           </table>
@@ -1460,62 +1460,62 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
         <!-- Tabs -->
         <div class="tabs mb-8">
-          <a :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">Installed</a>
-          <a :class="{active:kbTab==='candidates'}" @click="kbTab='candidates';loadKbCandidates()">Candidates</a>
-          <a :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">Timeline</a>
-          <a :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard';loadKbDashboard()">Dashboard</a>
+          <a :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">已安装</a>
+          <a :class="{active:kbTab==='candidates'}" @click="kbTab='candidates';loadKbCandidates()">候选</a>
+          <a :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">时间线</a>
+          <a :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard';loadKbDashboard()">仪表盘</a>
         </div>
 
         <!-- Filters -->
         <div class="flex mb-8" style="gap:8px;flex-wrap:wrap" v-if="kbTab!=='timeline'">
-          <select v-model="kbFilterPolicy" @change="kbReloadList" style="width:140px">
-            <option value="">All policies</option>
-            <option value="scanner">scanner</option>
-            <option value="cc">cc</option>
-            <option value="manual">manual</option>
-          </select>
-          <select v-if="kbTab==='candidates'" v-model="kbFilterState" @change="kbReloadList" style="width:160px">
-            <option value="">All states</option>
-            <option value="candidate">candidate</option>
-            <option value="rejected">rejected</option>
-            <option value="rate_limited">rate_limited</option>
-            <option value="degraded">degraded</option>
-            <option value="observed">observed</option>
-          </select>
-          <input v-model="kbFilterIP" placeholder="Filter IP contains…" style="width:180px" @keyup.enter="kbReloadList">
-          <button class="outline small" @click="kbReloadList">Apply</button>
+           <select v-model="kbFilterPolicy" @change="kbReloadList" style="width:140px">
+             <option value="">全部策略</option>
+             <option value="scanner">扫描器</option>
+             <option value="cc">CC</option>
+             <option value="manual">手动</option>
+           </select>
+           <select v-if="kbTab==='candidates'" v-model="kbFilterState" @change="kbReloadList" style="width:160px">
+             <option value="">全部状态</option>
+             <option value="candidate">候选</option>
+             <option value="rejected">已拒绝</option>
+             <option value="rate_limited">已限流</option>
+             <option value="degraded">已降级</option>
+             <option value="observed">已观察</option>
+           </select>
+           <input v-model="kbFilterIP" placeholder="筛选 IP 包含…" style="width:180px" @keyup.enter="kbReloadList">
+           <button class="outline small" @click="kbReloadList">应用</button>
         </div>
 
         <!-- Entries -->
         <div v-if="kbTab==='entries'">
-          <div v-if="!kbEntries.length" class="empty">No installed entries.</div>
-          <table v-else class="data-table">
-            <thead><tr><th>IP</th><th>Set</th><th>Family</th><th>Source</th><th>Mode</th><th>Installed</th><th>Expires</th><th>Kernel</th><th>Actions</th></tr></thead>
+          <div v-if="!kbEntries.length" class="empty">无已安装条目。</div>
+           <table v-else class="data-table">
+             <thead><tr><th>IP</th><th>集合</th><th>协议族</th><th>来源</th><th>模式</th><th>已安装</th><th>过期</th><th>内核</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="e in kbEntries" :key="e.ip+'-'+(e.list||e.policy)" style="cursor:pointer" @click="kbOpenDetail(e)">
                 <td>{{ e.ip }}</td>
                 <td>{{ e.list || e.policy }}</td>
                 <td>{{ e.family || 'ipv4' }}</td>
                 <td>{{ e.source || '-' }}</td>
-                <td>{{ e.reconciliation_mode || 'ensure' }}</td>
-                <td>{{ formatKbTime(e.installed_at) }}</td>
-                <td>{{ formatKbExpiry(e.expires_at) }}</td>
-                <td><span :class="e.in_kernel?'enabled':'disabled'">{{ e.in_kernel ? 'Yes' : 'No' }}</span></td>
-                <td @click.stop>
-                  <button class="outline small" @click="kbOpenDetail(e)">Detail</button>
-                  <button class="outline small" @click="kbClear(e.ip)">Clear</button>
-                </td>
+                 <td>{{ e.reconciliation_mode || 'ensure' }}</td>
+                 <td>{{ formatKbTime(e.installed_at) }}</td>
+                 <td>{{ formatKbExpiry(e.expires_at) }}</td>
+                 <td><span :class="e.in_kernel?'enabled':'disabled'">{{ e.in_kernel ? '是' : '否' }}</span></td>
+                 <td @click.stop>
+                   <button class="outline small" @click="kbOpenDetail(e)">详情</button>
+                   <button class="outline small" @click="kbClear(e.ip)">清除</button>
+                 </td>
               </tr>
             </tbody>
           </table>
-          <div v-if="kbEntriesNext" style="margin-top:8px"><button class="outline small" @click="loadKbEntries(kbEntriesNext)">Next</button></div>
+          <div v-if="kbEntriesNext" style="margin-top:8px"><button class="outline small" @click="loadKbEntries(kbEntriesNext)">下一页</button></div>
         </div>
 
         <!-- Candidates -->
         <div v-if="kbTab==='candidates'">
-          <div v-if="!kbCandidates.length" class="empty">No candidates.</div>
-          <table v-else class="data-table">
-            <thead><tr><th>IP</th><th>Policy</th><th>State</th><th>Evidence</th><th>Result</th><th>Actions</th></tr></thead>
+          <div v-if="!kbCandidates.length" class="empty">无候选。</div>
+           <table v-else class="data-table">
+             <thead><tr><th>IP</th><th>策略</th><th>状态</th><th>证据</th><th>结果</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="c in kbCandidates" :key="c.ip+'-'+c.policy+'-'+c.state" style="cursor:pointer" @click="kbOpenDetail(c)">
                 <td>{{ c.ip }}</td>
@@ -1523,21 +1523,21 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                 <td>{{ c.state }}</td>
                 <td style="font-size:12px">{{ kbEvidenceSummary(c) }}</td>
                 <td style="font-size:12px">{{ (c.evidence && c.evidence.result) || '-' }}</td>
-                <td @click.stop>
-                  <button class="outline small" @click="kbOpenDetail(c)">Detail</button>
-                  <button class="outline small" @click="kbPromoteIp(c.ip,c.policy)">Promote</button>
-                </td>
+                 <td @click.stop>
+                   <button class="outline small" @click="kbOpenDetail(c)">详情</button>
+                   <button class="outline small" @click="kbPromoteIp(c.ip,c.policy)">晋升</button>
+                 </td>
               </tr>
             </tbody>
           </table>
-          <div v-if="kbCandidatesNext" style="margin-top:8px"><button class="outline small" @click="loadKbCandidates(kbCandidatesNext)">Next</button></div>
+          <div v-if="kbCandidatesNext" style="margin-top:8px"><button class="outline small" @click="loadKbCandidates(kbCandidatesNext)">下一页</button></div>
         </div>
 
         <!-- Timeline -->
         <div v-if="kbTab==='timeline'">
-          <div v-if="!kbTimeline.length" class="empty">No recent kernel_blocking audit events.</div>
-          <table v-else class="data-table">
-            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+          <div v-if="!kbTimeline.length" class="empty">无最近内核封禁审计事件。</div>
+           <table v-else class="data-table">
+             <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th></tr></thead>
             <tbody>
               <tr v-for="(a,i) in kbTimeline" :key="i">
                 <td>{{ formatKbTime(a.time) }}</td>
@@ -1553,7 +1553,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div v-if="kbTab==='dashboard'">
           <!-- Bucket balance trend chart -->
           <div class="card mb-16">
-            <h3 style="font-size:14px;margin-bottom:8px">Promotion bucket balance trend</h3>
+             <h3 style="font-size:14px;margin-bottom:8px">晋升桶余额趋势</h3>
             <div v-if="kbTrendPoints.enforce" style="position:relative">
               <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:120px;display:block">
                 <defs>
@@ -1572,22 +1572,22 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                 <polyline :points="kbTrendPoints.enforce" fill="none" stroke="#3b82f6" stroke-width="0.5"/>
               </svg>
               <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:4px">
-                <span><span style="display:inline-block;width:10px;height:3px;background:#3b82f6;vertical-align:middle;margin-right:4px"></span>Enforce</span>
-                <span><span style="display:inline-block;width:10px;height:3px;background:#10b981;vertical-align:middle;margin-right:4px"></span>Observe</span>
-                <span>max {{ kbTrendPoints.max }} tokens</span>
+                 <span><span style="display:inline-block;width:10px;height:3px;background:#3b82f6;vertical-align:middle;margin-right:4px"></span>执行</span>
+                 <span><span style="display:inline-block;width:10px;height:3px;background:#10b981;vertical-align:middle;margin-right:4px"></span>观察</span>
+                 <span>最大 {{ kbTrendPoints.max }} 令牌</span>
               </div>
             </div>
-            <div v-else class="empty">No history data yet (samples every 5 min).</div>
+             <div v-else class="empty">暂无历史数据 (每 5 分钟采样)。</div>
           </div>
 
           <!-- Per-rule reachability with visual bars -->
           <div class="card mb-16" v-if="(kbStatus.cc_rules||[]).length">
-            <h3 style="font-size:14px;margin-bottom:8px">Per-rule reachability</h3>
+             <h3 style="font-size:14px;margin-bottom:8px">按规则可达性</h3>
             <div v-for="r in kbStatus.cc_rules" :key="r.rule_id" class="kb-rule-row">
               <div class="kb-rule-head">
                 <span class="kb-rule-id">{{ r.rule_id }}</span>
                 <span :class="r.reference_valid?'tag tag-ok':'tag tag-err'">{{ r.reference_valid ? 'valid' : 'invalid' }}</span>
-                <span :class="r.install_reachable?'tag tag-ok':'tag tag-warn'">{{ r.install_reachable ? 'installable' : 'blocked' }}</span>
+                 <span :class="r.install_reachable?'tag tag-ok':'tag tag-warn'">{{ r.install_reachable ? '可安装' : '已阻止' }}</span>
                 <span class="tag">{{ r.effective_mode }}</span>
               </div>
               <div class="kb-rule-bar-wrap">
@@ -1609,21 +1609,21 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
           <!-- Diff visualization: desired vs actual -->
           <div class="card mb-16">
-            <h3 style="font-size:14px;margin-bottom:8px">Desired vs Actual drift
+             <h3 style="font-size:14px;margin-bottom:8px">期望 vs 实际漂移</h3>
               <span style="font-weight:normal;font-size:12px;color:var(--muted)">
                 ({{ kbDiff.desired_count }} desired / {{ kbDiff.actual_count }} in kernel)
               </span>
             </h3>
-            <div v-if="!kbDiff.missing_in_kernel.length && !kbDiff.orphan_in_kernel.length" class="empty" style="color:var(--ok)">
-              In sync — no drift detected.
-            </div>
+             <div v-if="!kbDiff.missing_in_kernel.length && !kbDiff.orphan_in_kernel.length" class="empty" style="color:var(--ok)">
+               已同步 — 无漂移。
+             </div>
             <div v-else>
               <div v-if="kbDiff.missing_in_kernel.length" style="margin-bottom:12px">
-                <div style="font-size:12px;color:var(--warn);margin-bottom:6px">
-                  ▼ Missing in kernel ({{ kbDiff.missing_in_kernel.length }}) — desired but not installed
-                </div>
+                 <div style="font-size:12px;color:var(--warn);margin-bottom:6px">
+                   ▼ 内核缺失 ({{ kbDiff.missing_in_kernel.length }}) — 期望但未安装
+                 </div>
                 <table class="data-table">
-                  <thead><tr><th>IP</th><th>Set</th><th>Source</th><th>Expires</th></tr></thead>
+                   <thead><tr><th>IP</th><th>集合</th><th>来源</th><th>过期</th></tr></thead>
                   <tbody>
                     <tr v-for="(e, i) in kbDiff.missing_in_kernel" :key="'m'+i">
                       <td style="font-family:monospace">{{ e.ip }}</td>
@@ -1635,11 +1635,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                 </table>
               </div>
               <div v-if="kbDiff.orphan_in_kernel.length">
-                <div style="font-size:12px;color:var(--err);margin-bottom:6px">
-                  ▲ Orphan in kernel ({{ kbDiff.orphan_in_kernel.length }}) — installed but not desired
-                </div>
+                 <div style="font-size:12px;color:var(--err);margin-bottom:6px">
+                   ▲ 内核孤儿 ({{ kbDiff.orphan_in_kernel.length }}) — 已安装但非期望
+                 </div>
                 <table class="data-table">
-                  <thead><tr><th>IP</th><th>Set</th><th>Family</th></tr></thead>
+                   <thead><tr><th>IP</th><th>集合</th><th>协议族</th></tr></thead>
                   <tbody>
                     <tr v-for="(e, i) in kbDiff.orphan_in_kernel" :key="'o'+i">
                       <td style="font-family:monospace">{{ e.ip }}</td>
@@ -1657,12 +1657,12 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- Detail modal -->
         <div class="modal-overlay" v-if="kbDetail.show" @click.self="kbDetail.show=false">
           <div class="modal" style="max-width:640px">
-            <h3>IP detail: {{ kbDetail.entry && kbDetail.entry.ip }}</h3>
+             <h3>IP 详情: {{ kbDetail.entry && kbDetail.entry.ip }}</h3>
             <pre style="max-height:50vh;white-space:pre-wrap">{{ kbDetailJson }}</pre>
             <div class="flex" style="gap:8px;justify-content:flex-end;margin-top:12px">
-              <button class="outline small" @click="kbDetail.show=false">Close</button>
-              <button class="outline small" v-if="kbDetail.entry && kbDetail.entry.ip" @click="kbClear(kbDetail.entry.ip);kbDetail.show=false">Clear</button>
-              <button class="small primary" v-if="kbDetail.entry && kbDetail.entry.ip && kbDetail.entry.policy && kbDetail.entry.state!=='installed'" @click="kbPromoteIp(kbDetail.entry.ip, kbDetail.entry.policy);kbDetail.show=false">Promote</button>
+               <button class="outline small" @click="kbDetail.show=false">关闭</button>
+               <button class="outline small" v-if="kbDetail.entry && kbDetail.entry.ip" @click="kbClear(kbDetail.entry.ip);kbDetail.show=false">清除</button>
+               <button class="small primary" v-if="kbDetail.entry && kbDetail.entry.ip && kbDetail.entry.policy && kbDetail.entry.state!=='installed'" @click="kbPromoteIp(kbDetail.entry.ip, kbDetail.entry.policy);kbDetail.show=false">晋升</button>
             </div>
           </div>
         </div>
@@ -1672,73 +1672,73 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
   <!-- Rule Editor Modal -->
   <div class="modal-overlay" v-if="wafEditModal.show" @click.self="wafEditModal.show=false">
     <div class="modal" style="max-width:640px">
-      <h3>{{ wafEditModal._isNew ? 'Create Rule' : 'Edit Rule' }}: {{ wafEditModal.name || '(new)' }}</h3>
+       <h3>{{ wafEditModal._isNew ? '创建规则' : '编辑规则' }}: {{ wafEditModal.name || '(新)' }}</h3>
       <div class="field">
-        <label>Name *</label>
-        <input v-model="wafEditModal.name" type="text" placeholder="Rule name">
+         <label>名称 *</label>
+         <input v-model="wafEditModal.name" type="text" placeholder="规则名称">
       </div>
       <div class="field">
-        <label>Description</label>
-        <input v-model="wafEditModal.description" type="text" placeholder="Optional description">
+         <label>说明</label>
+         <input v-model="wafEditModal.description" type="text" placeholder="可选说明">
       </div>
       <div class="grid-2 mb-8">
         <div class="field">
-          <label>Category *</label>
-          <select v-model="wafEditModal.category" style="width:100%">
-            <option value="">Select…</option>
-            <option value="sqli">SQL Injection</option>
-            <option value="xss">XSS</option>
-            <option value="rce">RCE</option>
-            <option value="lfi">LFI</option>
-            <option value="path_traversal">Path Traversal</option>
-            <option value="scanner">Scanner</option>
-            <option value="bot">Bot</option>
-            <option value="brute">Brute Force</option>
-            <option value="spam">Spam</option>
-            <option value="custom">Custom</option>
-          </select>
+           <label>分类 *</label>
+           <select v-model="wafEditModal.category" style="width:100%">
+             <option value="">选择…</option>
+             <option value="sqli">SQL 注入</option>
+             <option value="xss">XSS</option>
+             <option value="rce">RCE</option>
+             <option value="lfi">LFI</option>
+             <option value="path_traversal">路径穿越</option>
+             <option value="scanner">扫描器</option>
+             <option value="bot">Bot</option>
+             <option value="brute">暴力破解</option>
+             <option value="spam">Spam</option>
+             <option value="custom">自定义</option>
+           </select>
         </div>
         <div class="field">
-          <label>Severity *</label>
-          <select v-model="wafEditModal.severity" style="width:100%">
-            <option value="">Select…</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
+           <label>严重级别 *</label>
+           <select v-model="wafEditModal.severity" style="width:100%">
+             <option value="">选择…</option>
+             <option value="critical">严重</option>
+             <option value="high">高</option>
+             <option value="medium">中</option>
+             <option value="low">低</option>
+           </select>
         </div>
       </div>
       <div class="grid-2 mb-8">
         <div class="field">
-          <label>Action *</label>
-          <select v-model="wafEditModal.action" style="width:100%">
-            <option value="block">Block</option>
-            <option value="accept">Accept</option>
-            <option value="log">Log</option>
-            <option value="challenge">Challenge</option>
-          </select>
+           <label>动作 *</label>
+           <select v-model="wafEditModal.action" style="width:100%">
+             <option value="block">阻止</option>
+             <option value="accept">放行</option>
+             <option value="log">记录</option>
+             <option value="challenge">质询</option>
+           </select>
         </div>
         <div class="field">
-          <label>Code</label>
-          <input v-model.number="wafEditModal.code" type="number" placeholder="403" min="200" max="599">
+           <label>状态码</label>
+           <input v-model.number="wafEditModal.code" type="number" placeholder="403" min="200" max="599">
         </div>
       </div>
       <div class="field">
-        <label>Matcher (JSON) *</label>
+         <label>匹配器 (JSON) *</label>
         <textarea v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}'></textarea>
       </div>
       <div class="field">
-        <label>Tags (comma separated)</label>
-        <input v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union, injection">
+         <label>标签 (逗号分隔)</label>
+         <input v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union, injection">
       </div>
       <div class="field">
-        <label><input type="checkbox" v-model="wafEditModal.rateLimitEnabled"> Rate Limit</label>
-        <div v-if="wafEditModal.rateLimitEnabled" class="grid-3 mb-8">
-          <div class="field"><label>Max Hits</label><input v-model.number="wafEditModal.rateLimitMax" type="number" min="1"></div>
-          <div class="field"><label>Window (s)</label><input v-model.number="wafEditModal.rateLimitWindow" type="number" min="1"></div>
-          <div class="field"><label>Action</label><select v-model="wafEditModal.rateLimitAction" style="width:100%"><option value="log">Log</option><option value="block">Block</option></select></div>
-        </div>
+         <label><input type="checkbox" v-model="wafEditModal.rateLimitEnabled"> 速率限制</label>
+         <div v-if="wafEditModal.rateLimitEnabled" class="grid-3 mb-8">
+           <div class="field"><label>最大命中</label><input v-model.number="wafEditModal.rateLimitMax" type="number" min="1"></div>
+           <div class="field"><label>窗口 (秒)</label><input v-model.number="wafEditModal.rateLimitWindow" type="number" min="1"></div>
+           <div class="field"><label>动作</label><select v-model="wafEditModal.rateLimitAction" style="width:100%"><option value="log">记录</option><option value="block">阻止</option></select></div>
+         </div>
       </div>
       <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
       <div v-if="!wafEditModal._isNew && wafDiffLines().length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
@@ -1749,29 +1749,29 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           </div>
         </div>
       </div>
-      <div class="modal-actions">
-        <button class="outline" @click="wafEditModal.show=false">Cancel</button>
-        <button class="primary" :disabled="wafSaving" @click="wafSaveRule">{{ wafSaving ? 'Saving…' : 'Save' }}</button>
-      </div>
+       <div class="modal-actions">
+         <button class="outline" @click="wafEditModal.show=false">取消</button>
+         <button class="primary" :disabled="wafSaving" @click="wafSaveRule">{{ wafSaving ? '保存中…' : '保存' }}</button>
+       </div>
     </div>
   </div>
 
   <!-- Matcher Editor Modal -->
   <div class="modal-overlay" v-if="editMatcherModal.show" @click.self="editMatcherModal.show=false">
     <div class="modal">
-      <h3>{{ editMatcherModal._origName ? 'Edit Matcher' : 'Add Matcher' }}</h3>
+       <h3>{{ editMatcherModal._origName ? '编辑匹配器' : '添加匹配器' }}</h3>
       <div class="field">
-        <label>Name</label>
-        <input v-model="editMatcherModal.name" type="text" placeholder="matcher name">
+         <label>名称</label>
+         <input v-model="editMatcherModal.name" type="text" placeholder="匹配器名称">
       </div>
       <div class="field">
-        <label>Conditions (JSON, e.g. {"URI":{"operator":"≈","value":"/api/*"}})</label>
+         <label>条件 (JSON, 例如 {"URI":{"operator":"≈","value":"/api/*"}})</label>
         <textarea id="matcher-json" v-model="editMatcherModal.conditions" spellcheck="false" class="code-editor" style="min-height:120px"></textarea>
       </div>
-      <div class="modal-actions">
-        <button class="outline" @click="editMatcherModal.show=false">Cancel</button>
-        <button class="primary" @click="saveMatcher">Save</button>
-      </div>
+       <div class="modal-actions">
+         <button class="outline" @click="editMatcherModal.show=false">取消</button>
+         <button class="primary" @click="saveMatcher">保存</button>
+       </div>
     </div>
   </div>
 
@@ -1781,29 +1781,29 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       <h3>命中详情 <small style="color:var(--muted)">{{ wafHitDetailModal.data ? (wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id) : '' }}</small></h3>
       <div v-if="wafHitDetailModal.loading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
       <div v-else-if="wafHitDetailModal.data">
-        <div class="grid grid-2 mb-8">
-          <div class="field"><label>规则</label><code>{{ wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id }}</code></div>
-          <div class="field"><label>类别</label><span class="tag">{{ wafHitDetailModal.data.rule_category || '-' }}</span></div>
-          <div class="field"><label>时间</label>{{ new Date((wafHitDetailModal.data.timestamp || 0) * 1000).toLocaleString() }}</div>
-          <div class="field"><label>方法</label><span class="tag">{{ wafHitDetailModal.data.method }}</span></div>
-        </div>
-        <div class="field">
-          <label>来源 IP</label>
-          <div>
-            <code>{{ wafHitDetailModal.data.ip }}</code>
-            <span v-if="wafHitDetailModal.data.ip_whitelisted" class="tag" style="background:#d1fae5;color:#065f46;margin-left:4px">白名单</span>
-            <span v-else-if="wafHitDetailModal.data.ip_flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px">已标记</span>
-            <span class="tag" style="margin-left:4px">分数: {{ wafHitDetailModal.data.ip_score || 0 }}</span>
-            <span class="tag" style="margin-left:4px;color:#6b7280">该 IP 共 {{ wafHitDetailModal.data.ip_hit_count || 0 }} 条命中</span>
-          </div>
-        </div>
-        <div class="field"><label>URI</label><code style="word-break:break-all">{{ wafHitDetailModal.data.uri }}</code></div>
-        <div class="field" v-if="wafHitDetailModal.data.query_string"><label>Query String</label><code style="word-break:break-all">{{ wafHitDetailModal.data.query_string }}</code></div>
-        <div class="field"><label>User-Agent</label><div style="font-size:12px;color:#374151;word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
-        <div class="field" v-if="wafHitDetailModal.data.ja3_fingerprint"><label>TLS Fingerprint</label><code style="font-size:11px;word-break:break-all">{{ wafHitDetailModal.data.ja3_fingerprint }}</code></div>
-        <div class="field" v-if="wafHitDetailModal.data.body_snippet"><label>Body (前 1KB)</label><pre style="background:#f9fafb;padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
-        <div class="field" v-if="wafHitDetailModal.data.headers && Object.keys(wafHitDetailModal.data.headers).length">
-          <label>Headers</label>
+         <div class="grid grid-2 mb-8">
+           <div class="field"><label>规则</label><code>{{ wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id }}</code></div>
+           <div class="field"><label>分类</label><span class="tag">{{ wafHitDetailModal.data.rule_category || '-' }}</span></div>
+           <div class="field"><label>时间</label>{{ new Date((wafHitDetailModal.data.timestamp || 0) * 1000).toLocaleString() }}</div>
+           <div class="field"><label>方法</label><span class="tag">{{ wafHitDetailModal.data.method }}</span></div>
+         </div>
+         <div class="field">
+           <label>来源 IP</label>
+           <div>
+             <code>{{ wafHitDetailModal.data.ip }}</code>
+             <span v-if="wafHitDetailModal.data.ip_whitelisted" class="tag" style="background:#d1fae5;color:#065f46;margin-left:4px">白名单</span>
+             <span v-else-if="wafHitDetailModal.data.ip_flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px">已标记</span>
+             <span class="tag" style="margin-left:4px">分数: {{ wafHitDetailModal.data.ip_score || 0 }}</span>
+             <span class="tag" style="margin-left:4px;color:#6b7280">该 IP 共 {{ wafHitDetailModal.data.ip_hit_count || 0 }} 条命中</span>
+           </div>
+         </div>
+         <div class="field"><label>URI</label><code style="word-break:break-all">{{ wafHitDetailModal.data.uri }}</code></div>
+         <div class="field" v-if="wafHitDetailModal.data.query_string"><label>查询字符串</label><code style="word-break:break-all">{{ wafHitDetailModal.data.query_string }}</code></div>
+         <div class="field"><label>User-Agent</label><div style="font-size:12px;color:#374151;word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
+         <div class="field" v-if="wafHitDetailModal.data.ja3_fingerprint"><label>TLS 指纹</label><code style="font-size:11px;word-break:break-all">{{ wafHitDetailModal.data.ja3_fingerprint }}</code></div>
+         <div class="field" v-if="wafHitDetailModal.data.body_snippet"><label>Body (前 1KB)</label><pre style="background:#f9fafb;padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
+         <div class="field" v-if="wafHitDetailModal.data.headers && Object.keys(wafHitDetailModal.data.headers).length">
+           <label>请求头</label>
           <table style="font-size:11px">
             <tbody>
               <tr v-for="(v, k) in wafHitDetailModal.data.headers" :key="k">
@@ -1841,70 +1841,70 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
   <!-- Rule Editor Modal -->
   <div class="modal-overlay" v-if="ruleEditModal.show" @click.self="ruleEditModal.show=false">
     <div class="modal" style="max-width:600px">
-      <h3>{{ ruleEditModal._isNew ? 'Add Rule' : 'Edit Rule' }} <small style="color:var(--muted)">group: {{ ruleEditModal._group }}</small></h3>
+       <h3>{{ ruleEditModal._isNew ? '添加规则' : '编辑规则' }} <small style="color:var(--muted)">组: {{ ruleEditModal._group }}</small></h3>
       <div class="field">
-        <label><input type="checkbox" v-model="ruleEditModal.enable"> Enabled</label>
+         <label><input type="checkbox" v-model="ruleEditModal.enable"> 启用</label>
       </div>
       <div class="field">
-        <label>Matcher</label>
-        <select v-model="ruleEditModal.matcherType" @change="ruleEditModalChanged" style="width:100%">
-          <option value="inline">Inline JSON</option>
+         <label>匹配器</label>
+         <select v-model="ruleEditModal.matcherType" @change="ruleEditModalChanged" style="width:100%">
+           <option value="inline">内联 JSON</option>
           <option v-for="m in matcherKeys" :key="m" :value="m">{{ m }}</option>
         </select>
         <textarea v-if="ruleEditModal.matcherType==='inline'" v-model="ruleEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:80px;margin-top:4px"></textarea>
       </div>
       <div class="field">
-        <label>Action</label>
-        <select v-model="ruleEditModal.action" @change="ruleEditModalChanged" style="width:100%">
-          <option value="block">block</option>
-          <option value="redirect">redirect</option>
-          <option value="response">response</option>
-          <option value="rewrite">rewrite</option>
-          <option value="proxy">proxy</option>
-          <option value="static">static</option>
-          <option value="accept">accept</option>
-          <option value="challenge">challenge</option>
-        </select>
+         <label>动作</label>
+         <select v-model="ruleEditModal.action" @change="ruleEditModalChanged" style="width:100%">
+           <option value="block">阻止</option>
+           <option value="redirect">重定向</option>
+           <option value="response">响应</option>
+           <option value="rewrite">重写</option>
+           <option value="proxy">代理</option>
+           <option value="static">静态</option>
+           <option value="accept">放行</option>
+           <option value="challenge">质询</option>
+         </select>
       </div>
       <!-- block fields -->
-      <template v-if="ruleEditModal.action==='block'">
-        <div class="field"><label>HTTP Code</label><input v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
-        <div class="field"><label>Response</label><input v-model="ruleEditModal.response" placeholder="template name or JSON" style="width:100%"></div>
-      </template>
+       <template v-if="ruleEditModal.action==='block'">
+         <div class="field"><label>HTTP 状态码</label><input v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
+         <div class="field"><label>响应</label><input v-model="ruleEditModal.response" placeholder="模板名称或 JSON" style="width:100%"></div>
+       </template>
       <!-- redirect fields -->
-      <template v-if="ruleEditModal.action==='redirect'">
-        <div class="field"><label>To URI</label><input v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
-        <div class="field"><label>HTTP Code</label><select v-model.number="ruleEditModal.code" style="width:100px"><option :value="301">301</option><option :value="302">302</option><option :value="307">307</option><option :value="308">308</option></select></div>
-      </template>
+       <template v-if="ruleEditModal.action==='redirect'">
+         <div class="field"><label>目标 URI</label><input v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
+         <div class="field"><label>HTTP 状态码</label><select v-model.number="ruleEditModal.code" style="width:100px"><option :value="301">301</option><option :value="302">302</option><option :value="307">307</option><option :value="308">308</option></select></div>
+       </template>
       <!-- response fields -->
-      <template v-if="ruleEditModal.action==='response'">
-        <div class="field"><label>HTTP Code</label><input v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
-        <div class="field"><label>Response</label><input v-model="ruleEditModal.response" placeholder="template name e.g. forbidden_json" style="width:100%"></div>
-      </template>
+       <template v-if="ruleEditModal.action==='response'">
+         <div class="field"><label>HTTP 状态码</label><input v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
+         <div class="field"><label>响应</label><input v-model="ruleEditModal.response" placeholder="模板名称 例如 forbidden_json" style="width:100%"></div>
+       </template>
       <!-- rewrite fields -->
-      <template v-if="ruleEditModal.action==='rewrite'">
-        <div class="field"><label>To URI</label><input v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
-      </template>
+       <template v-if="ruleEditModal.action==='rewrite'">
+         <div class="field"><label>目标 URI</label><input v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
+       </template>
       <!-- proxy fields -->
-      <template v-if="ruleEditModal.action==='proxy'">
-        <div class="field">
-          <label>Upstream</label>
-          <select v-model="ruleEditModal.upstream" style="width:100%">
-            <option value="" disabled>Select upstream</option>
+       <template v-if="ruleEditModal.action==='proxy'">
+         <div class="field">
+           <label>上游</label>
+           <select v-model="ruleEditModal.upstream" style="width:100%">
+             <option value="" disabled>选择上游</option>
             <option v-for="u in upstreamKeys" :key="u" :value="u">{{ u }}</option>
           </select>
         </div>
       </template>
       <!-- static fields -->
-      <template v-if="ruleEditModal.action==='static'">
-        <div class="field"><label>Root</label><input v-model="ruleEditModal.root" placeholder="/var/www" style="width:100%"></div>
-        <div class="field"><label>Path (optional)</label><input v-model="ruleEditModal.path" placeholder="/index.html" style="width:100%"></div>
-        <div class="field"><label>Expires</label><input v-model="ruleEditModal.expires" placeholder="epoch / max / off" style="width:100%"></div>
-      </template>
-      <div class="modal-actions">
-        <button class="outline" @click="ruleEditModal.show=false">Cancel</button>
-        <button class="primary" :disabled="ruleSaving" @click="ruleSave">{{ ruleSaving ? 'Saving…' : 'Save' }}</button>
-      </div>
+       <template v-if="ruleEditModal.action==='static'">
+         <div class="field"><label>根目录</label><input v-model="ruleEditModal.root" placeholder="/var/www" style="width:100%"></div>
+         <div class="field"><label>路径 (可选)</label><input v-model="ruleEditModal.path" placeholder="/index.html" style="width:100%"></div>
+         <div class="field"><label>过期</label><input v-model="ruleEditModal.expires" placeholder="epoch / max / off" style="width:100%"></div>
+       </template>
+       <div class="modal-actions">
+         <button class="outline" @click="ruleEditModal.show=false">取消</button>
+         <button class="primary" :disabled="ruleSaving" @click="ruleSave">{{ ruleSaving ? '保存中…' : '保存' }}</button>
+       </div>
     </div>
   </div>
 
@@ -2140,20 +2140,20 @@ const app = Vue.createApp({
     const kbDetailJson = computed(() => kbDetail.entry ? JSON.stringify(kbDetail.entry, null, 2) : '');
 
     const KB_REASON_HELP = {
-      global_disabled: { title: 'Kernel blocking is disabled', advice: 'Enable global switch, then start from observe mode.' },
-      global_observe: { title: 'Global mode is observe', advice: 'Observe collects candidates only. Switch to enforce after checklist is green.' },
-      helper_unavailable: { title: 'Firewall Helper unreachable', advice: 'Start firewall-helper.socket and check /run/verynginx/firewall-helper.sock.' },
-      topology: { title: 'Topology blocks enforce installs', advice: 'Set topology=direct and configure protected addresses/ports in Config.' },
-      emergency_pause: { title: 'Emergency pause is on', advice: 'Click Resume promotions to allow new automatic installs.' },
-      family_disabled: { title: 'Address family disabled', advice: 'Enable ipv4 and/or ipv6 under kernel_ip_blocking.' },
-      disabled_with_active_entries: { title: 'Disabled but kernel entries remain', advice: 'Entries expire by TTL, or use Flush Auto after confirmation.' },
-      scanner_disabled: { title: 'Scanner policy disabled', advice: 'Enable scanner policy if you want scanner promotions.' },
-      cc_disabled: { title: 'CC policy disabled', advice: 'Enable CC policy and configure rule_ids.' },
-      no_rule_ids: { title: 'No CC rule_ids configured', advice: 'Add frequency rule IDs under kernel_ip_blocking.cc.rule_ids.' },
-      cc_not_enforce_ready: { title: 'CC not enforce-ready', advice: 'Finish migration/cutover/calibration, then set cc.enforce_ready=true.' },
-      counter_namespace_not_v2: { title: 'Frequency counter namespace is not v2', advice: 'Run frequency rule ID migration and complete v2 cutover.' },
-      invalid_rule_ref: { title: 'CC rule reference invalid', advice: 'Fix or remove invalid rule_ids so all references resolve.' },
-      helper_unreachable: { title: 'Helper unreachable', advice: 'Restore Helper process/socket.' },
+      global_disabled: { title: '内核封禁已禁用', advice: '启用全局开关，然后从观察模式开始。' },
+      global_observe: { title: '全局模式为观察', advice: '观察模式仅收集候选。检查清单变绿后切换到执行模式。' },
+      helper_unavailable: { title: '防火墙 Helper 不可达', advice: '启动 firewall-helper.socket 并检查 /run/verynginx/firewall-helper.sock。' },
+      topology: { title: '拓扑阻止执行安装', advice: '设置 topology=direct 并在配置中配置受保护地址/端口。' },
+      emergency_pause: { title: '紧急暂停已开启', advice: '点击恢复晋升以允许新的自动安装。' },
+      family_disabled: { title: '地址族已禁用', advice: '在内核封禁下启用 ipv4 和/或 ipv6。' },
+      disabled_with_active_entries: { title: '已禁用但内核条目仍存在', advice: '条目按 TTL 过期，或在确认后使用刷新自动集合。' },
+      scanner_disabled: { title: '扫描器策略已禁用', advice: '如果需要扫描器晋升，请启用扫描器策略。' },
+      cc_disabled: { title: 'CC 策略已禁用', advice: '启用 CC 策略并配置规则 ID。' },
+      no_rule_ids: { title: '未配置 CC 规则 ID', advice: '在内核封禁 CC 下添加频率规则 ID。' },
+      cc_not_enforce_ready: { title: 'CC 未就绪执行', advice: '完成迁移/切换/校准，然后设置 cc.enforce_ready=true。' },
+      counter_namespace_not_v2: { title: '频率计数器命名空间不是 v2', advice: '运行频率规则 ID 迁移并完成 v2 切换。' },
+      invalid_rule_ref: { title: 'CC 规则引用无效', advice: '修复或移除无效的规则 ID 以使所有引用可解析。' },
+      helper_unreachable: { title: 'Helper 不可达', advice: '恢复 Helper 进程/套接字。' },
     };
 
     function kbCollectReasonCodes() {
@@ -2168,7 +2168,7 @@ const app = Vue.createApp({
     }
 
     const kbReasonItems = computed(() => kbCollectReasonCodes().map(code => {
-      const help = KB_REASON_HELP[code] || { title: code, advice: 'See design docs / logs for details.' };
+      const help = KB_REASON_HELP[code] || { title: code, advice: '参见设计文档 / 日志了解详情。' };
       return { code, title: help.title, advice: help.advice };
     }));
 
@@ -2322,7 +2322,7 @@ const app = Vue.createApp({
     // ---- Login ----
     async function doLogin() {
       loginError.value = '';
-      if (!loginUser.value || !loginPass.value) { loginError.value = 'User and password required.'; return; }
+      if (!loginUser.value || !loginPass.value) { loginError.value = '请输入用户名和密码。'; return; }
       loading.value = true;
       try {
         const params = new URLSearchParams();
@@ -2338,7 +2338,7 @@ const app = Vue.createApp({
           loadData();
           if (page.value === 'status') startStatusRefresh();
         } else {
-          loginError.value = d.message || 'Login failed';
+          loginError.value = d.message || '登录失败';
         }
       } catch (e) {
         loginError.value = e.message;
@@ -3592,7 +3592,7 @@ const app = Vue.createApp({
     }
 
     async function deleteFp(fp) {
-      if (!confirm('Delete fingerprint "' + fp.hash + '"?')) return;
+      if (!confirm('删除指纹 "' + fp.hash + '"?')) return;
       try {
         const d = await api('DELETE', '/verynginx/fingerprints/' + fp.hash);
         if (d.ret === 'success') {
@@ -3701,7 +3701,7 @@ const app = Vue.createApp({
     }
 
     async function enableCcEnforceReady() {
-      if (!confirm('Enable CC enforce_ready? This will activate automatic CC kernel blocking for qualifying IPs.')) return;
+      if (!confirm('启用 CC enforce_ready? 这将为符合条件的 IP 激活自动 CC 内核封禁。')) return;
       kbBusy.value = true;
       try {
         const full = await api('GET', '/verynginx/config');
@@ -3723,9 +3723,9 @@ const app = Vue.createApp({
 
     async function kbSaveSettings() {
       if (kbForm.mode === 'enforce' && !kbForm.enabled) {
-        showToast('Enable must be true before enforce mode', 'error'); return;
+        showToast('启用执行模式前必须先启用全局开关', 'error'); return;
       }
-      if (kbForm.mode === 'enforce' && !confirm('Switch/save enforce-related settings? Ensure Helper, topology and checklist are ready.')) return;
+      if (kbForm.mode === 'enforce' && !confirm('切换/保存执行相关设置? 请确保 Helper、拓扑和检查清单已就绪。')) return;
       if (kbForm.cc_enforce_ready && !confirm('Confirm CC enforce_ready=true after migration/cutover/calibration?')) return;
       kbBusy.value = true;
       try {
@@ -3753,8 +3753,8 @@ const app = Vue.createApp({
     }
 
     async function kbPromote() {
-      if (!kbNewIP.value) { showToast('IP required', 'error'); return; }
-      if (!confirm('Manually block ' + kbNewIP.value + ' as ' + kbNewPolicy.value + ' for ' + kbNewTTL.value + 's?')) return;
+      if (!kbNewIP.value) { showToast('请输入 IP', 'error'); return; }
+      if (!confirm('手动封禁 ' + kbNewIP.value + ' 策略 ' + kbNewPolicy.value + ' TTL ' + kbNewTTL.value + '秒?')) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', {
@@ -3772,7 +3772,7 @@ const app = Vue.createApp({
     }
 
     async function kbPromoteIp(ip, policy) {
-      if (!confirm('Promote ' + ip + ' as ' + policy + ' (TTL 300s)?')) return;
+      if (!confirm('晋升 ' + ip + ' 为 ' + policy + ' (TTL 300秒)?')) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy, ttl: 300 });
@@ -3787,23 +3787,23 @@ const app = Vue.createApp({
     }
 
     async function kbReconcile() {
-      if (!confirm('Trigger reconciliation now?')) return;
+      if (!confirm('立即触发协调?')) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/reconcile', {});
         if (d.ret === 'success') {
           const r = d.data || {};
-          showToast('Reconcile done: add=' + ((r.to_add&&r.to_add.length)||r.applied_add||0) + ' remove=' + ((r.to_remove&&r.to_remove.length)||r.applied_remove||0), 'success');
+          showToast('协调完成: 添加=' + ((r.to_add&&r.to_add.length)||r.applied_add||0) + ' 移除=' + ((r.to_remove&&r.to_remove.length)||r.applied_remove||0), 'success');
           await loadKbData();
         } else {
-          showToast(d.message || 'Reconcile failed', 'error');
+          showToast(d.message || '协调失败', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
       finally { kbBusy.value = false; }
     }
 
     async function kbClear(ip) {
-      if (!confirm('Clear all kernel blocking entries for ' + ip + '?')) return;
+      if (!confirm('清除 ' + ip + ' 的所有内核封禁条目?')) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/clear', { ip });
@@ -3818,7 +3818,7 @@ const app = Vue.createApp({
     }
 
     async function kbPause(paused) {
-      if (!confirm(paused ? 'Pause automatic promotions?' : 'Resume automatic promotions?')) return;
+      if (!confirm(paused ? '暂停自动晋升?' : '恢复自动晋升?')) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/pause', { paused });
@@ -3826,15 +3826,15 @@ const app = Vue.createApp({
           showToast(paused ? 'Promotion paused' : 'Promotion resumed', 'success');
           await loadKbData();
         } else {
-          showToast(d.message || 'Pause failed', 'error');
+          showToast(d.message || '暂停失败', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
       finally { kbBusy.value = false; }
     }
 
     async function kbFlushAuto() {
-      if (!confirm('Flush ALL automatic scanner/cc kernel entries? This cannot be undone.')) return;
-      if (!confirm('Final confirmation: flush auto sets now?')) return;
+      if (!confirm('刷新所有自动扫描器/cc 内核条目? 此操作不可撤销。')) return;
+      if (!confirm('最终确认: 立即刷新自动集合?')) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/flush-auto');
@@ -3889,7 +3889,7 @@ const app = Vue.createApp({
     }
 
     async function deleteFreqRule(rule) {
-      if (!confirm('Delete frequency rule "' + rule.id + '"?')) return;
+      if (!confirm('删除频率规则 "' + rule.id + '"?')) return;
       try {
         const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
         if (d.ret === 'success') {
@@ -3904,7 +3904,7 @@ const app = Vue.createApp({
     }
 
     async function wafDeleteRule(rule) {
-      if (!confirm('Delete rule "' + rule.name + '"? This cannot be undone.')) return;
+      if (!confirm('删除规则 "' + rule.name + '"? 此操作不可撤销。')) return;
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
         if (d.ret === 'success') {
@@ -4002,14 +4002,14 @@ const app = Vue.createApp({
     }
 
     async function wafRollback(version) {
-      if (!confirm('Rollback to version ' + version + '? This will replace all current rules.')) return;
+      if (!confirm('回滚到版本 ' + version + '? 这将替换所有当前规则。')) return;
       wafRolling.value = true;
       try {
         const d = await api('POST', '/verynginx/waf/rules/rollback', { version: version });
         if (d.ret === 'success') {
           await loadWafRules();
         } else {
-          wafHistError.value = d.message || 'Rollback failed';
+          wafHistError.value = d.message || '回滚失败';
         }
       } catch (e) {
         wafHistError.value = e.message;
