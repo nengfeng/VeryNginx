@@ -971,7 +971,7 @@ SVCUNIT
   elif id nginx >/dev/null 2>&1; then
     chown nginx:nginx "$FIREWALL_HELPER_DIR" 2>/dev/null || true
   fi
-  chmod 777 "$FIREWALL_HELPER_DIR" 2>/dev/null || chmod 755 "$FIREWALL_HELPER_DIR"
+  chmod 755 "$FIREWALL_HELPER_DIR"
 
   info "Firewall Helper installation complete"
   echo "  Binary:  $FIREWALL_HELPER_BIN"
