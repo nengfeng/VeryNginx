@@ -1383,26 +1383,29 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <div class="field">
                 <label style="font-size:12px;color:var(--muted)">拓扑</label>
                 <select v-model="kbForm.topology" style="margin-top:4px">
-                  <option value="direct">direct (直连 — 后端真实 IP 可见)</option>
-                  <option value="proxied">proxied (代理 — 前端有CDN/反代)</option>
-                  <option value="unknown">unknown (未配置 — 无法执行)</option>
+                  <option value="direct">direct (直连)</option>
+                  <option value="proxied">proxied (代理)</option>
+                  <option value="unknown">unknown (未配置)</option>
                 </select>
               </div>
-           </div>
-           <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
-             <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
-             <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)">
-               {{ kbStatus.configured.emergency_pause ? '恢复晋升' : '暂停晋升' }}
-             </button>
-             <button class="outline small" :disabled="kbBusy" @click="kbReconcile">立即协调</button>
-             <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto">刷新自动集合</button>
-             <button class="outline small" :disabled="kbBusy" @click="loadKbData">刷新</button>
-           </div>
-           <div style="font-size:12px;color:var(--muted)">
-             拓扑 / 受保护地址和端口是安全门控 — 请在配置中编辑。当前范围:
-             地址={{ (kbStatus.configured.protected_addresses||[]).join(', ') || '(空)' }},
-             端口={{ (kbStatus.configured.protected_ports||[]).join(', ') || '(空)' }}。
-           </div>
+              <div class="field">
+                <label style="font-size:12px;color:var(--muted)">受保护地址 (逗号分隔)</label>
+                <input v-model="kbForm.protected_addresses_str" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px">
+              </div>
+              <div class="field">
+                <label style="font-size:12px;color:var(--muted)">受保护端口 (逗号分隔)</label>
+                <input v-model="kbForm.protected_ports_str" placeholder="如: 80, 443, 8080" style="margin-top:4px">
+              </div>
+            </div>
+            <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
+              <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
+              <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)">
+                {{ kbStatus.configured.emergency_pause ? '恢复晋升' : '暂停晋升' }}
+              </button>
+              <button class="outline small" :disabled="kbBusy" @click="kbReconcile">立即协调</button>
+              <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto">刷新自动集合</button>
+              <button class="outline small" :disabled="kbBusy" @click="loadKbData">刷新</button>
+            </div>
           </div>
 
         <!-- Readiness checklist -->
@@ -2137,6 +2140,8 @@ const app = Vue.createApp({
       enabled: false,
       mode: 'observe',
       topology: 'direct',
+      protected_addresses_str: '',
+      protected_ports_str: '',
       cc_enforce_ready: false,
       scanner_enabled: true,
       cc_enabled: true,
@@ -2245,6 +2250,8 @@ const app = Vue.createApp({
       kbForm.enabled = !!c.enabled;
       kbForm.mode = c.mode || 'observe';
       kbForm.topology = c.topology || 'unknown';
+      kbForm.protected_addresses_str = (c.protected_addresses || []).join(', ');
+      kbForm.protected_ports_str = (c.protected_ports || []).join(', ');
       kbForm.cc_enforce_ready = !!c.cc_enforce_ready;
       kbForm.scanner_enabled = c.scanner_enabled !== false;
       kbForm.cc_enabled = c.cc_enabled !== false;
@@ -3753,6 +3760,8 @@ const app = Vue.createApp({
         kb.enabled = !!kbForm.enabled;
         kb.mode = kbForm.mode;
         kb.topology = kbForm.topology || 'unknown';
+        kb.protected_addresses = kbForm.protected_addresses_str.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+        kb.protected_ports = kbForm.protected_ports_str.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
         kb.scanner = Object.assign({}, kb.scanner || {}, { enabled: !!kbForm.scanner_enabled });
         kb.cc = Object.assign({}, kb.cc || {}, {
           enabled: !!kbForm.cc_enabled,
