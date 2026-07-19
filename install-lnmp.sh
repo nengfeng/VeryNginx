@@ -304,6 +304,7 @@ patch_nginx_conf() {
 
   # 2) add VeryNginx paths to existing lua_package_path inside http block
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
+  local vn_cpath="${VN_DIR}/?.so"
   if grep -q 'lua_package_path' "$NGINX_CONF"; then
     # append VeryNginx paths if not already present
     if ! grep -q "${VN_DIR}" "$NGINX_CONF" 2>/dev/null; then
@@ -312,12 +313,17 @@ patch_nginx_conf() {
     else
       info "VeryNginx paths already in lua_package_path, skipping ✓"
     fi
+    # also ensure lua_package_cpath exists (ffi.load needs .so search path)
+    if ! grep -q 'lua_package_cpath' "$NGINX_CONF"; then
+      sed -i '/^http\s*{/a\    lua_package_cpath "'"${vn_cpath}"';;";' "$NGINX_CONF"
+      info "Added lua_package_cpath ✓"
+    fi
   else
     # no existing lua_package_path; add it
     sed -i '/^http\s*{/a\
     # VeryNginx v2 - Lua package paths\
     lua_package_path "'"${vn_paths}"';;";\
-    lua_package_cpath "'"${VN_DIR}"'?.so;;";' "$NGINX_CONF"
+    lua_package_cpath "'"${vn_cpath}"';;";' "$NGINX_CONF"
     info "Added lua_package_path ✓"
   fi
 
@@ -331,11 +337,14 @@ patch_nginx_conf() {
 
     sed -i "${insert_point}a\\
 \\
+    lua_code_cache on;\\
+\\
     # VeryNginx v2 - shared dictionaries\\
     lua_shared_dict vn_config 2m;\\
     lua_shared_dict vn_locks 256k;\\
     lua_shared_dict vn_rate_limit 4m;\\
     lua_shared_dict vn_session 2m;\\
+    lua_shared_dict ip_reputation 16m;\\
     lua_shared_dict statistics 20m;\\
     lua_shared_dict metrics 10m;\\
     lua_shared_dict healthcheck 10m;\\
