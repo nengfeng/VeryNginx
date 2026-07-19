@@ -690,6 +690,72 @@ PYEOF
 }
 
 # ----- check GeoIP runtime dependencies -------------------------------------
+# ---------------------------------------------------------------------------
+# Check lua-resty-core / lua-resty-lrucache provides ngx.re.*, lrucache.
+# Self-compiled nginx + lua-nginx-module departs these, but they must be
+# on lua_package_path to work. Missing → runtime crash in matcher/rewrite.
+# ---------------------------------------------------------------------------
+check_lua_resty_deps() {
+  title "Checking lua-resty-core / lua-resty-lrucache"
+
+  # Common install locations for resty.core
+  local resty_core_files=(
+    "/usr/local/share/lua/5.1/resty/core.lua"
+    "/usr/local/share/lua/5.1/resty/core.so"
+    "/usr/share/lua/5.1/resty/core.lua"
+    "/usr/share/lua/5.1/resty/core.so"
+    "/usr/local/lib/lua/5.1/resty/core.so"
+    "/usr/local/share/luajit-2.1.*/resty/core.lua"
+  )
+  local lrucache_files=(
+    "/usr/local/share/lua/5.1/resty/lrucache.lua"
+    "/usr/local/share/lua/5.1/resty/lrucache.so"
+    "/usr/share/lua/5.1/resty/lrucache.lua"
+    "/usr/share/lua/5.1/resty/lrucache.so"
+  )
+
+  local has_core=false
+  for p in "${resty_core_files[@]}"; do
+    for f in $p; do  # glob expansion
+      if [ -f "$f" ]; then
+        has_core=true
+        info "lua-resty-core found: $f ✓"
+        break 2
+      fi
+    done
+  done
+
+  local has_lrucache=false
+  for p in "${lrucache_files[@]}"; do
+    for f in $p; do
+      if [ -f "$f" ]; then
+        has_lrucache=true
+        info "lua-resty-lrucache found: $f ✓"
+        break 2
+      fi
+    done
+  done
+
+  if [ "$has_core" = "false" ] || [ "$has_lrucache" = "false" ]; then
+    warn "lua-resty-core / lua-resty-lrucache not found — ngx.re.* and lrucache will fail"
+    echo "  These are required for VeryNginx regex matching and rewrite rules."
+    echo "  Install them (also bundled with OpenResty):"
+    echo "    apt-get install -y libresty-core libresty-lrucache"
+    echo "  Or from source:"
+    echo "    git clone https://github.com/openresty/lua-resty-core.git"
+    echo "    git clone https://github.com/openresty/lua-resty-lrucache.git"
+    echo "    cd lua-resty-core && make install PREFIX=/usr/local"
+    echo "    cd lua-resty-lrucache && make install PREFIX=/usr/local"
+    if [ "$WEB_SERVER_TYPE" != "openresty" ]; then
+      echo "  Hint: Switching to OpenResty bundles these libraries automatically."
+    fi
+  else
+    info "lua-resty-core + lua-resty-lrucache: both found ✓"
+  fi
+
+  echo ""
+}
+
 check_geoip_deps() {
   title "Checking GeoIP dependencies"
 
@@ -1003,6 +1069,7 @@ main() {
 
   require_root
   detect_web_server
+  check_lua_resty_deps
   check_geoip_deps
   install_files
 
