@@ -1432,16 +1432,16 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
         <!-- Meta / lifecycle -->
         <div class="card mb-16" style="font-size:12px;color:var(--muted)">
-          <div>Whitelist generation: epoch={{ kbStatus.whitelist_generation && kbStatus.whitelist_generation.control_plane && kbStatus.whitelist_generation.control_plane.epoch ? String(kbStatus.whitelist_generation.control_plane.epoch).slice(0,8) : '-' }}
+          <div>白名单 generation: epoch={{ kbStatus.whitelist_generation && kbStatus.whitelist_generation.control_plane && kbStatus.whitelist_generation.control_plane.epoch ? String(kbStatus.whitelist_generation.control_plane.epoch).slice(0,8) : '-' }}
             seq={{ kbStatus.whitelist_generation && kbStatus.whitelist_generation.control_plane ? kbStatus.whitelist_generation.control_plane.sequence : '-' }}</div>
-          <div>Lifecycle gen global={{ kbStatus.lifecycle && kbStatus.lifecycle.global_activation_generation }}
-            scanner={{ kbStatus.lifecycle && kbStatus.lifecycle.policy_generation && kbStatus.lifecycle.policy_generation.scanner }}
-            cc={{ kbStatus.lifecycle && kbStatus.lifecycle.policy_generation && kbStatus.lifecycle.policy_generation.cc }}
-            · last={{ kbStatus.lifecycle && kbStatus.lifecycle.last_transition || '-' }}</div>
-          <div v-if="kbStatus.last_reconcile">Last reconcile: at {{ formatKbTime(kbStatus.last_reconcile.at) }}
-            add={{ kbStatus.last_reconcile.to_add }} remove={{ kbStatus.last_reconcile.to_remove }}
-            applied_add={{ kbStatus.last_reconcile.applied_add }} applied_remove={{ kbStatus.last_reconcile.applied_remove }}
-            {{ kbStatus.last_reconcile.dry_run ? '(dry-run)' : '(apply)' }}</div>
+          <div>生命周期 generation 全局={{ kbStatus.lifecycle && kbStatus.lifecycle.global_activation_generation }}
+            扫描器={{ kbStatus.lifecycle && kbStatus.lifecycle.policy_generation && kbStatus.lifecycle.policy_generation.scanner }}
+            CC={{ kbStatus.lifecycle && kbStatus.lifecycle.policy_generation && kbStatus.lifecycle.policy_generation.cc }}
+            · 上次={{ kbStatus.lifecycle && kbStatus.lifecycle.last_transition || '-' }}</div>
+          <div v-if="kbStatus.last_reconcile">上次协调: 于 {{ formatKbTime(kbStatus.last_reconcile.at) }}
+            添加={{ kbStatus.last_reconcile.to_add }} 移除={{ kbStatus.last_reconcile.to_remove }}
+            已应用_添加={{ kbStatus.last_reconcile.applied_add }} 已应用_移除={{ kbStatus.last_reconcile.applied_remove }}
+            {{ kbStatus.last_reconcile.dry_run ? '(空跑)' : '(已应用)' }}</div>
         </div>
 
         <!-- CC rules -->
@@ -2202,15 +2202,15 @@ const app = Vue.createApp({
       const healthOk = kbStatus.value.health && kbStatus.value.health.state === 'ok';
       const hasRules = (c.cc_rule_ids && c.cc_rule_ids.length) || (kbStatus.value.cc_rules && kbStatus.value.cc_rules.length);
       return [
-        { id: 'enabled', label: 'Global enabled', ok: !!c.enabled },
-        { id: 'observe_first', label: 'Feature enabled (prefer observe first)', ok: !!c.enabled },
+        { id: 'enabled', label: '全局已启用', ok: !!c.enabled },
+        { id: 'observe_first', label: '功能已启用（建议先使用观察模式）', ok: !!c.enabled },
         { id: 'topology', label: 'topology=direct 已配置（enforce 安装必需）', ok: c.topology === 'direct' },
-        { id: 'scope', label: 'protected_addresses and protected_ports configured', ok: (c.protected_addresses||[]).length > 0 && (c.protected_ports||[]).length > 0 },
-        { id: 'helper', label: 'Helper health ok', ok: !!healthOk },
-        { id: 'cc_rules', label: 'CC rule_ids present (if using CC)', ok: !!hasRules || c.cc_enabled === false },
-        { id: 'migration', label: 'Frequency ID migration completed', ok: m.status === 'completed' || m.status === 'no_rules' },
-        { id: 'v2', label: 'v2 counter namespace cut over', ok: ns === 'v2' || m.status === 'no_rules' },
-        { id: 'cc_ready', label: 'cc.enforce_ready confirmed (only if CC enforce desired)', ok: !!c.cc_enforce_ready || c.cc_enabled === false, auto_ready: kbStatus.value.effective && kbStatus.value.effective.cc && kbStatus.value.effective.cc.auto_ready },
+        { id: 'scope', label: '已配置受保护地址和端口', ok: (c.protected_addresses||[]).length > 0 && (c.protected_ports||[]).length > 0 },
+        { id: 'helper', label: 'Helper 健康', ok: !!healthOk },
+        { id: 'cc_rules', label: 'CC 规则 ID 已配置（如使用 CC）', ok: !!hasRules || c.cc_enabled === false },
+        { id: 'migration', label: '频率 ID 迁移已完成', ok: m.status === 'completed' || m.status === 'no_rules' },
+        { id: 'v2', label: 'v2 counter namespace 已切换', ok: ns === 'v2' || m.status === 'no_rules' },
+        { id: 'cc_ready', label: 'CC enforce_ready 已确认（如需 CC 执行）', ok: !!c.cc_enforce_ready || c.cc_enabled === false, auto_ready: kbStatus.value.effective && kbStatus.value.effective.cc && kbStatus.value.effective.cc.auto_ready },
       ];
     });
 
