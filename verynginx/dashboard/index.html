@@ -1380,10 +1380,14 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
              <div class="field">
                <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enabled"> CC 启用</label>
              </div>
-             <div class="field">
-               <label style="font-size:12px;color:var(--muted)">拓扑 (只读)</label>
-               <input :value="kbStatus.configured.topology || '未知'" disabled style="margin-top:4px">
-             </div>
+              <div class="field">
+                <label style="font-size:12px;color:var(--muted)">拓扑</label>
+                <select v-model="kbForm.topology" style="margin-top:4px">
+                  <option value="direct">direct (直连 — 后端真实 IP 可见)</option>
+                  <option value="proxied">proxied (代理 — 前端有CDN/反代)</option>
+                  <option value="unknown">unknown (未配置 — 无法执行)</option>
+                </select>
+              </div>
            </div>
            <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
              <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
@@ -2132,6 +2136,7 @@ const app = Vue.createApp({
     const kbForm = reactive({
       enabled: false,
       mode: 'observe',
+      topology: 'direct',
       cc_enforce_ready: false,
       scanner_enabled: true,
       cc_enabled: true,
@@ -2199,7 +2204,7 @@ const app = Vue.createApp({
       return [
         { id: 'enabled', label: 'Global enabled', ok: !!c.enabled },
         { id: 'observe_first', label: 'Feature enabled (prefer observe first)', ok: !!c.enabled },
-        { id: 'topology', label: 'topology=direct for enforce installs', ok: c.topology === 'direct' },
+        { id: 'topology', label: 'topology=direct 已配置（enforce 安装必需）', ok: c.topology === 'direct' },
         { id: 'scope', label: 'protected_addresses and protected_ports configured', ok: (c.protected_addresses||[]).length > 0 && (c.protected_ports||[]).length > 0 },
         { id: 'helper', label: 'Helper health ok', ok: !!healthOk },
         { id: 'cc_rules', label: 'CC rule_ids present (if using CC)', ok: !!hasRules || c.cc_enabled === false },
@@ -2239,6 +2244,7 @@ const app = Vue.createApp({
       const c = kbStatus.value.configured || {};
       kbForm.enabled = !!c.enabled;
       kbForm.mode = c.mode || 'observe';
+      kbForm.topology = c.topology || 'unknown';
       kbForm.cc_enforce_ready = !!c.cc_enforce_ready;
       kbForm.scanner_enabled = c.scanner_enabled !== false;
       kbForm.cc_enabled = c.cc_enabled !== false;
@@ -3738,7 +3744,7 @@ const app = Vue.createApp({
         showToast('启用执行模式前必须先启用全局开关', 'error'); return;
       }
       if (kbForm.mode === 'enforce' && !confirm('切换/保存执行相关设置? 请确保 Helper、拓扑和检查清单已就绪。')) return;
-      if (kbForm.cc_enforce_ready && !confirm('Confirm CC enforce_ready=true after migration/cutover/calibration?')) return;
+      if (kbForm.cc_enforce_ready && !confirm('确认迁移/切换/校准完成后启用 CC enforce_ready=true？')) return;
       kbBusy.value = true;
       try {
         const full = await api('GET', '/verynginx/config');
@@ -3746,6 +3752,7 @@ const app = Vue.createApp({
         const kb = Object.assign({}, full.kernel_ip_blocking || {});
         kb.enabled = !!kbForm.enabled;
         kb.mode = kbForm.mode;
+        kb.topology = kbForm.topology || 'unknown';
         kb.scanner = Object.assign({}, kb.scanner || {}, { enabled: !!kbForm.scanner_enabled });
         kb.cc = Object.assign({}, kb.cc || {}, {
           enabled: !!kbForm.cc_enabled,
@@ -3754,7 +3761,7 @@ const app = Vue.createApp({
         full.kernel_ip_blocking = kb;
         const d = await api('POST', '/verynginx/config', full);
         if (d.ret === 'success') {
-          showToast('Kernel blocking settings saved', 'success');
+          showToast('内核锁阻设置已保存', 'success');
           cfg.value = full;
           await loadKbData();
         } else {
