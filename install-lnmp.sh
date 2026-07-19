@@ -702,14 +702,17 @@ check_lua_resty_deps() {
   local resty_core_files=(
     "/usr/local/share/lua/5.1/resty/core.lua"
     "/usr/local/share/lua/5.1/resty/core.so"
+    "/usr/local/lib/lua/5.1/resty/core.lua"
+    "/usr/local/lib/lua/5.1/resty/core.so"
     "/usr/share/lua/5.1/resty/core.lua"
     "/usr/share/lua/5.1/resty/core.so"
-    "/usr/local/lib/lua/5.1/resty/core.so"
     "/usr/local/share/luajit-2.1.*/resty/core.lua"
   )
   local lrucache_files=(
     "/usr/local/share/lua/5.1/resty/lrucache.lua"
     "/usr/local/share/lua/5.1/resty/lrucache.so"
+    "/usr/local/lib/lua/5.1/resty/lrucache.lua"
+    "/usr/local/lib/lua/5.1/resty/lrucache.so"
     "/usr/share/lua/5.1/resty/lrucache.lua"
     "/usr/share/lua/5.1/resty/lrucache.so"
   )
