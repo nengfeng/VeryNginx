@@ -1031,8 +1031,13 @@ SVCUNIT
 
     systemctl daemon-reload
     systemctl enable firewall-helper.socket
-    info "systemd units installed ✓"
-    info "Start with: systemctl start firewall-helper.socket"
+    systemctl start firewall-helper.socket 2>/dev/null || true
+    info "systemd units installed and started ✓"
+    if systemctl is-active --quiet firewall-helper.socket 2>/dev/null; then
+      info "firewall-helper.socket is active ✓"
+    else
+      warn "firewall-helper.socket failed to start — check: systemctl status firewall-helper.socket"
+    fi
   else
     warn "systemd not detected — Helper must be started manually"
     echo "  Run: $FIREWALL_HELPER_BIN &"
