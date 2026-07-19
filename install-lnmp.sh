@@ -21,9 +21,8 @@ VN_DIR="${VN_PREFIX}"
 BACKUP_DIR="${VN_DIR}/configs/backups"
 VN_ADMIN_PASSWORD=""
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'
-NC='\033[0m'; BOLD='\033[1m'
-
+RED=''; GREEN=''; YELLOW=''; CYAN=''
+NC=''; BOLD=''
 # ----- helpers -------------------------------------------------------------
 info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
