@@ -2802,9 +2802,9 @@ const app = Vue.createApp({
         }
       }
       o.plugin_perf = Object.values(perfMap).sort((a, b) => b.avg_ms - a.avg_ms);
-      o.plugin_errors = undefined;
-      o._plugin_dur_count = undefined;
-      o._plugin_dur_sum = undefined;
+      delete o.plugin_errors;
+      delete o._plugin_dur_count;
+      delete o._plugin_dur_sum;
       overview.value = o;
     }
 
