@@ -58,6 +58,21 @@ function _M.get_migration_status()
             end
         end
     end
+    -- Auto-assign IDs to rules missing them (migration on read).
+    if missing > 0 and total > 0 then
+        local cfg_mod = require "core.config"
+        for _, rule in ipairs(rules) do
+            if rule and type(rule) == "table" and (not rule.id or rule.id == "") then
+                rule.id = "freq_" .. tostring(ngx.time()) .. "_" .. tostring(math.random(1000, 9999))
+                ids[#ids + 1] = rule.id
+            end
+        end
+        cfg_mod.atomic_mutate(function(cfg)
+            cfg.rule.frequency_limit = rules
+            return cfg
+        end)
+        return { status = "completed", total = total, id_count = total, ids = ids }
+    end
     if with_id == total and total > 0 then
         return { status = "completed", total = total, id_count = with_id, ids = ids }
     end
