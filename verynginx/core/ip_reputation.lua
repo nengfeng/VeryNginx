@@ -37,6 +37,40 @@ end
 
 local cfg_val -- forward declare (defined below add_to_pending_index)
 
+local function json_index_add(index_key, ip, ttl)
+    local s = shared()
+    if not s then return end
+    local raw = s:get(index_key)
+    local list = {}
+    if raw then
+        local ok, decoded = pcall(json.decode, raw)
+        if ok and type(decoded) == "table" then list = decoded end
+    end
+    for _, v in ipairs(list) do
+        if v == ip then return end
+    end
+    table.insert(list, ip)
+    s:set(index_key, json.encode(list), ttl)
+end
+
+local function json_index_remove(index_key, ip)
+    local s = shared()
+    if not s then return end
+    local raw = s:get(index_key)
+    if not raw then return end
+    local ok, list = pcall(json.decode, raw)
+    if not ok or type(list) ~= "table" then return end
+    local filtered = {}
+    for _, v in ipairs(list) do
+        if v ~= ip then table.insert(filtered, v) end
+    end
+    if #filtered > 0 then
+        s:set(index_key, json.encode(filtered))
+    else
+        s:delete(index_key)
+    end
+end
+
 local function pending_index_key(ip)
     return "ip_rep:pi:" .. ip
 end
@@ -257,40 +291,6 @@ end
 
 local function flagged_idx_key(ip)
     return "ip_rep:flagged_idx:" .. ip
-end
-
-local function json_index_add(index_key, ip, ttl)
-    local s = shared()
-    if not s then return end
-    local raw = s:get(index_key)
-    local list = {}
-    if raw then
-        local ok, decoded = pcall(json.decode, raw)
-        if ok and type(decoded) == "table" then list = decoded end
-    end
-    for _, v in ipairs(list) do
-        if v == ip then return end
-    end
-    table.insert(list, ip)
-    s:set(index_key, json.encode(list), ttl)
-end
-
-local function json_index_remove(index_key, ip)
-    local s = shared()
-    if not s then return end
-    local raw = s:get(index_key)
-    if not raw then return end
-    local ok, list = pcall(json.decode, raw)
-    if not ok or type(list) ~= "table" then return end
-    local filtered = {}
-    for _, v in ipairs(list) do
-        if v ~= ip then table.insert(filtered, v) end
-    end
-    if #filtered > 0 then
-        s:set(index_key, json.encode(filtered))
-    else
-        s:delete(index_key)
-    end
 end
 
 local function add_to_flagged_index(ip, duration, now)
