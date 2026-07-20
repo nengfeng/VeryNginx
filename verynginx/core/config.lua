@@ -818,7 +818,8 @@ function _M.load_from_file()
 
     -- Auto-generate password_hash for admin entries with empty hash.
     -- Also recovers from the redacted sentinel "(redacted)" left by a prior
-    -- bug where GET /config redacted the hash and the Dashboard saved it back.
+    -- bug (pre-bfffa3d) where GET /config redacted the hash and the Dashboard
+    -- saved it back — the original hash is unrecoverable, so generate a new one.
     local auto_generated = false
     if config.admin then
         local pw_mod = require "core.password_hash"
@@ -1016,17 +1017,27 @@ function _M.save(config, opts)
         end
     end
 
-    -- Password complexity check before auto-hashing.
-    -- Also reject the redacted sentinel "(redacted)" that GET /config returns
-    -- — saving it would overwrite the real hash and lock out all admins.
+    -- Preserve real password_hash when incoming value is the redacted
+    -- sentinel "(redacted)" returned by GET /config.  Without this, saving
+    -- any config change from the dashboard would overwrite the real hash
+    -- and lock out all admins.
     if config.admin then
-        for i, a in ipairs(config.admin) do
-            if a.password_hash == "(redacted)" then
-                release_save_lock(lock_key, lock_token)
-                return false, string.format(
-                    "admin[%d]: password_hash is the redacted sentinel '(redacted)' " ..
-                    "(load config, edit, then save — do not reuse the redacted value)", i)
+        for _, a in ipairs(config.admin) do
+            if a.password_hash == "(redacted)" and config_data.admin then
+                for _, ca in ipairs(config_data.admin) do
+                    if ca.user == a.user and ca.password_hash
+                            and ca.password_hash ~= "(redacted)" then
+                        a.password_hash = ca.password_hash
+                        break
+                    end
+                end
             end
+        end
+    end
+
+    -- Password complexity check before auto-hashing.
+    if config.admin then
+        for _, a in ipairs(config.admin) do
             if a.password and a.password ~= "" then
                 if #a.password < 8 then
                     release_save_lock(lock_key, lock_token)

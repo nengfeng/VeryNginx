@@ -1,7 +1,9 @@
 -- -*- coding: utf-8 -*-
--- Tests for the password_hash redacted-sentinel guard in config.save().
+-- Tests for the password_hash redacted-sentinel preservation in config.save().
 -- Regression: Dashboard GET /config redacts password_hash to "(redacted)";
 -- saving that back would overwrite the real hash and lock out all admins.
+-- Fix: config.save() restores the real hash from config_data when the
+-- incoming value is "(redacted)".
 
 package.path = "verynginx/?.lua;verynginx/lua_script/?.lua;" .. package.path
 
@@ -54,14 +56,19 @@ ensure_ngx()
 
 local config = require "core.config"
 
-describe("config.save password_hash redaction guard", function()
+describe("config.save password_hash redaction preservation", function()
     before_each(function()
         ensure_ngx()
-        -- seed a valid config so save() has a baseline
-        config.save({ version = "2.0", admin = {}, matcher = {}, rule = {} })
+        -- Seed a valid config with a known admin hash.
+        config.save({
+            version = "2.0",
+            admin = { { user = "admin", password_hash = "p1$12000$REAL$HASH", enable = true } },
+            matcher = {},
+            rule = {},
+        })
     end)
 
-    it("rejects save when password_hash is the redacted sentinel '(redacted)'", function()
+    it("preserves real password_hash when incoming is '(redacted)'", function()
         local cfg = {
             version = "2.0",
             admin = { { user = "admin", password_hash = "(redacted)", enable = true } },
@@ -69,19 +76,24 @@ describe("config.save password_hash redaction guard", function()
             rule = {},
         }
         local ok, err = config.save(cfg)
-        assert.is_false(ok, "save should reject redacted sentinel")
-        assert.truthy(err and err:find("redacted"),
-            "error should mention redacted: " .. tostring(err))
+        assert.is_true(ok, "save should succeed with redacted sentinel: " .. tostring(err))
+        -- After save, config_data should still have the real hash.
+        local saved = config.admin and config.admin[1]
+        assert.is_not_nil(saved, "admin entry should exist after save")
+        assert.equals("p1$12000$REAL$HASH", saved.password_hash,
+            "real hash must be preserved, not overwritten with (redacted)")
     end)
 
     it("accepts save when password_hash is a real p1$ hash", function()
         local cfg = {
             version = "2.0",
-            admin = { { user = "admin", password_hash = "p1$12000$YWJj$ZGVm", enable = true } },
+            admin = { { user = "admin", password_hash = "p1$12000$NEW$HASH", enable = true } },
             matcher = {},
             rule = {},
         }
         local ok, err = config.save(cfg)
         assert.is_true(ok, "save should accept real hash: " .. tostring(err))
+        local saved = config.admin and config.admin[1]
+        assert.equals("p1$12000$NEW$HASH", saved.password_hash)
     end)
 end)
