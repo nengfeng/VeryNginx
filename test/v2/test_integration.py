@@ -378,7 +378,12 @@ def test_frequency():
     print(f"  [PASS] Freq template preview: login_bruteforce")
 
     # POST /frequency/templates/:id (apply — this was failing with unknown action 'nil')
-    status, body = curl("POST", "/verynginx/frequency/templates/login_bruteforce", cookies=cookies)
+    # Mutating request requires CSRF token.
+    status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
+    assert status == 200, f"GET CSRF failed: {status}"
+    csrf_token = json.loads(body).get("csrf_token", "")
+    status, body = curl("POST", "/verynginx/frequency/templates/login_bruteforce",
+                        data=f"csrf_token={csrf_token}", cookies=cookies)
     assert status == 200, f"Freq template apply failed: {status} {body[:300]}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Freq template apply response: {body[:300]}"
