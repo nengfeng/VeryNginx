@@ -47,6 +47,7 @@ local function add_to_pending_index(ip)
     if not s then return end
     local ttl = cfg_val("pending_ttl")
     s:set(pending_index_key(ip), "1", ttl)
+    json_index_add("ip_rep:pending_index", ip, ttl)
     s:incr("ip_rep:pi_version", 1, 0, 0)
 end
 
@@ -54,6 +55,7 @@ local function remove_from_pending_index(ip)
     local s = shared()
     if not s then return end
     s:delete(pending_index_key(ip))
+    json_index_remove("ip_rep:pending_index", ip)
     s:incr("ip_rep:pi_version", 1, 0, 0)
 end
 
@@ -257,17 +259,53 @@ local function flagged_idx_key(ip)
     return "ip_rep:flagged_idx:" .. ip
 end
 
+local function json_index_add(index_key, ip, ttl)
+    local s = shared()
+    if not s then return end
+    local raw = s:get(index_key)
+    local list = {}
+    if raw then
+        local ok, decoded = pcall(json.decode, raw)
+        if ok and type(decoded) == "table" then list = decoded end
+    end
+    for _, v in ipairs(list) do
+        if v == ip then return end
+    end
+    table.insert(list, ip)
+    s:set(index_key, json.encode(list), ttl)
+end
+
+local function json_index_remove(index_key, ip)
+    local s = shared()
+    if not s then return end
+    local raw = s:get(index_key)
+    if not raw then return end
+    local ok, list = pcall(json.decode, raw)
+    if not ok or type(list) ~= "table" then return end
+    local filtered = {}
+    for _, v in ipairs(list) do
+        if v ~= ip then table.insert(filtered, v) end
+    end
+    if #filtered > 0 then
+        s:set(index_key, json.encode(filtered))
+    else
+        s:delete(index_key)
+    end
+end
+
 local function add_to_flagged_index(ip, duration, now)
     local s = shared()
     if not s then return end
     local expires_at = (now or ngx.time()) + duration
     s:set(flagged_idx_key(ip), tostring(expires_at), duration)
+    json_index_add("ip_rep:flagged_index", ip, duration)
 end
 
 local function remove_from_flagged_index(ip)
     local s = shared()
     if not s then return end
     s:delete(flagged_idx_key(ip))
+    json_index_remove("ip_rep:flagged_index", ip)
 end
 
 function _M.flag_ip(ip, duration)
@@ -451,18 +489,34 @@ function _M.list_flagged()
     if not s then return {} end
     local now = ngx.time()
     local valid = {}
-    local keys = s:get_keys(0)
-    for _, key in ipairs(keys) do
-        local ip = key:match("^ip_rep:flagged_idx:(.+)$")
-        if ip then
-            local expires_at = tonumber(s:get(key))
-            if expires_at and expires_at > now then
-                valid[#valid + 1] = {
-                    ip = ip,
-                    expires_at = expires_at,
-                    flagged_at = expires_at - cfg_val("flag_duration"),
-                }
-            end
+
+    -- Read from JSON index (avoids get_keys(0) 1024-key ceiling)
+    local flagged = {}
+    local raw = s:get("ip_rep:flagged_index")
+    if raw then
+        local ok, list = pcall(json.decode, raw)
+        if ok and type(list) == "table" then
+            for _, ip in ipairs(list) do flagged[ip] = true end
+        end
+    end
+
+    -- Fallback to get_keys(0) during migration (index may not exist yet)
+    if not next(flagged) then
+        local keys = s:get_keys(0)
+        for _, key in ipairs(keys) do
+            local ip = key:match("^ip_rep:flagged_idx:(.+)$")
+            if ip then flagged[ip] = true end
+        end
+    end
+
+    for ip, _ in pairs(flagged) do
+        local expires_at = tonumber(s:get(flagged_idx_key(ip)))
+        if expires_at and expires_at > now then
+            valid[#valid + 1] = {
+                ip = ip,
+                expires_at = expires_at,
+                flagged_at = expires_at - cfg_val("flag_duration"),
+            }
         end
     end
     return valid
@@ -523,18 +577,34 @@ function _M._collect_pending()
         return _cached_pending
     end
     _last_pi_version = version
-    local all_keys = s:get_keys(0)
     local pending = {}
     local ttl = cfg_val("pending_ttl")
-    for _, key in ipairs(all_keys) do
-        local ip = key:match("^ip_rep:pi:(.+)$")
-        if ip then
-            local created = s:get("ip_rep:pending:" .. ip)
-            if created then
-                local remaining = ttl - (ngx.time() - created)
-                if remaining > 0 then
-                    pending[#pending + 1] = { ip = ip, created_at = created, remaining = remaining }
-                end
+
+    -- Read from JSON index (avoids get_keys(0) 1024-key ceiling)
+    local pending_ips = {}
+    local pidx_raw = s:get("ip_rep:pending_index")
+    if pidx_raw then
+        local ok, list = pcall(json.decode, pidx_raw)
+        if ok and type(list) == "table" then
+            for _, ip in ipairs(list) do pending_ips[ip] = true end
+        end
+    end
+
+    -- Fallback to get_keys(0) during migration
+    if not next(pending_ips) then
+        local all_keys = s:get_keys(0)
+        for _, key in ipairs(all_keys) do
+            local ip = key:match("^ip_rep:pi:(.+)$")
+            if ip then pending_ips[ip] = true end
+        end
+    end
+
+    for ip, _ in pairs(pending_ips) do
+        local created = s:get("ip_rep:pending:" .. ip)
+        if created then
+            local remaining = ttl - (ngx.time() - created)
+            if remaining > 0 then
+                pending[#pending + 1] = { ip = ip, created_at = created, remaining = remaining }
             end
         end
     end

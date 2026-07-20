@@ -407,6 +407,7 @@ end
 -- Initialization (register evaluation timer)
 -- ---------------------------------------------------------------
 function _M.init()
+    if ngx.worker.id() ~= 0 then return end
     local conf = cfg()
     if not conf.enabled then return end
     local interval = math.max(conf.window_seconds, 60)

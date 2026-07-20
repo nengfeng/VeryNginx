@@ -278,7 +278,7 @@ function _M.chunked_reconcile(chunk)
         if s and f and ip then
             local key = set_key(s, f, ip)
             local key_in_idx = idx[key] or false
-            local ttl = entry.ttl or (entry.expires_at and (entry.expires_at - ngx.time())) or 0
+            local ttl = entry.ttl or (entry.expires_at and math.max(entry.expires_at - ngx.time(), 1)) or 0
             local ok, _ = _M.add(s, f, ip, ttl)
             if ok then
                 if key_in_idx then

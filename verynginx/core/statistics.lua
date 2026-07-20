@@ -43,7 +43,7 @@ local function lru_list(shared, index_key)
     if not data then
         return {}
     end
-    local ok, decoded = pcall(require("dkjson").decode, data)
+    local ok, decoded = pcall(json.decode, data)
     if ok then
         return decoded
     end
@@ -306,7 +306,7 @@ function _M.persist()
     local tmp_path = path .. ".tmp"
     local f = io.open(tmp_path, "w")
     if f then
-        f:write(require("dkjson").encode(data, { indent = true }))
+        f:write(json.encode(data, { indent = true }))
         f:close()
         os.rename(tmp_path, path)
     end
@@ -320,7 +320,7 @@ function _M.restore()
     end
     local data = f:read("*all")
     f:close()
-    local decoded = require("dkjson").decode(data)
+    local decoded = json.decode(data)
     if not decoded then
         return
     end
