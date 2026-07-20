@@ -93,12 +93,15 @@ def test_config():
     assert "matcher" in config_data, f"Config missing matcher: {body[:200]}"
     print(f"  [PASS] GET config: {len(body)} bytes")
 
-    # POST config (save with base64 encoded)
-    config_json = json.dumps({"version": "2.0", "matcher": {}, "rule": {}, "admin": [{"user": "verynginx", "password_hash": "test"}], "security": {"session_secret": "test"}})
+    # POST config: modify a non-sensitive field on the GET response and
+    # save it back.  The GET response has password_hash="(redacted)" which
+    # config.save() preserves (does not overwrite the real hash).
+    config_data["test_marker"] = "integration"
+    config_json = json.dumps(config_data)
     encoded = b64encode(config_json)
     escaped = encoded.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D")
     status, body = curl("POST", "/verynginx/config", data=f"config={escaped}&csrf_token={csrf_token}", cookies=cookies)
-    assert status in (200, 400), f"POST config response: status={status}, body={body[:200]}"
+    assert status == 200, f"POST config response: status={status}, body={body[:200]}"
     print(f"  [PASS] POST config: {status}")
 
 def test_status():
