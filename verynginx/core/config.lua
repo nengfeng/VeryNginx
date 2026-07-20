@@ -816,12 +816,14 @@ function _M.load_from_file()
         end
     end
 
-    -- Auto-generate password_hash for admin entries with empty hash
+    -- Auto-generate password_hash for admin entries with empty hash.
+    -- Also recovers from the redacted sentinel "(redacted)" left by a prior
+    -- bug where GET /config redacted the hash and the Dashboard saved it back.
     local auto_generated = false
     if config.admin then
         local pw_mod = require "core.password_hash"
         for _, a in ipairs(config.admin) do
-            if not a.password_hash or a.password_hash == "" then
+            if not a.password_hash or a.password_hash == "" or a.password_hash == "(redacted)" then
                 local pw = random.hex(12)
                 a.password_hash = pw_mod.hash(pw)
                 a.password = nil
@@ -1014,9 +1016,17 @@ function _M.save(config, opts)
         end
     end
 
-    -- Password complexity check before auto-hashing
+    -- Password complexity check before auto-hashing.
+    -- Also reject the redacted sentinel "(redacted)" that GET /config returns
+    -- — saving it would overwrite the real hash and lock out all admins.
     if config.admin then
-        for _, a in ipairs(config.admin) do
+        for i, a in ipairs(config.admin) do
+            if a.password_hash == "(redacted)" then
+                release_save_lock(lock_key, lock_token)
+                return false, string.format(
+                    "admin[%d]: password_hash is the redacted sentinel '(redacted)' " ..
+                    "(load config, edit, then save — do not reuse the redacted value)", i)
+            end
             if a.password and a.password ~= "" then
                 if #a.password < 8 then
                     release_save_lock(lock_key, lock_token)
