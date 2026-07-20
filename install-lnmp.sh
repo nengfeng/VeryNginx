@@ -618,14 +618,14 @@ show_summary() {
 show_help() {
   echo "VeryNginx v2 - LNMP Integration Install Script"
   echo ""
-  echo "Usage: $0 [options]"
-  echo "       $0 reset-password"
-  echo ""
-  echo "Options:"
-  echo "  -h, --help         Show this help message"
-  echo ""
-  echo "Commands:"
-  echo "  reset-password     Generate a new random admin password"
+   echo "Usage: $0 [options]"
+   echo "       $0 reset-password [PASSWORD]"
+   echo ""
+   echo "Options:"
+   echo "  -h, --help         Show this help message"
+   echo ""
+   echo "Commands:"
+   echo "  reset-password     Set admin password (random if omitted)"
   echo ""
   echo "Environment:"
   echo "  VN_PREFIX     Install prefix (default: /opt/verynginx)"
@@ -637,15 +637,29 @@ show_help() {
 
 # ----- reset admin password --------------------------------------------------
 reset_admin_password() {
-  # Generate a new random password, hash it, and write to config.json
+  # Usage: reset-password [PASSWORD]
+  #   If PASSWORD is given, use it; otherwise prompt (empty = random).
   local config_file="${VN_DIR}/configs/config.json"
   if [ ! -f "$config_file" ]; then
     die "config.json not found at $config_file. Run install first."
   fi
 
-  local password
-  password=$(dd if=/dev/urandom bs=12 count=1 2>/dev/null | base64 | tr -dc 'A-Za-z0-9')
-  password="${password:0:12}"
+  local password="$1"
+
+  if [ -z "$password" ]; then
+    echo ""
+    echo "  Reset admin password for user 'verynginx'"
+    read -rsp "  Enter new password (min 6 chars, leave empty for random): " password
+    echo
+  fi
+
+  if [ -z "$password" ]; then
+    password=$(dd if=/dev/urandom bs=12 count=1 2>/dev/null | base64 | tr -dc 'A-Za-z0-9')
+    password="${password:0:12}"
+    echo "  Generated password: ${password}"
+  elif [ ${#password} -lt 6 ]; then
+    die "Password too short (min 6 chars)"
+  fi
 
   export VN_PASSWORD="$password" VN_CONFIG="$config_file" VN_USER="verynginx"
 
@@ -1077,7 +1091,7 @@ main() {
         require_root
         VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
         VN_DIR="${VN_PREFIX}"
-        reset_admin_password
+        reset_admin_password "$2"
         exit 0
         ;;
     esac
