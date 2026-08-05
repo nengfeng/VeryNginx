@@ -392,4 +392,33 @@ describe("ip_reputation", function()
 
     end)
 
+    describe("score cache invalidation", function()
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+        end)
+
+        it("clear_score invalidates the score cache", function()
+            local ip = "10.0.9.1"
+            rep.record_signal(ip, "waf_block")
+            local before = rep.get_score(ip)
+            assert.is_true(before > 0, "score cache should be populated")
+            rep.clear_score(ip)
+            assert.equals(0, rep.get_score(ip), "get_score must not return a stale cached value")
+        end)
+
+        it("record_ua invalidates the score cache on a new distinct UA", function()
+            local ip = "10.0.9.2"
+            rep.record_ua(ip, "ua-1")
+            rep.record_signal(ip, "waf_block")
+            rep.record_signal(ip, "waf_block")
+            local before = rep.get_score(ip)
+            assert.equals(10, before, "single UA => diversity factor 1.0 => score 10")
+            -- A second distinct UA lowers the diversity factor to 0.9
+            rep.record_ua(ip, "ua-2")
+            assert.equals(9, rep.get_score(ip), "stale cache would return the old score 10")
+        end)
+
+    end)
+
 end)

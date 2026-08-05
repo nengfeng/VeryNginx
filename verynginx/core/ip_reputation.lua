@@ -133,7 +133,7 @@ local function json_index_add(index_key, ip, ttl, is_live)
     end)
 end
 
-local function json_index_remove(index_key, ip)
+local function json_index_remove(index_key, ip, ttl)
     local s = shared()
     if not s then return end
     return with_index_lock(function()
@@ -146,7 +146,9 @@ local function json_index_remove(index_key, ip)
             if v ~= ip then table.insert(filtered, v) end
         end
         if #filtered > 0 then
-            s:set(index_key, json.encode(filtered))
+            -- Write back with the class TTL so the index keeps auto-expiring
+            -- (a nil TTL here would make the key immortal until next add).
+            s:set(index_key, json.encode(filtered), ttl)
         else
             s:delete(index_key)
         end
@@ -172,7 +174,7 @@ local function remove_from_pending_index(ip)
     local s = shared()
     if not s then return end
     s:delete(pending_index_key(ip))
-    json_index_remove("ip_rep:pending_index", ip)
+    json_index_remove("ip_rep:pending_index", ip, cfg_val("pending_ttl"))
     s:incr("ip_rep:pi_version", 1, 0, 0)
 end
 
@@ -285,6 +287,8 @@ function _M.record_ua(ip, ua_string)
     if is_new then
         local count_key = "ip_rep:ua_count:" .. ip .. ":" .. slot
         s:incr(count_key, 1, 0, window_size())
+        -- Invalidate score cache: the UA diversity factor has changed
+        s:delete("ip_rep:score_cache:" .. ip)
     end
 end
 
@@ -421,7 +425,7 @@ local function remove_from_flagged_index(ip)
     local s = shared()
     if not s then return end
     s:delete(flagged_idx_key(ip))
-    json_index_remove("ip_rep:flagged_index", ip)
+    json_index_remove("ip_rep:flagged_index", ip, cfg_val("flag_duration"))
 end
 
 function _M.flag_ip(ip, duration)
@@ -500,6 +504,8 @@ function _M.clear_score(ip)
         s:delete("ip_rep:req:" .. ip .. ":" .. slot)
         s:delete("ip_rep:ua_count:" .. ip .. ":" .. slot)
     end
+    -- Invalidate score cache so get_score() reflects the cleared score
+    s:delete("ip_rep:score_cache:" .. ip)
 end
 
 function _M.add_whitelist(entry)
