@@ -32,6 +32,7 @@ local CACHE_TTL = 10
 local SCORE_CACHE_TTL = 2
 local MAX_UA_DISTINCT = 20
 local AWL_INDEX_KEY = "ip_rep:awl_index"
+local INDEX_COMPACT_THRESHOLD = 32
 
 local function shared()
     return ngx.shared[SHARED_DICT_NAME]
@@ -93,7 +94,21 @@ end
 
 local cfg_val -- forward declare (defined below add_to_pending_index)
 
-local function json_index_add(index_key, ip, ttl)
+--- Keep only live entries of a JSON list.
+-- @param list array of IP strings
+-- @param is_live function(eip) -> truthy when the entry still has live state
+-- @return compacted list
+local function filter_live(list, is_live)
+    local compacted = {}
+    for _, eip in ipairs(list) do
+        if is_live(eip) then
+            compacted[#compacted + 1] = eip
+        end
+    end
+    return compacted
+end
+
+local function json_index_add(index_key, ip, ttl, is_live)
     local s = shared()
     if not s then return end
     return with_index_lock(function()
@@ -102,6 +117,13 @@ local function json_index_add(index_key, ip, ttl)
         if raw then
             local ok, decoded = pcall(json.decode, raw)
             if ok and type(decoded) == "table" then list = decoded end
+        end
+        -- Opportunistically drop dead entries once the list grows past the
+        -- threshold (bounds index growth; live entries are never lost). The
+        -- dedup check runs after compaction, so a stale entry for this IP is
+        -- simply re-added.
+        if is_live and #list >= INDEX_COMPACT_THRESHOLD then
+            list = filter_live(list, is_live)
         end
         for _, v in ipairs(list) do
             if v == ip then return end
@@ -141,7 +163,8 @@ local function add_to_pending_index(ip)
     if not s then return end
     local ttl = cfg_val("pending_ttl")
     s:set(pending_index_key(ip), "1", ttl)
-    json_index_add("ip_rep:pending_index", ip, ttl)
+    json_index_add("ip_rep:pending_index", ip, ttl,
+        function(eip) return s:get(pending_index_key(eip)) ~= nil end)
     s:incr("ip_rep:pi_version", 1, 0, 0)
 end
 
@@ -347,13 +370,12 @@ function _M.record_challenge_pass(ip)
             local ok, decoded = pcall(json.decode, raw)
             if ok and type(decoded) == "table" then list = decoded end
         end
-        local compacted = {}
+        local compacted = filter_live(list, function(eip)
+            return s:get("ip_rep:awl:" .. eip) ~= nil
+        end)
         local existing = false
-        for _, eip in ipairs(list) do
-            if s:get("ip_rep:awl:" .. eip) then
-                if eip == ip then existing = true end
-                compacted[#compacted + 1] = eip
-            end
+        for _, eip in ipairs(compacted) do
+            if eip == ip then existing = true break end
         end
         if existing then
             -- Already whitelisted: refresh index TTL only, keep live key as-is.
@@ -391,7 +413,8 @@ local function add_to_flagged_index(ip, duration, now)
     if not s then return end
     local expires_at = (now or ngx.time()) + duration
     s:set(flagged_idx_key(ip), tostring(expires_at), duration)
-    json_index_add("ip_rep:flagged_index", ip, duration)
+    json_index_add("ip_rep:flagged_index", ip, duration,
+        function(eip) return s:get(flagged_idx_key(eip)) ~= nil end)
 end
 
 local function remove_from_flagged_index(ip)

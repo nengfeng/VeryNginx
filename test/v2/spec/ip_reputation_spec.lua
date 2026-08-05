@@ -330,4 +330,66 @@ describe("ip_reputation", function()
 
     end)
 
+    describe("flagged index compaction (dead-entry pruning)", function()
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+        end)
+
+        it("drops dead entries once the index grows past the threshold", function()
+            local s = ngx.shared.ip_reputation
+            local json = (pcall(require, "cjson") and require("cjson")) or require("dkjson")
+
+            -- Build an index above the compaction threshold (32)
+            for i = 1, 40 do
+                rep.flag_ip(string.format("10.0.6.%d", i), 600)
+            end
+
+            -- Simulate expiry of the first 10 by removing their per-IP markers;
+            -- their index entries linger until the next compacting add.
+            for i = 1, 10 do
+                s:delete("ip_rep:flagged_idx:10.0.6." .. i)
+            end
+
+            -- Next flag triggers compaction (decoded list >= 32)
+            rep.flag_ip("10.0.6.99", 600)
+
+            local raw = s:get("ip_rep:flagged_index")
+            assert.is_not_nil(raw)
+            local ok, idx = pcall(json.decode, raw)
+            assert.is_true(ok, "flagged_index must be valid JSON")
+            assert.equals(31, #idx, "index should hold 30 live + 1 new")
+            local seen = {}
+            for _, eip in ipairs(idx) do seen[eip] = true end
+            for i = 1, 10 do
+                assert.is_nil(seen["10.0.6." .. i], "dead IP must be compacted away")
+            end
+            for i = 11, 40 do
+                assert.is_true(seen["10.0.6." .. i], "live IP must survive compaction")
+            end
+            assert.is_true(seen["10.0.6.99"])
+        end)
+
+        it("compaction never drops entries while under the threshold", function()
+            local s = ngx.shared.ip_reputation
+            local json = (pcall(require, "cjson") and require("cjson")) or require("dkjson")
+
+            -- Below the threshold: dead entries stay until a compacting add
+            for i = 1, 10 do
+                rep.flag_ip(string.format("10.0.7.%d", i), 600)
+            end
+            for i = 1, 5 do
+                s:delete("ip_rep:flagged_idx:10.0.7." .. i)
+            end
+
+            rep.flag_ip("10.0.7.99", 600)
+
+            local raw = s:get("ip_rep:flagged_index")
+            local ok, idx = pcall(json.decode, raw)
+            assert.is_true(ok)
+            assert.equals(11, #idx, "below threshold: all entries kept")
+        end)
+
+    end)
+
 end)
