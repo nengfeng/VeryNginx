@@ -391,12 +391,34 @@ lint → unit-tests → integration-tests → performance-baseline
 docker compose up -d --wait || (docker compose logs verynginx 2>&1 && exit 1)
 ```
 
-### 9.3 测试脚本位置
+### 9.3 测试脚本位置与运行方式
 
 - 单元测试：`test/v2/phase0/*.spec.lua`（_kernel_blocking 相关的 phase0 集成测试）
 - 遗留单元测试：`test/v2/spec/*.spec.lua`（_v1 模块，部分已迁移至 phase0）
 - 集成测试：`test/v2/test_integration.py`
 - Docker Compose：`test/v2/docker-compose.yml`
+
+**运行命令（分两套，勿混用）**：
+
+```bash
+# spec 套件：必须带 spec_helper（CI 的 unit-tests job 用这条）
+busted --helper=test/v2/spec/spec_helper.lua --lpath='./verynginx/?.lua;./verynginx/lua_script/?.lua;./verynginx/lua_script/module/?.lua' test/v2/spec/
+
+# phase0 套件：必须【不带】--helper（自包含 ngx stub，加载真实模块）
+busted --lpath='./verynginx/?.lua;./verynginx/lua_script/?.lua;./verynginx/lua_script/module/?.lua' test/v2/phase0/
+```
+
+> **⚠️ 勿用 `--helper=spec_helper.lua` 跑 phase0**：`spec_helper.lua` 注册了
+> `package.preload["core.config"]`（进程级拦截 `require "core.config"`），会用一个
+> 精简的 config stub 顶替真实模块。phase0 各 spec 是自包含的（自带 `ensure_ngx()`
+> stub、加载真实 `core.config`），一旦带 helper 运行，`config.validate_config`、
+> `config.save`、`config.atomic_mutate` 等全部命中 stub，导致 config_cross_field、
+> config_password_redaction、config_whitelist_publish、frequency_rule_id_migration、
+> random 等多文件「集体误报失败」。这些失败是跑错的产物，不是 bug。
+> phase0 中真实存在的唯一历史 bug 曾在 `ipc_spec.lua`：mock socket 用了
+> `settimeouts`/`receiveany` 而 `ipc_client.lua` 用的是真实 API
+> `settimeout`（单数）/`receive(n)` —— 已修复，mock 现改为字节流 `receive(n)`。
+> CI 只跑 spec 套件（带 helper），phase0 需在本地单独运行。
 
 ### 9.4 单元测试覆盖（phase0）
 
