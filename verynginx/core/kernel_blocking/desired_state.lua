@@ -9,12 +9,15 @@
 local _M = {}
 
 local json = require "dkjson"
+local random = require "core.random"
 
 local DESIRED_STATE_DICT = "vn_config"
 local DESIRED_STATE_PREFIX = "kb:desired:"
 local INDEX_KEY = "kb:desired_index"
 local INDEX_LOCK_KEY = "kb:desired_index_lock"
 local INDEX_LOCK_TTL = 5
+local INDEX_LOCK_SLEEP = 0.002
+local INDEX_LOCK_MAX_RETRIES = 500
 local COMPACT_INTERVAL = 300
 local _last_compact = 0
 
@@ -26,16 +29,32 @@ local function locks()
     return ngx.shared.vn_locks
 end
 
+-- Acquire the index lock with an unforgeable token. The token is checked on
+-- release so an unlock never deletes a lock that a later holder re-acquired
+-- after this one's TTL expired (mirrors ip_reputation's token pattern).
+-- Returns the token on success, nil if the lock could not be acquired within
+-- the retry budget.
 local function index_lock()
     local l = locks()
-    if not l then return false end
-    local wid = (ngx.worker and ngx.worker.id and ngx.worker.id()) or 0
-    return l:add(INDEX_LOCK_KEY, wid, INDEX_LOCK_TTL)
+    if not l then return nil end
+    local token = random.bytes(8)
+    local retries = 0
+    while not l:add(INDEX_LOCK_KEY, token, INDEX_LOCK_TTL) do
+        retries = retries + 1
+        if retries > INDEX_LOCK_MAX_RETRIES then
+            return nil
+        end
+        ngx.sleep(INDEX_LOCK_SLEEP)
+    end
+    return token
 end
 
-local function index_unlock()
+local function index_unlock(token)
     local l = locks()
-    if l then l:delete(INDEX_LOCK_KEY) end
+    if not l then return end
+    if l:get(INDEX_LOCK_KEY) == token then
+        l:delete(INDEX_LOCK_KEY)
+    end
 end
 
 local function index_read()
@@ -63,32 +82,28 @@ end
 -- lock could not be acquired within the retry budget so the caller can fail
 -- the whole desired-state write instead of leaving an orphaned entry.
 local function index_add(key)
-    local retries = 0
-    while not index_lock() do
-        retries = retries + 1
-        if retries > 500 then
-            ngx.log(ngx.ERR, "kb: desired index lock unavailable after ",
-                retries, " retries for ", key)
-            return false
-        end
-        ngx.sleep(0.002)
+    local token = index_lock()
+    if not token then
+        ngx.log(ngx.ERR, "kb: desired index lock unavailable after ",
+            INDEX_LOCK_MAX_RETRIES, " retries for ", key)
+        return false
     end
     local idx = index_read()
     for _, v in ipairs(idx) do
-        if v == key then index_unlock(); return true end
+        if v == key then index_unlock(token); return true end
     end
     idx[#idx + 1] = key
     index_write(idx)
-    index_unlock()
+    index_unlock(token)
     return true
 end
 
 local function index_remove(key)
-    local retries = 0
-    while not index_lock() do
-        retries = retries + 1
-        if retries > 100 then return end
-        ngx.sleep(0.001)
+    local token = index_lock()
+    if not token then
+        -- Best effort: a missed remove only leaves a dead index entry that the
+        -- next compact prunes; it never loses live data.
+        return
     end
     local idx = index_read()
     local filtered = {}
@@ -98,13 +113,14 @@ local function index_remove(key)
         end
     end
     index_write(filtered)
-    index_unlock()
+    index_unlock(token)
 end
 
 local function compact_index_if_due()
     local now = ngx.time()
     if now - _last_compact < COMPACT_INTERVAL then return end
-    if not index_lock() then return end
+    local token = index_lock()
+    if not token then return end
     _last_compact = now
 
     local s = shared()
@@ -121,7 +137,7 @@ local function compact_index_if_due()
     if changed then
         index_write(compact)
     end
-    index_unlock()
+    index_unlock(token)
 end
 
 -- ---------------------------------------------------------------------------
@@ -274,12 +290,14 @@ end
 -- Count desired entries.
 -- ---------------------------------------------------------------------------
 function _M.count_desired()
+    compact_index_if_due()
     return #index_read()
 end
 
 -- Count desired entries for a single list (scanner_drop/cc_drop/manual_drop).
 function _M.count_by_list(list)
     if not list then return 0 end
+    compact_index_if_due()
     local s = shared()
     if not s then return 0 end
     local n = 0

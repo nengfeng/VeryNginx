@@ -20,6 +20,7 @@
 local _M = {}
 
 local json = require "dkjson"
+local random = require "core.random"
 
 -- Full lifecycle states (Design §5.3)
 local STATE = {
@@ -49,6 +50,8 @@ local INDEX_TTL = 7 * 86400  -- 7-day TTL on candidate entries
 local MAX_CANDIDATES = 10000  -- bounded index size
 local INDEX_LOCK_KEY = "kb:candidate_index_lock"
 local INDEX_LOCK_TTL = 5
+local INDEX_LOCK_SLEEP = 0.002
+local INDEX_LOCK_MAX_RETRIES = 500
 
 local function shared()
     return ngx.shared[CANDIDATE_DICT]
@@ -58,16 +61,30 @@ local function locks()
     return ngx.shared.vn_locks
 end
 
+-- Acquire the index lock with an unforgeable token, checked on release so an
+-- unlock never deletes a lock re-acquired by another holder after this one's
+-- TTL expired (mirrors ip_reputation's token pattern). Returns token or nil.
 local function index_lock()
     local l = locks()
-    if not l then return false end
-    local wid = (ngx.worker and ngx.worker.id and ngx.worker.id()) or 0
-    return l:add(INDEX_LOCK_KEY, wid, INDEX_LOCK_TTL)
+    if not l then return nil end
+    local token = random.bytes(8)
+    local retries = 0
+    while not l:add(INDEX_LOCK_KEY, token, INDEX_LOCK_TTL) do
+        retries = retries + 1
+        if retries > INDEX_LOCK_MAX_RETRIES then
+            return nil
+        end
+        ngx.sleep(INDEX_LOCK_SLEEP)
+    end
+    return token
 end
 
-local function index_unlock()
+local function index_unlock(token)
     local l = locks()
-    if l then l:delete(INDEX_LOCK_KEY) end
+    if not l then return end
+    if l:get(INDEX_LOCK_KEY) == token then
+        l:delete(INDEX_LOCK_KEY)
+    end
 end
 
 -- Build composite key from IP and policy.
@@ -83,10 +100,14 @@ local function compact_index()
     if not s then return end
     local now = ngx.time()
     if now - _last_compact < COMPACT_INTERVAL then return end
+    -- Compact under the index lock so a cross-worker compact cannot overwrite a
+    -- concurrent upsert's index write (lost index entry = invisible to reconcile).
+    local token = index_lock()
+    if not token then return end
     _last_compact = now
     local idx_raw = s:get(INDEX_KEY) or "[]"
     local ok, idx = pcall(json.decode, idx_raw)
-    if not ok or type(idx) ~= "table" then return end
+    if not ok or type(idx) ~= "table" then index_unlock(token); return end
     local kept = {}
     for _, composite in ipairs(idx) do
         local ip, policy = composite:match("^(.+):([^:]+)$")
@@ -100,6 +121,7 @@ local function compact_index()
     if #kept < #idx then
         s:set(INDEX_KEY, json.encode(kept), INDEX_TTL)
     end
+    index_unlock(token)
 end
 
 -- Add the composite key to the candidate index under the index lock.
@@ -109,15 +131,11 @@ end
 local function index_add_under_lock(ip, policy)
     local s = shared()
     if not s then return false end
-    local retries = 0
-    while not index_lock() do
-        retries = retries + 1
-        if retries > 500 then
-            ngx.log(ngx.ERR, "kb: candidate index lock unavailable after ",
-                retries, " retries")
-            return false
-        end
-        ngx.sleep(0.002)
+    local token = index_lock()
+    if not token then
+        ngx.log(ngx.ERR, "kb: candidate index lock unavailable after ",
+            INDEX_LOCK_MAX_RETRIES, " retries")
+        return false
     end
     local idx_raw = s:get(INDEX_KEY) or "[]"
     local ok, idx = pcall(json.decode, idx_raw)
@@ -129,7 +147,7 @@ local function index_add_under_lock(ip, policy)
         idx[#idx + 1] = idx_key
         s:set(INDEX_KEY, json.encode(idx), INDEX_TTL)
     end
-    index_unlock()
+    index_unlock(token)
     return true
 end
 
