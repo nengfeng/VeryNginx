@@ -496,6 +496,29 @@ describe("ip_reputation", function()
             assert.equals(2, s:get("ip_rep:flagged_today"))
         end)
 
+        it("counts a fresh flag whose previous entry is a dead index item", function()
+            local s = ngx.shared.ip_reputation
+            rep.flag_ip("10.0.5.4", 600)
+            assert.equals(1, s:get("ip_rep:flagged_today"))
+            -- Simulate expiry: the per-IP liveness key is gone, but the dead
+            -- entry lingers in the (sub-threshold, no-compact) JSON index.
+            s:delete("ip_rep:flagged:10.0.5.4")
+            s:delete("ip_rep:flagged_idx:10.0.5.4")
+            rep.flag_ip("10.0.5.4", 600)
+            assert.equals(2, s:get("ip_rep:flagged_today"),
+                "a fresh flag must be counted even when a dead index entry exists")
+            -- No dead+live duplicate may remain in the index
+            local json = (pcall(require, "cjson") and require("cjson")) or require("dkjson")
+            local raw = s:get("ip_rep:flagged_index")
+            local ok, idx = pcall(json.decode, raw)
+            assert.is_true(ok)
+            local count = 0
+            for _, v in ipairs(idx) do
+                if v == "10.0.5.4" then count = count + 1 end
+            end
+            assert.equals(1, count, "index must hold a single entry for the IP")
+        end)
+
     end)
 
     describe("_collect_pending expiry refresh", function()

@@ -108,30 +108,36 @@ local function filter_live(list, is_live)
     return compacted
 end
 
-local function json_index_add(index_key, ip, ttl, is_live)
-    local s = shared()
-    if not s then return end
-    return with_index_lock(function()
-        local raw = s:get(index_key)
-        local list = {}
-        if raw then
-            local ok, decoded = pcall(json.decode, raw)
-            if ok and type(decoded) == "table" then list = decoded end
+-- Core JSON-index add (RMW). Callers must hold the index lock (with_index_lock).
+-- @param force_renew: treat a pre-existing entry for `ip` as stale and replace
+-- it (used when the caller knows the previous flag/pending expired), so a dead
+-- entry lingering in a sub-threshold list cannot suppress a fresh re-add.
+local function json_index_add_unlocked(s, index_key, ip, ttl, is_live, force_renew)
+    local raw = s:get(index_key)
+    local list = {}
+    if raw then
+        local ok, decoded = pcall(json.decode, raw)
+        if ok and type(decoded) == "table" then list = decoded end
+    end
+    -- Opportunistically drop dead entries once the list grows past the
+    -- threshold (bounds index growth; live entries are never lost).
+    if is_live and #list >= INDEX_COMPACT_THRESHOLD then
+        list = filter_live(list, is_live)
+    end
+    -- Dedup: a live entry for this IP short-circuits. A dead entry may be
+    -- dropped and re-added fresh (count/refresh consistency).
+    for i, v in ipairs(list) do
+        if v == ip then
+            if not force_renew and (not is_live or is_live(v)) then
+                return false
+            end
+            table.remove(list, i)
+            break
         end
-        -- Opportunistically drop dead entries once the list grows past the
-        -- threshold (bounds index growth; live entries are never lost). The
-        -- dedup check runs after compaction, so a stale entry for this IP is
-        -- simply re-added.
-        if is_live and #list >= INDEX_COMPACT_THRESHOLD then
-            list = filter_live(list, is_live)
-        end
-        for _, v in ipairs(list) do
-            if v == ip then return false end
-        end
-        table.insert(list, ip)
-        s:set(index_key, json.encode(list), ttl)
-        return true
-    end)
+    end
+    table.insert(list, ip)
+    s:set(index_key, json.encode(list), ttl)
+    return true
 end
 
 local function json_index_remove(index_key, ip, ttl)
@@ -165,9 +171,15 @@ local function add_to_pending_index(ip)
     local s = shared()
     if not s then return end
     local ttl = cfg_val("pending_ttl")
-    s:set(pending_index_key(ip), "1", ttl)
-    json_index_add("ip_rep:pending_index", ip, ttl,
-        function(eip) return s:get(pending_index_key(eip)) ~= nil end)
+    with_index_lock(function()
+        -- Serialized: re-set_pending after expiry must refresh the index even
+        -- when a dead entry for this IP lingers in a sub-threshold list.
+        local already = s:get(pending_index_key(ip)) ~= nil
+        s:set(pending_index_key(ip), "1", ttl)
+        json_index_add_unlocked(s, "ip_rep:pending_index", ip, ttl,
+            function(eip) return s:get(pending_index_key(eip)) ~= nil end,
+            not already)
+    end)
     s:incr("ip_rep:pi_version", 1, 0, 0)
 end
 
@@ -421,13 +433,24 @@ local function flagged_idx_key(ip)
     return "ip_rep:flagged_idx:" .. ip
 end
 
-local function add_to_flagged_index(ip, duration, now)
+local function add_to_flagged_index(ip, ttl, now)
     local s = shared()
-    if not s then return end
-    local expires_at = (now or ngx.time()) + duration
-    s:set(flagged_idx_key(ip), tostring(expires_at), duration)
-    return json_index_add("ip_rep:flagged_index", ip, duration,
-        function(eip) return s:get(flagged_idx_key(eip)) ~= nil end)
+    if not s then return false end
+    -- Serialized decision: the liveness of a re-flag must be evaluated against
+    -- the flag state *before* this call, otherwise a dead index entry lingering
+    -- in a sub-threshold list would suppress counting a fresh flag. Only the
+    -- first concurrent caller after expiry observes already == nil.
+    return with_index_lock(function()
+        local already = s:get("ip_rep:flagged:" .. ip) ~= nil
+        s:set("ip_rep:flagged:" .. ip, now, ttl)
+        s:set(flagged_idx_key(ip), tostring(now + ttl), ttl)
+        local added = json_index_add_unlocked(s, "ip_rep:flagged_index", ip, ttl,
+            function(eip) return s:get(flagged_idx_key(eip)) ~= nil end,
+            not already)
+        -- Count when this IP was not already flagged, or its stale index entry
+        -- was replaced as a fresh one.
+        return (not already) or added
+    end)
 end
 
 local function remove_from_flagged_index(ip)
@@ -442,12 +465,11 @@ function _M.flag_ip(ip, duration)
     if not s then return end
     local ttl = duration or cfg_val("flag_duration")
     local now = ngx.time()
-    s:set("ip_rep:flagged:" .. ip, now, ttl)
-    -- Only count a flag event when the IP is *newly* flagged: the index add
-    -- is serialized under the index lock (dedups), so concurrent re-flags
-    -- right after expiry can no longer inflate the daily counter.
-    local newly_flagged = add_to_flagged_index(ip, ttl, now)
-    if newly_flagged then
+    -- add_to_flagged_index sets the flag keys + index in one lock-held critical
+    -- section and reports whether this is a *new* flag (based on the pre-call
+    -- state), so a dead index entry from an expired flag cannot suppress the
+    -- count, while concurrent re-flags after expiry cannot double-count.
+    if add_to_flagged_index(ip, ttl, now) then
         s:incr("ip_rep:flagged_today", 1, 0, 86400)
     end
 end
