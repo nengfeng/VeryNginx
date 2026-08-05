@@ -476,4 +476,65 @@ describe("ip_reputation", function()
 
     end)
 
+    describe("flag_ip flagged_today counting", function()
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+        end)
+
+        it("counts a re-flag of the same IP only once", function()
+            rep.flag_ip("10.0.5.1", 600)
+            rep.flag_ip("10.0.5.1", 600)
+            local s = ngx.shared.ip_reputation
+            assert.equals(1, s:get("ip_rep:flagged_today"))
+        end)
+
+        it("still counts each distinct IP", function()
+            rep.flag_ip("10.0.5.2", 600)
+            rep.flag_ip("10.0.5.3", 600)
+            local s = ngx.shared.ip_reputation
+            assert.equals(2, s:get("ip_rep:flagged_today"))
+        end)
+
+    end)
+
+    describe("_collect_pending expiry refresh", function()
+
+        local real_time
+        local fake_time = 1700000000
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+            fake_time = 1700000000
+            local cfg = require("core.config")
+            cfg.ip_reputation.pending_ttl = 60
+        end)
+
+        after_each(function()
+            local cfg = require("core.config")
+            cfg.ip_reputation.pending_ttl = nil
+        end)
+
+        setup(function()
+            real_time = ngx.time
+            _G.ngx.time = function() return fake_time end
+        end)
+
+        teardown(function()
+            _G.ngx.time = real_time
+        end)
+
+        it("drops entries that expired since the last version bump", function()
+            rep.set_pending("10.0.4.1")
+            assert.equals(1, #rep._collect_pending())
+            -- No add/remove => pi_version unchanged (cache-hit path). The pending
+            -- key would have auto-expired in the dict; stub never expires keys,
+            -- so delete it explicitly and advance the wall clock past pending_ttl.
+            fake_time = fake_time + 120
+            ngx.shared.ip_reputation:delete("ip_rep:pending:10.0.4.1")
+            assert.equals(0, #rep._collect_pending())
+        end)
+
+    end)
+
 end)

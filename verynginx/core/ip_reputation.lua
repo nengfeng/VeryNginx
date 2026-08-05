@@ -126,10 +126,11 @@ local function json_index_add(index_key, ip, ttl, is_live)
             list = filter_live(list, is_live)
         end
         for _, v in ipairs(list) do
-            if v == ip then return end
+            if v == ip then return false end
         end
         table.insert(list, ip)
         s:set(index_key, json.encode(list), ttl)
+        return true
     end)
 end
 
@@ -417,7 +418,7 @@ local function add_to_flagged_index(ip, duration, now)
     if not s then return end
     local expires_at = (now or ngx.time()) + duration
     s:set(flagged_idx_key(ip), tostring(expires_at), duration)
-    json_index_add("ip_rep:flagged_index", ip, duration,
+    return json_index_add("ip_rep:flagged_index", ip, duration,
         function(eip) return s:get(flagged_idx_key(eip)) ~= nil end)
 end
 
@@ -434,8 +435,13 @@ function _M.flag_ip(ip, duration)
     local ttl = duration or cfg_val("flag_duration")
     local now = ngx.time()
     s:set("ip_rep:flagged:" .. ip, now, ttl)
-    s:incr("ip_rep:flagged_today", 1, 0, 86400)
-    add_to_flagged_index(ip, ttl, now)
+    -- Only count a flag event when the IP is *newly* flagged: the index add
+    -- is serialized under the index lock (dedups), so concurrent re-flags
+    -- right after expiry can no longer inflate the daily counter.
+    local newly_flagged = add_to_flagged_index(ip, ttl, now)
+    if newly_flagged then
+        s:incr("ip_rep:flagged_today", 1, 0, 86400)
+    end
 end
 
 function _M.is_flagged(ip, opts)
@@ -736,13 +742,26 @@ local _cached_pending = nil
 function _M._collect_pending()
     local s = shared()
     if not s then return {} end
+    local ttl = cfg_val("pending_ttl")
     local version = s:get("ip_rep:pi_version")
     if version and version == _last_pi_version and _cached_pending then
-        return _cached_pending
+        -- Pending entries expire passively and never bump pi_version, so the
+        -- cached list may hold entries that have since expired. Refresh the
+        -- remaining TTLs from cached created_at and drop what expired.
+        local now = ngx.time()
+        local fresh = {}
+        for _, e in ipairs(_cached_pending) do
+            local remaining = ttl - (now - e.created_at)
+            if remaining > 0 then
+                e.remaining = remaining
+                fresh[#fresh + 1] = e
+            end
+        end
+        _cached_pending = fresh
+        return fresh
     end
     _last_pi_version = version
     local pending = {}
-    local ttl = cfg_val("pending_ttl")
 
     -- Read from JSON index (avoids get_keys(0) 1024-key ceiling)
     local pending_ips = {}
