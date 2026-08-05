@@ -110,3 +110,43 @@ describe("waf_recommender index atomicity", function()
         assert.are.equal("px", item.pattern)
     end)
 end)
+
+describe("waf_recommender.apply() saves the WAF rule table", function()
+    local captured
+
+    before_each(function()
+        ngx.shared.vn_config:flush_all()
+        package.loaded["core.waf_recommender"] = nil
+        captured = {}
+        package.preload["waf-rule-manager"] = function()
+            local m = {}
+            function m.load_rules() return { version = 42, rules = {} } end
+            function m.save_rules(rules, action)
+                captured.rules = rules
+                captured.action = action
+                return true
+            end
+            function m.reload() return true end
+            return m
+        end
+    end)
+
+    after_each(function()
+        package.preload["waf-rule-manager"] = nil
+    end)
+
+    it("passes the rules table as first arg (not the version number)", function()
+        local rec = require "core.waf_recommender"
+        rec.add({ id = "rule_a", pattern = "SELECT.*FROM", category = "sqli",
+                  severity = "high", status = "pending" })
+        local item = rec.list()[1]
+        local ok, err = rec.apply(item.id)
+        assert.is_true(ok, tostring(err))
+        assert.are.equal("table", type(captured.rules))
+        assert.are.equal(1, #captured.rules)
+        assert.are.equal("rec_" .. item.id:sub(1, 8), captured.rules[1].id)
+        assert.are.equal("sqli", captured.rules[1].category)
+        local applied = rec.get(item.id)
+        assert.are.equal("applied", applied.status)
+    end)
+end)

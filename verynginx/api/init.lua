@@ -84,7 +84,9 @@ local function run_route(route, ctx, method, path)
     -- Rate limiting for authenticated routes (login has its own)
     if route.auth_required then
         local user = ctx and ctx.get_data and ctx.get_data(ctx, "auth:user") or "unknown"
-        local rl_key = "api:" .. method .. ":" .. path .. ":" .. tostring(user)
+        -- Key by route pattern (route.path), not the concrete URI, so varying
+        -- an :id path segment cannot mint a fresh bucket per request.
+        local rl_key = "api:" .. method .. ":" .. route.path .. ":" .. tostring(user)
         local limit, window = 60, 60
         if method == "POST" and path == "/config" then
             limit, window = 30, 60
@@ -106,7 +108,7 @@ local function run_route(route, ctx, method, path)
     -- Rate limiting for unauthenticated routes (by IP)
     if not route.auth_required then
         local client_ip = ngx.var.remote_addr or "unknown"
-        local rl_key = "api:" .. method .. ":" .. path .. ":" .. client_ip
+        local rl_key = "api:" .. method .. ":" .. route.path .. ":" .. client_ip
         if not rate_limit.allow(rl_key, 20, 60) then
             ngx.status = 429
             ctx.set_action(ctx, "response", {

@@ -47,9 +47,27 @@ local CANDIDATE_KEY_PREFIX = "kb:candidate:"
 local INDEX_KEY = "kb:candidate_index"
 local INDEX_TTL = 7 * 86400  -- 7-day TTL on candidate entries
 local MAX_CANDIDATES = 10000  -- bounded index size
+local INDEX_LOCK_KEY = "kb:candidate_index_lock"
+local INDEX_LOCK_TTL = 5
 
 local function shared()
     return ngx.shared[CANDIDATE_DICT]
+end
+
+local function locks()
+    return ngx.shared.vn_locks
+end
+
+local function index_lock()
+    local l = locks()
+    if not l then return false end
+    local wid = (ngx.worker and ngx.worker.id and ngx.worker.id()) or 0
+    return l:add(INDEX_LOCK_KEY, wid, INDEX_LOCK_TTL)
+end
+
+local function index_unlock()
+    local l = locks()
+    if l then l:delete(INDEX_LOCK_KEY) end
 end
 
 -- Build composite key from IP and policy.
@@ -84,6 +102,37 @@ local function compact_index()
     end
 end
 
+-- Add the composite key to the candidate index under the index lock.
+-- Returns false if the lock could not be acquired within the retry budget
+-- (caller must abort the upsert rather than leave an entry missing from the
+-- index, which would make it undiscoverable by reconcile/list).
+local function index_add_under_lock(ip, policy)
+    local s = shared()
+    if not s then return false end
+    local retries = 0
+    while not index_lock() do
+        retries = retries + 1
+        if retries > 500 then
+            ngx.log(ngx.ERR, "kb: candidate index lock unavailable after ",
+                retries, " retries")
+            return false
+        end
+        ngx.sleep(0.002)
+    end
+    local idx_raw = s:get(INDEX_KEY) or "[]"
+    local ok, idx = pcall(json.decode, idx_raw)
+    if not ok or type(idx) ~= "table" then idx = {} end
+    local idx_key = ip .. ":" .. policy
+    local found = false
+    for _, v in ipairs(idx) do if v == idx_key then found = true; break end end
+    if not found and #idx < MAX_CANDIDATES then
+        idx[#idx + 1] = idx_key
+        s:set(INDEX_KEY, json.encode(idx), INDEX_TTL)
+    end
+    index_unlock()
+    return true
+end
+
 -- ---------------------------------------------------------------------------
 -- Upsert a candidate/desired-state entry.
 -- @param ip string
@@ -115,16 +164,18 @@ function _M.upsert(ip, policy, state, evidence, extra)
     local ttl = extra.expires_at and math.max(extra.expires_at - ngx.time(), 60)
         or INDEX_TTL
     s:set(key, json.encode(entry), ttl)
-    -- Add to index (append-only; dedup on next read)
-    local idx_raw = s:get(INDEX_KEY) or "[]"
-    local ok, idx = pcall(json.decode, idx_raw)
-    if not ok or type(idx) ~= "table" then idx = {} end
-    local idx_key = ip .. ":" .. policy
-    local found = false
-    for _, v in ipairs(idx) do if v == idx_key then found = true; break end end
-    if not found and #idx < MAX_CANDIDATES then
-        idx[#idx + 1] = idx_key
-        s:set(INDEX_KEY, json.encode(idx), INDEX_TTL)
+    -- Add to index (append-only; dedup on next read) under the index lock so
+    -- concurrent first-time upserts from multiple workers cannot both append
+    -- the same composite key. The lock auto-expires (INDEX_LOCK_TTL); treat a
+    -- timeout conservatively by failing the whole upsert rather than silently
+    -- dropping the index membership.
+    local ok_idx = index_add_under_lock(ip, policy)
+    if not ok_idx then
+        -- Never leave an entry that its index can't discover; remove it and
+        -- surface the failure. State entries are re-derived every cycle, so
+        -- dropping one is self-healing on the next reconciliation.
+        s:delete(key)
+        return false, "index lock unavailable"
     end
     return true
 end

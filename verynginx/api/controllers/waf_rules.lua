@@ -347,6 +347,18 @@ local function handle_confirm_waf_rule()
     local updated = false
     for _, rule in ipairs(rules) do
         if rule.id == rule_id then
+            -- Build a candidate (existing + proposed) and validate it before
+            -- mutating the live rule; reject invalid proposals entirely.
+            local candidate = {}
+            for k, v in pairs(rule) do candidate[k] = v end
+            for k, v in pairs(pending.proposed) do
+                if k ~= "id" then candidate[k] = v end
+            end
+            local vok, verr = waf_manager.validate_rule(candidate)
+            if not vok then
+                ngx.status = 400
+                return json.encode({ ret = "failed", message = "invalid proposed change: " .. tostring(verr) })
+            end
             for k, v in pairs(pending.proposed) do
                 if k ~= "id" then
                     rule[k] = v

@@ -315,7 +315,7 @@ function _M.apply(id)
     local rules_obj = waf_manager.load_rules()
     local rules = rules_obj and rules_obj.rules or {}
     table.insert(rules, rule)
-    local ok, err = waf_manager.save_rules(rules_obj.version, rules)
+    local ok, err = waf_manager.save_rules(rules)
     if not ok then
         return false, "save failed: " .. tostring(err)
     end

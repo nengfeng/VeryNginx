@@ -8,6 +8,7 @@ function _G.ngx.log() end
 _G.ngx.WARN = 6; _G.ngx.ERR = 5
 _G.ngx.INFO = 7
 _G.ngx.time = function() return 1700000000 end
+_G.ngx.sleep = function() end
 _G.ngx.shared = setmetatable({_cache = {}}, {
     __index = function(t, name)
         if not t._cache[name] then
@@ -311,5 +312,42 @@ describe("Promotion writes desired_state", function()
         assert.are.equal("scanner_drop", d.list)
         local ok = mock.contains("scanner_drop", "ipv4", "203.0.113.10")
         assert.is_true(ok)
+    end)
+end)
+
+describe("index membership is never silently dropped", function()
+    before_each(function()
+        ngx.shared.vn_config:flush_all()
+        ngx.shared.vn_locks:flush_all()
+    end)
+
+    it("desired set fails cleanly when the desired index lock cannot be acquired", function()
+        -- Hold the index lock so index_add must exhaust its retry budget.
+        ngx.shared.vn_locks:add("kb:desired_index_lock", 999, 10)
+        local ok, err = desired.set_desired("198.51.100.9", "ipv4", "scanner_drop", {}, 600)
+        assert.is_false(ok)
+        assert.matches("failed to record", tostring(err))
+        -- No orphaned entry: the state key must not exist without an index entry.
+        assert.is_nil(ngx.shared.vn_config:get("kb:desired:ipv4:scanner_drop:198.51.100.9"))
+        assert.is_nil(ngx.shared.vn_config:get("kb:desired_index"))
+    end)
+
+    it("state machine upsert fails cleanly when the candidate index lock cannot be acquired", function()
+        ngx.shared.vn_locks:add("kb:candidate_index_lock", 999, 10)
+        local ok, err = sm.upsert("198.51.100.10", "scanner", "candidate", {}, {})
+        assert.is_false(ok)
+        assert.matches("index lock unavailable", tostring(err))
+        assert.is_nil(ngx.shared.vn_config:get("kb:candidate:198.51.100.10:scanner"))
+        assert.is_nil(ngx.shared.vn_config:get("kb:candidate_index"))
+    end)
+
+    it("state machine upsert succeeds once the lock is released", function()
+        ngx.shared.vn_locks:add("kb:candidate_index_lock", 999, 10)
+        sm.upsert("198.51.100.11", "scanner", "candidate", {}, {})
+        assert.is_nil(ngx.shared.vn_config:get("kb:candidate:198.51.100.11:scanner"))
+        ngx.shared.vn_locks:delete("kb:candidate_index_lock")
+        local ok, err = sm.upsert("198.51.100.11", "scanner", "candidate", {}, {})
+        assert.is_true(ok, tostring(err))
+        assert.truthy(ngx.shared.vn_config:get("kb:candidate:198.51.100.11:scanner"))
     end)
 end)

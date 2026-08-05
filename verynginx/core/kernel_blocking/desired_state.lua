@@ -57,20 +57,30 @@ local function state_key(ip, family, list)
     return DESIRED_STATE_PREFIX .. family .. ":" .. list .. ":" .. ip
 end
 
+-- Add the key to the desired-state index under the index lock. The entry is
+-- only discoverable by reconcile/list via this index, so a silent drop here
+-- would render it invisible forever. Returns false (and logs an error) if the
+-- lock could not be acquired within the retry budget so the caller can fail
+-- the whole desired-state write instead of leaving an orphaned entry.
 local function index_add(key)
     local retries = 0
     while not index_lock() do
         retries = retries + 1
-        if retries > 100 then return end
-        ngx.sleep(0.001)
+        if retries > 500 then
+            ngx.log(ngx.ERR, "kb: desired index lock unavailable after ",
+                retries, " retries for ", key)
+            return false
+        end
+        ngx.sleep(0.002)
     end
     local idx = index_read()
     for _, v in ipairs(idx) do
-        if v == key then index_unlock(); return end
+        if v == key then index_unlock(); return true end
     end
     idx[#idx + 1] = key
     index_write(idx)
     index_unlock()
+    return true
 end
 
 local function index_remove(key)
@@ -156,7 +166,13 @@ function _M.set_desired(ip, family, list, evidence, ttl, extra)
         store_ttl = math.max(entry.expires_at - now, 60)
     end
     s:set(key, json.encode(entry), store_ttl)
-    index_add(key)
+    local idx_ok = index_add(key)
+    if not idx_ok then
+        -- Entry already written but not indexed; remove it so reconcile has no
+        -- dangling record, and surface the failure to the caller.
+        s:delete(key)
+        return false, "failed to record desired-state index entry"
+    end
     return true
 end
 

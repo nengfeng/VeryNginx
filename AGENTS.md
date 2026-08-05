@@ -99,6 +99,16 @@ for _, route in ipairs(routes) do
 end
 ```
 
+### 2.5 速率限制 key 必须用路由模式（`route.path`），而非实际 URI
+
+API 中间件限速 bucket 若用实际请求路径（如 `/waf/rules/123`）构造 key，攻击者可通过改 `:id` 变出无限 bucket 绕过限速。必须用 `route.path`（路由模式 `/waf/rules/:id`）。
+
+**正确**：
+```lua
+local rl_key = "api:" .. method .. ":" .. route.path .. ":" .. tostring(user)
+```
+> 认证分支（api/init.lua:87 附近）与非认证分支（按 IP）都如此。`route.path` 由 `_M.register` 存的是模式字符串。
+
 ### 2.2 `waf_rule_id` 通过 `ngx.ctx` 传递
 
 参数化路由捕获的值放入 `ngx.ctx.waf_rule_id`，handler 通过它读取。不同 controller 不要共用该值。
@@ -612,6 +622,8 @@ verynginx/core/kernel_blocking/
 ### 12.2 关键经验教训
 
 - **Add 操作必须 3 阶段提交**：先 nft 成功 → 再更新 in-memory state。之前先更新内存再执行 nft，失败后状态漂移。
+- **candidate/desired 索引追加必须在 index 锁内做 RMW**：`state_machine.upsert` 曾直接在锁外 get→decode→append→set `INDEX_KEY`，多 worker 并发首插同一复合键会重复追加（配合 `INDEX_TTL` 看似收敛，实际索引无界增长）。现经 `index_add_under_lock`（锁 `kb:candidate_index_lock` 于 vn_locks）原子追加。
+- **索引锁超时不得静默失败**：`desired_state.index_add` / `state_machine.index_add_under_lock` 曾 `retries>100 直接 return`，条目已写而索引未记 → reconcile 无法发现（悬空条目）。现改为：更宽松预算（500×2ms）+ 超时记 `ngx.ERR` 并返回 false；调用方 `set_desired`/`upsert` 收到 false 后**回滚已写条目并上抛错误**，绝不留下有条目无索引的记录（悬空对 reconcile 永远不可见）。
 - **`compact_index` 定期清理候选索引**：candidate index 只追加不删除，必须每 300 秒扫描并移除过期条目。
 - **`scope_digest` 使用 newline-joined SHA256**：Go 端 `computeScopeDigest` 必须与 Lua `scope_binding.compute_scope_digest` 字节一致（`scope=...\naddrs=...\nports=...\n...\nsha256`）。
 - **`is_array({})` 返回 true**：schema 中空 table 判定为 array，影响默认值归一化行为。
