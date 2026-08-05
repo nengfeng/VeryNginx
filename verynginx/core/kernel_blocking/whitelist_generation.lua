@@ -23,11 +23,22 @@ local CACHE_TTL = 60  -- seconds
 
 -- ---------------------------------------------------------------------------
 -- Get the current {epoch, sequence}. Creates epoch on first call.
+--
+-- The epoch is stable across graceful reloads (init_epoch preserves it via
+-- add()), so it is cached worker-locally: only the sequence (which changes on
+-- every whitelist mutation) still requires a shared read per call. This trims
+-- two shared reads per cache_key() on the hot is_whitelisted() path.
 -- ---------------------------------------------------------------------------
+local _epoch_cache = nil  -- worker-local copy; refreshed by init_epoch
+
 function _M.get_generation()
     local s = ngx.shared[SHARED_DICT]
     if not s then return nil, nil end
-    local epoch = s:get(EPOCH_KEY)
+    local epoch = _epoch_cache
+    if epoch == nil then
+        epoch = s:get(EPOCH_KEY)
+        _epoch_cache = epoch
+    end
     local seq = s:get(SEQ_KEY)
     return epoch, seq and tonumber(seq) or 0
 end
@@ -41,6 +52,7 @@ function _M.init_epoch()
     if not s then return nil, nil end
     local existing = s:get(EPOCH_KEY)
     if existing then
+        _epoch_cache = existing
         local seq = s:get(SEQ_KEY)
         return existing, seq and tonumber(seq) or 0
     end
@@ -48,6 +60,7 @@ function _M.init_epoch()
     -- add() = create-if-absent; preserves epoch across graceful reload
     s:add(EPOCH_KEY, epoch, 0)  -- 0 TTL = never expire
     s:add(SEQ_KEY, 1, 0)
+    _epoch_cache = epoch
     return epoch, 1
 end
 

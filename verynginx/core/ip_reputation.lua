@@ -218,13 +218,21 @@ local function current_slot()
     return math.floor(ngx.time() / slot_size())
 end
 
+local _slot_cache_slot = nil
+local _slot_cache_keys = nil
+
 local function slot_keys()
     local slot = current_slot()
+    if slot == _slot_cache_slot and _slot_cache_keys then
+        return _slot_cache_keys
+    end
     local n = num_slots()
     local keys = {}
     for i = 0, n - 1 do
         keys[i + 1] = slot - i
     end
+    _slot_cache_slot = slot
+    _slot_cache_keys = keys
     return keys
 end
 
@@ -559,31 +567,48 @@ function _M.remove_whitelist(entry)
     wlg.bump_sequence()
 end
 
+-- Parse a dotted-quad IPv4 to its integer form, or nil if not a valid IPv4.
+local function parse_ipv4(s)
+    local a, b, c, d = s:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    if not a then return nil end
+    return (tonumber(a) * 16777216) + (tonumber(b) * 65536) + (tonumber(c) * 256) + tonumber(d)
+end
+
+-- Worker-local CIDR parse cache: the parsed subnet+mask depend only on the
+-- CIDR string, which is immutable for a given whitelist entry, so this never
+-- goes stale even when the whitelist is hot-reloaded. Avoids re-running the
+-- string regex + mask loop for every IP lookup against every entry.
+local cidr_parse_cache = {}
+
+local function cidr_mask(cidr)
+    local parsed = cidr_parse_cache[cidr]
+    if parsed ~= nil then return parsed end
+    local result
+    local pos = cidr:find("/")
+    if pos then
+        local subnet = parse_ipv4(cidr:sub(1, pos - 1))
+        local bits = tonumber(cidr:sub(pos + 1))
+        if subnet and bits then
+            local mask = 0
+            for _ = 1, bits do
+                mask = (mask * 2) + 1
+            end
+            result = { subnet = subnet, mask = mask * (2 ^ (32 - bits)) }
+        end
+    end
+    cidr_parse_cache[cidr] = result
+    return result
+end
+
 local function ip_in_cidr(ip, cidr)
     if ip == cidr then
         return true
     end
-    local pos = cidr:find("/")
-    if not pos then
-        return false
-    end
-    local subnet_str = cidr:sub(1, pos - 1)
-    local bits = tonumber(cidr:sub(pos + 1))
-    if not bits then return false end
-    local function ip_to_num(s)
-        local a, b, c, d = s:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-        if not a then return nil end
-        return (tonumber(a) * 16777216) + (tonumber(b) * 65536) + (tonumber(c) * 256) + tonumber(d)
-    end
-    local ip_num = ip_to_num(ip)
-    local subnet_num = ip_to_num(subnet_str)
-    if not ip_num or not subnet_num then return false end
-    local mask = 0
-    for _ = 1, bits do
-        mask = (mask * 2) + 1
-    end
-    mask = mask * (2 ^ (32 - bits))
-    return bit.band(ip_num, mask) == bit.band(subnet_num, mask)
+    local ip_num = parse_ipv4(ip)
+    if not ip_num then return false end
+    local c = cidr_mask(cidr)
+    if not c then return false end
+    return bit.band(ip_num, c.mask) == bit.band(c.subnet, c.mask)
 end
 
 function _M.is_whitelisted(ip)
