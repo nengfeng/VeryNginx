@@ -140,26 +140,23 @@ local function json_index_add_unlocked(s, index_key, ip, ttl, is_live, force_ren
     return true
 end
 
-local function json_index_remove(index_key, ip, ttl)
-    local s = shared()
-    if not s then return end
-    return with_index_lock(function()
-        local raw = s:get(index_key)
-        if not raw then return end
-        local ok, list = pcall(json.decode, raw)
-        if not ok or type(list) ~= "table" then return end
-        local filtered = {}
-        for _, v in ipairs(list) do
-            if v ~= ip then table.insert(filtered, v) end
-        end
-        if #filtered > 0 then
-            -- Write back with the class TTL so the index keeps auto-expiring
-            -- (a nil TTL here would make the key immortal until next add).
-            s:set(index_key, json.encode(filtered), ttl)
-        else
-            s:delete(index_key)
-        end
-    end)
+-- Core JSON-index remove (RMW). Callers must hold the index lock.
+local function json_index_remove_unlocked(s, index_key, ip, ttl)
+    local raw = s:get(index_key)
+    if not raw then return end
+    local ok, list = pcall(json.decode, raw)
+    if not ok or type(list) ~= "table" then return end
+    local filtered = {}
+    for _, v in ipairs(list) do
+        if v ~= ip then table.insert(filtered, v) end
+    end
+    if #filtered > 0 then
+        -- Write back with the class TTL so the index keeps auto-expiring
+        -- (a nil TTL here would make the key immortal until next add).
+        s:set(index_key, json.encode(filtered), ttl)
+    else
+        s:delete(index_key)
+    end
 end
 
 local function pending_index_key(ip)
@@ -186,8 +183,13 @@ end
 local function remove_from_pending_index(ip)
     local s = shared()
     if not s then return end
-    s:delete(pending_index_key(ip))
-    json_index_remove("ip_rep:pending_index", ip, cfg_val("pending_ttl"))
+    -- Delete the per-IP key and the index entry in one lock-held critical
+    -- section (mirrors add_to_pending_index), so a concurrent add/remove of the
+    -- same IP cannot leave a transient window where the two disagree.
+    with_index_lock(function()
+        s:delete(pending_index_key(ip))
+        json_index_remove_unlocked(s, "ip_rep:pending_index", ip, cfg_val("pending_ttl"))
+    end)
     s:incr("ip_rep:pi_version", 1, 0, 0)
 end
 
@@ -456,8 +458,13 @@ end
 local function remove_from_flagged_index(ip)
     local s = shared()
     if not s then return end
-    s:delete(flagged_idx_key(ip))
-    json_index_remove("ip_rep:flagged_index", ip, cfg_val("flag_duration"))
+    -- Per-IP delete + index remove in one lock-held section (mirrors
+    -- add_to_flagged_index) to avoid a transient index/per-IP disagreement
+    -- under concurrent flag/clear of the same IP.
+    with_index_lock(function()
+        s:delete(flagged_idx_key(ip))
+        json_index_remove_unlocked(s, "ip_rep:flagged_index", ip, cfg_val("flag_duration"))
+    end)
 end
 
 function _M.flag_ip(ip, duration)

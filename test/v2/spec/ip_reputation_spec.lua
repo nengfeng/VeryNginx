@@ -330,6 +330,56 @@ describe("ip_reputation", function()
 
     end)
 
+    describe("per-IP key and JSON index stay in sync on remove", function()
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+            local cfg = require("core.config")
+            cfg.ip_reputation.pending_ttl = 60
+        end)
+
+        after_each(function()
+            local cfg = require("core.config")
+            cfg.ip_reputation.pending_ttl = nil
+        end)
+
+        it("clear_pending removes both the per-IP key and the index entry", function()
+            local s = ngx.shared.ip_reputation
+            local json = (pcall(require, "cjson") and require("cjson")) or require("dkjson")
+            rep.set_pending("10.0.8.1")
+            assert.is_true(rep.has_pending("10.0.8.1"),
+                "per-IP pending key should exist after set")
+            rep.clear_pending("10.0.8.1")
+            assert.is_false(rep.has_pending("10.0.8.1"))
+            local raw = s:get("ip_rep:pending_index")
+            local idx = {}
+            if raw then
+                local okd, dec = pcall(json.decode, raw)
+                assert.is_true(okd)
+                idx = dec or {}
+            end
+            assert.is_nil(idx["10.0.8.1"], "pending index must not retain the cleared IP")
+        end)
+
+        it("clear_ip removes both the per-IP flag key and the flag index entry", function()
+            local s = ngx.shared.ip_reputation
+            local json = (pcall(require, "cjson") and require("cjson")) or require("dkjson")
+            rep.flag_ip("10.0.8.2", 600)
+            assert.is_true(rep.is_flagged("10.0.8.2"))
+            rep.clear_ip("10.0.8.2")
+            assert.is_false(rep.is_flagged("10.0.8.2"))
+            local raw = s:get("ip_rep:flagged_index")
+            local idx = {}
+            if raw then
+                local okd, dec = pcall(json.decode, raw)
+                assert.is_true(okd)
+                idx = dec or {}
+            end
+            assert.is_nil(idx["10.0.8.2"], "flag index must not retain the cleared IP")
+        end)
+
+    end)
+
     describe("flagged index compaction (dead-entry pruning)", function()
 
         before_each(function()
