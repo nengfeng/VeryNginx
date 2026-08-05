@@ -116,6 +116,7 @@ function _M.init_worker()
     geoip_updater.init()
     if ngx.worker.id() == 0 then
         local kb = require "core.kernel_blocking.init"
+        local wlg = require "core.kernel_blocking.whitelist_generation"
 
         -- Unified persistence every 600s (ip reputation + kernel blocking)
         -- Fixed interval: timer.every is fine (not hot-reloaded).
@@ -123,6 +124,14 @@ function _M.init_worker()
             if premature or ngx.worker.exiting() then return end
             pcall(function() ip_reputation.persist() end)
             pcall(function() kb.persist() end)
+        end)
+
+        -- Periodically refresh the kernel allow snapshot so expired
+        -- auto-whitelist entries drop out of the Helper allow list without
+        -- waiting for the next whitelist change to bump the sequence.
+        ngx.timer.every(60, function(premature)
+            if premature or ngx.worker.exiting() then return end
+            pcall(function() wlg.push_allow_snapshot() end)
         end)
 
         -- Helper bootstrap then first reconcile (Design §10.3)

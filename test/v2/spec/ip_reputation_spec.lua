@@ -237,6 +237,42 @@ describe("ip_reputation", function()
             assert.is_true(rep.is_whitelisted("10.0.2.4"))
         end)
 
+        it("keeps live keys and the allow snapshot index in sync (no divergence)", function()
+            local s = ngx.shared.ip_reputation
+            local json = (pcall(require, "cjson") and require("cjson")) or require("dkjson")
+
+            -- Fill to cap (2/2), then try a third IP that must be rejected
+            rep.record_challenge_pass("10.0.2.2")
+            rep.record_challenge_pass("10.0.2.2")
+            rep.record_challenge_pass("10.0.2.3")
+            rep.record_challenge_pass("10.0.2.3")
+            rep.record_challenge_pass("10.0.2.4")
+            rep.record_challenge_pass("10.0.2.4")
+
+            assert.is_true(rep.is_whitelisted("10.0.2.2"))
+            assert.is_true(rep.is_whitelisted("10.0.2.3"))
+            assert.is_false(rep.is_whitelisted("10.0.2.4"))
+
+            -- The excluded IP must have neither a live key nor an index entry
+            assert.is_nil(s:get("ip_rep:awl:10.0.2.4"))
+
+            local raw = s:get("ip_rep:awl_index")
+            assert.is_not_nil(raw)
+            local ok, idx = pcall(json.decode, raw)
+            assert.is_true(ok, "awl_index must be valid JSON")
+            assert.equals(2, #idx)
+
+            local seen = {}
+            for _, eip in ipairs(idx) do
+                seen[eip] = true
+                -- Every index entry must have a live key (snapshot source of truth)
+                assert.is_not_nil(s:get("ip_rep:awl:" .. eip), "index entry missing live key")
+            end
+            assert.is_true(seen["10.0.2.2"])
+            assert.is_true(seen["10.0.2.3"])
+            assert.is_nil(seen["10.0.2.4"], "excluded IP must not appear in the index")
+        end)
+
     end)
 
     describe("restore() rebuilds JSON indices", function()

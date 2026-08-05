@@ -76,6 +76,11 @@ local function with_index_lock(fn)
     end
     local token = index_lock_acquire(s)
     if not token then
+        -- Best-effort fallback: without the lock a concurrent RMW could be
+        -- lost. Log so sustained contention is visible, but still attempt the
+        -- operation rather than dropping the entry outright.
+        ngx.log(ngx.WARN, "ip_reputation: index lock not acquired after ",
+                INDEX_LOCK_MAX_RETRIES, " retries; proceeding without lock")
         return fn()
     end
     local ok, result = pcall(fn)
@@ -350,18 +355,29 @@ function _M.record_challenge_pass(ip)
                 compacted[#compacted + 1] = eip
             end
         end
-        if not existing and #compacted < awl.max_entries then
-            compacted[#compacted + 1] = ip
+        if existing then
+            -- Already whitelisted: refresh index TTL only, keep live key as-is.
             s:set(AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
-            return true
+            return false
         end
+        if #compacted >= awl.max_entries then
+            -- Cap reached: never publish the live key for an IP that is not in
+            -- the index, or the app layer (is_whitelisted) and the kernel allow
+            -- snapshot (index-driven) would diverge.
+            s:set(AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
+            return false
+        end
+        -- Publish live key + index in the same critical section so no window
+        -- exists where is_whitelisted (reads the live key) disagrees with the
+        -- allow snapshot (reads the index).
+        compacted[#compacted + 1] = ip
+        s:set("ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
+        s:set("ip_rep:awl_ttl:" .. ip, awl.ttl, awl.ttl)
         s:set(AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
-        return false
+        return true
     end)
 
     if added then
-        s:set("ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
-        s:set("ip_rep:awl_ttl:" .. ip, awl.ttl, awl.ttl)
         wlg.bump_sequence()
     end
 end
