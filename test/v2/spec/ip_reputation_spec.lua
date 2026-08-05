@@ -177,4 +177,66 @@ describe("ip_reputation", function()
 
     end)
 
+    describe("auto_whitelist", function()
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+            -- Initialize epoch so whitelist caches are generation-qualified
+            -- and bump_sequence() actually invalidates them.
+            require("core.kernel_blocking.whitelist_generation").init_epoch()
+            local cfg = require("core.config")
+            cfg.ip_reputation.auto_whitelist = {
+                enabled = true,
+                threshold = 2,
+                ttl = 60,
+                max_entries = 2,
+            }
+        end)
+
+        after_each(function()
+            local cfg = require("core.config")
+            cfg.ip_reputation.auto_whitelist = nil
+        end)
+
+        it("whitelists an IP after threshold passes", function()
+            local ip = "10.0.2.1"
+            assert.is_false(rep.is_whitelisted(ip))
+            rep.record_challenge_pass(ip)
+            assert.is_false(rep.is_whitelisted(ip))
+            rep.record_challenge_pass(ip)
+            assert.is_true(rep.is_whitelisted(ip))
+        end)
+
+        it("caps simultaneous auto-whitelisted IPs at max_entries", function()
+            rep.record_challenge_pass("10.0.2.2")
+            rep.record_challenge_pass("10.0.2.2")  -- added (1/2)
+            rep.record_challenge_pass("10.0.2.3")
+            rep.record_challenge_pass("10.0.2.3")  -- added (2/2)
+            rep.record_challenge_pass("10.0.2.4")
+            rep.record_challenge_pass("10.0.2.4")  -- threshold reached, cap full -> not added
+            assert.is_true(rep.is_whitelisted("10.0.2.2"))
+            assert.is_true(rep.is_whitelisted("10.0.2.3"))
+            assert.is_false(rep.is_whitelisted("10.0.2.4"))
+        end)
+
+        it("self-heals: expired entries free up capacity (no counter leak)", function()
+            -- Fill to cap
+            rep.record_challenge_pass("10.0.2.2")
+            rep.record_challenge_pass("10.0.2.2")
+            rep.record_challenge_pass("10.0.2.3")
+            rep.record_challenge_pass("10.0.2.3")
+
+            -- Simulate both entries expiring from the shared dict
+            local s = ngx.shared.ip_reputation
+            s:delete("ip_rep:awl:10.0.2.2")
+            s:delete("ip_rep:awl:10.0.2.3")
+
+            -- Capacity must be free again despite prior whitelist history
+            rep.record_challenge_pass("10.0.2.4")
+            rep.record_challenge_pass("10.0.2.4")
+            assert.is_true(rep.is_whitelisted("10.0.2.4"))
+        end)
+
+    end)
+
 end)

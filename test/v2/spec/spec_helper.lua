@@ -100,6 +100,12 @@ local function make_shared_dict(name)
         add = function(_, key, val)
             if store[key] then return false end
             store[key] = val
+            -- Seed the counter table so a subsequent incr() on a key created
+            -- via add() increments the stored value (mirrors OpenResty, where
+            -- init_epoch() uses add(SEQ_KEY, 1) then bump_sequence() incr's it).
+            if not counters[key] and type(val) == "number" then
+                counters[key] = val
+            end
             return true
         end,
         incr = function(_, key, delta, init, ttl)

@@ -4,6 +4,7 @@ local config = require "core.config"
 local bit = require "bit"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local wlg = require "core.kernel_blocking.whitelist_generation"
+local random = require "core.random"
 local DEFAULTS = {
     slot_size = 60,
     window_size = 300,
@@ -30,9 +31,59 @@ local SHARED_DICT_NAME = "ip_reputation"
 local CACHE_TTL = 10
 local SCORE_CACHE_TTL = 2
 local MAX_UA_DISTINCT = 20
+local AWL_INDEX_KEY = "ip_rep:awl_index"
 
 local function shared()
     return ngx.shared[SHARED_DICT_NAME]
+end
+
+-- ---------------------------------------------------------------------------
+-- JSON index mutex: serializes read-modify-write on shared list keys across
+-- workers (avoid lost updates / TOCTOU). Uses vn_locks shared dict.
+-- Falls back to a best-effort un-locked RMW if the lock cannot be acquired.
+-- ---------------------------------------------------------------------------
+local INDEX_LOCK_DICT = "vn_locks"
+local INDEX_LOCK_KEY = "ip_rep:index_lock"
+local INDEX_LOCK_TTL = 5
+local INDEX_LOCK_SLEEP = 0.001
+local INDEX_LOCK_MAX_RETRIES = 100
+
+local function index_lock_acquire(s)
+    local token = random.bytes(8)
+    local attempts = 0
+    while attempts < INDEX_LOCK_MAX_RETRIES do
+        if s:add(INDEX_LOCK_KEY, token, INDEX_LOCK_TTL) then
+            return token
+        end
+        attempts = attempts + 1
+        if ngx.sleep then
+            ngx.sleep(INDEX_LOCK_SLEEP)
+        end
+    end
+    return nil
+end
+
+local function index_lock_release(s, token)
+    if s:get(INDEX_LOCK_KEY) == token then
+        s:delete(INDEX_LOCK_KEY)
+    end
+end
+
+local function with_index_lock(fn)
+    local s = ngx.shared[INDEX_LOCK_DICT]
+    if not s then
+        return fn()
+    end
+    local token = index_lock_acquire(s)
+    if not token then
+        return fn()
+    end
+    local ok, result = pcall(fn)
+    index_lock_release(s, token)
+    if ok then
+        return result
+    end
+    return nil, result
 end
 
 local cfg_val -- forward declare (defined below add_to_pending_index)
@@ -40,35 +91,39 @@ local cfg_val -- forward declare (defined below add_to_pending_index)
 local function json_index_add(index_key, ip, ttl)
     local s = shared()
     if not s then return end
-    local raw = s:get(index_key)
-    local list = {}
-    if raw then
-        local ok, decoded = pcall(json.decode, raw)
-        if ok and type(decoded) == "table" then list = decoded end
-    end
-    for _, v in ipairs(list) do
-        if v == ip then return end
-    end
-    table.insert(list, ip)
-    s:set(index_key, json.encode(list), ttl)
+    return with_index_lock(function()
+        local raw = s:get(index_key)
+        local list = {}
+        if raw then
+            local ok, decoded = pcall(json.decode, raw)
+            if ok and type(decoded) == "table" then list = decoded end
+        end
+        for _, v in ipairs(list) do
+            if v == ip then return end
+        end
+        table.insert(list, ip)
+        s:set(index_key, json.encode(list), ttl)
+    end)
 end
 
 local function json_index_remove(index_key, ip)
     local s = shared()
     if not s then return end
-    local raw = s:get(index_key)
-    if not raw then return end
-    local ok, list = pcall(json.decode, raw)
-    if not ok or type(list) ~= "table" then return end
-    local filtered = {}
-    for _, v in ipairs(list) do
-        if v ~= ip then table.insert(filtered, v) end
-    end
-    if #filtered > 0 then
-        s:set(index_key, json.encode(filtered))
-    else
-        s:delete(index_key)
-    end
+    return with_index_lock(function()
+        local raw = s:get(index_key)
+        if not raw then return end
+        local ok, list = pcall(json.decode, raw)
+        if not ok or type(list) ~= "table" then return end
+        local filtered = {}
+        for _, v in ipairs(list) do
+            if v ~= ip then table.insert(filtered, v) end
+        end
+        if #filtered > 0 then
+            s:set(index_key, json.encode(filtered))
+        else
+            s:delete(index_key)
+        end
+    end)
 end
 
 local function pending_index_key(ip)
@@ -267,6 +322,9 @@ end
 
 --- Track consecutive challenge pass (for auto-whitelist).
 -- Increments a counter; when it reaches threshold, adds IP to auto-whitelist.
+-- The live entry list is kept in a JSON index (ip_rep:awl_index) maintained
+-- under the index lock, so the max_entries cap is enforced on *live* entries
+-- and self-heals as entries expire (no unbounded counter leak).
 function _M.record_challenge_pass(ip)
     local awl = raw_cfg().auto_whitelist or DEFAULTS.auto_whitelist
     if not awl.enabled then return end
@@ -274,17 +332,38 @@ function _M.record_challenge_pass(ip)
     if not s then return end
     local key = "ip_rep:awl_count:" .. ip
     local count = s:incr(key, 1, 0, awl.ttl)
-    if count >= awl.threshold then
-        -- Atomic max-entries check: individual key + dedicated counter (avoid JSON RMW)
-        local current_count = tonumber(s:get("ip_rep:awl_total") or 0)
-        if not current_count or current_count < awl.max_entries then
-            local added = s:add("ip_rep:awl_idx:" .. ip, "1", awl.ttl)
-            if added then
-                s:set("ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
-                s:incr("ip_rep:awl_total", 1, 0, 0)
+    if count < awl.threshold then
+        return
+    end
+    s:delete(key)
+
+    local added = with_index_lock(function()
+        local raw = s:get(AWL_INDEX_KEY)
+        local list = {}
+        if raw then
+            local ok, decoded = pcall(json.decode, raw)
+            if ok and type(decoded) == "table" then list = decoded end
+        end
+        local compacted = {}
+        local existing = false
+        for _, eip in ipairs(list) do
+            if s:get("ip_rep:awl:" .. eip) then
+                if eip == ip then existing = true end
+                compacted[#compacted + 1] = eip
             end
         end
-        s:delete(key)
+        if not existing and #compacted < awl.max_entries then
+            compacted[#compacted + 1] = ip
+            s:set(AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
+            return true
+        end
+        s:set(AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
+        return false
+    end)
+
+    if added then
+        s:set("ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
+        s:set("ip_rep:awl_ttl:" .. ip, awl.ttl, awl.ttl)
         wlg.bump_sequence()
     end
 end
