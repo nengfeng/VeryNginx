@@ -596,11 +596,20 @@ function _M.is_whitelisted(ip)
     end
     -- Check auto-whitelist (ephemeral, for repeatedly verified IPs)
     local s = shared()
-    if s and s:get("ip_rep:awl:" .. ip) then
-        -- Limit positive cache TTL to auto-whitelist remaining TTL
-        local awl_ttl = s:get("ip_rep:awl_ttl:" .. ip)
-        wlg.cache_set(ip, true, awl_ttl or 60)
-        return true
+    if s then
+        local created = s:get("ip_rep:awl:" .. ip)
+        if created then
+            local awl_ttl = s:get("ip_rep:awl_ttl:" .. ip) or DEFAULTS.auto_whitelist.ttl
+            local remaining = awl_ttl - (ngx.time() - created)
+            if remaining > 0 then
+                -- Limit positive cache TTL to the auto-whitelist *remaining* TTL,
+                -- not the full awl.ttl: awl entry expiry does not bump the
+                -- generation sequence, so a full-TTL cache here would let the IP
+                -- stay allow-listed up to a second full awl.ttl after it expired.
+                wlg.cache_set(ip, true, remaining)
+                return true
+            end
+        end
     end
     wlg.cache_set(ip, false)
     return false

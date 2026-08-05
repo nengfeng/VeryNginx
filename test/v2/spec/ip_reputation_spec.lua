@@ -421,4 +421,59 @@ describe("ip_reputation", function()
 
     end)
 
+    describe("is_whitelisted auto-whitelist cache TTL", function()
+
+        local real_time
+        local fake_time = 1700000000
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+            require("core.kernel_blocking.whitelist_generation").init_epoch()
+            fake_time = 1700000000
+            local cfg = require("core.config")
+            cfg.ip_reputation.auto_whitelist = {
+                enabled = true,
+                threshold = 2,
+                ttl = 60,
+                max_entries = 2,
+            }
+        end)
+
+        after_each(function()
+            local cfg = require("core.config")
+            cfg.ip_reputation.auto_whitelist = nil
+        end)
+
+        setup(function()
+            real_time = ngx.time
+            _G.ngx.time = function() return fake_time end
+        end)
+
+        teardown(function()
+            _G.ngx.time = real_time
+        end)
+
+        it("returns true while the awl entry is still valid", function()
+            rep.record_challenge_pass("10.0.3.1")
+            rep.record_challenge_pass("10.0.3.1")
+            assert.is_true(rep.is_whitelisted("10.0.3.1"))
+        end)
+
+        it("does not keep allow-listing after the awl entry expires", function()
+            rep.record_challenge_pass("10.0.3.2")
+            rep.record_challenge_pass("10.0.3.2")
+            assert.is_true(rep.is_whitelisted("10.0.3.2"))
+            -- Simulate the positive cache TTL (capped at the remaining awl TTL)
+            -- elapsing: the stub never expires dict keys, so invalidate the
+            -- generation-qualified cache by bumping the sequence.
+            require("core.kernel_blocking.whitelist_generation").bump_sequence()
+            -- Advance the clock past the full awl.ttl (60s). The live awl key
+            -- is still present in the stub; remaining TTL must be computed from
+            -- the stored creation time, not cached for a second full awl.ttl.
+            fake_time = fake_time + 120
+            assert.is_false(rep.is_whitelisted("10.0.3.2"))
+        end)
+
+    end)
+
 end)
