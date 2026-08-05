@@ -81,7 +81,9 @@ describe("IPC Protocol client (mock socket)", function()
         _G.ngx.socket = {
             tcp = function()
                 local conn = {}
+                local resp_buf = ""
                 function conn:settimeouts() end
+                function conn:settimeout() end
                 function conn:connect()
                     return true
                 end
@@ -89,11 +91,19 @@ describe("IPC Protocol client (mock socket)", function()
                     sent_data[#sent_data + 1] = data
                     return #data
                 end
-                function conn:receiveany(n)
-                    if #mock_responses > 0 then
-                        return table.remove(mock_responses, 1)
+                -- Byte-stream receive(n): top up from queued full frames until
+                -- n bytes are available, then return exactly n bytes. Mirrors
+                -- the real ngx.socket.tcp:receive(n) used by ipc_client.
+                function conn:receive(n)
+                    while #resp_buf < n and #mock_responses > 0 do
+                        resp_buf = resp_buf .. table.remove(mock_responses, 1)
                     end
-                    return nil, "timeout"
+                    if #resp_buf < n then
+                        return nil, "timeout"
+                    end
+                    local data = string.sub(resp_buf, 1, n)
+                    resp_buf = string.sub(resp_buf, n + 1)
+                    return data
                 end
                 function conn:setkeepalive() end
                 function conn:close() end
@@ -108,7 +118,9 @@ describe("IPC Protocol client (mock socket)", function()
         _G.ngx.socket = {
             tcp = function()
                 local conn = {}
+                local resp_buf = ""
                 function conn:settimeouts() end
+                function conn:settimeout() end
                 function conn:connect() return true end
                 function conn:send(data)
                     sent_count = sent_count + 1
@@ -129,11 +141,17 @@ describe("IPC Protocol client (mock socket)", function()
                     mock_responses[#mock_responses + 1] = header .. resp_body
                     return #data
                 end
-                function conn:receiveany(n)
-                    if #mock_responses > 0 then
-                        return table.remove(mock_responses, 1)
+                -- Byte-stream receive(n): mirrors ngx.socket.tcp:receive(n).
+                function conn:receive(n)
+                    while #resp_buf < n and #mock_responses > 0 do
+                        resp_buf = resp_buf .. table.remove(mock_responses, 1)
                     end
-                    return nil, "timeout"
+                    if #resp_buf < n then
+                        return nil, "timeout"
+                    end
+                    local data = string.sub(resp_buf, 1, n)
+                    resp_buf = string.sub(resp_buf, n + 1)
+                    return data
                 end
                 function conn:setkeepalive() end
                 function conn:close() end
