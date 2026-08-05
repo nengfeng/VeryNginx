@@ -300,7 +300,6 @@ function _M.set_pending(ip)
     if not s then return end
     local ttl = cfg_val("pending_ttl")
     s:set("ip_rep:pending:" .. ip, ngx.time(), ttl)
-    s:incr("ip_rep:pending_count", 1, 0, 0)
     add_to_pending_index(ip)
 end
 
@@ -315,7 +314,6 @@ function _M.clear_pending(ip)
     if not s then return end
     if s:get("ip_rep:pending:" .. ip) then
         s:delete("ip_rep:pending:" .. ip)
-        s:incr("ip_rep:pending_count", -1, 0, 0)
         remove_from_pending_index(ip)
     end
 end
@@ -605,11 +603,44 @@ function _M.list_whitelist()
     return get_whitelist()
 end
 
+--- Count current live pending entries.
+-- Derived from the JSON index (not a monotonic counter), so TTL expiry or a
+-- challenge pass that leaves the pending key in place until TTL never inflates
+-- the count.
+function _M.pending_count()
+    local s = shared()
+    if not s then return 0 end
+    local now = ngx.time()
+    local ttl = cfg_val("pending_ttl") or 0
+    local ips = {}
+    local raw = s:get("ip_rep:pending_index")
+    if raw then
+        local ok, list = pcall(json.decode, raw)
+        if ok and type(list) == "table" then
+            for _, ip in ipairs(list) do ips[ip] = true end
+        end
+    end
+    if not next(ips) then
+        for _, key in ipairs(s:get_keys(0)) do
+            local ip = key:match("^ip_rep:pi:(.+)$")
+            if ip then ips[ip] = true end
+        end
+    end
+    local count = 0
+    for ip, _ in pairs(ips) do
+        local created = s:get("ip_rep:pending:" .. ip)
+        if created and (ttl == 0 or (now - created) < ttl) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
 function _M.get_stats()
     local s = shared()
     if not s then return { flagged = 0, pending = 0, flagged_today = 0 } end
     local flagged_count = #_M.list_flagged()
-    local pending_count = tonumber(s:get("ip_rep:pending_count") or 0)
+    local pending_count = _M.pending_count()
     local flagged_today = s:get("ip_rep:flagged_today") or 0
     return {
         flagged = flagged_count,
@@ -712,26 +743,45 @@ function _M.restore()
     if not s then return end
     local now = ngx.time()
 
-    -- Restore flagged IPs
+    -- Restore flagged IPs and rebuild the JSON index, so list_flagged()
+    -- still enumerates them after new flags later populate that index.
+    -- Without this, restored entries are only reachable via the get_keys(0)
+    -- fallback while the index is empty, then vanish from list_flagged() and
+    -- the next persist() once a new flag makes the index non-empty.
     local flagged = payload.flagged or {}
+    local flagged_list = {}
+    local flagged_max_rem = 0
     for _, entry in ipairs(flagged) do
         if entry.expires_at and entry.expires_at > now then
             local remaining = entry.expires_at - now
             s:set("ip_rep:flagged:" .. entry.ip, entry.flagged_at, remaining)
             s:set(flagged_idx_key(entry.ip), tostring(entry.expires_at), remaining)
             s:delete("ip_rep:cache:" .. entry.ip)
+            table.insert(flagged_list, entry.ip)
+            flagged_max_rem = math.max(flagged_max_rem, remaining)
             ngx.log(ngx.WARN, "ip_reputation: restored flagged IP ", entry.ip, " (", remaining, "s remaining)")
         end
     end
+    if #flagged_list > 0 then
+        s:set("ip_rep:flagged_index", json.encode(flagged_list), math.max(flagged_max_rem, 1))
+    end
 
-    -- Restore pending challenge state (v2 only)
+    -- Restore pending challenge state (v2 only) and rebuild the pending index
     if payload.pending and type(payload.pending) == "table" then
+        local pending_list = {}
+        local pending_max_rem = 0
         for _, p in ipairs(payload.pending) do
             if p.ip and p.remaining and p.remaining > 0 then
                 s:set("ip_rep:pending:" .. p.ip, p.created_at or (now - 1), p.remaining)
                 s:set(pending_index_key(p.ip), "1", p.remaining)
+                table.insert(pending_list, p.ip)
+                pending_max_rem = math.max(pending_max_rem, p.remaining)
                 ngx.log(ngx.WARN, "ip_reputation: restored pending IP ", p.ip, " (", p.remaining, "s remaining)")
             end
+        end
+        if #pending_list > 0 then
+            s:set("ip_rep:pending_index", json.encode(pending_list), math.max(pending_max_rem, 1))
+            s:incr("ip_rep:pi_version", 1, 0, 0)
         end
     end
 end

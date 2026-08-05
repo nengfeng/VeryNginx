@@ -239,4 +239,59 @@ describe("ip_reputation", function()
 
     end)
 
+    describe("restore() rebuilds JSON indices", function()
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+        end)
+
+        after_each(function()
+            local cfg = require("core.config")
+            local path = cfg.resolve_path() .. "/configs/ip-reputation-flagged.json"
+            os.remove(path)
+            local tmp = path .. ".tmp"
+            os.remove(tmp)
+        end)
+
+        it("restored flagged IPs survive new flags (index rebuilt)", function()
+            rep.flag_ip("10.0.3.1", 600)
+            rep.flag_ip("10.0.3.2", 600)
+            rep.persist()
+
+            -- Wipe shared dict completely (simulates fresh start)
+            ngx.shared.ip_reputation:flush_all()
+            rep.restore()
+
+            assert.is_true(rep.is_flagged("10.0.3.1"))
+            assert.is_true(rep.is_flagged("10.0.3.2"))
+            assert.equals(2, #rep.list_flagged())
+
+            -- A new flag populates the JSON index; restored IPs must NOT vanish
+            rep.flag_ip("10.0.3.3", 600)
+            local ips = {}
+            for _, e in ipairs(rep.list_flagged()) do ips[e.ip] = true end
+            assert.is_true(ips["10.0.3.1"], "restored IP lost after index repopulated")
+            assert.is_true(ips["10.0.3.2"], "restored IP lost after index repopulated")
+            assert.is_true(ips["10.0.3.3"])
+        end)
+
+        it("pending_count reflects live pending entries", function()
+            -- Same-IP duplicate challenges must count once
+            rep.set_pending("10.0.4.1")
+            rep.set_pending("10.0.4.1")
+            rep.set_pending("10.0.4.2")
+            assert.equals(2, rep.pending_count())
+            assert.equals(2, rep.get_stats().pending)
+
+            -- TTL expiry of the pending key frees the slot (no monotonic leak)
+            ngx.shared.ip_reputation:delete("ip_rep:pending:10.0.4.1")
+            assert.equals(1, rep.pending_count())
+
+            -- Explicit clear also reduces the live count
+            rep.clear_pending("10.0.4.2")
+            assert.equals(0, rep.pending_count())
+        end)
+
+    end)
+
 end)
