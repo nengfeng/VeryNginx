@@ -498,6 +498,10 @@ Content-Security-Policy: default-src 'self'; script-src 'self'; ...
 mutating 请求可携带 `Idempotency-Key` header，重复 key 返回 409（1 小时 TTL，基于 `vn_session`）。
 
 > **只在成功后固化 idempotency key**：`run_route` 先以 `"processing"` 占位去重并发重复请求；handler 成功（非 5xx）才置最终 key，异常/5xx 时 `delete` 释放，允许重试——否则一次 5xx 会烧掉整小时的重试窗口。
+>
+> **claim 必须原子**：判重 + 占位不能是 `get()`+`set()` 两步（多 worker 同 key 并发可都读到 nil 都执行）。用 `s:add(cache_key, "processing", 3600)` 原子 claim，add 返回 false 者直接 409。
+>
+> **413 视为释放**：响应 >10MB 截断为 413 属失败。幂等固化逻辑必须放在响应大小检查**之后**，且 `status == 413` 与 5xx 一并 `delete` 释放，否则客户端拿不到完整数据却要在 1 小时内被 409 挡着重试。
 
 ### 10.7 响应大小限制
 

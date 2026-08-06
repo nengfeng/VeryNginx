@@ -213,3 +213,58 @@ describe("waf rule confirm endpoint", function()
             "pending record cleared after successful confirm")
     end)
 end)
+
+describe("idempotency key handling", function()
+    before_each(function()
+        ngx.shared.vn_session:flush_all()
+        _G.ngx.req.get_headers = function() return {} end
+    end)
+    after_each(function()
+        _G.ngx.req.get_headers = function() return {} end
+    end)
+
+    it("atomically claims the key so a concurrent duplicate cannot re-run the handler", function()
+        local runs = 0
+        api.register("POST", "/t/idem", function()
+            runs = runs + 1
+            return json.encode({ ret = "success", n = runs })
+        end, false)
+        _G.ngx.req.get_headers = function() return { ["Idempotency-Key"] = "k1" } end
+        run_dispatch("/verynginx/t/idem", "POST")
+        assert.are.equal(1, runs)
+        -- Second request with the same key must be rejected (409) without
+        -- invoking the handler again.
+        local _, act = run_dispatch("/verynginx/t/idem", "POST")
+        assert.are.equal(409, _G.ngx.status)
+        assert.are.equal(409, act.response.code)
+        assert.are.equal(1, runs)
+    end)
+
+    it("a 413-truncated response releases the key for retry", function()
+        local runs = 0
+        api.register("POST", "/t/huge", function()
+            runs = runs + 1
+            return string.rep("x", 10485761)
+        end, false)
+        _G.ngx.req.get_headers = function() return { ["Idempotency-Key"] = "k2" } end
+        local _, act = run_dispatch("/verynginx/t/huge", "POST")
+        assert.are.equal(413, _G.ngx.status)
+        assert.are.equal(413, act.response.code)
+        -- The key must NOT be solidified: a retry with the same key runs again.
+        run_dispatch("/verynginx/t/huge", "POST")
+        assert.are.equal(2, runs)
+    end)
+
+    it("a successful response solidifies the key for dedup", function()
+        local runs = 0
+        api.register("POST", "/t/ok", function()
+            runs = runs + 1
+            return json.encode({ ret = "success" })
+        end, false)
+        _G.ngx.req.get_headers = function() return { ["Idempotency-Key"] = "k3" } end
+        run_dispatch("/verynginx/t/ok", "POST")
+        assert.are.equal(1, runs)
+        run_dispatch("/verynginx/t/ok", "POST")
+        assert.are.equal(1, runs)
+    end)
+end)

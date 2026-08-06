@@ -131,7 +131,12 @@ local function run_route(route, ctx, method, path)
             local shared = ngx.shared.vn_session
             if shared then
                 local cache_key = "idempotent:" .. ngx.md5(idem_key)
-                if shared:get(cache_key) then
+                -- Atomic claim: only the worker that wins the add() gets to run
+                -- the handler. Two concurrent requests with the same key cannot
+                -- both read nil then both proceed (get+set would not be atomic);
+                -- the loser of add() immediately returns 409.
+                local claimed = shared:add(cache_key, "processing", 3600)
+                if not claimed then
                     ngx.status = 409
                     ctx.set_action(ctx, "response", {
                         code = 409,
@@ -143,10 +148,6 @@ local function run_route(route, ctx, method, path)
                     })
                     return
                 end
-                -- Claim the key up-front to dedupe concurrent duplicates, but
-                -- only finalize it on a successful completion (see below). A
-                -- failed request releases the claim so a retry is allowed.
-                shared:set(cache_key, "processing", 3600)
             end
         end
     end
@@ -171,28 +172,30 @@ local function run_route(route, ctx, method, path)
         ngx.status = 200
     end
 
+    -- Response size limit (checked BEFORE finalizing the idempotency key: a
+    -- 413 truncation is a failure the client must be able to retry, so it must
+    -- not solidify the key).
+    local max_response_size = 10485760
+    if response and #response > max_response_size then
+        ngx.status = 413
+        response = json.encode({ ret = "failed", message = "response too large" })
+    end
+
     -- Finalize the idempotency claim only on success. A server-side failure
-    -- (exception or 5xx) releases the key so the client can safely retry;
-    -- otherwise a single failed attempt would burn the idempotency key for up
-    -- to an hour.
+    -- (exception, 5xx, or a 413 truncation) releases the key so the client can
+    -- safely retry; otherwise a single failed attempt would burn the
+    -- idempotency key for up to an hour.
     if idem_key and idem_key ~= "" then
         local shared = ngx.shared.vn_session
         if shared then
             local cache_key = "idempotent:" .. ngx.md5(idem_key)
             local status = tonumber(ngx.status) or 0
-            if not ok or status >= 500 then
+            if not ok or status >= 500 or status == 413 then
                 shared:delete(cache_key)
             else
                 shared:set(cache_key, true, 3600)
             end
         end
-    end
-
-    -- Response size limit
-    local max_response_size = 10485760
-    if response and #response > max_response_size then
-        ngx.status = 413
-        response = json.encode({ ret = "failed", message = "response too large" })
     end
 
     -- Audit log for mutating operations
