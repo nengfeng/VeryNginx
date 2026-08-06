@@ -9,6 +9,7 @@ local _M = {}
 
 local json = require "dkjson"
 local config = require "core.config"
+local random = require "core.random"
 local desired = require "core.kernel_blocking.desired_state"
 local sm = require "core.kernel_blocking.state_machine"
 local lifecycle = require "core.kernel_blocking.lifecycle"
@@ -48,7 +49,7 @@ local function acquire_lease(name, ttl)
     if not s then return true, "no_shared" end
     ttl = ttl or 30
     local token = tostring(ngx.time()) .. ":" .. tostring(worker_id()) .. ":"
-        .. tostring(math.random(1, 1e9))
+        .. random.hex(8)
     local meta = json.encode({
         token = token,
         worker_id = worker_id(),
@@ -66,10 +67,6 @@ local function release_lease(name, token)
     if not s or not token or token == "no_shared" then return end
     local raw = s:get(name)
     if not raw then return end
-    if raw == token then
-        s:delete(name)
-        return
-    end
     local ok, meta = pcall(json.decode, raw)
     if ok and type(meta) == "table" and meta.token == token then
         s:delete(name)

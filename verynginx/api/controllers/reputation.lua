@@ -6,6 +6,7 @@
 local _M = {}
 
 local json = require "dkjson"
+local helpers = require "api.helpers"
 
 local function handle_reputation_stats()
     local rep = require "core.ip_reputation"
@@ -31,6 +32,10 @@ local function handle_reputation_score()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip parameter required" })
     end
+    if not helpers.is_valid_ip(ip) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid ip format" })
+    end
     local rep = require "core.ip_reputation"
     return json.encode({
         ret = "success",
@@ -48,6 +53,10 @@ local function handle_reputation_clear()
     if not ip or ip == "" then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip parameter required" })
+    end
+    if not helpers.is_valid_ip(ip) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid ip format" })
     end
     local rep = require "core.ip_reputation"
     rep.clear_ip(ip)

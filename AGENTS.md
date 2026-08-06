@@ -128,6 +128,8 @@ local rl_key = "api:" .. method .. ":" .. route.path .. ":" .. tostring(user)
 5. **Response size limit** — 超过 10MB 截断为 413
 6. **Audit log** — mutating 请求写入 `core.audit`
 
+> **IP 输入验证统一用 `helpers.is_valid_ip()`**：API 层凡接收用户 IP（reputation score/clear、kernel_blocking promote/clear、frequency 规则 IP matcher）一律先过 `api/helpers.lua` 的统一校验（严格 IPv4 四段 0-255 + IPv6 单 `::`/8 组/4 位十六进制），不合法返回 400。不要用松散正则（如 `^[%d%.]+$` 会把 `999.1.1.1` 放进索引）。
+
 ---
 
 ## 3. 共享字典 (shared dict)

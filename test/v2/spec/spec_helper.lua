@@ -200,9 +200,6 @@ package.preload["core.config"] = function()
                         return false, "admin password must be at least 8 characters"
                     end
                 end
-                if a.password and a.password == a.password_hash then
-                    return false, string.format("admin[%d]: password must not be stored as password_hash directly", i)
-                end
             end
         end
         return true

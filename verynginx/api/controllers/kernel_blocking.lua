@@ -7,6 +7,7 @@
 local _M = {}
 
 local json = require "dkjson"
+local helpers = require "api.helpers"
 
 -- ---------------------------------------------------------------------------
 -- GET /kernel-blocking/status
@@ -139,8 +140,7 @@ local function handle_promote()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip required" })
     end
-    if type(ip) ~= "string"
-        or not (ip:match("^[%d%.]+$") or ip:match("^[%da-fA-F:]+$")) then
+    if type(ip) ~= "string" or not helpers.is_valid_ip(ip) then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "invalid IP format" })
     end
@@ -254,6 +254,10 @@ local function handle_clear()
     if not ip or ip == "" then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip required" })
+    end
+    if type(ip) ~= "string" or not helpers.is_valid_ip(ip) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid ip format" })
     end
 
     local executor_mod = require "core.kernel_blocking.executor"

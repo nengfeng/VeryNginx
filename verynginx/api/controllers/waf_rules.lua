@@ -305,6 +305,32 @@ local function handle_stage_waf_rule()
         return json.encode({ ret = "failed", message = "invalid request body" })
     end
 
+    -- Validate the proposed change against the live rule before staging, so
+    -- invalid proposals are rejected at stage time (not only at confirm).
+    local rules_obj = waf_manager.load_rules()
+    local rules = (rules_obj and rules_obj.rules) or {}
+    local found = false
+    for _, rule in ipairs(rules) do
+        if rule.id == rule_id then
+            local candidate = {}
+            for k, v in pairs(rule) do candidate[k] = v end
+            for k, v in pairs(args) do
+                if k ~= "id" then candidate[k] = v end
+            end
+            local vok, verr = waf_manager.validate_rule(candidate)
+            if not vok then
+                ngx.status = 400
+                return json.encode({ ret = "failed", message = "invalid proposed change: " .. tostring(verr) })
+            end
+            found = true
+            break
+        end
+    end
+    if not found then
+        ngx.status = 404
+        return json.encode({ ret = "failed", message = "rule not found" })
+    end
+
     local pending = {
         rule_id = rule_id,
         staged_at = ngx.time(),

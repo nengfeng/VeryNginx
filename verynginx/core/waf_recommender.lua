@@ -104,11 +104,7 @@ function _M.analyze()
     local cutoff = now - conf.window_size
 
     for ri = 1, 100 do
-        local d = s:get("waf_hit_detail:" .. ri)
-        if not d then
-            -- Fallback: try ring buffer format
-            d = s:get("waf_recent_hits:data:" .. ri)
-        end
+        local d = s:get("waf_recent_hits:data:" .. ri)
         if d then
             local ok, detail = pcall(json.decode, d)
             if ok and detail then

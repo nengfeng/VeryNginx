@@ -8,6 +8,30 @@ local _M = {}
 local config = require "core.config"
 local json = require "dkjson"
 local audit = require "core.audit"
+local helpers = require "api.helpers"
+
+--- Validate that any IP-typed matcher in a rule carries a well-formed address or
+--- CIDR. Accepts rule.matcher (table) or rule.matcherJson (string).
+local function validate_rule_ip_matchers(rule)
+    local matchers = rule.matcher
+    if type(matchers) ~= "table" and type(rule.matcherJson) == "string" then
+        local okj, m = pcall(json.decode, rule.matcherJson)
+        if okj and type(m) == "table" then matchers = m end
+    end
+    if type(matchers) ~= "table" then return true end
+    for name, cond in pairs(matchers) do
+        if name == "IP" and type(cond) == "table" and type(cond.value) == "string"
+            and cond.value ~= "" then
+            local addr = cond.value
+            local slash = addr:find("/")
+            if slash then addr = addr:sub(1, slash - 1) end
+            if not helpers.is_valid_ip(addr) then
+                return false, "invalid IP in matcher: " .. cond.value
+            end
+        end
+    end
+    return true
+end
 
 local function handle_frequency_stats()
     local shared = ngx.shared.frequency_limit
@@ -44,6 +68,11 @@ local function handle_frequency_rule_save()
     if not ok or type(rule) ~= "table" then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "invalid JSON" })
+    end
+    local vimok, vimerr = validate_rule_ip_matchers(rule)
+    if not vimok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = vimerr })
     end
     if not rule.id or rule.id == "" then
         local random = require "core.random"

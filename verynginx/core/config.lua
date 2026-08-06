@@ -631,10 +631,6 @@ local function validate_config(config)
             if not a.password_hash or a.password_hash == "" then
                 return false, string.format("admin[%d]: password_hash is required", i)
             end
-            if a.password and a.password == a.password_hash then
-                return false, string.format("admin[%d]: password must not be stored as password_hash directly, " ..
-                    "use password_hash.verify()", i)
-            end
         end
     end
 

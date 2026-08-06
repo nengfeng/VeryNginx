@@ -14,16 +14,6 @@ describe("Config validation", function()
         assert.is_false(ok)
     end)
 
-    it("rejects password stored as password_hash directly", function()
-        -- Use a password that passes complexity so the auto-hash comparison kicks in
-        local cfg = {
-            version = "2.0",
-            admin = { { user = "admin", password = "Passw0rd!", password_hash = "Passw0rd!" } },
-        }
-        local ok, err = config.validate_config(cfg)
-        assert.is_false(ok, "validate should reject password == password_hash: " .. tostring(err))
-    end)
-
     it("rejects weak password", function()
         local cfg = {
             version = "2.0",

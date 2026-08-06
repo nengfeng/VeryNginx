@@ -262,6 +262,36 @@ describe("Kernel blocking controller", function()
         assert.are.equal("cleared", e.state)
     end)
 
+    it("POST /kernel-blocking/promote rejects malformed IP format", function()
+        local route = find_route("/kernel-blocking/promote")
+        ngx.req.get_body_data = function()
+            return require("dkjson").encode({ip = "999.1.1.1", policy = "manual", ttl = 60})
+        end
+        local resp = route.handler()
+        local data = require("dkjson").decode(resp)
+        assert.are.equal("failed", data.ret)
+        assert.are.equal("invalid IP format", data.message)
+
+        ngx.req.get_body_data = function()
+            return require("dkjson").encode({ip = "203.0.113.1:;drop", policy = "manual", ttl = 60})
+        end
+        resp = route.handler()
+        data = require("dkjson").decode(resp)
+        assert.are.equal("failed", data.ret)
+        assert.are.equal("invalid IP format", data.message)
+    end)
+
+    it("POST /kernel-blocking/clear rejects malformed IP format", function()
+        local route = find_route("/kernel-blocking/clear")
+        ngx.req.get_body_data = function()
+            return require("dkjson").encode({ip = "not-an-ip"})
+        end
+        local resp = route.handler()
+        local data = require("dkjson").decode(resp)
+        assert.are.equal("failed", data.ret)
+        assert.are.equal("invalid ip format", data.message)
+    end)
+
     it("POST /kernel-blocking/pause toggles emergency_pause", function()
         ngx.req.get_body_data = function()
             return require("dkjson").encode({paused = true})
