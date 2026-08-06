@@ -332,6 +332,16 @@ describe("ip_reputation", function()
 
     describe("per-IP key and JSON index stay in sync on remove", function()
 
+        -- The pending/flagged indexes are JSON *arrays* of IP strings, so
+        -- idx["<ip>"] is always nil. Must actually scan for membership.
+        local function index_contains(idx, ip)
+            if type(idx) ~= "table" then return false end
+            for _, v in ipairs(idx) do
+                if v == ip then return true end
+            end
+            return false
+        end
+
         before_each(function()
             ngx.shared.ip_reputation:flush_all()
             local cfg = require("core.config")
@@ -358,7 +368,8 @@ describe("ip_reputation", function()
                 assert.is_true(okd)
                 idx = dec or {}
             end
-            assert.is_nil(idx["10.0.8.1"], "pending index must not retain the cleared IP")
+            assert.is_false(index_contains(idx, "10.0.8.1"),
+                "pending index must not retain the cleared IP")
         end)
 
         it("clear_ip removes both the per-IP flag key and the flag index entry", function()
@@ -375,7 +386,8 @@ describe("ip_reputation", function()
                 assert.is_true(okd)
                 idx = dec or {}
             end
-            assert.is_nil(idx["10.0.8.2"], "flag index must not retain the cleared IP")
+            assert.is_false(index_contains(idx, "10.0.8.2"),
+                "flag index must not retain the cleared IP")
         end)
 
     end)
