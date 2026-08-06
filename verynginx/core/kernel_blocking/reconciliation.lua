@@ -164,7 +164,7 @@ local function collect_all_desired(now)
     return all
 end
 
-local function collect_actual(exec)
+local function collect_actual(exec, page_size)
     local actual_by_key = {}
     local actual_entries = {}
     local failed_groups = {}
@@ -176,7 +176,7 @@ local function collect_actual(exec)
             local cursor = 0
             repeat
                 local list_ok, page, list_err = pcall(function()
-                    return list_fn(list, family, cursor)
+                    return list_fn(list, family, cursor, page_size)
                 end)
                 if not list_ok or type(page) ~= "table" or list_err then
                     failed_groups[group_key] = true
@@ -203,7 +203,7 @@ end
 -- Pass 1: collect to_add and to_remove without mutating kernel.
 -- Returns { to_add, to_update, to_remove } in desired-entry format.
 -- ---------------------------------------------------------------------------
-local function collect_drift(exec, all_desired, enforce, _now)
+local function collect_drift(exec, all_desired, enforce, _now, page_size)
     local result = {
         to_add = {},
         to_update = {},
@@ -213,7 +213,7 @@ local function collect_drift(exec, all_desired, enforce, _now)
     }
 
     local desired_set = {}
-    local actual_by_key, actual_entries, failed_groups = collect_actual(exec)
+    local actual_by_key, actual_entries, failed_groups = collect_actual(exec, page_size)
 
     for _, entry in ipairs(all_desired) do
         local key = entry.list .. ":" .. entry.family .. ":" .. entry.ip
@@ -389,6 +389,10 @@ function _M.reconcile(now)
     local health_status = health_check_transitions(exec)
     local enforce = (kb_cfg.mode == "enforce")
 
+    -- Larger list pages mean fewer IPC round-trips when the kernel holds many
+    -- entries (e.g. 100k+ entries would otherwise need 1000+ list calls).
+    local list_page_size = kb_cfg.reconcile_list_page_size or 1000
+
     -- Do not mutate kernel while helper is down (fail-open).
     if enforce and health_status ~= "ok" then
         local skip = "helper_unreachable"
@@ -430,7 +434,7 @@ function _M.reconcile(now)
 
     -- Pass 1: collect drift (read-only).
     local all_desired = collect_all_desired(now)
-    local drift = collect_drift(exec, all_desired, enforce, now)
+    local drift = collect_drift(exec, all_desired, enforce, now, list_page_size)
 
     result.to_add = drift.to_add
     result.to_update = drift.to_update

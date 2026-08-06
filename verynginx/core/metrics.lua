@@ -14,6 +14,24 @@ local INDEX_LOCK_SLEEP = 0.002
 -- entry makes the metric invisible to the (index-only) exporter.
 local INDEX_LOCK_MAX_RETRIES = 500
 
+-- Low-cardinality core metrics live in the `metrics` dict. High-cardinality
+-- per-instance series (per-rule gauges, per-IP score) are routed to their own
+-- `metrics_labeled` dict so their (unbounded, churn-prone) growth can never
+-- crowd core counters/gauges or saturate one shared dict.
+local CORE_DICT = "metrics"
+local LABELED_DICT = "metrics_labeled"
+
+local function is_labeled(name)
+    return name:match("^waf_rule_") ~= nil
+        or name == "ip_reputation_score"
+end
+
+local function shared_for(name)
+    local labeled = ngx.shared[LABELED_DICT]
+    if labeled and is_labeled(name) then return labeled end
+    return ngx.shared[CORE_DICT]
+end
+
 local random = nil
 
 local function get_random()
@@ -64,9 +82,11 @@ local function index_add(s, key)
 end
 
 function _M.init()
-    local shared = ngx.shared.metrics
-    if shared then
-        shared:add(INDEX_KEY, "\n", 0)
+    for _, dict_name in ipairs({ CORE_DICT, LABELED_DICT }) do
+        local shared = ngx.shared[dict_name]
+        if shared then
+            shared:add(INDEX_KEY, "\n", 0)
+        end
     end
 end
 
@@ -84,7 +104,7 @@ end
 
 function _M.incr(name, value, labels)
     local key = _M.key(name, labels)
-    local shared = ngx.shared.metrics
+    local shared = shared_for(name)
     if not shared then return end
     shared:incr(key, value or 1, 0)
     index_add(shared, key)
@@ -93,7 +113,7 @@ end
 function _M.observe(name, value, labels)
     local count_key = _M.key(name .. "_count", labels)
     local sum_key = _M.key(name .. "_sum", labels)
-    local shared = ngx.shared.metrics
+    local shared = shared_for(name)
     if not shared then return end
     shared:incr(count_key, 1, 0)
     shared:incr(sum_key, value, 0)
@@ -103,7 +123,7 @@ end
 
 function _M.gauge(name, value, labels)
     local key = _M.key(name, labels)
-    local shared = ngx.shared.metrics
+    local shared = shared_for(name)
     if not shared then return end
     shared:set(key, value)
     index_add(shared, key)
@@ -154,22 +174,12 @@ local METADATA = {
     },
 }
 
---- Export all metrics in Prometheus text format.
-function _M.export_prometheus()
-    local shared = ngx.shared.metrics
-    if not shared then
-        return "# metrics shared dict not available\n"
-    end
-
-    -- Collect all unique metric names seen.
+--- Emit every indexed sample of one shared dict into the exporters buffers.
+local function emit_dict(shared, seen_names, samples, emitted_keys)
     -- Enumerate solely from the maintained index: it is not limited by the
     -- get_keys ~1024-entry ceiling (which also performs poorly on large dicts).
     -- Every write goes through incr/observe/gauge which keeps the index in
     -- sync, so no get_keys union fallback is needed.
-    local seen_names = {}
-    local samples = {}
-    local emitted_keys = {}
-
     local raw_idx = shared:get(INDEX_KEY)
     if raw_idx then
         for key in raw_idx:gmatch("[^\n]+") do
@@ -190,6 +200,22 @@ function _M.export_prometheus()
                     table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
                 end
             end
+        end
+    end
+end
+
+--- Export all metrics in Prometheus text format.
+function _M.export_prometheus()
+    -- Collect all unique metric names seen, unioning both the core and the
+    -- labeled dicts (each keeps its own index).
+    local seen_names = {}
+    local samples = {}
+    local emitted_keys = {}
+
+    for _, dict_name in ipairs({ CORE_DICT, LABELED_DICT }) do
+        local shared = ngx.shared[dict_name]
+        if shared then
+            emit_dict(shared, seen_names, samples, emitted_keys)
         end
     end
 

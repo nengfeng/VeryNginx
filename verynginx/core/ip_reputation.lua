@@ -168,14 +168,20 @@ local function add_to_pending_index(ip)
     local s = shared()
     if not s then return end
     local ttl = cfg_val("pending_ttl")
+    -- Fast path: an already-live per-IP key means the IP is already indexed.
+    -- Refresh the per-IP key TTL with a lock-free set (idempotent) and skip
+    -- the global index RMW + spin-lock entirely — this is the common case
+    -- (a pending IP being re-flagged / having its TTL renewed across many
+    -- requests). Only brand-new pending IPs contend on the global lock.
+    local fresh = s:get(pending_index_key(ip)) == nil
+    s:set(pending_index_key(ip), "1", ttl)
+    if not fresh then return end
     with_index_lock(function()
         -- Serialized: re-set_pending after expiry must refresh the index even
         -- when a dead entry for this IP lingers in a sub-threshold list.
-        local already = s:get(pending_index_key(ip)) ~= nil
-        s:set(pending_index_key(ip), "1", ttl)
         json_index_add_unlocked(s, "ip_rep:pending_index", ip, ttl,
             function(eip) return s:get(pending_index_key(eip)) ~= nil end,
-            not already)
+            true)
     end)
     s:incr("ip_rep:pi_version", 1, 0, 0)
 end
@@ -183,6 +189,10 @@ end
 local function remove_from_pending_index(ip)
     local s = shared()
     if not s then return end
+    -- Fast path: no live per-IP key, nothing pending to remove.
+    -- (A stale list entry may linger until compaction — harmless, it reads as
+    -- dead during scans.)
+    if s:get(pending_index_key(ip)) == nil then return end
     -- Delete the per-IP key and the index entry in one lock-held critical
     -- section (mirrors add_to_pending_index), so a concurrent add/remove of the
     -- same IP cannot leave a transient window where the two disagree.

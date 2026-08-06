@@ -844,10 +844,21 @@ func (b *NFTBackend) Delete(items []setEntry) (map[string]interface{}, error) {
 	return map[string]interface{}{"removed": count}, nil
 }
 
+// maxListPageSize bounds a single list response so a single IPC frame stays
+// far under the 1 MiB protocol cap (~256 KB of setEntry JSON at 4096).
+const maxListPageSize = 4096
+
 // List returns entries in a set (paginated).
-func (b *NFTBackend) List(set, family string, cursor int) ([]setEntry, *int) {
+func (b *NFTBackend) List(set, family string, cursor, pageSize int) ([]setEntry, *int) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	if pageSize > maxListPageSize {
+		pageSize = maxListPageSize
+	}
 
 	entries := []setEntry{}
 	if b.state[set] != nil && b.state[set][family] != nil {
@@ -857,7 +868,6 @@ func (b *NFTBackend) List(set, family string, cursor int) ([]setEntry, *int) {
 	}
 	// Sort for consistent pagination
 	sortEntries(entries)
-	pageSize := 100
 	start := cursor
 	if start > len(entries) {
 		start = len(entries)
@@ -1521,9 +1531,10 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 
 	case "list":
 		var payload struct {
-			Set    string `json:"set"`
-			Family string `json:"family"`
-			Cursor int    `json:"cursor"`
+			Set      string `json:"set"`
+			Family   string `json:"family"`
+			Cursor   int    `json:"cursor"`
+			PageSize int    `json:"page_size"`
 		}
 		_ = json.Unmarshal(env.Payload, &payload)
 		if payload.Set != "" {
@@ -1537,7 +1548,7 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		if payload.Cursor < 0 {
 			return resultError(env.RequestID, "invalid_cursor")
 		}
-		entries, next := backend.List(payload.Set, payload.Family, payload.Cursor)
+		entries, next := backend.List(payload.Set, payload.Family, payload.Cursor, payload.PageSize)
 		return resultOK(env.RequestID, map[string]interface{}{
 			"entries":     entries,
 			"next_cursor": next,

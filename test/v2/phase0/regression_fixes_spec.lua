@@ -213,3 +213,73 @@ describe("#8 recommender only analyzes blocked hits", function()
         assert.truthy(items[1].pattern:find("/login") == nil)
     end)
 end)
+
+describe("perf #3 metrics route high-cardinality series to a dedicated dict", function()
+    before_each(function()
+        package.loaded["core.metrics"] = nil
+        ngx.shared.metrics:flush_all()
+        ngx.shared.metrics_labeled:flush_all()
+        local m = require "core.metrics"
+        m.init()
+    end)
+
+    it("keeps per-rule gauges out of the core metrics dict", function()
+        local metrics = require "core.metrics"
+        metrics.gauge("waf_rule_hits_total", 5, { rule_id = "r1" })
+        metrics.incr("vn_requests_total", 7, {})
+
+        assert.is_equal(5, ngx.shared.metrics_labeled:get("waf_rule_hits_total{rule_id=\"r1\"}"))
+        assert.is_nil(ngx.shared.metrics:get("waf_rule_hits_total{rule_id=\"r1\"}"))
+        assert.is_equal(7, ngx.shared.metrics:get("vn_requests_total"))
+
+        local buf = metrics.export_prometheus()
+        assert.truthy(buf:find("waf_rule_hits_total{rule_id=\"r1\"} 5", 1, true))
+        assert.truthy(buf:find("vn_requests_total 7", 1, true))
+    end)
+end)
+
+describe("perf #4: list forwards an optional page_size to cut reconcile IPC calls", function()
+    it("emits page_size when requested and omits it when not", function()
+        local saved_client = package.loaded["core.kernel_blocking.ipc_client"]
+        local saved_config = package.loaded["core.config"]
+        local saved_executor = package.loaded["core.kernel_blocking.executor_ipc"]
+        local captured = {}
+
+        package.loaded["core.kernel_blocking.ipc_client"] = {
+            request = function(op, _source, payload)
+                captured[op] = payload
+                return { ok = true, result = { entries = {}, next_cursor = nil } }, nil
+            end,
+        }
+        package.loaded["core.config"] = { kernel_ip_blocking = {} }
+        package.loaded["core.kernel_blocking.executor_ipc"] = nil
+        local executor = require "core.kernel_blocking.executor_ipc"
+
+        executor.list("scanner_drop", "ipv4", 0, 500)
+        assert.are.equal(500, captured["list"].page_size)
+        executor.list("scanner_drop", "ipv4", 0)
+        assert.is_nil(captured["list"].page_size)
+
+        package.loaded["core.kernel_blocking.ipc_client"] = saved_client
+        package.loaded["core.config"] = saved_config
+        package.loaded["core.kernel_blocking.executor_ipc"] = saved_executor
+    end)
+end)
+
+describe("perf #2: already-pending IP skips the global index lock (dedup preserved)", function()
+    it("re-flagging a pending IP keeps a single index entry", function()
+        package.loaded["core.ip_reputation"] = nil
+        local rep = require "core.ip_reputation"
+        local ip = "203.0.113.99"
+        rep.set_pending(ip)
+        -- Second flag of the same IP: fast path must not duplicate the entry.
+        rep.set_pending(ip)
+        rep.set_pending(ip)
+        assert.are.equal(1, rep.pending_count())
+        local raw = ngx.shared.ip_reputation:get("ip_rep:pending_index")
+        local idx = require("dkjson").decode(raw)
+        local n = 0
+        for _ in ipairs(idx) do n = n + 1 end
+        assert.are.equal(1, n)
+    end)
+end)

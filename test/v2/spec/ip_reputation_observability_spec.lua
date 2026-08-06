@@ -174,13 +174,22 @@ describe("ip_reputation: observability integration", function()
             obs._collect_ip_reputation_stats()
 
             local ms = ngx.shared.metrics
-            -- Should have at least one score metric for the flagged IP
-            local keys = ms:get_keys()
+            local msl = ngx.shared.metrics_labeled
+            -- Per-IP score gauges are high-cardinality series and now live in
+            -- the dedicated metrics_labeled dict (core `metrics` stays clean).
             local found_score = false
-            for _, k in ipairs(keys) do
+            for _, k in ipairs(ms:get_keys()) do
                 if k:find("ip_reputation_score") then
                     found_score = true
                     break
+                end
+            end
+            if not found_score then
+                for _, k in ipairs(msl:get_keys()) do
+                    if k:find("ip_reputation_score") then
+                        found_score = true
+                        break
+                    end
                 end
             end
             assert.is_true(found_score)

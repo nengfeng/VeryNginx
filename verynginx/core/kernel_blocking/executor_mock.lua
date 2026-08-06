@@ -147,11 +147,11 @@ function _M.contains(set, family, ip)
 end
 
 -- ---------------------------------------------------------------------------
--- list(set, family, cursor) -> { entries = {...}, next_cursor = n|nil }
+-- list(set, family, cursor, page_size) -> { entries = {...}, next_cursor = n|nil }
 -- ---------------------------------------------------------------------------
-function _M.list(set, family, cursor)
+function _M.list(set, family, cursor, page_size)
     cursor = cursor or 0
-    local page_size = 1000
+    local out_size = page_size or 1000
     local s = shared()
     if not s then return { entries = {}, next_cursor = nil } end
     local idx = index_read()
@@ -166,7 +166,7 @@ function _M.list(set, family, cursor)
     table.sort(keys)
     local entries = {}
     local i = cursor + 1
-    while i <= #keys and #entries < page_size do
+    while i <= #keys and #entries < out_size do
         local raw = s:get(keys[i])
         if raw then
             local ok, entry = pcall(json.decode, raw)

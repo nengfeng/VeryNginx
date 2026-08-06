@@ -282,6 +282,8 @@ _M.schema = {
                 protected_ports = leaf({ type = "array", default = {}, items = "integer", unique_items = true }),
                 batch_interval = leaf({ type = "integer", default = 1, min = 1, max = 60 }),
                 reconcile_interval = leaf({ type = "integer", default = 30, min = 5, max = 3600 }),
+                reconcile_chunk_size = leaf({ type = "integer", default = 500, min = 50, max = 10000 }),
+                reconcile_list_page_size = leaf({ type = "integer", default = 1000, min = 100, max = 4096 }),
                 max_entries = {
                     type = "object",
                     default = { scanner = 100000, cc = 50000, manual = 10000 },

@@ -104,7 +104,13 @@ local function get_cached_rules()
         if not rules_obj then return nil, nil end
         return split_rules(rules_obj.rules)
     end
-    local version_raw = shared:get("waf_rules_save_version")
+    -- Lightweight version fast-path: read the *committed* version key
+    -- (waf_rules_version), which save_rules only sets AFTER the chunked cache
+    -- and meta are fully written. Checking the pre-incremented
+    -- waf_rules_save_version (bumped at the START of a save) would let a
+    -- worker reload the still-old chunks and cache them under the new version,
+    -- leaving a stale rule set cached until the next save.
+    local version_raw = shared:get("waf_rules_version")
     if version_raw and tonumber(version_raw) == _rule_cache.version then
         return _rule_cache.hard_block, _rule_cache.challenge
     end

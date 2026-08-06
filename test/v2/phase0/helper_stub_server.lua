@@ -133,6 +133,8 @@ function handlers.list(req)
     local set = req.payload and req.payload.set or "scanner_drop"
     local family = req.payload and req.payload.family or "ipv4"
     local cursor = (req.payload and req.payload.cursor or 0) + 1
+    local page_size = req.payload and req.payload.page_size
+    if not page_size or page_size <= 0 then page_size = 100 end
     ensure_set(set, family)
     local entries = {}
     for ip, data in pairs(nft_state[set][family]) do
@@ -144,7 +146,7 @@ function handlers.list(req)
     table.sort(entries, function(a, b) return a.ip < b.ip end)
     local page = {}
     local i = cursor
-    while i <= #entries and #page < 100 do
+    while i <= #entries and #page < page_size do
         page[#page + 1] = entries[i]
         i = i + 1
     end

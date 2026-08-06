@@ -150,7 +150,9 @@ for _, ip in ipairs(index) do
 end
 ```
 
-> **metrics dict 也要用索引**：`metrics.lua` 的 Prometheus 指标（尤其 per-rule gauge，每规则 3 个 key）超过 ~1024 个 key 时，`get_keys(1000)` 会丢尾。`metrics` 维护 `__metrics_index`（换行分隔的 key 列表），写路径在稀有「新 key」时才拿 `vn_locks` 的 `metrics:index_lock`（预算 500×2ms，与 kb 对齐；超时记 `ngx.WARN`，否则该指标在索引-only 导出下永久丢失）。`export_prometheus()` **只**以索引为准（不再 `get_keys` 并集兜底——get_keys 大字典性能差且有 1024 上限）。注意 `parse_key`/导出重建 labels 用 `pairs()`，输出标签顺序不确定，测试勿按「第一个标签」断言。
+> **metrics dict 也要用索引**：`metrics.lua` 的 Prometheus 指标（尤其 per-rule gauge，每规则 3 个 key）超过 ~1024 个 key 时，`get_keys(1000)` 会丢尾。`metrics` 维护 `__metrics_index`（换行分隔的 key 列表），写路径在稀有「新 key」时才拿 `vn_locks` 的 `metrics:index_lock`（预算 500×2ms，与 kb 对齐；超时记 `ngx.WARN`，否则该指标在索引-only 导出下永久丢失）。`export_prometheus()` **只**以索引为准（不再 `get_keys` 并集兜底——get_keys 大字典性能差且有 1024 上限），并按 `{metrics, metrics_labeled}` 两个字典并集导出。注意 `parse_key`/导出重建 labels 用 `pairs()`，输出标签顺序不确定，测试勿按「第一个标签」断言。
+>
+> **高基数 per-instance 指标隔离到 `metrics_labeled`**：per-rule（`waf_rule_*`，每规则 3 个 key）与 per-IP（`ip_reputation_score`）属于 churn 频繁、无界增长的标签序列，统一字典会把它们继续挤占 core 计数器。`metrics.lua` 据指标名前缀路由：`^waf_rule_` 或 `==ip_reputation_score` 写入独立 `metrics_labeled`（16m）；其余留在 `metrics`（10m）。两个字典各自维护 `__metrics_index`，导出并集（`emit_dict` 按字典遍历）。`observability._collect_worker_stats` 的 dict 清单与 `in_http_block.conf` 已含 `metrics_labeled`。
 
 ### 3.2 用 `incr` 做原子计数器
 
@@ -164,7 +166,7 @@ shared:incr("counter:" .. key, 1, 0, ttl)
 
 ### 3.3 shared dict 名称硬编码
 
-当前 shared dict 名称：`vn_config`、`vn_locks`、`vn_rate_limit`、`vn_session`、`ip_reputation`、`frequency_limit`、`healthcheck`、`statistics`、`metrics`、`dns_cache`。新增时要在 `nginx_conf/in_http_block.conf` 的 `lua_shared_dict` 中声明。
+当前 shared dict 名称：`vn_config`、`vn_locks`、`vn_rate_limit`、`vn_session`、`ip_reputation`、`frequency_limit`、`healthcheck`、`statistics`、`metrics`、`metrics_labeled`、`dns_cache`。新增时要在 `nginx_conf/in_http_block.conf` 的 `lua_shared_dict` 中声明。
 
 ---
 
@@ -211,6 +213,10 @@ signals = {
 - **但** `cc.enforce_ready` 仍为 `false`
 
 Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enforce" 按钮，PATCH `cc.enforce_ready=true`。
+
+### 4.6 Pending 索引热路径无锁快路径
+
+`add_to_pending_index` 对**已存在**的 pending IP（其 per-IP key `ip_rep:pi:<ip>` 存活）直接 `set` 刷新 TTL 即返回，不再拿全局 `ip_rep:index_lock`（RMW + `ngx.sleep(0.001)` 自旋锁，高负载下是热点）。只有「全新 pending IP」才进锁做索引追加；去重由 `json_index_add_unlocked` 仍兜底。快路径安全的前提是不变量：live per-IP key ⇔ live 索引条目（删除/compact 都按 per-IP key 判活）。`remove_from_pending_index` 也一样：per-IP key 已不存在就直接返回，不拿锁（残留列表条目由 compact 清，扫描时读作 dead）。
 
 ---
 
@@ -284,7 +290,7 @@ Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enfor
 | 配置 | 默认 | 说明 |
 |------|------|------|
 | `shared_dict_alert_threshold` | 80 | 触发告警的使用率百分比（10-99） |
-| 监控范围 | 全部 10 个 dict | vn_config/vn_locks/vn_rate_limit/vn_session/statistics/metrics/healthcheck/dns_cache/frequency_limit/ip_reputation |
+| 监控范围 | 全部 11 个 dict | vn_config/vn_locks/vn_rate_limit/vn_session/statistics/metrics/metrics_labeled/healthcheck/dns_cache/frequency_limit/ip_reputation |
 | cooldown | 2x window | 避免重复告警 |
 
 使用率指标 `shared_dict_usage_pct` 同时通过 Prometheus `/metrics` 暴露（来自 `observability.lua`）。
@@ -322,6 +328,10 @@ auto_whitelist = { type = "table", default = {
 ```
 
 **原则**：硬 block 规则**总是执行**，cookie 只跳过 challenge 类规则。
+
+### 7.1b 规则缓存版本检查必须用「已提交」版本键
+
+`plugin/filter/init.lua` 的 `get_cached_rules()` 轻量快路径读 `waf_rules_version`（`save_rules` 在 chunk 缓存 + meta **全部写完之后**才设置），而非 `waf_rules_save_version`（`save_rules` 一开头就 `incr`）。若读后者，save 过程中 worker 会拿旧 chunk 重载并缓存到「新版本」下 → 陈旧规则集被永久缓存直到下次 save。用已提交键保证：版本翻新 ⟹ 底层 chunks/meta 一定已一致。
 
 ### 7.2 Challenge 作为 terminal action
 
@@ -633,8 +643,7 @@ verynginx/core/kernel_blocking/
 
 ### 12.2 关键经验教训
 
-- **Add 操作必须 3 阶段提交**：先 nft 成功 → 再更新 in-memory state。之前先更新内存再执行 nft，失败后状态漂移。
-- **candidate/desired 索引追加必须在 index 锁内做 RMW**：`state_machine.upsert` 曾直接在锁外 get→decode→append→set `INDEX_KEY`，多 worker 并发首插同一复合键会重复追加（配合 `INDEX_TTL` 看似收敛，实际索引无界增长）。现经 `index_add_under_lock`（锁 `kb:candidate_index_lock` 于 vn_locks）原子追加。
+- **Add 操作必须 3 阶段提交**：先 nft 成功 → 再更新 in-memory state。之前先更新内存再执行 nft，失败后状态漂移。- **candidate/desired 索引追加必须在 index 锁内做 RMW**：`state_machine.upsert` 曾直接在锁外 get→decode→append→set `INDEX_KEY`，多 worker 并发首插同一复合键会重复追加（配合 `INDEX_TTL` 看似收敛，实际索引无界增长）。现经 `index_add_under_lock`（锁 `kb:candidate_index_lock` 于 vn_locks）原子追加。
 - **索引锁超时不得静默失败**：`desired_state.index_add` / `state_machine.index_add_under_lock` 曾 `retries>100 直接 return`，条目已写而索引未记 → reconcile 无法发现（悬空条目）。现改为：更宽松预算（500×2ms）+ 超时记 `ngx.ERR` 并返回 false；调用方 `set_desired`/`upsert` 收到 false 后**回滚已写条目并上抛错误**，绝不留下有条目无索引的记录（悬空对 reconcile 永远不可见）。
 - **`compact_index` 定期清理候选索引**：candidate index 只追加不删除，必须每 300 秒扫描并移除过期条目。
 - **索引锁必须带 token 校验释放**：`desired_state.index_add/index_remove/compact_index_if_due` 与 `state_machine.index_add_under_lock/compact_index` 均用 `random.bytes(8)` token 做 `l:add`，释放前 `l:get == token` 才 `delete`。不要用 worker id 直接 `l:delete`——锁 TTL 超时被他人抢走后，旧持有者的 unlock 会误删他人锁。
@@ -650,6 +659,7 @@ verynginx/core/kernel_blocking/
 - **mock `reconcile` expires_at→ttl 转换**：使用 `math.max(expires_at - now, 1)`，不允许负 TTL。
 - **dispatch_pending 也必须持久化**：promotion 在 `dispatch_pending` 时**尚未**写 desired（desired 在 executor.add 成功后写）。dispatch 窗口内崩溃，SM 条目既不持久化（persist 原本只滤 `installed`）、也不在 desired → 重启后丢失封禁意图，且 kernel 若已下发则成孤儿。修复：dispatch_pending upsert 带上 `expires_at = plan.expires_at`，persist 防御性扫描从单一 `installed` 状态扩展为 `{installed, dispatch_pending}` 两趟。
 - **错误消息串接要逐字段校验**：Go 端三级 Path 未取其值就拼 message 属于明显错误，但更广的教训是——在打印/校验前应先用 `strings.Contains` 等字段级检查，勿先拼字符串再误判“正常”。（被误报告为缺陷，实为历史遗留，#6/#11/#19 为真缺陷。）
+- **list 分页大小可配置，reconcile 用大页**：Go `List` 支持 payload 可选 `page_size`（默认 100，上限 4096，1 MiB 帧预算内 ~256KB JSON）；`executor_ipc.list` 透传该参数。`reconciliation.collect_actual` 用 `kb_cfg.reconcile_list_page_size`（默认 1000）——100k 条目从 1000+ 次 IPC 降到 ~100 次。mock 执行器默认 1000 与 Go 默认不一致，属预期（各自用各自默认）。schema 已声明 `reconcile_list_page_size`/`reconcile_chunk_size`（`kernel_ip_blocking` 是 `reject_unknown=true`，不声明会拒配）。
 
 ### 12.3 API 控制器端点
 

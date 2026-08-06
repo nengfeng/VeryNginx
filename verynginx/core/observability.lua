@@ -23,7 +23,8 @@ function _M._collect_worker_stats()
     -- they are exposed via the /status API endpoint during request processing.
     -- Shared dict usage (approximate)
     local shared_dicts = {"vn_config", "vn_locks", "vn_rate_limit", "vn_session",
-                          "statistics", "metrics", "healthcheck", "dns_cache", "frequency_limit", "ip_reputation"}
+                          "statistics", "metrics", "metrics_labeled", "healthcheck",
+                          "dns_cache", "frequency_limit", "ip_reputation"}
     for _, name in ipairs(shared_dicts) do
         local shared = ngx.shared[name]
         if shared then

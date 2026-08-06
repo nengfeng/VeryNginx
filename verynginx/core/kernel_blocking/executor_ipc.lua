@@ -189,20 +189,24 @@ function _M.contains(set, family, ip)
 end
 
 -- ---------------------------------------------------------------------------
--- list(set, family, cursor) -> { entries = {...}, next_cursor = n|nil }
+-- list(set, family, cursor, page_size) -> { entries = {...}, next_cursor = n|nil }
+-- page_size is optional (protocol default is 100); large reconciles pass a
+-- bigger page to cut the number of IPC round-trips.
 -- ---------------------------------------------------------------------------
-function _M.list_strict(set, family, cursor)
-    local resp, err = client.request("list", "automatic", {
+function _M.list_strict(set, family, cursor, page_size)
+    local payload = {
         set = set, family = family, cursor = cursor or 0,
-    })
+    }
+    if page_size then payload.page_size = page_size end
+    local resp, err = client.request("list", "automatic", payload)
     if not resp then
         return nil, err or "list_failed"
     end
     return resp.result or { entries = {}, next_cursor = nil }, nil
 end
 
-function _M.list(set, family, cursor)
-    local page = _M.list_strict(set, family, cursor)
+function _M.list(set, family, cursor, page_size)
+    local page = _M.list_strict(set, family, cursor, page_size)
     return page or { entries = {}, next_cursor = nil }
 end
 
