@@ -127,12 +127,14 @@ local function handle_promote()
     end
     local ip = req.ip
     local policy = req.policy or "scanner"
+    -- tonumber(...) or 86400 always yields a number, so only the lower bound
+    -- needs checking (0/negative would otherwise produce a permanent entry).
     local ttl = tonumber(req.ttl) or 86400
-    if type(ttl) ~= "number" or ttl < 1 or ttl ~= ttl then
+    ttl = math.floor(ttl)
+    if ttl < 1 then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "invalid ttl: must be a positive number of seconds" })
     end
-    ttl = math.floor(ttl)
     if not ip or ip == "" then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip required" })

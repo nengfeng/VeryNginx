@@ -93,6 +93,14 @@ end
 --- Classify an IPv4/IPv6 literal as a private/internal address.
 local function is_private_ip(ip)
     if not ip then return false end
+    -- ::ffff:<IPv4> is an IPv4-mapped IPv6 address. A URL like
+    -- https://[::ffff:10.0.0.1]/ must be classified as internal: check the
+    -- embedded IPv4 octets (dotted form) before falling through to the IPv6
+    -- checks, otherwise it bypasses every IPv4 pattern.
+    local mapped = ip:match("^::ffff:(.+)$")
+    if mapped and mapped:match("^%d+%.%d+%.%d+%.%d+$") then
+        return is_private_ip(mapped)
+    end
     if ip:match("^10%.") then return true end
     if ip:match("^172%.(1[6-9]%.)") then return true end
     if ip:match("^172%.2%d%.") then return true end

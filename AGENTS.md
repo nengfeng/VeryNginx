@@ -150,7 +150,7 @@ for _, ip in ipairs(index) do
 end
 ```
 
-> **metrics dict 也要用索引**：`metrics.lua` 的 Prometheus 指标（尤其 per-rule gauge，每规则 3 个 key）超过 ~1024 个 key 时，`get_keys(1000)` 会丢尾。`metrics` 维护维护 `__metrics_index`（换行分隔的 key 列表），写路径在稀有「新 key」时才拿 `vn_locks` 的 `metrics:index_lock`；`export_prometheus()` 以索引为主、`get_keys` 并集兜底迁移期旧 key。注意 `parse_key`/导出重建 labels 用 `pairs()`，输出标签顺序不确定，测试勿按「第一个标签」断言。
+> **metrics dict 也要用索引**：`metrics.lua` 的 Prometheus 指标（尤其 per-rule gauge，每规则 3 个 key）超过 ~1024 个 key 时，`get_keys(1000)` 会丢尾。`metrics` 维护 `__metrics_index`（换行分隔的 key 列表），写路径在稀有「新 key」时才拿 `vn_locks` 的 `metrics:index_lock`（预算 500×2ms，与 kb 对齐；超时记 `ngx.WARN`，否则该指标在索引-only 导出下永久丢失）。`export_prometheus()` **只**以索引为准（不再 `get_keys` 并集兜底——get_keys 大字典性能差且有 1024 上限）。注意 `parse_key`/导出重建 labels 用 `pairs()`，输出标签顺序不确定，测试勿按「第一个标签」断言。
 
 ### 3.2 用 `incr` 做原子计数器
 
@@ -514,6 +514,8 @@ API 响应超过 10MB 截断为 413。
 - 不指向私有 IP 段（`127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、`169.254.0.0/16`）
 
 > **域名 webhook 也要 DNS 解析校验**：仅字面匹配 host 段可被 DNS 重绑定绕过（字面是公网域名、实际解析到内网 IP）。`alerting.lua` 的 `validate_webhook_url` 在 host 为域名时经 `resty.dns.resolver` 解析 A/AAAA，任一解析结果为私有地址即拒绝；解析器不可用时走 best-effort（仅字面检查）。`config.lua` 保存时校验保留字面检查。
+>
+> **`::ffff:` IPv4-mapped IPv6 会绕过 IPv4 私有段判定**：`https://[::ffff:10.0.0.1]/` 的 host 是 IPv6 字形，若只按 IPv4 pattern（`^10%.` 等）匹配会漏判为公网。`is_private_ip` 需先剥离 `^::ffff:` 前缀、对方括号内是点分十进制时递归走 IPv4 判定。SSRF 校验时此类字形同样视为私有并拒绝。
 
 ### 10.9 GeoIP 目录权限
 

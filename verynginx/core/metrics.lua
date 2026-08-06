@@ -9,7 +9,10 @@ local INDEX_KEY = "__metrics_index"
 local INDEX_LOCK_KEY = "metrics:index_lock"
 local INDEX_LOCK_TTL = 5
 local INDEX_LOCK_SLEEP = 0.002
-local INDEX_LOCK_MAX_RETRIES = 100
+-- Match the kernel-blocking index lock budget (500×2ms = up to 1s) so a
+-- momentarily contended lock cannot silently drop a metric. A dropped index
+-- entry makes the metric invisible to the (index-only) exporter.
+local INDEX_LOCK_MAX_RETRIES = 500
 
 local random = nil
 
@@ -39,7 +42,15 @@ local function index_add(s, key)
     local retries = 0
     while not locks:add(INDEX_LOCK_KEY, token, INDEX_LOCK_TTL) do
         retries = retries + 1
-        if retries > INDEX_LOCK_MAX_RETRIES then return end
+        if retries > INDEX_LOCK_MAX_RETRIES then
+            -- The metric value was already written; only its index entry is
+            -- missing, which would make it invisible to the exporter. Surface
+            -- it loudly so the operator knows the metric may be missing.
+            ngx.log(ngx.WARN, "metrics: index lock unavailable after ",
+                INDEX_LOCK_MAX_RETRIES, " retries; metric key may not be exported: ",
+                key)
+            return
+        end
         ngx.sleep(INDEX_LOCK_SLEEP)
     end
     -- Re-check under the lock; a concurrent writer may have added it already.
@@ -150,43 +161,34 @@ function _M.export_prometheus()
         return "# metrics shared dict not available\n"
     end
 
-    -- Collect all unique metric names seen
+    -- Collect all unique metric names seen.
+    -- Enumerate solely from the maintained index: it is not limited by the
+    -- get_keys ~1024-entry ceiling (which also performs poorly on large dicts).
+    -- Every write goes through incr/observe/gauge which keeps the index in
+    -- sync, so no get_keys union fallback is needed.
     local seen_names = {}
     local samples = {}
     local emitted_keys = {}
 
-    -- Enumerate keys from the maintained index first (not limited by the
-    -- get_keys 1024-entry ceiling), then union any get_keys results so metrics
-    -- written before the index existed are still exported.
     local raw_idx = shared:get(INDEX_KEY)
-    local indexed = {}
     if raw_idx then
-        for part in raw_idx:gmatch("[^\n]+") do
-            indexed[part] = true
-        end
-    end
-    local scan_keys = shared:get_keys(1000)
-    for i = 1, #scan_keys do
-        local key = scan_keys[i]
-        if key ~= INDEX_KEY then indexed[key] = true end
-    end
-
-    for key, _ in pairs(indexed) do
-        if key ~= INDEX_KEY and not emitted_keys[key] then
-            emitted_keys[key] = true
-            local val = shared:get(key)
-            if val then
-                local name, labels = parse_key(key)
-                seen_names[name] = true
-                local ls = ""
-                if labels and next(labels) then
-                    local parts = {}
-                    for lk, lv in pairs(labels) do
-                        table.insert(parts, lk .. "=\"" .. lv .. "\"")
+        for key in raw_idx:gmatch("[^\n]+") do
+            if not emitted_keys[key] then
+                emitted_keys[key] = true
+                local val = shared:get(key)
+                if val then
+                    local name, labels = parse_key(key)
+                    seen_names[name] = true
+                    local ls = ""
+                    if labels and next(labels) then
+                        local parts = {}
+                        for lk, lv in pairs(labels) do
+                            table.insert(parts, lk .. "=\"" .. lv .. "\"")
+                        end
+                        ls = "{" .. table.concat(parts, ",") .. "}"
                     end
-                    ls = "{" .. table.concat(parts, ",") .. "}"
+                    table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
                 end
-                table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
             end
         end
     end
