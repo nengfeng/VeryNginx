@@ -157,11 +157,47 @@ function _M.apply(name, overrides)
     if not t then
         return nil, "unknown template: " .. tostring(name)
     end
+    -- Only these fields may be overridden from a template. Anything else is
+    -- rejected so a malformed override cannot poison the frequency limiter.
+    local allowed = {
+        limit = "number", window = "number", code = "number",
+        action = "string", path = "string", key = "string",
+        name = "string", matcherJson = "string",
+    }
+    if overrides and type(overrides) == "table" then
+        for k, v in pairs(overrides) do
+            local expected = allowed[k]
+            if not expected then
+                return nil, "unsupported override field: " .. tostring(k)
+            end
+            if type(v) ~= expected then
+                return nil, "invalid override: " .. tostring(k)
+                    .. " must be " .. expected
+            end
+        end
+    end
     -- Deep-copy the rule so callers can mutate freely.
     local rule = json.decode(json.encode(t.rule))
     if overrides and type(overrides) == "table" then
         for k, v in pairs(overrides) do
             rule[k] = v
+        end
+        -- Range validation after merge.
+        if rule.limit ~= nil and (rule.limit < 0 or rule.limit ~= rule.limit) then
+            return nil, "invalid limit"
+        end
+        if rule.window ~= nil and (rule.window <= 0) then
+            return nil, "invalid window"
+        end
+        if rule.code ~= nil and (rule.code < 100 or rule.code > 599) then
+            return nil, "invalid code"
+        end
+        if rule.path ~= nil and rule.path == "" then
+            return nil, "invalid empty path"
+        end
+        if rule.matcherJson ~= nil then
+            local decoded = json.decode(rule.matcherJson)
+            if not decoded then return nil, "invalid matcherJson" end
         end
     end
     -- Always regenerate id if overridden or to avoid collisions.

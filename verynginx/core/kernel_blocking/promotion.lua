@@ -223,6 +223,7 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
     sm.upsert(ip, "scanner", "dispatch_pending", evidence_tbl, {
         list = "scanner_drop",
         family = family,
+        expires_at = plan.expires_at,
     })
 
     -- Install via executor
@@ -486,6 +487,7 @@ local function enforce_promote_cc(ip, violation_count)
 	sm.upsert(ip, "cc", "dispatch_pending", ev_tbl, {
 		list = "cc_drop",
 		family = family,
+		expires_at = plan.expires_at,
 	})
 
 	-- Install via executor

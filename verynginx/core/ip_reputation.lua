@@ -603,6 +603,32 @@ local function parse_ipv4(s)
     return (tonumber(a) * 16777216) + (tonumber(b) * 65536) + (tonumber(c) * 256) + tonumber(d)
 end
 
+--- Validate a whitelist entry (bare IPv4 or IPv4 CIDR).
+-- @param entry string: candidate whitelist entry
+-- @return boolean: true when the entry is a well-formed IPv4 or IPv4 CIDR
+function _M.validate_whitelist_entry(entry)
+    if type(entry) ~= "string" or entry == "" then return false end
+    local function ok_octets(s)
+        local a, b, c, d = s:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+        if not a then return false end
+        if tonumber(a) > 255 or tonumber(b) > 255
+            or tonumber(c) > 255 or tonumber(d) > 255 then return false end
+        return true
+    end
+    local pos = entry:find("/")
+    if pos then
+        local subnet = entry:sub(1, pos - 1)
+        local bits = tonumber(entry:sub(pos + 1))
+        if not subnet or not bits or bits < 1 or bits > 32 then return false end
+        local num = parse_ipv4(subnet)
+        if not num or not ok_octets(subnet) then return false end
+        -- Reject host-bits-set CIDR (e.g. 1.2.3.4/24 is ambiguous)
+        local mask = (2 ^ (32 - bits)) - 1
+        return bit.band(num, mask) == 0
+    end
+    return ok_octets(entry)
+end
+
 -- Worker-local CIDR parse cache: the parsed subnet+mask depend only on the
 -- CIDR string, which is immutable for a given whitelist entry, so this never
 -- goes stale even when the whitelist is hot-reloaded. Avoids re-running the

@@ -5,10 +5,57 @@
 
 local _M = {}
 
+local INDEX_KEY = "__metrics_index"
+local INDEX_LOCK_KEY = "metrics:index_lock"
+local INDEX_LOCK_TTL = 5
+local INDEX_LOCK_SLEEP = 0.002
+local INDEX_LOCK_MAX_RETRIES = 100
+
+local random = nil
+
+local function get_random()
+    if not random then random = require "core.random" end
+    return random
+end
+
+--- Fast, lock-free membership probe. The index is a newline-joined list of
+-- metric keys, so we search for a newline-delimited exact token to avoid
+-- substring collisions between label sets.
+local function index_contains(s, key)
+    local raw = s:get(INDEX_KEY)
+    if not raw then return false end
+    return raw:find("\n" .. key .. "\n", 1, true) ~= nil
+end
+
+--- Record a metric key in the index. get_keys(0)/get_keys(N) is capped at
+-- ~1024 entries, so per-rule gauges (3 keys per rule) would silently drop the
+-- tail for large rule sets. The index gives export_prometheus the full key
+-- list regardless of dict size. Only the rare "new key" path takes a lock.
+local function index_add(s, key)
+    if index_contains(s, key) then return end
+    local locks = ngx.shared.vn_locks
+    if not locks then return end
+    local token = get_random().bytes(8)
+    local retries = 0
+    while not locks:add(INDEX_LOCK_KEY, token, INDEX_LOCK_TTL) do
+        retries = retries + 1
+        if retries > INDEX_LOCK_MAX_RETRIES then return end
+        ngx.sleep(INDEX_LOCK_SLEEP)
+    end
+    -- Re-check under the lock; a concurrent writer may have added it already.
+    if not index_contains(s, key) then
+        local raw = s:get(INDEX_KEY) or ""
+        s:set(INDEX_KEY, raw .. key .. "\n", 0)
+    end
+    if locks:get(INDEX_LOCK_KEY) == token then
+        locks:delete(INDEX_LOCK_KEY)
+    end
+end
+
 function _M.init()
     local shared = ngx.shared.metrics
     if shared then
-        shared:add("__metrics_index", "{}", 0)
+        shared:add(INDEX_KEY, "\n", 0)
     end
 end
 
@@ -26,16 +73,29 @@ end
 
 function _M.incr(name, value, labels)
     local key = _M.key(name, labels)
-    ngx.shared.metrics:incr(key, value or 1, 0)
+    local shared = ngx.shared.metrics
+    if not shared then return end
+    shared:incr(key, value or 1, 0)
+    index_add(shared, key)
 end
 
 function _M.observe(name, value, labels)
-    _M.incr(name .. "_count", 1, labels)
-    _M.incr(name .. "_sum", value, labels)
+    local count_key = _M.key(name .. "_count", labels)
+    local sum_key = _M.key(name .. "_sum", labels)
+    local shared = ngx.shared.metrics
+    if not shared then return end
+    shared:incr(count_key, 1, 0)
+    shared:incr(sum_key, value, 0)
+    index_add(shared, count_key)
+    index_add(shared, sum_key)
 end
 
 function _M.gauge(name, value, labels)
-    ngx.shared.metrics:set(_M.key(name, labels), value)
+    local key = _M.key(name, labels)
+    local shared = ngx.shared.metrics
+    if not shared then return end
+    shared:set(key, value)
+    index_add(shared, key)
 end
 
 --- Parse a Prometheus metric key back into name + labels.
@@ -93,27 +153,42 @@ function _M.export_prometheus()
     -- Collect all unique metric names seen
     local seen_names = {}
     local samples = {}
+    local emitted_keys = {}
 
-    local keys = shared:get_keys(1000)
-    for _, key in ipairs(keys) do
-        if key == "__metrics_index" then
-            goto skip
+    -- Enumerate keys from the maintained index first (not limited by the
+    -- get_keys 1024-entry ceiling), then union any get_keys results so metrics
+    -- written before the index existed are still exported.
+    local raw_idx = shared:get(INDEX_KEY)
+    local indexed = {}
+    if raw_idx then
+        for part in raw_idx:gmatch("[^\n]+") do
+            indexed[part] = true
         end
-        local val = shared:get(key)
-        if val then
-            local name, labels = parse_key(key)
-            seen_names[name] = true
-            local ls = ""
-            if labels and next(labels) then
-                local parts = {}
-                for lk, lv in pairs(labels) do
-                    table.insert(parts, lk .. "=\"" .. lv .. "\"")
+    end
+    local scan_keys = shared:get_keys(1000)
+    for i = 1, #scan_keys do
+        local key = scan_keys[i]
+        if key ~= INDEX_KEY then indexed[key] = true end
+    end
+
+    for key, _ in pairs(indexed) do
+        if key ~= INDEX_KEY and not emitted_keys[key] then
+            emitted_keys[key] = true
+            local val = shared:get(key)
+            if val then
+                local name, labels = parse_key(key)
+                seen_names[name] = true
+                local ls = ""
+                if labels and next(labels) then
+                    local parts = {}
+                    for lk, lv in pairs(labels) do
+                        table.insert(parts, lk .. "=\"" .. lv .. "\"")
+                    end
+                    ls = "{" .. table.concat(parts, ",") .. "}"
                 end
-                ls = "{" .. table.concat(parts, ",") .. "}"
+                table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
             end
-            table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
         end
-        ::skip::
     end
 
     -- Build HELP/TYPE lines for all seen metrics

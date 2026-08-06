@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -34,6 +35,10 @@ const (
 	SocketPath = "/run/verynginx/firewall-helper.sock"
 	// NFTPath is the path to the nft binary.
 	NFTPath = "/usr/sbin/nft"
+	// nftExecTimeout bounds a single `nft -f -` invocation. A hung nft
+	// would otherwise hold the backend mutex indefinitely, deadlocking every
+	// subsequent operation.
+	nftExecTimeout = 5 * time.Second
 
 	globalIdemCapacity = 10000
 	globalIdemTTL      = 10 * time.Minute
@@ -334,14 +339,22 @@ func (b *NFTBackend) ownedKey(set, family, ip string) string {
 }
 
 // execNFT executes an nft commands string via `nft -f -`.
-// Returns (stdout+stderr, error).
+// Returns (stdout+stderr, error). A hard timeout is applied so a hung nft
+// invocation cannot hold the backend mutex / goroutine forever (which would
+// deadlock every subsequent operation).
 func (b *NFTBackend) execNFT(input string) (string, error) {
-	cmd := exec.Command(b.nftPath, "-f", "-")
+	ctx, cancel := context.WithTimeout(context.Background(), nftExecTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, b.nftPath, "-f", "-")
 	cmd.Stdin = strings.NewReader(input)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return out.String(), fmt.Errorf("nft timed out after %s: %s",
+				nftExecTimeout, out.String())
+		}
 		return out.String(), fmt.Errorf("nft failed: %v: %s", err, out.String())
 	}
 	return out.String(), nil
@@ -505,7 +518,11 @@ func (b *NFTBackend) EnsureBase(payload EnsureBasePayload, sess *ScopeSession) (
 	b.tableGeneration++
 	b.installedScopeDigest = digest
 	b.localAddressDigest = localDigest
-	b.activationGeneration = payload.ActivationGeneration
+	// Never wipe an established generation with a zero/unset value; a client
+	// may omit the generation to simply re-activate the same scope.
+	if payload.ActivationGeneration > 0 {
+		b.activationGeneration = payload.ActivationGeneration
+	}
 	b.protectedAddrs = append([]string(nil), addrs...)
 	b.protectedPorts = append([]string(nil), ports...)
 	tableGen := b.tableGeneration
@@ -517,7 +534,9 @@ func (b *NFTBackend) EnsureBase(payload EnsureBasePayload, sess *ScopeSession) (
 		sess.HelperInstanceID = instanceID
 		sess.ScopeDigest = digest
 		sess.TableGeneration = tableGen
-		sess.ActivationGeneration = payload.ActivationGeneration
+		if payload.ActivationGeneration > 0 {
+			sess.ActivationGeneration = payload.ActivationGeneration
+		}
 		sess.LocalAddressDigest = localDigest
 		sess.ValidatedAt = time.Now()
 	}

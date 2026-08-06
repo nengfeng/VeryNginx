@@ -52,7 +52,10 @@ function _M.compute(opts)
         topology = kb.topology or "unknown",
         shadow = kb.shadow == true,
         scanner_enabled = not kb.scanner or kb.scanner.enabled ~= false,
-        cc_enabled = not kb.cc or kb.cc.enabled ~= false,
+        -- CC is only enabled when its config block exists AND is not disabled.
+        -- An absent block (e.g. stale/hand-edited config) must not report CC as
+        -- active, otherwise readiness would claim a mode the operator never set.
+        cc_enabled = kb.cc ~= nil and kb.cc.enabled ~= false,
         cc_enforce_ready = kb.cc and kb.cc.enforce_ready == true,
         cc_rule_ids = (kb.cc and kb.cc.rule_ids) or {},
     }

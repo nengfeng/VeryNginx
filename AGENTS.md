@@ -150,6 +150,8 @@ for _, ip in ipairs(index) do
 end
 ```
 
+> **metrics dict 也要用索引**：`metrics.lua` 的 Prometheus 指标（尤其 per-rule gauge，每规则 3 个 key）超过 ~1024 个 key 时，`get_keys(1000)` 会丢尾。`metrics` 维护维护 `__metrics_index`（换行分隔的 key 列表），写路径在稀有「新 key」时才拿 `vn_locks` 的 `metrics:index_lock`；`export_prometheus()` 以索引为主、`get_keys` 并集兜底迁移期旧 key。注意 `parse_key`/导出重建 labels 用 `pairs()`，输出标签顺序不确定，测试勿按「第一个标签」断言。
+
 ### 3.2 用 `incr` 做原子计数器
 
 不要 `get` → `decode` → 修改 → `encode` → `set`，这是非原子的。
@@ -495,6 +497,8 @@ Content-Security-Policy: default-src 'self'; script-src 'self'; ...
 
 mutating 请求可携带 `Idempotency-Key` header，重复 key 返回 409（1 小时 TTL，基于 `vn_session`）。
 
+> **只在成功后固化 idempotency key**：`run_route` 先以 `"processing"` 占位去重并发重复请求；handler 成功（非 5xx）才置最终 key，异常/5xx 时 `delete` 释放，允许重试——否则一次 5xx 会烧掉整小时的重试窗口。
+
 ### 10.7 响应大小限制
 
 API 响应超过 10MB 截断为 413。
@@ -504,6 +508,8 @@ API 响应超过 10MB 截断为 413。
 所有 webhook URL 必须：
 - 以 `https://` 开头
 - 不指向私有 IP 段（`127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、`169.254.0.0/16`）
+
+> **域名 webhook 也要 DNS 解析校验**：仅字面匹配 host 段可被 DNS 重绑定绕过（字面是公网域名、实际解析到内网 IP）。`alerting.lua` 的 `validate_webhook_url` 在 host 为域名时经 `resty.dns.resolver` 解析 A/AAAA，任一解析结果为私有地址即拒绝；解析器不可用时走 best-effort（仅字面检查）。`config.lua` 保存时校验保留字面检查。
 
 ### 10.9 GeoIP 目录权限
 
@@ -636,6 +642,8 @@ verynginx/core/kernel_blocking/
 - **mock 的 reconcile 闭包陷阱**：`idx[key]` 必须在 `add()` 之前捕获（`key_in_idx = idx[key]`），否则 add 会修改 idx 导致判定错误。
 - **mock `flush_owned` 区分 scope**：`auto` 只删 scanner_drop + cc_drop，`all`/`detach` 才包含 manual_drop。
 - **mock `reconcile` expires_at→ttl 转换**：使用 `math.max(expires_at - now, 1)`，不允许负 TTL。
+- **dispatch_pending 也必须持久化**：promotion 在 `dispatch_pending` 时**尚未**写 desired（desired 在 executor.add 成功后写）。dispatch 窗口内崩溃，SM 条目既不持久化（persist 原本只滤 `installed`）、也不在 desired → 重启后丢失封禁意图，且 kernel 若已下发则成孤儿。修复：dispatch_pending upsert 带上 `expires_at = plan.expires_at`，persist 防御性扫描从单一 `installed` 状态扩展为 `{installed, dispatch_pending}` 两趟。
+- **错误消息串接要逐字段校验**：Go 端三级 Path 未取其值就拼 message 属于明显错误，但更广的教训是——在打印/校验前应先用 `strings.Contains` 等字段级检查，勿先拼字符串再误判“正常”。（被误报告为缺陷，实为历史遗留，#6/#11/#19 为真缺陷。）
 
 ### 12.3 API 控制器端点
 

@@ -37,6 +37,12 @@ local function handle_test_waf_rule()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "test_cases is required" })
     end
+    -- Cap test-case count so a single request cannot exhaust the worker CPU
+    -- running an unbounded number of regex evaluations.
+    if #body.test_cases > 200 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "test_cases exceeds max of 200" })
+    end
     local results = waf_manager.test_rule(body.rule, body.test_cases)
     local passed = 0
     local failed = 0

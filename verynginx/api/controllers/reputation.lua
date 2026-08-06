@@ -69,6 +69,10 @@ local function handle_reputation_whitelist_add()
         return json.encode({ ret = "failed", message = "ip parameter required" })
     end
     local rep = require "core.ip_reputation"
+    if not rep.validate_whitelist_entry(ip) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid ip or cidr" })
+    end
     rep.add_whitelist(ip)
     return json.encode({ ret = "success" })
 end

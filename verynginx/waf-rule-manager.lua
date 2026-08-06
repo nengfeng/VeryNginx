@@ -156,21 +156,34 @@ function _M.load_rules()
             local ok, meta = pcall(json.decode, meta_json)
             if ok and meta and meta.chunk_count and meta.chunk_count > 0 then
                 local chunks = {}
+                local complete = true
                 for i = 1, meta.chunk_count do
                     local chunk_json = shared:get(CACHE_PREFIX .. i)
                     if chunk_json then
                         local ok2, chunk = pcall(json.decode, chunk_json)
                         if ok2 and chunk then
                             chunks[tostring(i)] = chunk
+                        else
+                            complete = false
                         end
+                    else
+                        complete = false
                     end
                 end
-                if next(chunks) then
+                -- Only trust the cached rules if every chunk is present and
+                -- decodable. A missing/a corrupt chunk otherwise yields a
+                -- silently truncated rule set.
+                if complete and next(chunks) then
                     return {
                         version   = meta.version,
                         timestamp = meta.timestamp,
                         rules     = unchunk_rules(chunks)
                     }
+                end
+                if not complete then
+                    ngx.log(ngx.WARN, "waf-rule-manager: cached rules incomplete "
+                        .. "(expected ", tostring(meta.chunk_count), " chunks), "
+                        .. "falling back to disk")
                 end
             end
         end

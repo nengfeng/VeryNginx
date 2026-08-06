@@ -57,7 +57,11 @@ function _M._dimension_value(dim, ctx)
         local statistics = require "core.statistics"
         return statistics.normalize_uri(ctx.request.uri or "/")
     elseif dim == "user" then
-        return ctx.get_data(ctx, "auth:user") or "anonymous"
+        -- Unauthenticated requests must NOT share a single "anonymous" bucket
+        -- (that would let any one attacker drain the whole per-user budget and
+        -- would also conflate unrelated anonymous visitors). Fall back to the
+        -- client IP so each anonymous visitor gets its own bucket.
+        return ctx.get_data(ctx, "auth:user") or ip_enc.canonical_ip(ctx.request.remote_addr)
     elseif dim == "host" then
         return ctx.request.host or "unknown"
     else

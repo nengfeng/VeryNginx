@@ -127,7 +127,12 @@ local function handle_promote()
     end
     local ip = req.ip
     local policy = req.policy or "scanner"
-    local ttl = req.ttl or 86400
+    local ttl = tonumber(req.ttl) or 86400
+    if type(ttl) ~= "number" or ttl < 1 or ttl ~= ttl then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid ttl: must be a positive number of seconds" })
+    end
+    ttl = math.floor(ttl)
     if not ip or ip == "" then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip required" })

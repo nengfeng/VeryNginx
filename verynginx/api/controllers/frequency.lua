@@ -46,7 +46,8 @@ local function handle_frequency_rule_save()
         return json.encode({ ret = "failed", message = "invalid JSON" })
     end
     if not rule.id or rule.id == "" then
-        rule.id = "freq_" .. tostring(ngx.time())
+        local random = require "core.random"
+        rule.id = "freq_" .. tostring(ngx.time()) .. "_" .. random.hex(6)
     end
     if not config.rule then config.rule = {} end
     local rules = config.rule.frequency_limit or {}

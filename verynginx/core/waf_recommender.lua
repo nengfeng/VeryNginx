@@ -113,7 +113,8 @@ function _M.analyze()
             local ok, detail = pcall(json.decode, d)
             if ok and detail then
                 -- Only analyze blocked requests within the window
-                if detail.timestamp and detail.timestamp >= cutoff then
+                if detail.timestamp and detail.timestamp >= cutoff
+                    and (detail.action or "block") == "block" then
                     local uri = detail.uri or ""
                     local pattern = normalize_uri(uri)
                     if not patterns[pattern] then

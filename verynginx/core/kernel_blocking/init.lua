@@ -206,32 +206,40 @@ function _M.persist()
             cursor = page.next_cursor
         until not cursor
 
-        -- Also capture installed SM entries missing from desired (defensive).
-        cursor = 0
-        repeat
-            local page = sm.list(cursor, 500, "installed")
-            for _, e in ipairs(page.entries or {}) do
-                if e.list and e.ip then
-                    local family = e.family or "ipv4"
-                    if not desired.get_desired(e.ip, family, e.list) then
-                        entries[#entries + 1] = {
-                            ip = e.ip,
-                            family = family,
-                            list = e.list,
-                            expires_at = e.expires_at,
-                            source = e.source,
-                            policy = e.policy,
-                            state = e.state,
-                            promotion_count = e.promotion_count,
-                            ttl_tier = e.ttl_tier,
-                            reconciliation_mode = e.reconciliation_mode or
-                                (e.source == "manual" and "manual" or "ensure"),
-                        }
+        -- Also capture installed SM entries missing from desired (defensive), plus
+        -- dispatch_pending entries whose desired row is written only AFTER a
+        -- successful executor add. Without this, a crash between dispatch and
+        -- the desired write would lose the intent (the drop would not be
+        -- reinstalled after restart, and an already-applied kernel rule would
+        -- become an untracked orphan).
+        local states = { "installed", "dispatch_pending" }
+        for _, st in ipairs(states) do
+            cursor = 0
+            repeat
+                local page = sm.list(cursor, 500, st)
+                for _, e in ipairs(page.entries or {}) do
+                    if e.list and e.ip then
+                        local family = e.family or "ipv4"
+                        if not desired.get_desired(e.ip, family, e.list) then
+                            entries[#entries + 1] = {
+                                ip = e.ip,
+                                family = family,
+                                list = e.list,
+                                expires_at = e.expires_at,
+                                source = e.source,
+                                policy = e.policy,
+                                state = e.state,
+                                promotion_count = e.promotion_count,
+                                ttl_tier = e.ttl_tier,
+                                reconciliation_mode = e.reconciliation_mode or
+                                    (e.source == "manual" and "manual" or "ensure"),
+                            }
+                        end
                     end
                 end
-            end
-            cursor = page.next_cursor
-        until not cursor
+                cursor = page.next_cursor
+            until not cursor
+        end
 
 
         local payload = {

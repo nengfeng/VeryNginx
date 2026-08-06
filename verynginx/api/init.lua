@@ -124,8 +124,9 @@ local function run_route(route, ctx, method, path)
     end
 
     -- Idempotency key check for mutating requests
+    local idem_key = nil
     if method ~= "GET" and method ~= "HEAD" and method ~= "OPTIONS" then
-        local idem_key = ngx.req.get_headers()["Idempotency-Key"]
+        idem_key = ngx.req.get_headers()["Idempotency-Key"]
         if idem_key and idem_key ~= "" then
             local shared = ngx.shared.vn_session
             if shared then
@@ -142,7 +143,10 @@ local function run_route(route, ctx, method, path)
                     })
                     return
                 end
-                shared:set(cache_key, true, 3600)
+                -- Claim the key up-front to dedupe concurrent duplicates, but
+                -- only finalize it on a successful completion (see below). A
+                -- failed request releases the claim so a retry is allowed.
+                shared:set(cache_key, "processing", 3600)
             end
         end
     end
@@ -165,6 +169,23 @@ local function run_route(route, ctx, method, path)
     end
     if not ngx.status or ngx.status == 0 then
         ngx.status = 200
+    end
+
+    -- Finalize the idempotency claim only on success. A server-side failure
+    -- (exception or 5xx) releases the key so the client can safely retry;
+    -- otherwise a single failed attempt would burn the idempotency key for up
+    -- to an hour.
+    if idem_key and idem_key ~= "" then
+        local shared = ngx.shared.vn_session
+        if shared then
+            local cache_key = "idempotent:" .. ngx.md5(idem_key)
+            local status = tonumber(ngx.status) or 0
+            if not ok or status >= 500 then
+                shared:delete(cache_key)
+            else
+                shared:set(cache_key, true, 3600)
+            end
+        end
     end
 
     -- Response size limit

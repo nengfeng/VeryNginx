@@ -90,6 +90,44 @@ end
 -- ---------------------------------------------------------------
 -- Webhook URL validation (prevent SSRF)
 -- ---------------------------------------------------------------
+--- Classify an IPv4/IPv6 literal as a private/internal address.
+local function is_private_ip(ip)
+    if not ip then return false end
+    if ip:match("^10%.") then return true end
+    if ip:match("^172%.(1[6-9]%.)") then return true end
+    if ip:match("^172%.2%d%.") then return true end
+    if ip:match("^172%.3[01]%.") then return true end
+    if ip:match("^192%.168%.") then return true end
+    if ip:match("^169%.254%.") then return true end
+    if ip:match("^127%.") then return true end
+    if ip:match("^0%.") then return true end
+    if ip == "::1" then return true end
+    if ip:match("^fc") or ip:match("^fd") then return true end -- IPv6 ULA
+    if ip:match("^fe[89ab]:") then return true end              -- IPv6 link-local
+    return false
+end
+
+--- Resolve a hostname and report whether any A/AAAA answer is private.
+-- @return boolean|nil, string: true=encloses private IP, false=all public,
+--   nil=resolver unavailable (caller falls back to best-effort literal checks).
+local function resolves_to_private(host)
+    local ok_mod, dns_mod = pcall(require, "resty.dns.resolver")
+    if not ok_mod or type(dns_mod) ~= "table" then return nil end
+    local r, _ = dns_mod:new({ nameservers = { "8.8.8.8", "1.1.1.1" }, retrans = 1, timeout = 2000 })
+    if not r then return nil end
+    for _, qtype in ipairs({ "A", "AAAA" }) do
+        local answers = r:query(host, { qtype = qtype })
+        if type(answers) == "table" then
+            for _, ans in ipairs(answers) do
+                if ans and ans.address and is_private_ip(ans.address) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function validate_webhook_url(url)
     if not url or url == "" then return false, "empty URL" end
     -- Only allow https
@@ -101,25 +139,26 @@ local function validate_webhook_url(url)
     if not host then return false, "invalid URL" end
     -- Strip port if present
     host = host:match("^([^:]+)") or host
-    -- Block localhost
+    -- Block loopback / unspecified directly
     if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
         return false, "localhost not allowed"
     end
-    -- Block private IP ranges
-    local ip_patterns = {
-        "^10%.",
-        "^172%.(1[6-9]%.)",
-        "^172%.2%d%.",
-        "^172%.3[01]%.",
-        "^192%.168%.",
-        "^169%.254%.",
-        "^0%.",
-    }
-    for _, pat in ipairs(ip_patterns) do
-        if host:match(pat) then
-            return false, "internal IP not allowed"
-        end
+    -- Literal IPs: verify directly.
+    if host:find(":", 1, true) or host:match("^%d+%.%d+%.%d+%.%d+$") then
+        if is_private_ip(host) then return false, "internal IP not allowed" end
+        return true
     end
+    -- Hostname: resolve and reject if it points anywhere internal. This closes
+    -- the DNS-rebinding bypass where the literal host string looks public but
+    -- actually resolves to a private address.
+    local priv, derr = resolves_to_private(host)
+    if priv == nil then
+        -- Resolver unavailable (e.g. restricted network / unit test): best-effort.
+        ngx.log(ngx.WARN, "alerting: DNS resolution unavailable for webhook host ",
+            host, ": ", tostring(derr))
+        return true
+    end
+    if priv then return false, "internal IP not allowed" end
     return true
 end
 
