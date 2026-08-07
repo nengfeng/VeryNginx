@@ -628,6 +628,8 @@ bash test/v2/phase0/test_go_helper_e2e.sh
 
 > 回归测试见 `helper/reconcile_guards_test.go`（无需 E2E，直接构造 `NFTBackend` + `VN_HELPER_SKIP_NFT=1`）。
 
+- **`FlushOwned("auto")` 必须只删 scanner_drop + cc_drop**：`FlushOwned` 的 else 分支（scope="auto"）曾遍历全部 `b.owned` 并清空，连带删除 `manual_drop` 和 `allow`（白名单）条目，且重置全部 ownership。现用 `auto_sets` 过滤，仅移除自动集合，保留手动封禁和白名单，与 mock 执行器一致。回归测试见 `helper/flush_owned_scope_test.go`。
+
 ### 11.9 连接必须设 deadline（防慢客户端 goroutine 泄漏）
 
 `handleConnection` 的 read/write 循环若无 deadline，慢客户端（slow-loris）或断网未关的 socket 会永久阻塞其 goroutine；堆积的 stuck reader 还会拖慢等待 backend mutex 的合法 worker。

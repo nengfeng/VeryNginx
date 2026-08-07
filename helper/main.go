@@ -1507,32 +1507,44 @@ func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
 		b.state = map[string]map[string]map[string]*setEntry{}
 		b.owned = map[string]bool{}
 	} else {
-		// Remove only owned entries
+		// scope == "auto": only remove auto-managed sets (scanner_drop +
+		// cc_drop). Never touch manual_drop or allow (whitelist) entries —
+		// flush-auto must not wipe manually-added blocks or the whitelist.
+		// Mirror's the mock executor's auto_sets filter.
+		autoSets := map[string]bool{"scanner_drop": true, "cc_drop": true}
 		var sb strings.Builder
 		type pendingRemove struct{ set, family, ip, key string }
 		var pending []pendingRemove
+		skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 		for key := range b.owned {
 			parts := strings.SplitN(key, ":", 3)
 			if len(parts) != 3 {
+				continue
+			}
+			if !autoSets[parts[0]] {
 				continue
 			}
 			tf := "ip"
 			if parts[1] == "ipv6" {
 				tf = "ip6"
 			}
-			fmt.Fprintf(&sb, "delete element %s verynginx %s { %s }\n", tf, parts[0], parts[2])
+			if !skipNFT {
+				fmt.Fprintf(&sb, "delete element %s verynginx %s { %s }\n", tf, parts[0], parts[2])
+			}
 			pending = append(pending, pendingRemove{parts[0], parts[1], parts[2], key})
 			count++
 		}
-		if _, err := b.execNFT(sb.String()); err != nil {
-			return nil, err
+		if !skipNFT && sb.Len() > 0 {
+			if _, err := b.execNFT(sb.String()); err != nil {
+				return nil, err
+			}
 		}
 		for _, p := range pending {
 			if b.state[p.set] != nil && b.state[p.set][p.family] != nil {
 				delete(b.state[p.set][p.family], p.ip)
 			}
+			delete(b.owned, p.key)
 		}
-		b.owned = map[string]bool{}
 	}
 
 	return map[string]interface{}{"removed": count}, nil
