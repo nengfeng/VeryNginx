@@ -64,4 +64,49 @@ describe("desired_state index compaction on count", function()
         assert.are.equal(1, desired.count_desired())
         assert.are.equal(1, #json.decode(ngx.shared.vn_config:get("kb:desired_index")))
     end)
+
+    it("clear_auto serializes with concurrent set_desired (no lost update / orphan)", function()
+        local desired = new_desired()
+        local s = ngx.shared.vn_config
+        local locks = ngx.shared.vn_locks
+        -- k1: scanner_drop (will be cleared), k2: manual_drop (kept)
+        desired.set_desired("203.0.113.1", "ipv4", "scanner_drop", {}, 600)
+        desired.set_desired("203.0.113.2", "ipv4", "manual_drop", {}, 600)
+
+        -- Hook the shared dict delete to inject a concurrent set_desired
+        -- mid-loop, simulating another worker adding an entry while
+        -- clear_auto is running.
+        local orig_del = s.delete
+        local injected = false
+        local injected_key = "kb:desired:ipv4:cc_drop:203.0.113.3"
+        s.delete = function(_, k)
+            if not injected then
+                injected = true
+                desired.set_desired("203.0.113.3", "ipv4", "cc_drop", {}, 600)
+            end
+            return orig_del(_, k)
+        end
+
+        local removed = desired.clear_auto()
+        s.delete = orig_del
+
+        assert.are.equal(1, removed, "exactly one scanner/cc entry removed")
+
+        local idx = json.decode(s:get("kb:desired_index"))
+        assert.are.equal(1, #idx, "only manual_drop remains in index")
+
+        -- The concurrent cc_drop add must NOT be left as an orphan: either it
+        -- is properly represented in the index, or fully rolled back (no data).
+        local data_exists = s:get(injected_key) ~= nil
+        local in_index = false
+        for _, v in ipairs(idx) do
+            if v == injected_key then in_index = true end
+        end
+        assert.is_false(data_exists and not in_index,
+            "concurrent add must not be left orphaned (data without index)")
+
+        -- The index lock must be free after clear_auto returns.
+        assert.is_nil(locks:get("kb:desired_index_lock"),
+            "index lock must be released after clear_auto")
+    end)
 end)

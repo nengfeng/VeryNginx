@@ -661,7 +661,7 @@ verynginx/core/kernel_blocking/
 - **`compact_index` 定期清理候选索引**：candidate index 只追加不删除，必须每 300 秒扫描并移除过期条目。
 - **索引锁必须带 token 校验释放**：`desired_state.index_add/index_remove/compact_index_if_due` 与 `state_machine.index_add_under_lock/compact_index` 均用 `random.bytes(8)` token 做 `l:add`，释放前 `l:get == token` 才 `delete`。不要用 worker id 直接 `l:delete`——锁 TTL 超时被他人抢走后，旧持有者的 unlock 会误删他人锁。
 - **desired index 的 compact 需在 count 路径也触发**：`index_write` 用 TTL 0（永不过期，条目本身可能无限 TTL，index 必须活得更久），死条目只能靠 compact 清理；`count_desired`/`count_by_list` 与 `list_desired` 一样要先 `compact_index_if_due()`，否则长期只调 count 时 index 残留死条目。
-- **`scope_digest` 使用 newline-joined SHA256**：Go 端 `computeScopeDigest` 必须与 Lua `scope_binding.compute_scope_digest` 字节一致（`scope=...\naddrs=...\nports=...\n...\nsha256`）。
+- **`clear_auto` 的 index 读改写必须持锁**：`clear_auto` 曾直接 `index_read` → 循环 → `index_write` 不持锁，与持锁的 `set_desired`/`index_add` 并发时，后者新追加的索引条目会被 `clear_auto` 的 `index_write(kept)` 覆盖 → 新条目成孤儿（有数据无索引，reconcile 永远不可见）。现用 `index_lock`/`index_unlock` 包裹整个读改写，与其他索引操作串行。
 - **`is_array({})` 返回 true**：schema 中空 table 判定为 array，影响默认值归一化行为。
 - **API promote 需独立安全检查**：controller `handle_promote()` 自身做 IP 格式/保留地址/白名单/capacity 校验，不能依赖 executor。
 - **CC require_challenge_fail 阻止了大部分 NAT 误封**：同一 IP 必须同时满足 `min_violation_windows` 且存在 challenge_fail 证据。

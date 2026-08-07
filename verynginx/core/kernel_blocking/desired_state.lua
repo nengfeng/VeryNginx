@@ -243,6 +243,12 @@ end
 function _M.clear_auto()
     local s = shared()
     if not s then return 0 end
+    local token = index_lock()
+    if not token then
+        ngx.log(ngx.ERR, "kb: clear_auto index lock unavailable after ",
+            INDEX_LOCK_MAX_RETRIES, " retries")
+        return 0
+    end
     local idx = index_read()
     local kept = {}
     local removed = 0
@@ -256,6 +262,7 @@ function _M.clear_auto()
         end
     end
     index_write(kept)
+    index_unlock(token)
     return removed
 end
 
