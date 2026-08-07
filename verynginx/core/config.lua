@@ -735,17 +735,28 @@ local function validate_config(config)
         end
         local host = config.alerting.webhook_url:match("^https://([^/]+)")
         if host then
-            host = host:match("^([^:]+)") or host
-            if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
-                return false, "alerting.webhook_url must not target localhost"
-            end
-            local ip_patterns = {
-                "^10%.", "^172%.(1[6-9]%.)", "^172%.2%d%.", "^172%.3[01]%.",
-                "^192%.168%.", "^169%.254%.", "^0%.",
-            }
-            for _, pat in ipairs(ip_patterns) do
-                if host:match(pat) then
+            -- IPv6 bracket literal: [::1] or [::1]:port. Without extracting the
+            -- inner address, "[::1]" is mangled into "[" by the port-strip
+            -- below and bypasses every private-IP check (SSRF).
+            local ipv6 = host:match("^%[(.-)%]")
+            if ipv6 then
+                if ipv6 == "::1" or ipv6:match("^fc") or ipv6:match("^fd")
+                    or ipv6:match("^fe[89ab]:") then
                     return false, "alerting.webhook_url must not target internal IPs"
+                end
+            else
+                host = host:match("^([^:]+)") or host
+                if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
+                    return false, "alerting.webhook_url must not target localhost"
+                end
+                local ip_patterns = {
+                    "^10%.", "^172%.(1[6-9]%.)", "^172%.2%d%.", "^172%.3[01]%.",
+                    "^192%.168%.", "^169%.254%.", "^0%.",
+                }
+                for _, pat in ipairs(ip_patterns) do
+                    if host:match(pat) then
+                        return false, "alerting.webhook_url must not target internal IPs"
+                    end
                 end
             end
         end

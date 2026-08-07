@@ -111,7 +111,7 @@ local function is_private_ip(ip)
     if ip:match("^0%.") then return true end
     if ip == "::1" then return true end
     if ip:match("^fc") or ip:match("^fd") then return true end -- IPv6 ULA
-    if ip:match("^fe[89ab]:") then return true end              -- IPv6 link-local
+    if ip:match("^fe[89ab][0-9a-f]:") then return true end       -- IPv6 link-local (fe80::/10)
     return false
 end
 
@@ -145,6 +145,16 @@ local function validate_webhook_url(url)
     -- Extract hostname
     local host = url:match("^https://([^/]+)")
     if not host then return false, "invalid URL" end
+
+    -- IPv6 bracket literal: [::1] or [::1]:port. Extract the inner address and
+    -- check it directly. Without this, "[::1]" is mangled by the port-strip
+    -- below into just "[", bypassing every private-IP check (SSRF).
+    local ipv6 = host:match("^%[(.-)%]")
+    if ipv6 then
+        if is_private_ip(ipv6) then return false, "internal IP not allowed" end
+        return true
+    end
+
     -- Strip port if present
     host = host:match("^([^:]+)") or host
     -- Block loopback / unspecified directly
@@ -168,6 +178,13 @@ local function validate_webhook_url(url)
     end
     if priv then return false, "internal IP not allowed" end
     return true
+end
+
+-- Validate a webhook URL without sending. Exposed for testing and as a
+-- reusable guard (e.g. config validation) so callers can check SSRF safety
+-- without triggering an outbound HTTP request.
+function _M.validate_webhook_url(url)
+    return validate_webhook_url(url)
 end
 
 -- ---------------------------------------------------------------

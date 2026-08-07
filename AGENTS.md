@@ -663,7 +663,8 @@ verynginx/core/kernel_blocking/
 - **索引锁必须带 token 校验释放**：`desired_state.index_add/index_remove/compact_index_if_due` 与 `state_machine.index_add_under_lock/compact_index` 均用 `random.bytes(8)` token 做 `l:add`，释放前 `l:get == token` 才 `delete`。不要用 worker id 直接 `l:delete`——锁 TTL 超时被他人抢走后，旧持有者的 unlock 会误删他人锁。
 - **desired index 的 compact 需在 count 路径也触发**：`index_write` 用 TTL 0（永不过期，条目本身可能无限 TTL，index 必须活得更久），死条目只能靠 compact 清理；`count_desired`/`count_by_list` 与 `list_desired` 一样要先 `compact_index_if_due()`，否则长期只调 count 时 index 残留死条目。
 - **`clear_auto` 的 index 读改写必须持锁**：`clear_auto` 曾直接 `index_read` → 循环 → `index_write` 不持锁，与持锁的 `set_desired`/`index_add` 并发时，后者新追加的索引条目会被 `clear_auto` 的 `index_write(kept)` 覆盖 → 新条目成孤儿（有数据无索引，reconcile 永远不可见）。现用 `index_lock`/`index_unlock` 包裹整个读改写，与其他索引操作串行。
-- **`is_array({})` 返回 true**：schema 中空 table 判定为 array，影响默认值归一化行为。
+- **`is_private_ip` 的 IPv6 链路本地范围判定**：link-local 是 `fe80::/10`，前 10 位固定为 `1111111010`，即第 3 个 hex 字符为 `8/9/a/b`、第 4 个字符可为任意 hex。曾误用 `^fe[89ab]:`（要求第 4 字符为 `:`），导致 `fe80::1` 漏判。现为 `^fe[89ab][0-9a-f]:`。
+- **webhook URL 的 IPv6 括号字面量必须剥离后校验**：`https://[::1]/hook` 的 host 提取后经 `host:match("^([^:]+)")` 会截成 `[`，绕过私网检查（SSRF）。须先识别 `^[...]` 括号字面量，提取内部 IPv6 地址直接用 `is_private_ip` 判定。`alerting.lua` 与 `config.lua` 两处校验均已修复。
 - **API promote 需独立安全检查**：controller `handle_promote()` 自身做 IP 格式/保留地址/白名单/capacity 校验，不能依赖 executor。
 - **CC require_challenge_fail 阻止了大部分 NAT 误封**：同一 IP 必须同时满足 `min_violation_windows` 且存在 challenge_fail 证据。
 - **close_socket 只在 had_socket 时 invalidate scope binding**：首次建连前 close 不应 invalidate，避免不必要的 rebind。
