@@ -151,6 +151,33 @@ local function index_add_under_lock(ip, policy)
     return true
 end
 
+-- Remove the composite key from the candidate index under the index lock.
+-- Mirrors index_add_under_lock so a concurrent remove + upsert/remove cannot
+-- lose updates: a read-filter-write done without the lock would let a second
+-- writer resurrect an entry whose data was already deleted (zombie index entry
+-- invisible to reconcile until the next compact). Returns false if the lock
+-- could not be acquired within the retry budget (best-effort: the dead index
+-- entry is pruned by the next compact_index()).
+local function index_remove_under_lock(ip, policy)
+    local s = shared()
+    if not s then return false end
+    local token = index_lock()
+    if not token then
+        ngx.log(ngx.ERR, "kb: candidate index lock unavailable after ",
+            INDEX_LOCK_MAX_RETRIES, " retries for remove ", ip, ":", policy)
+        return false
+    end
+    local idx_raw = s:get(INDEX_KEY) or "[]"
+    local ok, idx = pcall(json.decode, idx_raw)
+    if not ok or type(idx) ~= "table" then idx = {} end
+    local idx_key = ip .. ":" .. policy
+    local filtered = {}
+    for _, v in ipairs(idx) do if v ~= idx_key then filtered[#filtered + 1] = v end end
+    s:set(INDEX_KEY, json.encode(filtered), INDEX_TTL)
+    index_unlock(token)
+    return true
+end
+
 -- ---------------------------------------------------------------------------
 -- Upsert a candidate/desired-state entry.
 -- @param ip string
@@ -275,13 +302,7 @@ function _M.remove(ip, policy)
     local s = shared()
     if not s then return end
     s:delete(entry_key(ip, policy))
-    local idx_key = ip .. ":" .. policy
-    local idx_raw = s:get(INDEX_KEY) or "[]"
-    local ok, idx = pcall(json.decode, idx_raw)
-    if not ok or type(idx) ~= "table" then return end
-    local filtered = {}
-    for _, v in ipairs(idx) do if v ~= idx_key then filtered[#filtered + 1] = v end end
-    s:set(INDEX_KEY, json.encode(filtered), INDEX_TTL)
+    index_remove_under_lock(ip, policy)
 end
 
 -- ---------------------------------------------------------------------------
