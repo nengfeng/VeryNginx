@@ -613,9 +613,20 @@ bash test/v2/phase0/test_go_helper_e2e.sh
 - 9 种操作: probe, health, ensure_base, add, delete, list, replace_allow_snapshot, reconcile, flush_owned
 - 环境变量 `VN_HELPER_SOCKET` 可覆盖 socket 路径（用于测试）
 
----
+### 11.8 reconcile 必须镜像 Add 的独立防御
 
-## 12. Kernel Blocking (Lua)
+`Add` 在写 nft 前会执行三道独立防御：`isReservedOrSpecialIP`（拒环回/组播/未指定等）、`isAllowCoveredLocked`（拒 allow 覆盖的 drop）、容量与 DROP 速率限制。`reconcileFull` / `reconcileChunked` 是批量路径，**同样必须执行这些检查**，否则：
+
+- 绕过 reserved-IP 检查 → 可能把 `127.0.0.1` 等地址打入 drop 集合（H2）。
+- 绕过 allow-cover 检查 → allow 保护的 IP 仍被 drop。
+- 不更新 `b.allowEntries` → 后续 `Add` 的 `isAllowCoveredLocked` 因 map 陈旧而失效（H1）。
+
+实现要点：
+- 遍历 snapshot 时，`Set == "allow"` 的条目累加到局部 `batchAllow` map，并在写状态后同步 `b.allowEntries[ip] = true`。
+- drop 条目：reserved 或 `allowCoveredLocked(ip, batchAllow)` 命中则跳过（计入 `failed`），不进入 nft 命令也不写 `b.state`。
+- `batchAllow` 让同 snapshot 内先出现的 allow 能保护后出现的 drop（chunked 模式下跨 chunk 的保护由已提交的 `b.allowEntries` 覆盖）。
+
+> 回归测试见 `helper/reconcile_guards_test.go`（无需 E2E，直接构造 `NFTBackend` + `VN_HELPER_SKIP_NFT=1`）。
 
 ### 12.1 模块文件结构
 

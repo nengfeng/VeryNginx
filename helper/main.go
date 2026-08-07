@@ -627,6 +627,36 @@ func (b *NFTBackend) isAllowCoveredLocked(ipStr string) bool {
 	return false
 }
 
+// allowCoveredLocked extends isAllowCoveredLocked with a transient allow set
+// (e.g. allow entries added in the same reconcile batch) so a drop entry is
+// rejected when it is covered by either already-installed allow entries or
+// allow entries being installed concurrently.
+func (b *NFTBackend) allowCoveredLocked(ipStr string, extra map[string]bool) bool {
+	if b.isAllowCoveredLocked(ipStr) {
+		return true
+	}
+	if len(extra) == 0 {
+		return false
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for entry := range extra {
+		if strings.Contains(entry, "/") {
+			_, n, err := net.ParseCIDR(entry)
+			if err == nil && n.Contains(ip) {
+				return true
+			}
+			continue
+		}
+		if other := net.ParseIP(entry); other != nil && other.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *NFTBackend) ownedDropCountLocked() int {
 	n := 0
 	for key := range b.owned {
@@ -1198,6 +1228,11 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 	}
 	var pending []pendingEntry
 
+	// Independent defenses mirroring Add: never install reserved/special
+	// addresses, and never install a drop that is covered by an allow entry
+	// (either already installed or being installed in this same snapshot).
+	batchAllow := map[string]bool{}
+
 	for _, entry := range snapshot {
 		family := entry.Family
 		if family == "" {
@@ -1209,6 +1244,13 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 		}
 		key := entry.Set + ":" + family + ":" + entry.IP
 		seen[key] = true
+
+		if entry.Set == "allow" {
+			batchAllow[entry.IP] = true
+		} else if isReservedOrSpecialIP(entry.IP) || b.allowCoveredLocked(entry.IP, batchAllow) {
+			result["failed"] = result["failed"].(int) + 1
+			continue
+		}
 
 		var elemStr string
 		if entry.TTL > 0 {
@@ -1247,6 +1289,9 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 			result["added"] = result["added"].(int) + 1
 		}
 		b.owned[b.ownedKey(entry.Set, family, entry.IP)] = true
+		if entry.Set == "allow" {
+			b.allowEntries[entry.IP] = true
+		}
 	}
 	return result, nil
 }
@@ -1297,6 +1342,11 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 		}
 		var pending []pendingEntry
 
+		// Independent defenses mirroring Add: never install reserved/special
+		// addresses, and never install a drop covered by an allow entry (either
+		// already installed or added earlier in this snapshot's chunks).
+		batchAllow := map[string]bool{}
+
 		for _, d := range payload.Desired {
 			entry := d
 			family := entry.Family
@@ -1306,6 +1356,14 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 			tf := "ip"
 			if family == "ipv6" {
 				tf = "ip6"
+			}
+			if entry.Set == "allow" {
+				batchAllow[entry.IP] = true
+			} else if isReservedOrSpecialIP(entry.IP) || b.allowCoveredLocked(entry.IP, batchAllow) {
+				// Skipped entries never reach the kernel nor in-memory state,
+				// so they can not be installed by a later chunk either.
+				result["failed"] = result["failed"].(int) + 1
+				continue
 			}
 			var elemStr string
 			if entry.TTL > 0 {
@@ -1345,6 +1403,9 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 			e := entry
 			b.state[entry.Set][family][entry.IP] = &e
 			b.owned[b.ownedKey(entry.Set, family, entry.IP)] = true
+			if entry.Set == "allow" {
+				b.allowEntries[entry.IP] = true
+			}
 		}
 		b.mu.Unlock()
 
