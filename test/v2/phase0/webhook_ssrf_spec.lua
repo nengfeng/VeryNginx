@@ -95,3 +95,96 @@ describe("webhook SSRF validation", function()
         assert.is_true(ok, "public hostname must be allowed, got err: " .. tostring(err))
     end)
 end)
+
+-- Config-level save-time validation must reject the same URLs. This block
+-- guards against drift: config.validate_config delegates to
+-- alerting.validate_webhook_url, so link-local and ::ffff: mapped IPv6 must be
+-- rejected at save time too (previously the inlined config check missed them).
+describe("config webhook SSRF validation at save time", function()
+
+    local json = require "dkjson"
+
+    -- Build a minimal valid config carrying the webhook URL under test.
+    local function cfg_with(url)
+        return {
+            version = "2.0",
+            matcher = {},
+            matcher_id = {},
+            rule = { frequency_limit = {} },
+            frequency = { per_ip = { enabled = false } },
+            summary = { enable = false },
+            cc = { enabled = false },
+            ipv4 = { enabled = true },
+            ipv6 = { enabled = false, prefix_aggregation = false },
+            kb_ip_blocking = {},
+            kernel_ip_blocking = { enabled = false },
+            vn_config = {},
+            statistics = { enable = false },
+            enable_summary = false,
+            protected_prefix = {},
+            protect_enable = false,
+            enable = true,
+            replace_monitor_ip = false,
+            replace_ip = false,
+            allow_ip = {},
+            allow_domain = {},
+            replace_url = {},
+            cookie = { secret = "x" },
+            admin = {},
+            security = { session_secret = "x" },
+            browser_verify = { enable = false },
+            waf = { enable = false, rules = {} },
+            cc_rules = {},
+            debug = false,
+            secret = "x",
+            auto_ip_block_enable = false,
+            ip_black_list = {},
+            browser_verify_enable = false,
+            ip_white_list = {},
+            data_uuid = "x",
+            cookie_secure = false,
+            cookie_httponly = false,
+            replace_post_args = {},
+            alerting = { enabled = true, webhook_url = url },
+            proxy_pass = {},
+            ssi = { enable = false },
+            set_cookie = {},
+            inject_js = {},
+            request_filter = { enable = false, rules = {} },
+            response_filter = { enable = false, rules = {} },
+            body = {},
+            frequency_limit = { enable = false, rules = {} },
+            data_filter = { enable = false, rules = {} },
+        }
+    end
+
+    local function save(url)
+        local config = require "core.config"
+        local cfg = cfg_with(url)
+        local n = 0
+        for _ in pairs(cfg) do n = n + 1 end
+        -- count fields so we know the table is well-formed; not used otherwise
+        return config.validate_config(cfg)
+    end
+
+    it("blocks IPv6 loopback [::1] at save time", function()
+        local ok, err = save("https://[::1]/hook")
+        assert.is_false(ok, "[::1] must be rejected at save time")
+        assert.truthy(err and err:find("webhook"), "error must mention webhook, got: " .. tostring(err))
+    end)
+
+    it("blocks IPv6 link-local [fe80::1] at save time (drift guard)", function()
+        local ok, err = save("https://[fe80::1]/hook")
+        assert.is_false(ok, "[fe80::1] must be rejected at save time")
+    end)
+
+    it("blocks IPv6 ::ffff: mapped [::ffff:10.0.0.1] at save time (drift guard)", function()
+        local ok, err = save("https://[::ffff:10.0.0.1]/hook")
+        assert.is_false(ok, "[::ffff:10.0.0.1] must be rejected at save time")
+    end)
+
+    it("allows public hostname at save time", function()
+        local ok, err = save("https://example.com/hook")
+        assert.is_true(ok, "public hostname must pass save-time check, got err: " .. tostring(err))
+    end)
+end)

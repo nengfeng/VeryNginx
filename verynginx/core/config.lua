@@ -728,37 +728,16 @@ local function validate_config(config)
         end
     end
 
-    -- Alerting webhook URL validation (prevent SSRF)
+    -- Alerting webhook URL validation (prevent SSRF). Delegate to the single
+    -- source of truth (alerting.validate_webhook_url) so the save-time check
+    -- cannot drift from the send-time check. Lazy require to avoid a circular
+    -- dependency (alerting -> config); by the time validate_config() runs both
+    -- modules are fully loaded.
     if config.alerting and config.alerting.webhook_url and config.alerting.webhook_url ~= "" then
-        if not config.alerting.webhook_url:match("^https://") then
-            return false, "alerting.webhook_url must use https"
-        end
-        local host = config.alerting.webhook_url:match("^https://([^/]+)")
-        if host then
-            -- IPv6 bracket literal: [::1] or [::1]:port. Without extracting the
-            -- inner address, "[::1]" is mangled into "[" by the port-strip
-            -- below and bypasses every private-IP check (SSRF).
-            local ipv6 = host:match("^%[(.-)%]")
-            if ipv6 then
-                if ipv6 == "::1" or ipv6:match("^fc") or ipv6:match("^fd")
-                    or ipv6:match("^fe[89ab]:") then
-                    return false, "alerting.webhook_url must not target internal IPs"
-                end
-            else
-                host = host:match("^([^:]+)") or host
-                if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
-                    return false, "alerting.webhook_url must not target localhost"
-                end
-                local ip_patterns = {
-                    "^10%.", "^172%.(1[6-9]%.)", "^172%.2%d%.", "^172%.3[01]%.",
-                    "^192%.168%.", "^169%.254%.", "^0%.",
-                }
-                for _, pat in ipairs(ip_patterns) do
-                    if host:match(pat) then
-                        return false, "alerting.webhook_url must not target internal IPs"
-                    end
-                end
-            end
+        local alerting = require "core.alerting"
+        local ok, err = alerting.validate_webhook_url(config.alerting.webhook_url)
+        if not ok then
+            return false, "alerting.webhook_url " .. tostring(err)
         end
     end
 
