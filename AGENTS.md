@@ -628,6 +628,16 @@ bash test/v2/phase0/test_go_helper_e2e.sh
 
 > 回归测试见 `helper/reconcile_guards_test.go`（无需 E2E，直接构造 `NFTBackend` + `VN_HELPER_SKIP_NFT=1`）。
 
+### 11.9 连接必须设 deadline（防慢客户端 goroutine 泄漏）
+
+`handleConnection` 的 read/write 循环若无 deadline，慢客户端（slow-loris）或断网未关的 socket 会永久阻塞其 goroutine；堆积的 stuck reader 还会拖慢等待 backend mutex 的合法 worker。
+
+- 每请求顶部刷新 `conn.SetDeadline(time.Now().Add(connIdleTimeout))`（默认 30s）。
+- 超时后 `readFrame` 返回 `i/o timeout`，连接关闭、goroutine 退出。
+- `connIdleTimeout` 为 package-level `var`（非 const），测试可覆盖为短值验证。
+
+> 回归测试见 `helper/conn_deadline_test.go`（覆盖 `connIdleTimeout` 至 300ms，验证停滞连接在超时后被关闭）。
+
 ### 12.1 模块文件结构
 
 ```

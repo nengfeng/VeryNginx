@@ -47,6 +47,13 @@ const (
 	snapshotStateTTL   = 10 * time.Minute
 )
 
+// connIdleTimeout is the maximum time a connection may spend between receiving
+// requests. A client that connects and stalls (slow-loris) or dies without
+// closing the socket would otherwise block its goroutine forever; a pile-up of
+// such stuck readers can also stall legitimate workers behind the backend mutex.
+// Refreshed at the top of every request. Overridable in tests.
+var connIdleTimeout = 30 * time.Second
+
 // RequestEnvelope is the wire-format request from VeryNginx.
 type RequestEnvelope struct {
 	Version   int             `json:"version"`
@@ -1702,6 +1709,7 @@ func handleConnection(conn net.Conn, backend *NFTBackend) {
 	sess := &ScopeSession{}
 	replay := newConnReplay()
 	for {
+		_ = conn.SetDeadline(time.Now().Add(connIdleTimeout))
 		env, err := readFrame(conn)
 		if err != nil {
 			if err != io.EOF {
