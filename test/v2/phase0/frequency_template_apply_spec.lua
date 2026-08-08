@@ -130,11 +130,21 @@ describe("POST /frequency/templates/:id IP matcher validation", function()
         assert.are.equal("success", data.ret)
     end)
 
-    it("rejects matcherJson IP that is valid CIDR", function()
+    it("rejects matcherJson IP with CIDR notation (matcher has no CIDR support)", function()
         local data = post_template("crawler", {
             matcherJson = dkjson.encode({ IP = { operator = "=", value = "10.0.0.0/8" } }),
         })
+        assert.are.equal("failed", data.ret,
+            "CIDR in IP matcher must be rejected (matcher can only do equality/regex)")
+        assert.truthy(data.message and data.message:find("CIDR"),
+            "error must mention CIDR, got: " .. tostring(data.message))
+    end)
+
+    it("accepts matcherJson IP that is a plain valid address", function()
+        local data = post_template("crawler", {
+            matcherJson = dkjson.encode({ IP = { operator = "=", value = "10.0.0.1" } }),
+        })
         assert.are.equal("success", data.ret,
-            "valid CIDR IP matcher must be accepted, got: " .. tostring(data.message))
+            "plain valid IP matcher must be accepted, got: " .. tostring(data.message))
     end)
 end)

@@ -22,10 +22,16 @@ local function validate_rule_ip_matchers(rule)
     for name, cond in pairs(matchers) do
         if name == "IP" and type(cond) == "table" and type(cond.value) == "string"
             and cond.value ~= "" then
-            local addr = cond.value
-            local slash = addr:find("/")
-            if slash then addr = addr:sub(1, slash - 1) end
-            if not helpers.is_valid_ip(addr) then
+            -- The IP matcher (matcher/ip.lua) performs only plain string
+            -- equality ("=") or regex ("≈") against remote_addr — it has no
+            -- CIDR support. A CIDR value like "10.0.0.0/8" would pass the IP
+            -- check below but silently never match any request. Reject it so
+            -- the user gets immediate feedback instead of a rule that can
+            -- never fire.
+            if cond.value:find("/") then
+                return false, "IP matcher does not support CIDR notation: " .. cond.value
+            end
+            if not helpers.is_valid_ip(cond.value) then
                 return false, "invalid IP in matcher: " .. cond.value
             end
         end

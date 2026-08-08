@@ -129,6 +129,8 @@ local rl_key = "api:" .. method .. ":" .. route.path .. ":" .. tostring(user)
 6. **Audit log** — mutating 请求写入 `core.audit`
 
 > **IP 输入验证统一用 `helpers.is_valid_ip()`**：API 层凡接收用户 IP（reputation score/clear、kernel_blocking promote/clear、frequency 规则 IP matcher）一律先过 `api/helpers.lua` 的统一校验（严格 IPv4 四段 0-255 + IPv6 单 `::`/8 组/4 位十六进制），不合法返回 400。不要用松散正则（如 `^[%d%.]+$` 会把 `999.1.1.1` 放进索引）。
+>
+> **IP matcher 不支持 CIDR，校验须拒绝 `/`**：`matcher/ip.lua` 经 `compare.match` 仅做纯字符串相等 (`=`) 或正则 (`≈`)，无 CIDR 语义。`validate_rule_ip_matchers`（frequency.lua）若接受 `10.0.0.0/8` 这类 CIDR，规则会通过校验并持久化，但请求 IP 永远不会等于该字符串 → 限流/WAF 规则静默不触发。故 IP matcher 值含 `/` 时应直接拒绝（而非去前缀后校验通过）。WAF 规则共用此 matcher 路径（filter/init.lua），同为静默失效风险点。
 
 ---
 
