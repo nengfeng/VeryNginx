@@ -168,6 +168,14 @@ local function handle_template_apply()
         ngx.status = 400
         return json.encode({ ret = "failed", message = err })
     end
+    -- Validate IP matcher values (mirrors handle_frequency_rule_save) so a
+    -- matcherJson override can't carry a malformed IP (e.g. "999.1.1.1")
+    -- that would silently never match and defeat rate limiting.
+    local vimok, vimerr = validate_rule_ip_matchers(rule)
+    if not vimok then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = vimerr })
+    end
     -- Save the rule via the same path as handle_frequency_rule_save.
     if not config.rule then config.rule = {} end
     local rules = config.rule.frequency_limit or {}
