@@ -741,6 +741,20 @@ local function validate_config(config)
         end
     end
 
+    -- Whitelist entry format validation. The schema only checks items="string",
+    -- so malformed entries like "999.1.1.1" would pass and persist — silently
+    -- defeating the is_whitelisted/promote gate (the API layer validates via
+    -- validate_whitelist_entry, but POST /config and import bypass that).
+    if config.ip_reputation and config.ip_reputation.whitelist then
+        local ir = require "core.ip_reputation"
+        for i, entry in ipairs(config.ip_reputation.whitelist) do
+            if not ir.validate_whitelist_entry(entry) then
+                return false, string.format("ip_reputation.whitelist[%d]: " ..
+                    "invalid IP or CIDR %q", i, tostring(entry))
+            end
+        end
+    end
+
     return true
 end
 

@@ -677,6 +677,7 @@ verynginx/core/kernel_blocking/
 - **desired index 的 compact 需在 count 路径也触发**：`index_write` 用 TTL 0（永不过期，条目本身可能无限 TTL，index 必须活得更久），死条目只能靠 compact 清理；`count_desired`/`count_by_list` 与 `list_desired` 一样要先 `compact_index_if_due()`，否则长期只调 count 时 index 残留死条目。
 - **`clear_auto` 的 index 读改写必须持锁**：`clear_auto` 曾直接 `index_read` → 循环 → `index_write` 不持锁，与持锁的 `set_desired`/`index_add` 并发时，后者新追加的索引条目会被 `clear_auto` 的 `index_write(kept)` 覆盖 → 新条目成孤儿（有数据无索引，reconcile 永远不可见）。现用 `index_lock`/`index_unlock` 包裹整个读改写，与其他索引操作串行。
 - **`is_private_ip` 的 IPv6 链路本地范围判定**：link-local 是 `fe80::/10`，前 10 位固定为 `1111111010`，即第 3 个 hex 字符为 `8/9/a/b`、第 4 个字符可为任意 hex。曾误用 `^fe[89ab]:`（要求第 4 字符为 `:`），导致 `fe80::1` 漏判。现为 `^fe[89ab][0-9a-f]:`。
+- **config 白名单保存层必须校验条目格式**：`ip_reputation.whitelist` schema 仅 `items="string"`，`POST /config` / import 不校验条目格式——"999.1.1.1" 可持久化，导致 is_whitelisted/promote 闸门永不匹配（与 API 层 reputation.lua 的 validate_whitelist_entry 不对称）。现 validate_config 遍历条目调用 validate_whitelist_entry，非法条目拒绝保存。
 - **webhook URL 的 IPv6 括号字面量必须剥离后校验**：`https://[::1]/hook` 的 host 提取后经 `host:match("^([^:]+)")` 会截成 `[`，绕过私网检查（SSRF）。须先识别 `^[...]` 括号字面量，提取内部 IPv6 地址直接用 `is_private_ip` 判定。`alerting.lua` 已修复并导出 `_M.validate_webhook_url`；`config.lua` 的保存层校验现已改为委托调用该函数（lazy require 避循环依赖），消除双实现漂移——此前 config 内联版本漏判 `[fe80::1]`（旧正则 `^fe[89ab]:`）和 `[::ffff:10.0.0.1]`（无 mapped 处理）。
 - **API promote 需独立安全检查**：controller `handle_promote()` 自身做 IP 格式/保留地址/白名单/capacity 校验，不能依赖 executor。
 - **CC require_challenge_fail 阻止了大部分 NAT 误封**：同一 IP 必须同时满足 `min_violation_windows` 且存在 challenge_fail 证据。
