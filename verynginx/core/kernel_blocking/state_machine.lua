@@ -143,7 +143,18 @@ local function index_add_under_lock(ip, policy)
     local idx_key = ip .. ":" .. policy
     local found = false
     for _, v in ipairs(idx) do if v == idx_key then found = true; break end end
-    if not found and #idx < MAX_CANDIDATES then
+    if not found then
+        if #idx >= MAX_CANDIDATES then
+            -- Index full: refuse to add rather than silently creating an
+            -- orphan (data entry with no index entry = invisible to reconcile
+            -- forever). Returning false makes upsert roll back the data entry,
+            -- staying consistent with the "never leave entry-without-index"
+            -- rule (§12.2). Self-healing: the next reconcile re-derives state.
+            index_unlock(token)
+            ngx.log(ngx.ERR, "kb: candidate index full (", MAX_CANDIDATES,
+                "), cannot add ", idx_key)
+            return false
+        end
         idx[#idx + 1] = idx_key
         s:set(INDEX_KEY, json.encode(idx), INDEX_TTL)
     end

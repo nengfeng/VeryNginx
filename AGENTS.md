@@ -670,6 +670,7 @@ verynginx/core/kernel_blocking/
 
 - **Add 操作必须 3 阶段提交**：先 nft 成功 → 再更新 in-memory state。之前先更新内存再执行 nft，失败后状态漂移。- **candidate/desired 索引追加必须在 index 锁内做 RMW**：`state_machine.upsert` 曾直接在锁外 get→decode→append→set `INDEX_KEY`，多 worker 并发首插同一复合键会重复追加（配合 `INDEX_TTL` 看似收敛，实际索引无界增长）。现经 `index_add_under_lock`（锁 `kb:candidate_index_lock` 于 vn_locks）原子追加。
 - **索引锁超时不得静默失败**：`desired_state.index_add` / `state_machine.index_add_under_lock` 曾 `retries>100 直接 return`，条目已写而索引未记 → reconcile 无法发现（悬空条目）。现改为：更宽松预算（500×2ms）+ 超时记 `ngx.ERR` 并返回 false；调用方 `set_desired`/`upsert` 收到 false 后**回滚已写条目并上抛错误**，绝不留下有条目无索引的记录（悬空对 reconcile 永远不可见）。
+- **候选索引满时 index_add_under_lock 必须返回 false**：`state_machine.index_add_under_lock` 在 `#idx >= MAX_CANDIDATES`（10000）时不追加索引但仍 `return true`，upsert 认为成功不回滚 → `kb:candidate:*` 有数据而索引无此项（悬空候选，reconcile 永远发现不了）。现满时返回 false 触发回滚，与锁超时处理一致。
 - **`remove` 的 index 删除必须持锁**：`state_machine.remove` 曾直接 `s:get(INDEX)` → filter → `s:set(INDEX)` 不持锁，与持锁的 `index_add_under_lock` 并发时，后者新追加的索引条目会被 `remove` 的陈旧 `index_write` 覆盖 → 新条目成孤儿（有数据无索引）。现经 `index_remove_under_lock` 持锁删除。
 - **`compact_index` 定期清理候选索引**：candidate index 只追加不删除，必须每 300 秒扫描并移除过期条目。
 - **索引锁必须带 token 校验释放**：`desired_state.index_add/index_remove/compact_index_if_due` 与 `state_machine.index_add_under_lock/compact_index` 均用 `random.bytes(8)` token 做 `l:add`，释放前 `l:get == token` 才 `delete`。不要用 worker id 直接 `l:delete`——锁 TTL 超时被他人抢走后，旧持有者的 unlock 会误删他人锁。
