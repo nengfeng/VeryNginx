@@ -251,7 +251,7 @@ function _M.reconcile(snapshot)
     -- Remove entries not in snapshot
     for key, _ in pairs(idx) do
         if not desired_keys[key] then
-            local set, family, ip = key:match(DATA_PREFIX .. "(.+):(.+):(.+)")
+            local set, family, ip = key:match(DATA_PREFIX .. "([^:]+):([^:]+):(.+)")
             if set and family and ip then
                 _M.delete(set, family, ip)  -- order matches delete(set, family, ip)
                 result.removed = result.removed + 1
