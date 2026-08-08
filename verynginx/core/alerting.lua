@@ -266,8 +266,8 @@ function _M.evaluate()
     local current_hits = {}
 
     for _, k in ipairs(keys) do
-        if k:sub(1, 16) == "waf_rule_stats:" then
-            local rule_id = k:sub(17)
+        if k:sub(1, 15) == "waf_rule_stats:" then
+            local rule_id = k:sub(16)
             local data = s:get(k)
             if data then
                 local ok, stat = pcall(json.decode, data)

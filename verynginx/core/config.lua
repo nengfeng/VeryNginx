@@ -6,6 +6,7 @@
 local _M = {}
 local json = require "dkjson"
 local random = require "core.random"
+local helpers = require "api.helpers"
 
 -- URL constants to keep schema lines short
 local GEOIP_UPDATE_URL = "https://download.maxmind.com/app/geoip_download"
@@ -487,16 +488,33 @@ local function validate_rule(rule, rule_idx, rule_group, config)
                 return false, string.format("rule.%s[%d]: matcher '%s' not found in config.matcher",
                     rule_group, rule_idx, rule.matcher)
             end
-        elseif type(rule.matcher) == "table" then
+    elseif type(rule.matcher) == "table" then
             -- inline matcher: check on_body_error values in Args conditions
             for cond_type, cond in pairs(rule.matcher) do
                 if cond_type == "Args" and cond.on_body_error then
                     if cond.on_body_error ~= "match" and cond.on_body_error ~= "skip"
-                        and cond.on_body_error ~= "fail_closed" then
+                            and cond.on_body_error ~= "fail_closed" then
                         return false, string.format(
                             "rule.%s[%d]: on_body_error must be 'match', 'skip', or 'fail_closed', got '%s'",
                             rule_group, rule_idx, tostring(cond.on_body_error))
                     end
+                end
+            end
+            -- Inline IP matcher values must be well-formed and never carry CIDR
+            -- (the matcher engine only does string equality / regex — a CIDR value
+            -- would silently never match). Same rule as the frequency controller.
+            if type(rule.matcher.IP) == "table" and type(rule.matcher.IP.value) == "string"
+                    and rule.matcher.IP.value ~= "" then
+                local addr = rule.matcher.IP.value
+                if addr:find("/") then
+                    return false, string.format(
+                        "rule.%s[%d]: IP matcher does not support CIDR notation: %q",
+                        rule_group, rule_idx, addr)
+                end
+                if not helpers.is_valid_ip(addr) then
+                    return false, string.format(
+                        "rule.%s[%d]: invalid IP in matcher: %q",
+                        rule_group, rule_idx, addr)
                 end
             end
         end

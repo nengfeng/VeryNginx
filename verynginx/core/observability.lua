@@ -83,8 +83,8 @@ function _M._collect_waf_rule_stats()
 
     local keys = shared:get_keys(200)
     for _, k in ipairs(keys) do
-        if k:sub(1, 16) == "waf_rule_stats:" then
-            local rule_id = k:sub(17)
+        if k:sub(1, 15) == "waf_rule_stats:" then
+            local rule_id = k:sub(16)
             local meta = rule_meta[rule_id] or { category = "", action = "log", name = rule_id }
             local data = shared:get(k)
             if data then

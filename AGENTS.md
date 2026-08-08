@@ -543,6 +543,14 @@ GeoIP 数据库目录**禁止 777**。`install-lnmp.sh` 已设置 755 + chown ng
 
 `math.random` **禁止**未播种直接使用（每次进程启动产生相同序列，影响 CSRF token、session ID、密码 salt）。`core/random.lua` 的 `seed_prng()` 在首次 `math.random` 回退前自动播种（熵源：PID + worker_id + ngx.now + os.clock 经 XOR 混合）。即使在 `ngx.random_bytes` 和 `/dev/urandom` 均不可用的极端环境下，也不会产生可预测输出。
 
+### 10.11 WAF per-rule 统计前缀匹配
+
+`observability.lua` 与 `alerting.lua` 收集 per-rule WAF 命中统计时，使用 `STATS_PREFIX = "waf_rule_stats:"`（15 字符）。读写两侧必须用 `k:sub(1, #STATS_PREFIX)` / `k:sub(#STATS_PREFIX + 1)`（或硬编码 15/16），**禁止**写魔数 16/17 —— 此前 observability.lua:86 与 alerting.lua:269 误用 `k:sub(1,16)` 与 `k:sub(17)`，导致 per-rule 统计永远为空、WAF 指标与命中尖峰告警完全失效。
+
+### 10.12 POST /config 的内联 IP matcher 校验
+
+`validate_rule`（config.lua）对 `config.rule.*` 各规则组的内联 `matcher` 表，除 `Args.on_body_error` 外曾不检查 `IP` 条件。`POST /config` / import 走此路径，可写入 `{"IP":{"value":"999.1.1.1"}}` 或 CIDR，规则永不触发（matcher 无比 CIDR 语义）。现已复用 `helpers.is_valid_ip` 校验并拒绝含 `/` 的值（与 frequency.lua / WAF 一致）。
+
 ---
 
 ## 11. Firewall Helper (Go)
