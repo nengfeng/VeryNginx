@@ -487,6 +487,37 @@ function _M.validate_rule(rule)
     elseif type(rule.matcher) ~= "table" then
         return false, "matcher must be a string reference or inline table"
     end
+    -- Validate IP matcher values: the matcher engine (matcher/ip.lua) only does
+    -- plain string equality ("=") or regex ("≈") — it has no CIDR support. A
+    -- value like "10.0.0.0/8" would validate as an IP here (once stripped) but
+    -- silently never match any request. Reject malformed IPs and any CIDR.
+    -- Check both inline matchers and string-referenced matchers (config.matcher).
+    do
+        local helpers = require "api.helpers"
+        local function check_ip_condition(cond)
+            if type(cond) == "table" and type(cond.value) == "string" and cond.value ~= "" then
+                local addr = cond.value
+                if addr:find("/") then
+                    return false, "IP matcher does not support CIDR notation: " .. addr
+                end
+                if not helpers.is_valid_ip(addr) then
+                    return false, "invalid IP in matcher: " .. addr
+                end
+            end
+            return true
+        end
+        local matcher_def = rule.matcher
+        if type(matcher_def) == "string" then
+            local cfg = require("core.config")
+            matcher_def = cfg.matcher and cfg.matcher[matcher_def]
+        end
+        if type(matcher_def) == "table" and type(matcher_def.IP) == "table" then
+            local ip_ok, ip_err = check_ip_condition(matcher_def.IP)
+            if not ip_ok then
+                return false, ip_err
+            end
+        end
+    end
     if rule.code ~= nil then
         if type(rule.code) ~= "number" or rule.code < 200 or rule.code > 599 then
             return false, "code must be a valid HTTP status code (200-599)"

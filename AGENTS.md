@@ -551,6 +551,10 @@ GeoIP 数据库目录**禁止 777**。`install-lnmp.sh` 已设置 755 + chown ng
 
 `validate_rule`（config.lua）对 `config.rule.*` 各规则组的内联 `matcher` 表，除 `Args.on_body_error` 外曾不检查 `IP` 条件。`POST /config` / import 走此路径，可写入 `{"IP":{"value":"999.1.1.1"}}` 或 CIDR，规则永不触发（matcher 无比 CIDR 语义）。现已复用 `helpers.is_valid_ip` 校验并拒绝含 `/` 的值（与 frequency.lua / WAF 一致）。
 
+### 10.13 WAF 规则的 IP matcher 校验
+
+`waf-rule-manager.validate_rule` 曾不检查 matcher 的 IP 条件值（只验证 matcher 是 string/table）。`POST /waf/rules` 可写入 `{"IP":{"value":"999.1.1.1"}}` 或 CIDR，规则静默不触发。现已对内联 matcher 和 string 引用 matcher（查 config.matcher）统一校验：拒绝非法 IP 和 CIDR（matcher 引擎仅做字符串相等/无比 CIDR 语义）。
+
 ---
 
 ## 11. Firewall Helper (Go)

@@ -146,6 +146,44 @@ describe("waf-rule-manager", function()
             assert.is.falsy(ok)
             assert.matches("window", err)
         end)
+
+        it("rejects inline IP matcher with malformed IP 999.1.1.1", function()
+            local r = { name = "x", category = "sqli", severity = "critical", action = "block",
+                matcher = { IP = { operator = "=", value = "999.1.1.1" } } }
+            local ok, err = waf.validate_rule(r)
+            assert.is.falsy(ok, "malformed IP must be rejected")
+            assert.matches("invalid IP", err)
+        end)
+
+        it("rejects inline IP matcher with out-of-range octet", function()
+            local r = { name = "x", category = "sqli", severity = "critical", action = "block",
+                matcher = { IP = { operator = "=", value = "1.2.3.999" } } }
+            local ok, err = waf.validate_rule(r)
+            assert.is.falsy(ok)
+            assert.matches("invalid IP", err)
+        end)
+
+        it("rejects inline IP matcher with CIDR notation", function()
+            local r = { name = "x", category = "sqli", severity = "critical", action = "block",
+                matcher = { IP = { operator = "=", value = "10.0.0.0/8" } } }
+            local ok, err = waf.validate_rule(r)
+            assert.is.falsy(ok, "CIDR in IP matcher must be rejected")
+            assert.matches("CIDR", err)
+        end)
+
+        it("accepts inline IP matcher with valid IP", function()
+            local r = { name = "x", category = "sqli", severity = "critical", action = "block",
+                matcher = { IP = { operator = "=", value = "10.0.0.1" } } }
+            local ok, err = waf.validate_rule(r)
+            assert.is.truthy(ok, "valid IP must pass, got: " .. tostring(err))
+        end)
+
+        it("accepts inline IP matcher with valid IPv6", function()
+            local r = { name = "x", category = "sqli", severity = "critical", action = "block",
+                matcher = { IP = { operator = "=", value = "2001:db8::1" } } }
+            local ok, err = waf.validate_rule(r)
+            assert.is.truthy(ok, "valid IPv6 must pass, got: " .. tostring(err))
+        end)
     end)
 
     -----------------------------------------------------------------------
