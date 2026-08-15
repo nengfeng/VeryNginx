@@ -36,6 +36,11 @@ local socket = nil          -- current connection
 local socket_requests = 0   -- requests on current connection
 local socket_born = nil     -- ngx.time() when current connection was made
 
+-- Per-worker mutex for serializing socket access (Design §8.3.5).
+-- Multiple coroutines (timers, API requests) must not interleave send/receive
+-- on the same cosocket.
+local request_mutex_key = "kernel_ip_blocking:ipc_request_lock"
+
 -- Reconnect backoff state (Design §8.3.1).
 -- Exponential backoff with jitter: initial 100ms, max 5s.
 local backoff_interval = 0.1   -- current backoff in seconds
@@ -104,6 +109,36 @@ local function close_socket_no_backoff()
     if not ok_disc then
         ngx.log(ngx.WARN, "kernel_blocking: on_ipc_disconnect failed: ", tostring(err_disc))
     end
+end
+
+-- Acquire per-worker mutex for IPC request serialization.
+-- Uses vn_locks shared dict with atomic add for TTL-based lock.
+-- @return true if acquired, false if timeout
+local function acquire_request_lock()
+    if not ngx.shared then return true end  -- fallback if ngx.shared unavailable
+    local locks = ngx.shared.vn_locks
+    if not locks then return true end  -- fallback if dict unavailable
+    local deadline = ngx.time() + 5  -- 5s max wait
+    while ngx.time() < deadline do
+        -- Try to acquire lock (TTL 5s to prevent deadlock on crash)
+        local ok, err = locks:add(request_mutex_key, "1", 5)
+        if ok then return true end
+        if err ~= "exists" then
+            ngx.log(ngx.ERR, "ipc_client: lock add error: ", tostring(err))
+            return true  -- fallback on error
+        end
+        ngx.sleep(0.01)  -- yield 10ms
+    end
+    ngx.log(ngx.WARN, "ipc_client: request lock timeout, proceeding without lock")
+    return true  -- fallback: proceed without lock to avoid deadlock
+end
+
+local function release_request_lock()
+    if not ngx.shared then return end
+    local locks = ngx.shared.vn_locks
+    if not locks then return end
+    -- Only release if we hold it (no token tracking, just delete)
+    locks:delete(request_mutex_key)
 end
 
 -- ---------------------------------------------------------------------------
@@ -185,79 +220,87 @@ end
 -- @return response_envelope table, error string|nil
 -- ---------------------------------------------------------------------------
 function _M.request(operation, source, payload)
-    local ok, err = ensure_connected()
-    if not ok then
-        _M.record_error(err, operation)
-        return nil, err
-    end
-
-    local request_id = random.bytes(16)
-    local framed, encode_err = proto.encode_request(request_id, operation, source, payload)
-    if not framed then
-        close_socket_no_backoff()  -- invalid request framing = protocol error
-        _M.record_error(encode_err, operation)
-        return nil, encode_err or "encoding_error"
-    end
-
-    -- Send
-    local bytes = socket:send(framed)
-    if not bytes then
-        close_socket_no_backoff()
-        _M.record_error("send_error", operation)
-        return nil, "send_error"
-    end
-
-    -- Read response via event-driven receive (2-phase: length prefix then payload)
-    socket:settimeout(READ_TIMEOUT)
-    local len_data, recv_err = socket:receive(4)
-    if not len_data then
-        close_socket_no_backoff()
-        if recv_err == "timeout" then
-            _M.record_error("read_timeout", operation)
-            return nil, "read_timeout"
+    -- Serialize all IPC requests per worker to prevent socket interleaving.
+    acquire_request_lock()
+    local ok_result, err_result
+    local function do_request()
+        local ok, err = ensure_connected()
+        if not ok then
+            _M.record_error(err, operation)
+            return nil, err
         end
-        _M.record_error(recv_err or "closed", operation)
-        return nil, recv_err or "closed"
-    end
-    if #len_data ~= 4 then
-        close_socket_no_backoff()
-        _M.record_error("short_read", operation)
-        return nil, "short_read"
-    end
-    local b1, b2, b3, b4 = len_data:byte(1, 4)
-    local payload_len = (b1 * 16777216) + (b2 * 65536) + (b3 * 256) + b4
-    if payload_len > proto.max_frame_bytes() then
-        close_socket_no_backoff()
-        _M.record_error("frame_too_large", operation)
-        return nil, "frame_too_large"
-    end
-    local body, recv_err2 = socket:receive(payload_len)
-    if not body then
-        close_socket_no_backoff()
-        _M.record_error(recv_err2 or "closed", operation)
-        return nil, recv_err2 or "closed"
-    end
-    local envelope, dec_err = proto.decode_response(body)
-    if not envelope then
-        close_socket_no_backoff()
-        _M.record_error(dec_err or "decode_error", operation)
-        return nil, dec_err or "decode_error"
-    end
-    if envelope.request_id ~= request_id then
-        close_socket_no_backoff()
-        return nil, "idempotency_conflict"
-    end
-    if envelope.ok then
-        return envelope, nil
-    else
-        local ecode = envelope.error
-        if type(ecode) == "table" then
-            ecode = ecode.code or ecode.message or "unknown_error"
-        elseif type(ecode) ~= "string" or ecode == "" then
-            ecode = "unknown_error"
+
+        local request_id = random.bytes(16)
+        local framed, encode_err = proto.encode_request(request_id, operation, source, payload)
+        if not framed then
+            close_socket_no_backoff()  -- invalid request framing = protocol error
+            _M.record_error(encode_err, operation)
+            return nil, encode_err or "encoding_error"
         end
-        return nil, ecode
+
+        -- Send
+        local bytes = socket:send(framed)
+        if not bytes then
+            close_socket_no_backoff()
+            _M.record_error("send_error", operation)
+            return nil, "send_error"
+        end
+
+        -- Read response via event-driven receive (2-phase: length prefix then payload)
+        socket:settimeout(READ_TIMEOUT)
+        local len_data, recv_err = socket:receive(4)
+        if not len_data then
+            close_socket_no_backoff()
+            if recv_err == "timeout" then
+                _M.record_error("read_timeout", operation)
+                return nil, "read_timeout"
+            end
+            _M.record_error(recv_err or "closed", operation)
+            return nil, recv_err or "closed"
+        end
+        if #len_data ~= 4 then
+            close_socket_no_backoff()
+            _M.record_error("short_read", operation)
+            return nil, "short_read"
+        end
+        local b1, b2, b3, b4 = len_data:byte(1, 4)
+        local payload_len = (b1 * 16777216) + (b2 * 65536) + (b3 * 256) + b4
+        if payload_len > proto.max_frame_bytes() then
+            close_socket_no_backoff()
+            _M.record_error("frame_too_large", operation)
+            return nil, "frame_too_large"
+        end
+        local body, recv_err2 = socket:receive(payload_len)
+        if not body then
+            close_socket_no_backoff()
+            _M.record_error(recv_err2 or "closed", operation)
+            return nil, recv_err2 or "closed"
+        end
+        local envelope, dec_err = proto.decode_response(body)
+        if not envelope then
+            close_socket_no_backoff()
+            _M.record_error(dec_err or "decode_error", operation)
+            return nil, dec_err or "decode_error"
+        end
+        if envelope.request_id ~= request_id then
+            close_socket_no_backoff()
+            return nil, "idempotency_conflict"
+        end
+        if envelope.ok then
+            return envelope, nil
+        else
+            local ecode = envelope.error
+            if type(ecode) == "table" then
+                ecode = ecode.code or ecode.message or "unknown_error"
+            elseif type(ecode) ~= "string" or ecode == "" then
+                ecode = "unknown_error"
+            end
+            return nil, ecode
+        end
     end
+    ok_result, err_result = do_request()
+    release_request_lock()
+    return ok_result, err_result
 end
 
 -- ---------------------------------------------------------------------------
