@@ -278,7 +278,7 @@ local function handle_clear()
                 local rm_ok, rm_result = pcall(function()
                     return exec.delete(set_name, family, ip)
                 end)
-                if rm_ok and rm_result ~= false then removed = removed + 1 end
+                if rm_ok and rm_result == true then removed = removed + 1 end
             end
         end
     end
@@ -375,13 +375,13 @@ local function handle_flush_auto()
     local desired = require "core.kernel_blocking.desired_state"
     local sm = require "core.kernel_blocking.state_machine"
 
-    local ok, flush_result = pcall(function()
+    local ok, flush_ok, flush_result, flush_err = pcall(function()
         return exec.flush_owned("auto")
     end)
 
-    if not ok then
+    if not ok or not flush_ok then
         ngx.status = 500
-        return json.encode({ ret = "failed", message = tostring(flush_result) })
+        return json.encode({ ret = "failed", message = tostring(flush_err or flush_result) })
     end
 
     desired.clear_auto()

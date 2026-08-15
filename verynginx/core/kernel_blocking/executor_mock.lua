@@ -311,7 +311,7 @@ function _M.chunked_reconcile(chunk)
 end
 
 -- ---------------------------------------------------------------------------
--- flush_owned(scope) -> { removed = n }
+-- flush_owned(scope) -> ok, { removed = n }, err
 -- scope: "auto" | "all" | "detach"
 -- ---------------------------------------------------------------------------
 function _M.flush_owned(scope)
@@ -332,7 +332,7 @@ function _M.flush_owned(scope)
         end
     end
     index_write(new_idx)
-    return { removed = count }
+    return true, { removed = count }, nil
 end
 
 -- ---------------------------------------------------------------------------

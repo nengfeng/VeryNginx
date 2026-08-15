@@ -164,7 +164,7 @@ end
 -- delete(set, family, ip) -> ok, error?
 -- ---------------------------------------------------------------------------
 function _M.delete(set, family, ip)
-    local resp, err = client.request_safe("delete", "automatic", {
+    local resp, err = client.request("delete", "automatic", {
         items = { { set = set, family = family, ip = ip } },
     })
     if resp and resp.ok then
@@ -214,7 +214,7 @@ end
 -- replace_allow_snapshot(entries) -> ok, error?
 -- ---------------------------------------------------------------------------
 function _M.replace_allow_snapshot(entries)
-    local resp, err = client.request_safe("replace_allow_snapshot", "whitelist", {
+    local resp, err = client.request("replace_allow_snapshot", "whitelist", {
         items = entries or {},
     })
     if resp and resp.ok then
@@ -311,11 +311,14 @@ function _M.chunked_reconcile(chunk)
 end
 
 -- ---------------------------------------------------------------------------
--- flush_owned(scope) -> { removed = n }
+-- flush_owned(scope) -> ok, result, error?
 -- ---------------------------------------------------------------------------
 function _M.flush_owned(scope)
-    local resp = client.request_safe("flush_owned", "automatic", { scope = scope or "all" })
-    return resp.result or { removed = 0 }
+    local resp, err = client.request("flush_owned", "automatic", { scope = scope or "all" })
+    if resp and resp.ok then
+        return true, resp.result or { removed = 0 }, nil
+    end
+    return false, { removed = 0 }, err or "flush_owned_failed"
 end
 
 -- ---------------------------------------------------------------------------
