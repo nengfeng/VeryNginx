@@ -28,6 +28,30 @@ local function detect_family(ip)
     return "ipv4"
 end
 
+-- Iterate all pages of candidates/entries using pagination.
+-- Calls fn(entry) for each entry. Returns count of processed entries.
+local function iterate_all(fn, filter_policy, filter_state)
+    local cursor = 0
+    local page_size = 100
+    local total = 0
+    while true do
+        local res
+        if filter_policy then
+            res = sm.list(cursor, page_size, filter_state, filter_policy)
+        else
+            res = sm.list(cursor, page_size, filter_state, nil)
+        end
+        if not res or not res.entries or #res.entries == 0 then break end
+        for _, e in ipairs(res.entries) do
+            fn(e)
+        end
+        total = total + #res.entries
+        if not res.next_cursor then break end
+        cursor = res.next_cursor
+    end
+    return total
+end
+
 -- Reserved / non-global special addresses that must never enter DROP sets.
 local function is_reserved_address(ip, family)
     if type(ip) ~= "string" or ip == "" then
@@ -311,27 +335,29 @@ end
 -- Evaluate SCANNER candidates.
 -- Reads scanner evidence from shared dict, evaluates loose/strict thresholds.
 -- In observe mode: only logs "would_*" results.
--- In enforce mode: actually installs passing candidates via executor.
+-- In enforce mode: actually installs passing candidates into kernel nftables via the executor.
 -- ---------------------------------------------------------------------------
 local function evaluate_scanner_candidates()
     local seen = {}
     local work = {}
 
-    local candidates = sm.list_candidates(0, 100)
-    for _, c in ipairs(candidates.entries) do
+    -- Iterate ALL scanner candidates (not just first page) to avoid starvation of new IPs.
+    -- The index is append-only; first page contains oldest entries which may be already installed.
+    iterate_all(function(c)
         if c.policy == "scanner" and c.ip and not seen[c.ip] then
             seen[c.ip] = true
             work[#work + 1] = c.ip
         end
-    end
+    end, "scanner", nil)
+
     -- Design §6.6: also re-evaluate installed scanner entries for stepped renewal.
-    local installed = sm.list(0, 200, "installed", "scanner")
-    for _, e in ipairs(installed.entries or {}) do
+    -- Iterate all installed scanner entries (not just first 200).
+    iterate_all(function(e)
         if e.ip and e.list == "scanner_drop" and not seen[e.ip] then
             seen[e.ip] = true
             work[#work + 1] = e.ip
         end
-    end
+    end, "scanner", "installed")
 
     for _, ip in ipairs(work) do
         -- Security gate
@@ -567,26 +593,28 @@ local function evaluate_cc_candidates()
 	local cc_enforce = (kb_cfg.mode == "enforce") and
 		(kb_cfg.cc.enforce_ready == true)
 
-	local candidates = sm.list_candidates(0, 100)
 	local min_windows = (kb_cfg.cc.min_violation_windows) or 3
 	local rule_window = (kb_cfg.cc.ttl) or 300  -- use ttl as window base
 
 	local seen = {}
 	local work = {}
-	for _, c in ipairs(candidates.entries) do
+
+	-- Iterate ALL cc candidates (not just first page) to avoid starvation of new IPs.
+	iterate_all(function(c)
 		if c.policy == "cc" and c.ip and not seen[c.ip] then
 			seen[c.ip] = true
 			work[#work + 1] = c.ip
 		end
-	end
+	end, "cc", nil)
+
 	-- Design §6.6: re-evaluate installed CC for stepped renewal.
-	local installed = sm.list(0, 200, "installed", "cc")
-	for _, e in ipairs(installed.entries or {}) do
+	-- Iterate all installed cc entries (not just first 200).
+	iterate_all(function(e)
 		if e.ip and e.list == "cc_drop" and not seen[e.ip] then
 			seen[e.ip] = true
 			work[#work + 1] = e.ip
 		end
-	end
+	end, "cc", "installed")
 
 	for _, ip in ipairs(work) do
 		-- Also skip if already in scanner_drop (higher priority)
