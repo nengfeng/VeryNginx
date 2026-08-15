@@ -28,30 +28,6 @@ local function detect_family(ip)
     return "ipv4"
 end
 
--- Iterate all pages of candidates/entries using pagination.
--- Calls fn(entry) for each entry. Returns count of processed entries.
-local function iterate_all(fn, filter_policy, filter_state)
-    local cursor = 0
-    local page_size = 100
-    local total = 0
-    while true do
-        local res
-        if filter_policy then
-            res = sm.list(cursor, page_size, filter_state, filter_policy)
-        else
-            res = sm.list(cursor, page_size, filter_state, nil)
-        end
-        if not res or not res.entries or #res.entries == 0 then break end
-        for _, e in ipairs(res.entries) do
-            fn(e)
-        end
-        total = total + #res.entries
-        if not res.next_cursor then break end
-        cursor = res.next_cursor
-    end
-    return total
-end
-
 -- Reserved / non-global special addresses that must never enter DROP sets.
 local function is_reserved_address(ip, family)
     if type(ip) ~= "string" or ip == "" then
@@ -343,7 +319,7 @@ local function evaluate_scanner_candidates()
 
     -- Iterate ALL scanner candidates (not just first page) to avoid starvation of new IPs.
     -- The index is append-only; first page contains oldest entries which may be already installed.
-    iterate_all(function(c)
+    sm.iterate_all(function(c)
         if c.policy == "scanner" and c.ip and not seen[c.ip] then
             seen[c.ip] = true
             work[#work + 1] = c.ip
@@ -352,7 +328,7 @@ local function evaluate_scanner_candidates()
 
     -- Design §6.6: also re-evaluate installed scanner entries for stepped renewal.
     -- Iterate all installed scanner entries (not just first 200).
-    iterate_all(function(e)
+    sm.iterate_all(function(e)
         if e.ip and e.list == "scanner_drop" and not seen[e.ip] then
             seen[e.ip] = true
             work[#work + 1] = e.ip
@@ -600,7 +576,7 @@ local function evaluate_cc_candidates()
 	local work = {}
 
 	-- Iterate ALL cc candidates (not just first page) to avoid starvation of new IPs.
-	iterate_all(function(c)
+	sm.iterate_all(function(c)
 		if c.policy == "cc" and c.ip and not seen[c.ip] then
 			seen[c.ip] = true
 			work[#work + 1] = c.ip
@@ -609,7 +585,7 @@ local function evaluate_cc_candidates()
 
 	-- Design §6.6: re-evaluate installed CC for stepped renewal.
 	-- Iterate all installed cc entries (not just first 200).
-	iterate_all(function(e)
+	sm.iterate_all(function(e)
 		if e.ip and e.list == "cc_drop" and not seen[e.ip] then
 			seen[e.ip] = true
 			work[#work + 1] = e.ip

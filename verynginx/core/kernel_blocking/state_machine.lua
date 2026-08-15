@@ -357,6 +357,37 @@ function _M.list(cursor, page_size, state_filter, policy_filter)
 end
 
 -- ---------------------------------------------------------------------------
+-- Iterate ALL entries matching filter in a single index scan.
+-- Avoids repeated JSON decode of index (unlike repeated list() calls).
+-- @param fn function(entry) callback
+-- @param policy_filter string|nil
+-- @param state_filter string|nil
+-- @return number: count of processed entries
+-- ---------------------------------------------------------------------------
+function _M.iterate_all(fn, policy_filter, state_filter)
+    local s = shared()
+    if not s then return 0 end
+    compact_index()
+    local idx_raw = s:get(INDEX_KEY) or "[]"
+    local ok, idx = pcall(json.decode, idx_raw)
+    if not ok or type(idx) ~= "table" then return 0 end
+    local total = 0
+    for _, composite in ipairs(idx) do
+        local ip, policy = composite:match("^(.+):([^:]+)$")
+        if ip and policy then
+            if not policy_filter or policy == policy_filter then
+                local entry = _M.get_policy(ip, policy)
+                if entry and (not state_filter or entry.state == state_filter) then
+                    fn(entry)
+                    total = total + 1
+                end
+            end
+        end
+    end
+    return total
+end
+
+-- ---------------------------------------------------------------------------
 -- List candidates (convenience wrapper with policy filter).
 -- Kept for backward compatibility.
 -- ---------------------------------------------------------------------------
