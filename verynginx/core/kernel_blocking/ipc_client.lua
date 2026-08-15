@@ -84,8 +84,26 @@ local function close_socket()
         end
     end
     -- Reset backoff on explicit close (not a failure).
+    -- This is called only on successful disconnect or explicit shutdown.
     backoff_interval = BACKOFF_INITIAL
     last_connect_fail = 0
+end
+
+-- Close socket without resetting backoff state (used for reconnect).
+local function close_socket_no_backoff()
+    if socket then
+        socket:close()
+        socket = nil
+    end
+    -- Design §8.3.4: only real disconnects invalidate scope binding.
+    -- This is a real disconnect, so notify scope_binding.
+    local ok_disc, err_disc = pcall(function()
+        local sb = require "core.kernel_blocking.scope_binding"
+        sb.on_ipc_disconnect()
+    end)
+    if not ok_disc then
+        ngx.log(ngx.WARN, "kernel_blocking: on_ipc_disconnect failed: ", tostring(err_disc))
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -93,7 +111,7 @@ end
 -- @return ok, error
 -- ---------------------------------------------------------------------------
 local function open_socket()
-    close_socket()
+    close_socket_no_backoff()
     local path = get_socket_path()
     if not path then
         return false, "invalid_socket_path"
@@ -127,11 +145,11 @@ local function ensure_connected()
         if socket_requests > MAX_REQUESTS_PER_CONN then
             ngx.log(ngx.DEBUG, "ipc_client: reconnect after ",
                 MAX_REQUESTS_PER_CONN, " requests")
-            close_socket()
+            close_socket_no_backoff()
         elseif socket_born and (ngx.time() - socket_born) > MAX_CONN_LIFETIME then
             ngx.log(ngx.DEBUG, "ipc_client: reconnect after ",
                 MAX_CONN_LIFETIME, "s lifetime")
-            close_socket()
+            close_socket_no_backoff()
         end
     end
     if not socket then
@@ -176,7 +194,7 @@ function _M.request(operation, source, payload)
     local request_id = random.bytes(16)
     local framed, encode_err = proto.encode_request(request_id, operation, source, payload)
     if not framed then
-        close_socket()  -- invalid request framing = protocol error
+        close_socket_no_backoff()  -- invalid request framing = protocol error
         _M.record_error(encode_err, operation)
         return nil, encode_err or "encoding_error"
     end
@@ -184,7 +202,7 @@ function _M.request(operation, source, payload)
     -- Send
     local bytes = socket:send(framed)
     if not bytes then
-        close_socket()
+        close_socket_no_backoff()
         _M.record_error("send_error", operation)
         return nil, "send_error"
     end
@@ -193,7 +211,7 @@ function _M.request(operation, source, payload)
     socket:settimeout(READ_TIMEOUT)
     local len_data, recv_err = socket:receive(4)
     if not len_data then
-        close_socket()
+        close_socket_no_backoff()
         if recv_err == "timeout" then
             _M.record_error("read_timeout", operation)
             return nil, "read_timeout"
@@ -202,31 +220,31 @@ function _M.request(operation, source, payload)
         return nil, recv_err or "closed"
     end
     if #len_data ~= 4 then
-        close_socket()
+        close_socket_no_backoff()
         _M.record_error("short_read", operation)
         return nil, "short_read"
     end
     local b1, b2, b3, b4 = len_data:byte(1, 4)
     local payload_len = (b1 * 16777216) + (b2 * 65536) + (b3 * 256) + b4
     if payload_len > proto.max_frame_bytes() then
-        close_socket()
+        close_socket_no_backoff()
         _M.record_error("frame_too_large", operation)
         return nil, "frame_too_large"
     end
     local body, recv_err2 = socket:receive(payload_len)
     if not body then
-        close_socket()
+        close_socket_no_backoff()
         _M.record_error(recv_err2 or "closed", operation)
         return nil, recv_err2 or "closed"
     end
     local envelope, dec_err = proto.decode_response(body)
     if not envelope then
-        close_socket()
+        close_socket_no_backoff()
         _M.record_error(dec_err or "decode_error", operation)
         return nil, dec_err or "decode_error"
     end
     if envelope.request_id ~= request_id then
-        close_socket()
+        close_socket_no_backoff()
         return nil, "idempotency_conflict"
     end
     if envelope.ok then
