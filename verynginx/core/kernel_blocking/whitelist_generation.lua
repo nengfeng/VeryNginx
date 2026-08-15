@@ -157,10 +157,10 @@ function _M.push_allow_snapshot()
     local ip_rep = config and config.ip_reputation
     local static_wl = ip_rep and ip_rep.whitelist or {}
     for _, entry in ipairs(static_wl) do
-        -- entry may be a bare IP or CIDR string
-        local ip = entry:match("^([%w%.:]+)") or entry
-        local family = ip:find(":") and "ipv6" or "ipv4"
-        entries[#entries + 1] = { ip = ip, family = family }
+        -- entry may be a bare IP or CIDR string (e.g. "10.0.0.0/8")
+        -- Keep the full entry (with prefix) for nftables interval set
+        local family = entry:find(":") and "ipv6" or "ipv4"
+        entries[#entries + 1] = { ip = entry, family = family }
     end
 
     -- Auto-whitelist from shared dict (ip_rep:awl:* with index)
