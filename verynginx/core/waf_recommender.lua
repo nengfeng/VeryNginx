@@ -44,6 +44,20 @@ local function normalize_uri(uri)
     return p
 end
 
+-- Convert normalized URI template (with :id/:uuid/:hex placeholders) to regex
+-- for the "≈" operator in matcher/uri.lua
+local function template_to_regex(tmpl)
+    if not tmpl or tmpl == "" then return "" end
+    local r = tmpl
+    -- Escape regex special chars first (except our placeholders)
+    r = r:gsub("([%.%+%*%?%^%$%(%)%[%]%{%}%|])", "%%%1")
+    -- Replace placeholders with regex
+    r = r:gsub(":uuid", "[0-9a-f-]{36}")
+    r = r:gsub(":hex", "[0-9a-f]+")
+    r = r:gsub(":id", "\\d+")
+    return r
+end
+
 -- ---------------------------------------------------------------------------
 -- Generate rule suggestion from a blocked pattern
 -- ---------------------------------------------------------------------------
@@ -304,7 +318,7 @@ function _M.apply(id)
         action = item.action,
         enable = true,
         priority = 50,
-        matcher = item.pattern and { URI = { operator = "≈", value = item.pattern } } or {},
+        matcher = item.pattern and { URI = { operator = "≈", value = template_to_regex(item.pattern) } } or {},
     }
 
     -- Use waf_manager to add the rule
