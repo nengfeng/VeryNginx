@@ -304,7 +304,7 @@ function _M.apply(id)
         action = item.action,
         enable = true,
         priority = 50,
-        matcher = item.pattern and { URI = { item.pattern } } or {},
+        matcher = item.pattern and { URI = { operator = "≈", value = item.pattern } } or {},
     }
 
     -- Use waf_manager to add the rule
