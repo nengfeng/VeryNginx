@@ -31,8 +31,9 @@ end
 -- ---------------------------------------------------------------------------
 local function handle_entries()
     local cursor = tonumber(ngx.var.arg_cursor) or 0
+    if cursor < 0 then cursor = 0 end
     local page_size = tonumber(ngx.var.arg_page_size) or 50
-    page_size = math.min(page_size, 200)
+    page_size = math.max(math.min(page_size, 200), 1)
     local policy_filter = ngx.var.arg_policy
 
     local sm = require "core.kernel_blocking.state_machine"
@@ -95,7 +96,9 @@ end
 -- ---------------------------------------------------------------------------
 local function handle_candidates()
     local cursor = tonumber(ngx.var.arg_cursor) or 0
+    if cursor < 0 then cursor = 0 end
     local page_size = tonumber(ngx.var.arg_page_size) or 50
+    page_size = math.max(math.min(page_size, 200), 1)
     local state_filter = ngx.var.arg_state
 
     local sm = require "core.kernel_blocking.state_machine"
