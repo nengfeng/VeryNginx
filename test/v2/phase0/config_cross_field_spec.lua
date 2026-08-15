@@ -97,6 +97,8 @@ describe("kernel_ip_blocking cross-field validation", function()
         kb.topology = "unknown"
         kb.protected_addresses = { "10.0.0.1" }
         kb.protected_ports = { 80, 443 }
+        kb.cc = kb.cc or {}
+        kb.cc.rule_ids = { "test_rule" }
         local ok, err = config.validate_config({
             version = "2.0", admin = {}, matcher = {}, rule = {},
             kernel_ip_blocking = kb,
@@ -113,6 +115,8 @@ describe("kernel_ip_blocking cross-field validation", function()
         kb.topology = "direct"
         kb.protected_addresses = {}
         kb.protected_ports = { 80, 443 }
+        kb.cc = kb.cc or {}
+        kb.cc.rule_ids = { "test_rule" }
         local ok, err = config.validate_config({
             version = "2.0", admin = {}, matcher = {}, rule = {},
             kernel_ip_blocking = kb,
@@ -129,6 +133,8 @@ describe("kernel_ip_blocking cross-field validation", function()
         kb.topology = "direct"
         kb.protected_addresses = { "10.0.0.1" }
         kb.protected_ports = {}
+        kb.cc = kb.cc or {}
+        kb.cc.rule_ids = { "test_rule" }
         local ok, err = config.validate_config({
             version = "2.0", admin = {}, matcher = {}, rule = {},
             kernel_ip_blocking = kb,
@@ -147,6 +153,8 @@ describe("kernel_ip_blocking cross-field validation", function()
         kb.protected_ports = { 80 }
         kb.ipv6.enabled = true
         kb.ipv6.prefix_aggregation = true
+        kb.cc = kb.cc or {}
+        kb.cc.rule_ids = { "test_rule" }
         local ok, err = config.validate_config({
             version = "2.0", admin = {}, matcher = {}, rule = {},
             kernel_ip_blocking = kb,
@@ -164,6 +172,8 @@ describe("kernel_ip_blocking cross-field validation", function()
         kb.protected_addresses = { "10.0.0.1" }
         kb.protected_ports = { 80 }
         kb.ipv4.enabled = false
+        kb.cc = kb.cc or {}
+        kb.cc.rule_ids = { "test_rule" }
         local ok, err = config.validate_config({
             version = "2.0", admin = {}, matcher = {}, rule = {},
             kernel_ip_blocking = kb,
@@ -189,6 +199,8 @@ describe("kernel_ip_blocking cross-field validation", function()
         kb.topology = "direct"
         kb.protected_addresses = { "10.0.0.1", "192.168.1.0/24" }
         kb.protected_ports = { 80, 443 }
+        kb.cc = kb.cc or {}
+        kb.cc.rule_ids = { "test_rule" }
         local ok, err = config.validate_config({
             version = "2.0", admin = {}, matcher = {}, rule = {},
             kernel_ip_blocking = kb,

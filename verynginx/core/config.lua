@@ -263,7 +263,7 @@ _M.schema = {
                     interval = 60,
                     burst = 1000,
                 },
-                canary = { scanner_ttl = 60, cc_ttl = 30 },
+                canary = { enabled = false, scanner_ttl = 60, cc_ttl = 30 },
                 emergency_pause = false,
             },
             reject_unknown = true,
@@ -352,8 +352,9 @@ _M.schema = {
                 },
                 canary = {
                     type = "object",
-                    default = { scanner_ttl = 60, cc_ttl = 30 },
+                    default = { enabled = false, scanner_ttl = 60, cc_ttl = 30 },
                     children = {
+                        enabled     = leaf({type = "boolean", default = false }),
                         scanner_ttl = leaf({type = "integer", default = 60, min = 10, max = 600}),
                         cc_ttl      = leaf({type = "integer", default = 30, min = 10, max = 600}),
                     },
@@ -692,6 +693,13 @@ local function validate_config(config)
                 return false, string.format(
                     "kernel_ip_blocking.cc.max_ttl (%d) must be >= cc.ttl (%d)",
                     kb.cc.max_ttl, kb.cc.ttl)
+            end
+            -- CC requires at least one rule_id to be actionable in enforce mode
+            if kb.cc.enabled == true and kb.mode == "enforce" then
+                local rule_ids = kb.cc.rule_ids
+                if not rule_ids or #rule_ids == 0 then
+                    return false, "kernel_ip_blocking.cc.enabled requires non-empty cc.rule_ids in enforce mode"
+                end
             end
         end
         if kb.scanner then
