@@ -613,11 +613,77 @@ local function parse_ipv4(s)
     return (tonumber(a) * 16777216) + (tonumber(b) * 65536) + (tonumber(c) * 256) + tonumber(d)
 end
 
---- Validate a whitelist entry (bare IPv4 or IPv4 CIDR).
+-- Strict IPv6 format check: 8 groups (or fewer with a single `::`),
+-- each group 1-4 lowercase/uppercase hex digits, no embedded whitespace.
+-- Also accepts IPv4-mapped IPv6 (::ffff:x.x.x.x) and IPv4-compat IPv6 (::x.x.x.x).
+local function is_valid_ipv6(ip)
+    if type(ip) ~= "string" or ip == "" then return false end
+    if ip:find("%s") then return false end
+    if ip:find("%z") then return false end
+    -- reject three or more consecutive colons (e.g. ":::")
+    if ip:find(":::", 1, true) then return false end
+    -- reject a leading/trailing single colon that is not part of `::`
+    if ip:sub(1, 1) == ":" and ip:sub(1, 2) ~= "::" then return false end
+    if ip:sub(-1) == ":" and ip:sub(-2) ~= "::" then return false end
+    local dbl = 0
+    for _ in ip:gmatch("::") do dbl = dbl + 1 end
+    if dbl > 1 then return false end
+    if not ip:match("%x") and ip ~= "::" then return false end
+
+    -- Handle IPv4-mapped/compat IPv6: last part may be dotted-quad
+    local has_dotted = ip:match("%.%d+$")
+    local parts = {}
+    for part in ip:gmatch("[^:]+") do
+        parts[#parts + 1] = part
+    end
+    if has_dotted then
+        -- Last part should be IPv4
+        local last = parts[#parts]
+        local a, b, c, d = last:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+        if not a then return false end
+        if tonumber(a) > 255 or tonumber(b) > 255
+            or tonumber(c) > 255 or tonumber(d) > 255 then return false end
+        -- Check the IPv6 prefix parts (excluding the last IPv4 part)
+        for i = 1, #parts - 1 do
+            if not parts[i]:match("^%x+$") or #parts[i] > 4 then return false end
+        end
+        local ngroups = #parts - 1
+        if dbl == 1 then
+            return ngroups <= 6  -- IPv4 mapped takes 2 groups
+        end
+        return ngroups == 6  -- IPv4 mapped takes 2 groups, total 8
+    else
+        -- Regular IPv6
+        for _, part in ipairs(parts) do
+            if not part:match("^%x+$") or #part > 4 then return false end
+        end
+        local ngroups = #parts
+        if dbl == 1 then
+            return ngroups <= 7
+        end
+        return ngroups == 8
+    end
+end
+
+--- Validate a whitelist entry (bare IPv4/IPv6 or IPv4/IPv6 CIDR).
 -- @param entry string: candidate whitelist entry
--- @return boolean: true when the entry is a well-formed IPv4 or IPv4 CIDR
+-- @return boolean: true when the entry is a well-formed IPv4/IPv6 or IPv4/IPv6 CIDR
 function _M.validate_whitelist_entry(entry)
     if type(entry) ~= "string" or entry == "" then return false end
+
+    -- IPv6 CIDR (e.g., 2001:db8::/32) or IPv6 bare address
+    if entry:find(":", 1, true) then
+        local pos = entry:find("/")
+        if pos then
+            local subnet = entry:sub(1, pos - 1)
+            local bits = tonumber(entry:sub(pos + 1))
+            if not subnet or not bits or bits < 0 or bits > 128 then return false end
+            return is_valid_ipv6(subnet)
+        end
+        return is_valid_ipv6(entry)
+    end
+
+    -- IPv4 CIDR or bare IPv4
     local function ok_octets(s)
         local a, b, c, d = s:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
         if not a then return false end
