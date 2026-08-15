@@ -28,13 +28,6 @@ local function is_array(t)
 end
 
 -- ---------------------------------------------------------------------------
--- Create a field schema node
--- ---------------------------------------------------------------------------
-function _M.field(schema)
-    return schema
-end
-
--- ---------------------------------------------------------------------------
 -- Recursively normalize a config subtable against a schema node
 -- ---------------------------------------------------------------------------
 -- schema_node: { default=..., children={...}, enum={...}, min=I, max=I,
