@@ -1942,6 +1942,15 @@ async function api(method, path, body, opts2) {
   }
   const res = await fetch(path, opts);
   if (!res.ok) {
+    // Session expired or unauthorized — redirect to login
+    if (res.status === 401 || res.status === 403) {
+      csrfToken = null;
+      if (typeof store !== 'undefined') {
+        store.loggedIn = false;
+        store.user = null;
+      }
+      throw new Error('session_expired');
+    }
     const text = await res.text().catch(() => '');
     let msg;
     try { const j = JSON.parse(text); msg = j.message || j.err || text; } catch { msg = text || `HTTP ${res.status}`; }
@@ -2360,7 +2369,13 @@ const app = Vue.createApp({
     }
 
     // ---- Logout ----
-    function doLogout() {
+    async function doLogout() {
+      // Clear all auto-refresh timers
+      clearInterval(statusTimer);
+      clearInterval(healthTimer);
+      clearInterval(overviewTimer);
+      // Revoke session server-side (best-effort)
+      try { await api('POST', '/verynginx/logout'); } catch (_) {}
       document.cookie = 'verynginx_session=; Path=/; Max-Age=0';
       csrfToken = null;
       store.loggedIn = false;
@@ -3002,9 +3017,14 @@ const app = Vue.createApp({
     async function repAddWhitelist() {
       const ip = repNewWhitelist.value.trim();
       if (!ip) return;
+      // Client-side IP format validation
+      const ipv4 = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/.test(ip);
+      const ipv6 = /^[0-9a-fA-F:]+(\/\d{1,3})?$/.test(ip) && ip.includes(':');
+      if (!ipv4 && !ipv6) { repError.value = 'IP 格式无效: ' + ip; return; }
       try {
         await api('POST', '/verynginx/reputation/whitelist', { ip });
         repNewWhitelist.value = '';
+        repError.value = '';
         loadRepData();
       } catch (e) {
         repError.value = e.message;
@@ -3782,7 +3802,12 @@ const app = Vue.createApp({
 
     async function kbPromote() {
       if (!kbNewIP.value) { showToast('请输入 IP', 'error'); return; }
-      if (!confirm('手动封禁 ' + kbNewIP.value + ' 策略 ' + kbNewPolicy.value + ' TTL ' + kbNewTTL.value + '秒?')) return;
+      // Client-side IP format validation (IPv4/IPv6 literal)
+      const ip = kbNewIP.value.trim();
+      const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
+      const ipv6 = /^[0-9a-fA-F:]+$/.test(ip) && ip.includes(':');
+      if (!ipv4 && !ipv6) { showToast('IP 格式无效: ' + ip, 'error'); return; }
+      if (!confirm('手动封禁 ' + ip + ' 策略 ' + kbNewPolicy.value + ' TTL ' + kbNewTTL.value + '秒?')) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', {
@@ -3890,6 +3915,17 @@ const app = Vue.createApp({
 
     async function saveFreqRule() {
       try {
+        // Client-side validation
+        if (!freqRuleModal.key || freqRuleModal.key.trim() === '') {
+          showToast('限速键 (key) 不能为空', 'error'); return;
+        }
+        const limit = Number(freqRuleModal.limit);
+        const window = Number(freqRuleModal.window);
+        const code = Number(freqRuleModal.code);
+        if (!limit || limit < 1) { showToast('limit 必须 >= 1', 'error'); return; }
+        if (!window || window < 1) { showToast('window 必须 >= 1 秒', 'error'); return; }
+        if (![200,403,429,503].includes(code)) { showToast('响应码必须是 200/403/429/503', 'error'); return; }
+
         let matcher = {};
         if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
           matcher = JSON.parse(freqRuleModal.matcherJson);
@@ -3897,9 +3933,9 @@ const app = Vue.createApp({
         const rule = {
           id: freqRuleModal.id,
           key: freqRuleModal.key,
-          limit: freqRuleModal.limit,
-          window: freqRuleModal.window,
-          code: freqRuleModal.code,
+          limit,
+          window,
+          code,
           enable: true,
         };
         if (Object.keys(matcher).length > 0) rule.matcher = matcher;
