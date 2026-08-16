@@ -66,7 +66,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .stat-card .stat-value{font-size:32px;font-weight:700;margin-top:4px}
 .stat-card .stat-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 /* Config tabs */
-.config-tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap}
+.config-tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.config-tabs .tab-sep{font-size:11px;color:var(--muted);margin:0 4px 0 10px;font-weight:600;letter-spacing:.5px;opacity:.7}
 .config-tabs a{padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text);border:1px solid transparent;transition:all .15s}
 .config-tabs a:hover{background:var(--bg);text-decoration:none}
 .config-tabs a.active{background:var(--primary);color:#fff;border-color:var(--primary)}
@@ -294,12 +295,13 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div v-if="configImportError" class="error" style="margin-bottom:8px">{{ configImportError }}</div>
         <div v-if="configImportOk" style="background:#d1fae5;color:#065f46;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:8px">{{ configImportOk }}</div>
         <div class="config-tabs">
-          <a :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">匹配器</a>
+          <a :class="{active:cfgTab==='system'}" @click="cfgTab='system'">系统</a>
           <a :class="{active:cfgTab==='rules'}" @click="cfgTab='rules'">规则</a>
           <a :class="{active:cfgTab==='upstreams'}" @click="cfgTab='upstreams'">上游</a>
-          <a :class="{active:cfgTab==='responses'}" @click="cfgTab='responses'">Responses</a>
           <a :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins';loadPlugins()">插件</a>
-          <a :class="{active:cfgTab==='system'}" @click="cfgTab='system'">系统</a>
+          <span class="tab-sep">高级</span>
+          <a :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">匹配器</a>
+          <a :class="{active:cfgTab==='responses'}" @click="cfgTab='responses'">响应模板</a>
           <a :class="{active:cfgTab==='json'}" @click="cfgTab='json'">原始 JSON</a>
         </div>
 
@@ -930,7 +932,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
         <!-- Active Counters -->
         <div class="card" style="padding:16px;margin-bottom:16px">
-          <h3 style="font-size:14px;margin-bottom:8px">当前活跃计数 (Top 50)</h3>
+          <h3 style="font-size:14px;margin-bottom:8px">当前活跃计数 (前 50)</h3>
           <div v-if="freqStats.length">
             <table>
                <thead><tr><th>键</th><th>计数</th></tr></thead>
@@ -990,8 +992,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <select v-model="freqTemplateModal.key" style="width:100%">
                 <option value="ip">IP</option>
                 <option value="uri">URI</option>
-                <option value="user">User</option>
-                <option value="host">Host</option>
+                <option value="user">用户名</option>
+                <option value="host">域名</option>
               </select>
             </div>
             <div class="grid grid-2 mb-8">
@@ -1018,8 +1020,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <select v-model="freqRuleModal.key" style="width:100%">
                 <option value="ip">IP</option>
                 <option value="uri">URI</option>
-                <option value="user">User</option>
-                <option value="host">Host</option>
+                <option value="user">用户名</option>
+                <option value="host">域名</option>
               </select>
             </div>
             <div class="grid grid-2 mb-8">
@@ -1149,7 +1151,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
         <!-- Stats -->
         <div class="card" style="padding:16px;margin-bottom:16px">
-          <h3 style="font-size:14px;margin-bottom:8px">国家/地区分布 (Top 20)</h3>
+          <h3 style="font-size:14px;margin-bottom:8px">国家/地区分布 (前 20)</h3>
           <div v-if="geoipStats.length">
             <table>
                <thead><tr><th>国家</th><th>命中</th></tr></thead>
@@ -1270,7 +1272,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <div style="font-size:13px;color:#6b7280;margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
         <div style="overflow-x:auto">
           <table>
-            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+            <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th></tr></thead>
             <tbody>
               <tr v-for="e in auditEntries" :key="e.time + e.action">
                 <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
@@ -1321,7 +1323,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <div class="stat-sub">扫描器 {{ kbStatus.counters.installed_scanner || 0 }} / CC {{ kbStatus.counters.installed_cc || 0 }} / 手动 {{ kbStatus.counters.installed_manual || 0 }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Helper</div>
+            <div class="stat-label">内核助手</div>
             <div class="stat-value" style="font-size:18px">{{ (kbStatus.health && kbStatus.health.state) || '未知' }}</div>
             <div class="stat-sub" :class="(kbStatus.health && kbStatus.health.state)==='ok'?'enabled':'disabled'">
               {{ kbStatus.helper_instance_id ? ('id ' + String(kbStatus.helper_instance_id).slice(0,8)) : ((kbStatus.health && kbStatus.health.state)==='ok' ? '可达' : '不可达') }}
@@ -1370,7 +1372,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
               <div>
                 <strong style="color:var(--accent)">⚡ CC 执行就绪</strong>
-                <div style="font-size:12px;color:var(--muted);margin-top:4px">所有先决条件已满足（迁移、切换、规则引用、Helper）。启用 CC enforce_ready 以激活。</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px">所有先决条件已满足（迁移、切换、规则引用、内核助手）。启用 CC 执行就绪以激活。</div>
               </div>
               <button class="primary small" :disabled="kbBusy" @click="enableCcEnforceReady">启用 CC 执行</button>
             </div>
@@ -1386,8 +1388,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
              <div class="field">
                <label style="font-size:12px;color:var(--muted)">全局模式</label>
                <select v-model="kbForm.mode" style="margin-top:4px">
-                 <option value="observe">observe (观察)</option>
-                 <option value="enforce">enforce (执行)</option>
+                 <option value="observe">观察 (observe)</option>
+                 <option value="enforce">执行 (enforce)</option>
                </select>
              </div>
              <div class="field">
@@ -1402,9 +1404,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <div class="field">
                 <label style="font-size:12px;color:var(--muted)">拓扑</label>
                 <select v-model="kbForm.topology" style="margin-top:4px">
-                  <option value="direct">direct (直连)</option>
-                  <option value="proxied">proxied (代理)</option>
-                  <option value="unknown">unknown (未配置)</option>
+<option value="direct">直连 (direct)</option>
+                   <option value="proxied">代理 (proxied)</option>
+                   <option value="unknown">未配置 (unknown)</option>
                 </select>
               </div>
               <div class="field">
@@ -1612,7 +1614,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <div v-for="r in kbStatus.cc_rules" :key="r.rule_id" class="kb-rule-row">
               <div class="kb-rule-head">
                 <span class="kb-rule-id">{{ r.rule_id }}</span>
-                <span :class="r.reference_valid?'tag tag-ok':'tag tag-err'">{{ r.reference_valid ? 'valid' : 'invalid' }}</span>
+                <span :class="r.reference_valid?'tag tag-ok':'tag tag-err'">{{ r.reference_valid ? '有效' : '无效' }}</span>
                  <span :class="r.install_reachable?'tag tag-ok':'tag tag-warn'">{{ r.install_reachable ? '可安装' : '已阻止' }}</span>
                 <span class="tag">{{ r.effective_mode }}</span>
               </div>
@@ -1621,8 +1623,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </div>
               <div class="kb-rule-meta">
                 <span>NS: {{ r.counter_namespace }}</span>
-                <span v-if="r.warmup_until">warmup until {{ formatKbTime(r.warmup_until) }}</span>
-                <span v-if="r.cutover_epoch">epoch {{ r.cutover_epoch }}</span>
+                <span v-if="r.warmup_until">预热至 {{ formatKbTime(r.warmup_until) }}</span>
+                <span v-if="r.cutover_epoch">世代 {{ r.cutover_epoch }}</span>
                 <span v-if="r.reason_codes && r.reason_codes.length" class="kb-rule-reasons">{{ r.reason_codes.join(', ') }}</span>
               </div>
               <!-- Expandable detail -->
@@ -1718,9 +1720,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
              <option value="lfi">LFI</option>
              <option value="path_traversal">路径穿越</option>
              <option value="scanner">扫描器</option>
-             <option value="bot">Bot</option>
+             <option value="bot">机器人</option>
              <option value="brute">暴力破解</option>
-             <option value="spam">Spam</option>
+             <option value="spam">垃圾内容</option>
              <option value="custom">自定义</option>
            </select>
         </div>
@@ -1768,7 +1770,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       </div>
       <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
       <div v-if="!wafEditModal._isNew && wafDiffLines().length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
-        <div style="background:#f9fafb;padding:6px 12px;font-size:12px;font-weight:600;color:#374151;border-bottom:1px solid #e0e3eb">变更预览 (Diff)</div>
+        <div style="background:#f9fafb;padding:6px 12px;font-size:12px;font-weight:600;color:#374151;border-bottom:1px solid #e0e3eb">变更预览</div>
         <div style="max-height:200px;overflow-y:auto;font-family:ui-monospace,monospace;font-size:12px;background:#fff">
           <div v-for="(d,i) in wafDiffLines()" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
             {{ d.type === 'added' ? '+' : '-' }} {{ d.text }}
@@ -2059,7 +2061,7 @@ const app = Vue.createApp({
     const healthData = ref({});
     const overview = ref({});
     const dictUsage = ref([]);
-     const cfgTab = ref('matchers');
+     const cfgTab = ref('system');
      const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
 
      function toggleTheme() {
