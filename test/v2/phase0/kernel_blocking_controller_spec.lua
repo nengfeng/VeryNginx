@@ -326,4 +326,43 @@ describe("Kernel blocking controller", function()
         local data = require("dkjson").decode(resp)
         assert.are.equal("success", data.ret)
     end)
+
+    it("POST /kernel-blocking/flush-auto paginates all installed entries (>500)", function()
+        -- Insert >500 installed scanner entries to verify pagination works
+        for i = 1, 600 do
+            local ip = string.format("203.0.113.%d", (i % 254) + 1)
+            _sm.upsert(ip, "scanner", "installed", { block_hits = 5 }, {})
+        end
+        -- Also add some cc installed entries
+        for i = 1, 50 do
+            local ip = string.format("198.51.100.%d", (i % 254) + 1)
+            _sm.upsert(ip, "cc", "installed", { cc_violations = 3 }, {})
+        end
+
+        local route = find_route("/kernel-blocking/flush-auto")
+        assert.is_truthy(route, "flush-auto route registered")
+
+        local resp = route.handler()
+        local data = require("dkjson").decode(resp)
+        assert.are.equal("success", data.ret)
+
+        -- All installed entries should be transitioned to cleared
+        local cursor = 0
+        local remaining = 0
+        repeat
+            local page = _sm.list(cursor, 500, "installed", "scanner")
+            remaining = remaining + #(page.entries or {})
+            cursor = page.next_cursor or 0
+        until not page.next_cursor or cursor == 0
+        assert.are.equal(0, remaining, "all scanner installed entries should be cleared")
+
+        cursor = 0
+        local cc_remaining = 0
+        repeat
+            local page = _sm.list(cursor, 500, "installed", "cc")
+            cc_remaining = cc_remaining + #(page.entries or {})
+            cursor = page.next_cursor or 0
+        until not page.next_cursor or cursor == 0
+        assert.are.equal(0, cc_remaining, "all cc installed entries should be cleared")
+    end)
 end)

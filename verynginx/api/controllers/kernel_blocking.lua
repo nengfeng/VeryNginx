@@ -399,7 +399,7 @@ local function handle_flush_auto()
                 })
             end
             cursor = page.next_cursor or 0
-        until not page.has_next or cursor == 0
+        until not page.next_cursor or cursor == 0
     end
 
     return json.encode({
