@@ -147,17 +147,14 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     <div id="topnav">
       <span class="brand">VeryNginx <small>v2</small></span>
       <nav>
-         <a :class="{active:page==='overview'}" @click="page='overview';loadOverview()">概览</a>
-        <a :class="{active:page==='status'}" @click="page='status'">状态</a>
+        <a :class="{active:page==='dashboard'}" @click="page='dashboard'">仪表盘</a>
         <a :class="{active:page==='config'}" @click="page='config'">配置</a>
-        <a :class="{active:page==='stats'}" @click="page='stats';loadStats()">统计</a>
         <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
         <a :class="{active:page==='frequency'}" @click="page='frequency';loadFrequencyData()">频率限制</a>
-         <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">IP 声誉</a>
-         <a :class="{active:page==='geoip'}" @click="page='geoip';loadGeoIP();loadGeoIPStatus()">GeoIP</a>
-         <a :class="{active:page==='fingerprints'}" @click="page='fingerprints';loadFingerprints()">TLS 指纹</a>
-         <a :class="{active:page==='audit'}" @click="page='audit';loadAudit()">审计日志</a>
-         <a :class="{active:page==='kb'}" @click="page='kb';loadKbData()">内核锁阻</a>
+        <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">IP 声誉</a>
+        <a :class="{active:page==='geoip'}" @click="page='geoip';loadGeoIP();loadGeoIPStatus()">GeoIP</a>
+        <a :class="{active:page==='kb'}" @click="page='kb';loadKbData()">内核封禁</a>
+        <a :class="{active:page==='advanced'}" @click="page='advanced'">高级</a>
         <a :class="{active:page==='about'}" @click="page='about'">关于</a>
       </nav>
       <div class="user-area">
@@ -170,8 +167,15 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     </div>
 
     <div id="main">
+      <!-- Dashboard sub-tabs -->
+      <div v-if="page==='dashboard'" class="config-tabs" style="margin-bottom:16px">
+        <a :class="{active:dashTab==='overview'}" @click="dashTab='overview'">概览</a>
+        <a :class="{active:dashTab==='status'}" @click="dashTab='status'">连接</a>
+        <a :class="{active:dashTab==='stats'}" @click="dashTab='stats';loadStats()">统计</a>
+      </div>
+
       <!-- Overview -->
-      <div v-if="page==='overview'">
+      <div v-if="page==='dashboard' && dashTab==='overview'">
         <h2 class="page-title">系统概览</h2>
         <!-- Top row: connections + upstream -->
         <div class="grid grid-4 mb-16">
@@ -245,8 +249,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       </div>
 
       <!-- Status -->
-      <div v-if="page==='status'">
-        <h2 class="page-title">系统状态</h2>
+      <div v-if="page==='dashboard' && dashTab==='status'">
+        <h2 class="page-title">连接状态</h2>
         <div class="grid grid-4 mb-16">
           <div class="stat-card"><div class="stat-label">活跃连接</div><div class="stat-value">{{ s.connections_active || 0 }}</div></div>
           <div class="stat-card"><div class="stat-label">读取中</div><div class="stat-value">{{ s.connections_reading || 0 }}</div></div>
@@ -493,7 +497,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       </div>
 
       <!-- Stats -->
-      <div v-if="page==='stats'">
+      <div v-if="page==='dashboard' && dashTab==='stats'">
         <div class="flex flex-between mb-16">
           <h2 class="page-title" style="margin-bottom:0">请求统计</h2>
           <div class="flex gap-8">
@@ -576,17 +580,26 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- WAF Tabs -->
         <div class="config-tabs">
           <a :class="{active:wafTab==='rules'}" @click="wafTab='rules'">规则</a>
-          <a :class="{active:wafTab==='stats'}" @click="wafTab='stats';loadWafStats()">统计</a>
-          <a :class="{active:wafTab==='timeline'}" @click="wafTab='timeline';loadWafTimeline()">时间线</a>
-          <a :class="{active:wafTab==='analytics'}" @click="wafTab='analytics';loadWafAnalytics()">分析</a>
+          <a :class="{active:wafTab==='attacks'}" @click="wafTab='attacks';loadWafAttackData()">攻击</a>
           <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">历史</a>
-          <a :class="{active:wafTab==='hits'}" @click="wafTab='hits';loadWafHits()">命中</a>
-          <a :class="{active:wafTab==='recommendations'}" @click="wafTab='recommendations';loadRecs()">推荐</a>
           <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">测试</a>
         </div>
 
+        <!-- WAF sub-tabs: Rules -->
+        <div v-if="wafTab==='rules'" class="config-tabs" style="margin-bottom:16px;font-size:12px">
+          <a :class="{active:wafRuleView==='list'}" @click="wafRuleView='list'">规则列表</a>
+          <a :class="{active:wafRuleView==='analytics'}" @click="wafRuleView='analytics';loadWafAnalytics()">效果分析</a>
+          <a :class="{active:wafRuleView==='recs'}" @click="wafRuleView='recs';loadRecs()">规则推荐</a>
+        </div>
+        <!-- WAF sub-tabs: Attacks -->
+        <div v-if="wafTab==='attacks'" class="config-tabs" style="margin-bottom:16px;font-size:12px">
+          <a :class="{active:wafAttackView==='stats'}" @click="wafAttackView='stats';loadWafStats()">统计</a>
+          <a :class="{active:wafAttackView==='timeline'}" @click="wafAttackView='timeline';loadWafTimeline()">时间线</a>
+          <a :class="{active:wafAttackView==='hits'}" @click="wafAttackView='hits';loadWafHits()">命中</a>
+        </div>
+
         <!-- Analytics Panel -->
-        <div v-if="wafTab==='analytics'">
+        <div v-if="wafTab==='rules' && wafRuleView==='analytics'">
           <div v-if="wafAnalytics.dead_rules && wafAnalytics.dead_rules.length" class="warn" style="margin-bottom:8px; padding:10px 14px; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; font-size:13px">
              ⚠ 以下规则 30 天未命中：
             <span v-for="dr in wafAnalytics.dead_rules" :key="dr.id" style="margin-right:8px">
@@ -625,7 +638,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
 
         <!-- Rule List -->
-        <div v-if="wafTab==='rules'">
+        <div v-if="wafTab==='rules' && wafRuleView==='list'">
           <div v-if="wafError" class="error" style="margin-bottom:8px">{{ wafError }}</div>
           <div class="flex gap-8 mb-8" style="flex-wrap:wrap">
              <select v-model="wafFilterCat" @change="wafFilterChange" style="width:auto">
@@ -677,7 +690,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
 
         <!-- Stats -->
-        <div v-if="wafTab==='stats'">
+        <div v-if="wafTab==='attacks' && wafAttackView==='stats'">
           <div v-if="wafStatsError" class="error" style="margin-bottom:8px">{{ wafStatsError }}</div>
           <div v-if="wafStatsData" class="grid grid-4 mb-16">
              <div class="stat-card"><div class="stat-label">规则总数</div><div class="stat-value">{{ wafStatsData.total_rules }}</div></div>
@@ -723,7 +736,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
 
         <!-- Timeline -->
-        <div v-if="wafTab==='timeline'">
+        <div v-if="wafTab==='attacks' && wafAttackView==='timeline'">
           <div style="margin-bottom:12px">
             <select v-model="wafTimelineHours" @change="loadWafTimeline" style="width:auto;display:inline-block;margin-right:8px">
               <option value="1">1 小时</option>
@@ -760,7 +773,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
 
         <!-- Hits -->
-        <div v-if="wafTab==='hits'">
+        <div v-if="wafTab==='attacks' && wafAttackView==='hits'">
           <div v-if="wafHitsError" class="error" style="margin-bottom:8px">{{ wafHitsError }}</div>
           <div class="flex flex-between mb-8">
              <span style="font-size:13px;color:var(--muted)">最近 {{ wafHitsTime }} — 显示 {{ wafHits.length }} 条记录</span>
@@ -824,8 +837,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div v-else style="color:var(--muted)">无可用历史。</div>
         </div>
 
-        <!-- Tester -->
-        <div v-if="wafTab==='recommendations'">
+        <!-- Recommendations -->
+        <div v-if="wafTab==='rules' && wafRuleView==='recs'">
           <div class="flex flex-between mb-16">
             <h3 style="font-size:14px;margin:0">规则推荐
               <span class="tag tag-ok" v-if="recStats" style="vertical-align:middle">{{ recStats.pending }} 条待处理</span>
@@ -1186,8 +1199,14 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
       </div>
 
+            <!-- Advanced sub-tabs -->
+      <div v-if="page==='advanced'" class="config-tabs" style="margin-bottom:16px">
+        <a :class="{active:advTab==='fingerprints'}" @click="advTab='fingerprints';loadFingerprints()">TLS 指纹</a>
+        <a :class="{active:advTab==='audit'}" @click="advTab='audit';loadAudit()">审计日志</a>
+      </div>
+
       <!-- Fingerprints -->
-      <div v-if="page==='fingerprints'">
+      <div v-if="page==='advanced' && advTab==='fingerprints'">
         <div class="flex flex-between mb-16">
           <h2 class="page-title" style="margin-bottom:0">TLS 指纹</h2>
           <div class="flex gap-8">
@@ -1222,7 +1241,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
       </div>
 
       <!-- Audit -->
-      <div v-if="page==='audit'">
+      <div v-if="page==='advanced' && advTab==='audit'">
         <div class="flex flex-between mb-16">
           <h2 class="page-title" style="margin-bottom:0">审计日志</h2>
           <button class="outline small" @click="loadAudit">刷新</button>
@@ -2027,7 +2046,9 @@ async function refreshCsrf() {
 const app = Vue.createApp({
   setup() {
     const store = reactive({ loggedIn: false, user: null });
-    const page = ref('status');
+    const page = ref('dashboard');
+    const dashTab = ref('overview');
+    const advTab = ref('fingerprints');
     const loading = ref(false);
     const loginUser = ref('');
     const loginPass = ref('');
@@ -2073,6 +2094,8 @@ const app = Vue.createApp({
 
     // ---- WAF State ----
     const wafTab = ref('rules');
+    const wafRuleView = ref('list');
+    const wafAttackView = ref('stats');
     const wafError = ref('');
     const wafRules = ref([]);
     const wafCategories = ref({});
@@ -2377,7 +2400,8 @@ const app = Vue.createApp({
         store.loggedIn = true;
         store.user = 'verynginx';
         await loadData();
-        if (page.value === 'status') startStatusRefresh();
+        if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
+        if (page.value === 'dashboard' && dashTab.value === 'overview') loadOverview();
       } catch (e) {
         console.warn('Session check failed:', e.message);
       }
@@ -2402,7 +2426,8 @@ const app = Vue.createApp({
           loginUser.value = '';
           await refreshCsrf();
           loadData();
-          if (page.value === 'status') startStatusRefresh();
+          if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
+          if (page.value === 'dashboard' && dashTab.value === 'overview') loadOverview();
         } else {
           loginError.value = d.message || '登录失败';
         }
@@ -2671,8 +2696,8 @@ const app = Vue.createApp({
       loadStatus();
       statusTimer = setInterval(loadStatus, 3000);
     }
-    watch(page, (p) => {
-      if (p === 'status') startStatusRefresh();
+    watch([page, dashTab], ([p, d]) => {
+      if (p === 'dashboard' && d === 'status') startStatusRefresh();
       else clearInterval(statusTimer);
     });
     // Stop all auto-refresh polling when the session ends (logout or expiry).
@@ -2685,8 +2710,16 @@ const app = Vue.createApp({
         clearInterval(overviewTimer);
       }
     });
-    // Kick off on first mount if already on status page
-    Vue.nextTick(() => { if (page.value === 'status' && store.loggedIn) startStatusRefresh(); });
+    // Kick off auto-refresh on first mount based on landing view
+    Vue.nextTick(() => {
+      if (store.loggedIn) {
+        if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
+        if (page.value === 'dashboard' && dashTab.value === 'overview') {
+          loadOverview();
+          overviewTimer = setInterval(loadOverview, 5000);
+        }
+      }
+    });
 
     // Auto-refresh health every 10s when on Upstreams tab
     let healthTimer;
@@ -2892,13 +2925,20 @@ const app = Vue.createApp({
 
     // Auto-refresh overview every 5s
     let overviewTimer;
-    watch(page, (p) => {
-      if (p === 'overview') {
+    watch([page, dashTab], ([p, d]) => {
+      if (p === 'dashboard' && d === 'overview') {
         clearInterval(overviewTimer);
         loadOverview();
         overviewTimer = setInterval(loadOverview, 5000);
       } else {
         clearInterval(overviewTimer);
+      }
+    });
+
+    watch([page, advTab], ([p, d]) => {
+      if (p === 'advanced') {
+        if (d === 'fingerprints') loadFingerprints();
+        else loadAudit();
       }
     });
 
@@ -3155,12 +3195,16 @@ const app = Vue.createApp({
 
     async function loadWafData() {
       await loadWafRules();
-      if (wafTab.value === 'hits') await loadWafHits();
-      if (wafTab.value === 'stats') await loadWafStats();
-      if (wafTab.value === 'analytics') await loadWafAnalytics();
-      if (wafTab.value === 'timeline') await loadWafTimeline();
+      if (wafTab.value === 'attacks') await loadWafAttackData();
+      if (wafTab.value === 'rules' && wafRuleView.value === 'analytics') await loadWafAnalytics();
+      if (wafTab.value === 'rules' && wafRuleView.value === 'recs') await loadRecs();
       if (wafTab.value === 'history') { await loadWafHistory(); await loadPendingRules(); }
-      if (wafTab.value === 'recommendations') await loadRecs();
+    }
+
+    async function loadWafAttackData() {
+      if (wafAttackView.value === 'stats') await loadWafStats();
+      if (wafAttackView.value === 'timeline') await loadWafTimeline();
+      if (wafAttackView.value === 'hits') await loadWafHits();
     }
 
     function wafOpenCreate() {
@@ -4057,7 +4101,7 @@ const app = Vue.createApp({
     }
 
     async function wafRefreshAll() {
-      await Promise.all([loadWafRules()]);
+      await loadWafData();
     }
 
     // ---- WAF Recommender ----
@@ -4299,7 +4343,7 @@ const app = Vue.createApp({
     }
 
     return {
-      store, page, loading, loginUser, loginPass, loginError,
+      store, page, dashTab, advTab, loading, loginUser, loginPass, loginError,
       status, s, cfg, healthData, overview, dictUsage, connHistory, connLinePoints, connFillPoints, cfgTab, theme, toggleTheme, rawJson, jsonSaving, jsonError,
       statsData, statsType, statsError, expandedUri,
       matcherKeys, respKeys, editMatcherModal,
@@ -4311,13 +4355,13 @@ const app = Vue.createApp({
       ruleEditModal, ruleSaving, upstreamKeys, ruleEditReset, ruleBuildRule,
       ruleOpenCreate, ruleOpenEdit, ruleEditModalChanged, ruleSave, ruleDelete, ruleToggle,
       // WAF
-      wafTab, wafError, wafRules, wafCategories, wafPagination,
+      wafTab, wafRuleView, wafAttackView, wafError, wafRules, wafCategories, wafPagination,
       wafFilterCat, wafFilterSev, wafFilterChange, wafStatsData, wafStatsError,
       wafHistory, wafHistError, wafRolling,
       wafEditModal, wafEditError, wafSaving,
       wafTestRuleJson, wafTestCasesJson, wafTestError, wafTesting, wafTestResults,
       sevClass, fmtTime,
-      loadWafRules, loadWafStats, loadWafHistory, loadWafData,
+      loadWafRules, loadWafStats, loadWafHistory, loadWafData, loadWafAttackData,
       wafOpenCreate, wafOpenEdit, wafSaveRule,
       wafDeleteRule, wafToggleRule, wafPage, wafRefreshAll,
       wafRollback, wafRunTest,
