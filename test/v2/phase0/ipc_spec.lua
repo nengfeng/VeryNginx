@@ -78,6 +78,23 @@ describe("IPC Protocol client (mock socket)", function()
         sent_data = {}
         mock_responses = {}
 
+        -- Mock shared dict for IPC client mutex
+        _G.ngx.shared = _G.ngx.shared or {}
+        _G.ngx.shared.vn_locks = _G.ngx.shared.vn_locks or {
+            data = {},
+            add = function(self, key, value, ttl)
+                if self.data[key] then return nil, "exists" end
+                self.data[key] = value
+                return true
+            end,
+            get = function(self, key)
+                return self.data[key]
+            end,
+            delete = function(self, key)
+                self.data[key] = nil
+            end,
+        }
+
         _G.ngx.socket = {
             tcp = function()
                 local conn = {}

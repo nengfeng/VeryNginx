@@ -38,8 +38,11 @@ local socket_born = nil     -- ngx.time() when current connection was made
 
 -- Per-worker mutex for serializing socket access (Design §8.3.5).
 -- Multiple coroutines (timers, API requests) must not interleave send/receive
--- on the same cosocket.
-local request_mutex_key = "kernel_ip_blocking:ipc_request_lock"
+-- on the same cosocket. Each worker has its own lock key.
+local function request_mutex_key()
+    local wid = (ngx and ngx.worker and ngx.worker.id) and ngx.worker.id() or 0
+    return "kernel_ip_blocking:ipc_request_lock:" .. wid
+end
 
 -- Reconnect backoff state (Design §8.3.1).
 -- Exponential backoff with jitter: initial 100ms, max 5s.
@@ -113,32 +116,38 @@ end
 
 -- Acquire per-worker mutex for IPC request serialization.
 -- Uses vn_locks shared dict with atomic add for TTL-based lock.
--- @return true if acquired, false if timeout
+-- Token-based ownership prevents releasing stolen locks (AGENTS.md §12.2).
+-- @return true if acquired, false if timeout (fail-closed)
 local function acquire_request_lock()
-    if not ngx.shared then return true end  -- fallback if ngx.shared unavailable
+    if not ngx.shared then return false end
     local locks = ngx.shared.vn_locks
-    if not locks then return true end  -- fallback if dict unavailable
+    if not locks then return false end
     local deadline = ngx.time() + 5  -- 5s max wait
+    local token = random.hex(8)      -- ownership token
     while ngx.time() < deadline do
         -- Try to acquire lock (TTL 5s to prevent deadlock on crash)
-        local ok, err = locks:add(request_mutex_key, "1", 5)
-        if ok then return true end
+        local ok, err = locks:add(request_mutex_key(), token, 5)
+        if ok then return token end
         if err ~= "exists" then
             ngx.log(ngx.ERR, "ipc_client: lock add error: ", tostring(err))
-            return true  -- fallback on error
+            return false
         end
         ngx.sleep(0.01)  -- yield 10ms
     end
-    ngx.log(ngx.WARN, "ipc_client: request lock timeout, proceeding without lock")
-    return true  -- fallback: proceed without lock to avoid deadlock
+    ngx.log(ngx.WARN, "ipc_client: request lock timeout, failing closed")
+    return false  -- fail-closed: caller must handle
 end
 
-local function release_request_lock()
+local function release_request_lock(token)
     if not ngx.shared then return end
     local locks = ngx.shared.vn_locks
     if not locks then return end
-    -- Only release if we hold it (no token tracking, just delete)
-    locks:delete(request_mutex_key)
+    if not token then return end
+    -- Only release if we still own it (token matches)
+    local current = locks:get(request_mutex_key())
+    if current == token then
+        locks:delete(request_mutex_key())
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -221,7 +230,11 @@ end
 -- ---------------------------------------------------------------------------
 function _M.request(operation, source, payload)
     -- Serialize all IPC requests per worker to prevent socket interleaving.
-    acquire_request_lock()
+    local lock_token = acquire_request_lock()
+    if not lock_token then
+        _M.record_error("lock_timeout", operation)
+        return nil, "lock_timeout"
+    end
     local ok_result, err_result
     local function do_request()
         local ok, err = ensure_connected()
@@ -299,7 +312,7 @@ function _M.request(operation, source, payload)
         end
     end
     ok_result, err_result = do_request()
-    release_request_lock()
+    release_request_lock(lock_token)
     return ok_result, err_result
 end
 
