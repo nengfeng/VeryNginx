@@ -3854,6 +3854,7 @@ const app = Vue.createApp({
     }
 
     async function kbPromoteIp(ip, policy) {
+      if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
       if (!confirm('晋升 ' + ip + ' 为 ' + policy + ' (TTL 300秒)?')) return;
       kbBusy.value = true;
       try {
@@ -3885,6 +3886,7 @@ const app = Vue.createApp({
     }
 
     async function kbClear(ip) {
+      if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
       if (!confirm('清除 ' + ip + ' 的所有内核封禁条目?')) return;
       kbBusy.value = true;
       try {
