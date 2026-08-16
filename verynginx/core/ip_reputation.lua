@@ -743,8 +743,14 @@ local function ip_in_cidr(ip, cidr)
 end
 
 function _M.is_whitelisted(ip)
+    local s = shared()
+    if not s then return false end
+
+    -- Read generation once for this request (epoch may be nil if not initialized)
+    local epoch, seq = wlg._get_generation()
+
     -- Phase 1: use generation-qualified cache
-    local cached = wlg.cache_get(ip)
+    local cached = wlg._cache_get_with_gen(s, ip, epoch, seq)
     if cached ~= nil then
         return cached
     end
@@ -752,28 +758,25 @@ function _M.is_whitelisted(ip)
     local wl = get_whitelist()
     for _, entry in ipairs(wl) do
         if ip_in_cidr(ip, entry) then
-            wlg.cache_set(ip, true)
+            wlg._cache_set_with_gen(s, ip, true, epoch, seq)
             return true
         end
     end
     -- Check auto-whitelist (ephemeral, for repeatedly verified IPs)
-    local s = shared()
-    if s then
-        local created = s:get("ip_rep:awl:" .. ip)
-        if created then
-            local awl_ttl = s:get("ip_rep:awl_ttl:" .. ip) or DEFAULTS.auto_whitelist.ttl
-            local remaining = awl_ttl - (ngx.time() - created)
-            if remaining > 0 then
-                -- Limit positive cache TTL to the auto-whitelist *remaining* TTL,
-                -- not the full awl.ttl: awl entry expiry does not bump the
-                -- generation sequence, so a full-TTL cache here would let the IP
-                -- stay allow-listed up to a second full awl.ttl after it expired.
-                wlg.cache_set(ip, true, remaining)
-                return true
-            end
+    local created = s:get("ip_rep:awl:" .. ip)
+    if created then
+        local awl_ttl = s:get("ip_rep:awl_ttl:" .. ip) or DEFAULTS.auto_whitelist.ttl
+        local remaining = awl_ttl - (ngx.time() - created)
+        if remaining > 0 then
+            -- Limit positive cache TTL to the auto-whitelist *remaining* TTL,
+            -- not the full awl.ttl: awl entry expiry does not bump the
+            -- generation sequence, so a full-TTL cache here would let the IP
+            -- stay allow-listed up to a second full awl.ttl after it expired.
+            wlg._cache_set_with_gen(s, ip, true, epoch, seq, remaining)
+            return true
         end
     end
-    wlg.cache_set(ip, false)
+    wlg._cache_set_with_gen(s, ip, false, epoch, seq)
     return false
 end
 

@@ -43,6 +43,27 @@ function _M.get_generation()
     return epoch, seq and tonumber(seq) or 0
 end
 
+-- Internal: get generation using worker-local epoch cache + one shared read for seq.
+-- Used by is_whitelisted to read generation once per request.
+function _M._get_generation()
+    local s = ngx.shared[SHARED_DICT]
+    if not s then return nil, nil end
+    local epoch = _epoch_cache
+    if epoch == nil then
+        epoch = s:get(EPOCH_KEY)
+        _epoch_cache = epoch
+    else
+        -- Verify cached epoch still exists in store (handles test mocks that reset the store)
+        local stored_epoch = s:get(EPOCH_KEY)
+        if stored_epoch ~= epoch then
+            epoch = stored_epoch
+            _epoch_cache = epoch
+        end
+    end
+    local seq = s:get(SEQ_KEY)
+    return epoch, seq and tonumber(seq) or 0
+end
+
 -- ---------------------------------------------------------------------------
 -- Initialize the epoch (called once from init_by_lua / init_worker).
 -- Only sets epoch if not already present (preserves across graceful reload).
@@ -100,14 +121,30 @@ function _M.cache_key(ip)
     return "ip_rep:wl_cache:" .. epoch .. ":" .. tostring(seq) .. ":" .. ip
 end
 
+-- Internal: build cache key from pre-read generation (avoids extra shared read).
+function _M._cache_key_with_gen(ip, epoch, seq)
+    if not epoch then
+        return "ip_rep:wl_cache:" .. ip
+    end
+    return "ip_rep:wl_cache:" .. epoch .. ":" .. tostring(seq) .. ":" .. ip
+end
+
 -- ---------------------------------------------------------------------------
--- Read from generation-qualisted cache.
+-- Read from generation-qualified cache.
 -- Returns: true (whitelisted), false (not whitelisted), or nil (cache miss).
 -- ---------------------------------------------------------------------------
 function _M.cache_get(ip)
     local s = ngx.shared[SHARED_DICT]
     if not s then return nil end
     local key = _M.cache_key(ip)
+    local val = s:get(key)
+    if val == nil then return nil end
+    return val == 1
+end
+
+-- Internal: cache_get with pre-read generation.
+function _M._cache_get_with_gen(s, ip, epoch, seq)
+    local key = _M._cache_key_with_gen(ip, epoch, seq)
     local val = s:get(key)
     if val == nil then return nil end
     return val == 1
@@ -123,6 +160,12 @@ function _M.cache_set(ip, is_whitelisted, ttl)
     local s = ngx.shared[SHARED_DICT]
     if not s then return end
     local key = _M.cache_key(ip)
+    s:set(key, is_whitelisted and 1 or 0, ttl or CACHE_TTL)
+end
+
+-- Internal: cache_set with pre-read generation.
+function _M._cache_set_with_gen(s, ip, is_whitelisted, epoch, seq, ttl)
+    local key = _M._cache_key_with_gen(ip, epoch, seq)
     s:set(key, is_whitelisted and 1 or 0, ttl or CACHE_TTL)
 end
 

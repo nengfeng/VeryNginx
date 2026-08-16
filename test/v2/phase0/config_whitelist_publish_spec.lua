@@ -36,8 +36,16 @@ local function setup_ngx()
                     st[key] = val; return true
                 end,
                 incr = function(_, key, delta, init)
-                    cnt[key] = (cnt[key] or (init or 0)) + delta
-                    st[key] = cnt[key]; return cnt[key]
+                    local current = st[key]
+                    if current == nil then
+                        current = init or 0
+                    else
+                        current = tonumber(current) or 0
+                    end
+                    local new_val = current + delta
+                    st[key] = new_val
+                    cnt[key] = new_val
+                    return new_val
                 end,
                 delete = function(_, key) st[key] = nil; cnt[key] = nil end,
                 expire = function(_, key, ttl) end,
