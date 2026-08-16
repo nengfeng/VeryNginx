@@ -38,7 +38,19 @@ local function is_reserved_address(ip, family)
         if ip == "0.0.0.0" then return true, "unspecified" end
         if ip:match("^127%.") then return true, "loopback" end
         if ip:match("^169%.254%.") then return true, "link_local" end
-        local o1 = tonumber(ip:match("^(%d+)%."))
+        local o1, o2 = ip:match("^(%d+)%.(%d+)%.")
+        if o1 and o2 then
+            o1 = tonumber(o1)
+            o2 = tonumber(o2)
+            -- 10.0.0.0/8
+            if o1 == 10 then return true, "private" end
+            -- 172.16.0.0/12
+            if o1 == 172 and o2 >= 16 and o2 <= 31 then return true, "private" end
+            -- 192.168.0.0/16
+            if o1 == 192 and o2 == 168 then return true, "private" end
+            -- 100.64.0.0/10 (CGNAT)
+            if o1 == 100 and o2 >= 64 and o2 <= 127 then return true, "private" end
+        end
         if o1 and o1 >= 224 and o1 <= 239 then return true, "multicast" end
         if ip == "255.255.255.255" then return true, "broadcast" end
     else
@@ -50,6 +62,8 @@ local function is_reserved_address(ip, family)
             return true, "link_local"
         end
         if lower:match("^ff") then return true, "multicast" end
+        -- fc00::/7 ULA (unique local addresses)
+        if lower:match("^fc") or lower:match("^fd") then return true, "private" end
     end
     return false, nil
 end
