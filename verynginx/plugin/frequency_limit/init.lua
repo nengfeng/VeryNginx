@@ -22,21 +22,42 @@ local ev = require "core.kernel_blocking.evidence"
 -- v2 is enabled when:
 --   1. All frequency rules have stable IDs (migration complete)
 --   2. The cutover has been performed (cutover_epoch recorded in shared state)
+--
+-- Cached per-worker with generation invalidation. Config saves bump
+-- fl:v2:config_generation in shared dict; worker checks generation and
+-- recomputes only when it changes (avoids O(#rules) scan per request).
+local _v2_cache = { generation = -1, active = false }
+
 local function is_v2_active()
-    local rules = config.rule and config.rule.frequency_limit
-    if not rules or type(rules) ~= "table" or #rules == 0 then
+    local s = ngx.shared.frequency_limit
+    if not s then
+        _v2_cache = { generation = -1, active = false }
         return false
     end
-    -- Every rule must have a stable ID
-    for _, rule in ipairs(rules) do
-        if not rule or not rule.id or rule.id == "" then
-            return false
+
+    local gen = s:get("fl:v2:config_generation") or 0
+    if _v2_cache.generation == gen then
+        return _v2_cache.active
+    end
+
+    -- Recompute
+    local rules = config.rule and config.rule.frequency_limit
+    local active = false
+    if rules and type(rules) == "table" and #rules > 0 then
+        local all_have_id = true
+        for _, rule in ipairs(rules) do
+            if not rule or not rule.id or rule.id == "" then
+                all_have_id = false
+                break
+            end
+        end
+        if all_have_id and s:get("fl:v2:cutover_epoch") ~= nil then
+            active = true
         end
     end
-    -- Cutover must be recorded
-    local s = ngx.shared.frequency_limit
-    if not s then return false end
-    return s:get("fl:v2:cutover_epoch") ~= nil
+
+    _v2_cache = { generation = gen, active = active }
+    return active
 end
 
 function _M.on_access(ctx)

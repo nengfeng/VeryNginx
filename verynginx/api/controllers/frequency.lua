@@ -105,6 +105,9 @@ local function handle_frequency_rule_save()
         ngx.status = 500
         return json.encode({ ret = "failed", message = "save failed: " .. (merr or "unknown") })
     end
+    -- Bump generation to invalidate v2_active cache
+    local shared = ngx.shared.frequency_limit
+    if shared then shared:incr("fl:v2:config_generation", 1, 0) end
     audit.log("frequency_rule_saved", rule.id, "-")
     return json.encode({ ret = "success", data = { id = rule.id } })
 end
@@ -130,6 +133,9 @@ local function handle_frequency_rule_delete()
         ngx.status = 500
         return json.encode({ ret = "failed", message = "save failed: " .. (merr or "unknown") })
     end
+    -- Bump generation to invalidate v2_active cache
+    local shared = ngx.shared.frequency_limit
+    if shared then shared:incr("fl:v2:config_generation", 1, 0) end
     audit.log("frequency_rule_deleted", rule_id, "-")
     return json.encode({ ret = "success", message = "rule deleted" })
 end
@@ -204,6 +210,9 @@ local function handle_template_apply()
         ngx.status = 500
         return json.encode({ ret = "failed", message = "save failed: " .. (merr or "unknown") })
     end
+    -- Bump generation to invalidate v2_active cache
+    local shared = ngx.shared.frequency_limit
+    if shared then shared:incr("fl:v2:config_generation", 1, 0) end
     audit.log("frequency_rule_from_template", rule.id, id)
     return json.encode({ ret = "success", data = { id = rule.id, rule = rule } })
 end
