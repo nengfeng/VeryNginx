@@ -1957,6 +1957,17 @@ function isValidIpLiteral(ip, allowPrefix) {
   return true;
 }
 
+// Session-expired errors are raised by api() on 401/403 and already
+// handled centrally (store.loggedIn=false → login page). Swallow them at
+// the global level so timer-driven refreshes (loadStatus every 3s, etc.)
+// don't produce unhandled Promise rejections / console noise.
+window.addEventListener('unhandledrejection', (ev) => {
+  const reason = ev && ev.reason;
+  if (reason && reason.message === 'session_expired') {
+    ev.preventDefault();
+  }
+});
+
 async function api(method, path, body, opts2) {
   const opts = { method, credentials: 'same-origin' };
   if (body) {
@@ -2663,6 +2674,16 @@ const app = Vue.createApp({
     watch(page, (p) => {
       if (p === 'status') startStatusRefresh();
       else clearInterval(statusTimer);
+    });
+    // Stop all auto-refresh polling when the session ends (logout or expiry).
+    // api() sets store.loggedIn=false on 401/403, so timer callbacks stop
+    // firing session_expired requests instead of polling every 3-10s.
+    watch(() => store.loggedIn, (loggedIn) => {
+      if (!loggedIn) {
+        clearInterval(statusTimer);
+        clearInterval(healthTimer);
+        clearInterval(overviewTimer);
+      }
     });
     // Kick off on first mount if already on status page
     Vue.nextTick(() => { if (page.value === 'status' && store.loggedIn) startStatusRefresh(); });
