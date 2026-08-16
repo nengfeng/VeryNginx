@@ -1924,6 +1924,39 @@ const { reactive, ref, computed, watch } = Vue;
 // ---- API ----
 let csrfToken = null;
 
+// Strict IP literal validation (IPv4 0-255 per octet, IPv6 with optional /prefix).
+// Mirrors api/helpers.lua is_valid_ip semantics on the client side.
+function isValidIpLiteral(ip, allowPrefix) {
+  if (!ip || typeof ip !== 'string') return false;
+  const s = ip.trim();
+  if (!s) return false;
+  if (s.includes(':')) {
+    // IPv6 literal (optionally with /<prefix>)
+    const body = allowPrefix ? s.split('/')[0] : s;
+    if (!/^[0-9a-fA-F:]+$/.test(body) || !body.includes(':')) return false;
+    if (allowPrefix && s.includes('/')) {
+      const p = Number(s.split('/')[1]);
+      if (!Number.isInteger(p) || p < 0 || p > 128) return false;
+    }
+    return true;
+  }
+  // IPv4 literal (optionally with /<prefix>)
+  const body = allowPrefix ? s.split('/')[0] : s;
+  const parts = body.split('.');
+  if (parts.length !== 4) return false;
+  for (const p of parts) {
+    if (!/^\d+$/.test(p)) return false;
+    const n = Number(p);
+    if (n < 0 || n > 255) return false;
+    if (p.length > 1 && p[0] === '0') return false; // no leading zeros
+  }
+  if (allowPrefix && s.includes('/')) {
+    const p = Number(s.split('/')[1]);
+    if (!Number.isInteger(p) || p < 0 || p > 32) return false;
+  }
+  return true;
+}
+
 async function api(method, path, body, opts2) {
   const opts = { method, credentials: 'same-origin' };
   if (body) {
@@ -3017,10 +3050,8 @@ const app = Vue.createApp({
     async function repAddWhitelist() {
       const ip = repNewWhitelist.value.trim();
       if (!ip) return;
-      // Client-side IP format validation
-      const ipv4 = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/.test(ip);
-      const ipv6 = /^[0-9a-fA-F:]+(\/\d{1,3})?$/.test(ip) && ip.includes(':');
-      if (!ipv4 && !ipv6) { repError.value = 'IP 格式无效: ' + ip; return; }
+      // Client-side IP format validation (allows CIDR prefix for whitelist)
+      if (!isValidIpLiteral(ip, true)) { repError.value = 'IP 格式无效: ' + ip; return; }
       try {
         await api('POST', '/verynginx/reputation/whitelist', { ip });
         repNewWhitelist.value = '';
@@ -3804,9 +3835,7 @@ const app = Vue.createApp({
       if (!kbNewIP.value) { showToast('请输入 IP', 'error'); return; }
       // Client-side IP format validation (IPv4/IPv6 literal)
       const ip = kbNewIP.value.trim();
-      const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
-      const ipv6 = /^[0-9a-fA-F:]+$/.test(ip) && ip.includes(':');
-      if (!ipv4 && !ipv6) { showToast('IP 格式无效: ' + ip, 'error'); return; }
+      if (!isValidIpLiteral(ip, false)) { showToast('IP 格式无效: ' + ip, 'error'); return; }
       if (!confirm('手动封禁 ' + ip + ' 策略 ' + kbNewPolicy.value + ' TTL ' + kbNewTTL.value + '秒?')) return;
       kbBusy.value = true;
       try {
