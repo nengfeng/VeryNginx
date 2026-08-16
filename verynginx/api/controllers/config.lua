@@ -99,7 +99,7 @@ local function handle_get_csrf()
     return json.encode({ ret = "success", csrf_token = token })
 end
 
---- GET /config - sanitize config dump (remove password hashes)
+--- GET /config - sanitize config dump (remove password hashes, session secret)
 local function handle_get_config()
     local raw = require("core.config").report()
     local ok, decoded = pcall(json.decode, raw)
@@ -108,13 +108,16 @@ local function handle_get_config()
             a.password_hash = "(redacted)"
         end
     end
+    if ok and decoded and decoded.security then
+        decoded.security.session_secret = "(redacted)"
+    end
     if ok then
         return json.encode(decoded)
     end
     return raw
 end
 
---- GET /config/export - download config.json
+--- GET /config/export - download config.json (sanitized: no password hashes, no session secret)
 local function handle_export_config()
     local path = require("core.config").resolve_path() .. "configs/config.json"
     local f = io.open(path, "r")
@@ -124,6 +127,18 @@ local function handle_export_config()
     end
     local content = f:read("*all")
     f:close()
+    local ok, decoded = pcall(json.decode, content)
+    if ok and decoded and decoded.admin then
+        for _, a in ipairs(decoded.admin) do
+            a.password_hash = "(redacted)"
+        end
+    end
+    if ok and decoded and decoded.security then
+        decoded.security.session_secret = "(redacted)"
+    end
+    if ok then
+        content = json.encode(decoded)
+    end
     ngx.header["content-type"] = "application/json; charset=utf-8"
     ngx.header["content-disposition"] = 'attachment; filename="config.json"'
     return content
