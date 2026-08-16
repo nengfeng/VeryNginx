@@ -1065,6 +1065,17 @@ function _M.save(config, opts)
         end
     end
 
+    -- Preserve real session_secret when incoming value is the redacted
+    -- sentinel "(redacted)" returned by GET /config.  Without this, saving
+    -- any config change from the dashboard would overwrite the real secret
+    -- with the literal string "(redacted)", invalidating all sessions and
+    -- allowing session forgery with the known constant key.
+    if config.security and config.security.session_secret == "(redacted)"
+            and config_data.security and config_data.security.session_secret
+            and config_data.security.session_secret ~= "(redacted)" then
+        config.security.session_secret = config_data.security.session_secret
+    end
+
     -- Password complexity check before auto-hashing.
     if config.admin then
         for _, a in ipairs(config.admin) do
