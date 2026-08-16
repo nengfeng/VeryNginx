@@ -51,13 +51,27 @@ function _M._collect_ip_reputation_stats()
     metrics.gauge("ip_reputation_flagged_today", stats.flagged_today or 0, {})
 
     -- Top scored IPs (limited cardinality: top 5)
+    -- Fast path: check score cache for all flagged IPs (1 shared get each).
+    -- Only compute full score (sum_slots = 5 shared gets) for cache misses.
     local flagged = ip_rep.list_flagged()
     local scored = {}
-    for _, entry in ipairs(flagged) do
-        if entry.ip then
-            local s = ip_rep.get_score(entry.ip)
-            if s and s > 0 then
-                scored[#scored + 1] = { ip = entry.ip, score = s }
+    local s = ngx.shared.ip_reputation
+    if s then
+        for _, entry in ipairs(flagged) do
+            if entry.ip then
+                local cached = s:get("ip_rep:score_cache:" .. entry.ip)
+                if cached ~= nil then
+                    -- Cache hit: use cached score directly
+                    if cached > 0 then
+                        scored[#scored + 1] = { ip = entry.ip, score = cached }
+                    end
+                else
+                    -- Cache miss: compute full score (cold path, but rare for active IPs)
+                    local full_score = ip_rep.get_score(entry.ip)
+                    if full_score and full_score > 0 then
+                        scored[#scored + 1] = { ip = entry.ip, score = full_score }
+                    end
+                end
             end
         end
     end
