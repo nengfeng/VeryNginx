@@ -45,6 +45,8 @@ end
 
 -- Internal: get generation using worker-local epoch cache + one shared read for seq.
 -- Used by is_whitelisted to read generation once per request.
+-- Epoch is set with TTL=0 (never expires) in production, so cached value is trusted.
+-- Only test mocks reset the store; tests should call init_epoch() after setup.
 function _M._get_generation()
     local s = ngx.shared[SHARED_DICT]
     if not s then return nil, nil end
@@ -52,13 +54,6 @@ function _M._get_generation()
     if epoch == nil then
         epoch = s:get(EPOCH_KEY)
         _epoch_cache = epoch
-    else
-        -- Verify cached epoch still exists in store (handles test mocks that reset the store)
-        local stored_epoch = s:get(EPOCH_KEY)
-        if stored_epoch ~= epoch then
-            epoch = stored_epoch
-            _epoch_cache = epoch
-        end
     end
     local seq = s:get(SEQ_KEY)
     return epoch, seq and tonumber(seq) or 0
