@@ -7,6 +7,7 @@ local _M = {}
 
 local json = require "dkjson"
 local waf_manager = require "waf-rule-manager"
+local helpers = require "api.helpers"
 
 -- Store test result in ring buffer (max 20 entries)
 local function save_test_history(entry)
@@ -224,6 +225,10 @@ local function handle_waf_hits_by_ip()
     if not ip or ip == "" then
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip parameter required" })
+    end
+    if not helpers.is_valid_ip(ip) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid IP address" })
     end
     local shared = ngx.shared.vn_config
     local hits = {}
