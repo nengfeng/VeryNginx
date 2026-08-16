@@ -116,6 +116,7 @@ end
 --- Classify an IPv4/IPv6 literal as a private/internal address.
 local function is_private_ip(ip)
     if not ip then return false end
+    ip = ip:lower()
     -- ::ffff:<IPv4> is an IPv4-mapped IPv6 address. A URL like
     -- https://[::ffff:10.0.0.1]/ must be classified as internal: check the
     -- embedded IPv4 octets (dotted or hex form) before falling through to the IPv6
