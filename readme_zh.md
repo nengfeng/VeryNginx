@@ -4,6 +4,15 @@
 
 [English](readme.md) | [安装手册](docs/INSTALL_zh.md) | [使用手册](docs/USAGE_zh.md) | [架构设计](docs/DESIGN_V2.md)
 
+## v2.1 亮点（2026-08-16）
+
+- **性能优化**：Per-rule WAF 统计走索引（告别 `get_keys` 200 键上限），`is_v2_active()` 与 `is_whitelisted()` generation 读取缓存化，IP 信誉收集走 score_cache 快路径
+- **竞态修复**：`waf_rule_stats` 与 `metrics` 索引原子更新（token 验证锁），`flush_hit_stats` 定时器仅 worker 0 运行（防双计/head 回退）
+- **安全加固**：`/config` 与 `/config/export` 脱敏 `session_secret`；config save 自动从哨兵值恢复真实密钥；SSRF 守卫 IPv6 私有地址检测大小写不敏感
+- **内核拦截健壮性**：Per-worker IPC 互斥锁带 token 所有权，`close_socket_no_backoff` 护卫 scope binding，generation bump 置于 config save 锁内
+- **可观测改进**：Prometheus 导出纯索引（无 `get_keys` 兜底）；共享字典告警覆盖 `metrics_labeled`
+- **Schema 完整性**：频率限制模板 CIDR 拒绝（matcher 无 CIDR 语义）；`config.whitelist` 保存时逐条校验 IP/CIDR 格式
+
 ---
 
 ## 功能特性
