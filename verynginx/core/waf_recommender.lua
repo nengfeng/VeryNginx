@@ -52,7 +52,8 @@ local function template_to_regex(tmpl)
     -- Escape regex special chars first (except our placeholders)
     r = r:gsub("([%.%+%*%?%^%$%(%)%[%]%{%}%|])", "%%%1")
     -- Replace placeholders with regex
-    r = r:gsub(":uuid", "[0-9a-f-]{36}")
+    -- UUID: strict 8-4-4-4-12 format (not [0-9a-f-]{36} which allows hyphens anywhere)
+    r = r:gsub(":uuid", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
     r = r:gsub(":hex", "[0-9a-f]+")
     r = r:gsub(":id", "\\d+")
     return r
