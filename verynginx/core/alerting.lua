@@ -118,11 +118,32 @@ local function is_private_ip(ip)
     if not ip then return false end
     -- ::ffff:<IPv4> is an IPv4-mapped IPv6 address. A URL like
     -- https://[::ffff:10.0.0.1]/ must be classified as internal: check the
-    -- embedded IPv4 octets (dotted form) before falling through to the IPv6
+    -- embedded IPv4 octets (dotted or hex form) before falling through to the IPv6
     -- checks, otherwise it bypasses every IPv4 pattern.
     local mapped = ip:match("^::ffff:(.+)$")
-    if mapped and mapped:match("^%d+%.%d+%.%d+%.%d+$") then
-        return is_private_ip(mapped)
+    if mapped then
+        -- Try dotted decimal first
+        if mapped:match("^%d+%.%d+%.%d+%.%d+$") then
+            return is_private_ip(mapped)
+        end
+        -- Try hex form (e.g., 0a00:1 or 0a00:0001 for 10.0.0.1)
+        local hex_parts = {}
+        for part in mapped:gmatch("[^:]+") do
+            hex_parts[#hex_parts + 1] = part
+        end
+        if #hex_parts >= 2 then
+            -- Last two 16-bit parts form the IPv4 address
+            local high = tonumber(hex_parts[#hex_parts - 1], 16)
+            local low = tonumber(hex_parts[#hex_parts], 16)
+            if high and low then
+                local a = math.floor(high / 256)
+                local b = high % 256
+                local c = math.floor(low / 256)
+                local d = low % 256
+                local dotted = string.format("%d.%d.%d.%d", a, b, c, d)
+                return is_private_ip(dotted)
+            end
+        end
     end
     if ip:match("^10%.") then return true end
     if ip:match("^172%.(1[6-9]%.)") then return true end
@@ -399,7 +420,7 @@ function _M.evaluate()
 
     -- 5) Shared dict capacity monitoring
     local dict_names = {"vn_config", "vn_locks", "vn_rate_limit", "vn_session",
-                        "statistics", "metrics", "healthcheck", "dns_cache",
+                        "statistics", "metrics", "metrics_labeled", "healthcheck", "dns_cache",
                         "frequency_limit", "ip_reputation"}
     for _, name in ipairs(dict_names) do
         local dict = ngx.shared[name]

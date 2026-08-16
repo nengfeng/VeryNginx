@@ -20,22 +20,22 @@ local LAST_UPDATE_KEY = "geoip_last_update"
 local function ensure_dir(path)
     if not path or path == "" then return end
     local lfs_ok, lfs = pcall(require, "lfs")
+    if not lfs_ok then
+        ngx.log(ngx.ERR, "geoip_updater: lfs required for directory operations")
+        return
+    end
     -- Build list of directories to create (bottom-up)
     local parts = {}
     local current = path
     while current and current ~= "" do
-        if lfs_ok and lfs.attributes(current, "mode") == "directory" then break end
+        if lfs.attributes(current, "mode") == "directory" then break end
         table.insert(parts, 1, current)
         current = current:match("^(.-)/[^/]+$")
     end
     for _, d in ipairs(parts) do
-        if lfs_ok then
-            lfs.mkdir(d)
-        else
-            os.execute("mkdir -p '" .. d .. "' 2>/dev/null")
-        end
+        lfs.mkdir(d)
         -- Restrict to owner-write + world-readable (no group/other write).
-        pcall(function() os.execute("chmod 755 '" .. d .. "' 2>/dev/null") end)
+        pcall(function() lfs.chmod(d, 755) end)
     end
 end
 
@@ -72,64 +72,43 @@ local function validate_mmdb(path)
     return true
 end
 
--- Download file from URL (resty.http or curl CLI fallback)
+-- Download file from URL (resty.http only — curl fallback removed to prevent command injection)
 local function download_file(url, dest, timeout)
     timeout = timeout or 30
     -- Ensure parent directory exists
     ensure_dir(dest:match("^(.-)/[^/]+$"))
-    -- Try resty.http first
     local ok_http, http = pcall(require, "resty.http")
-    if ok_http then
-        local httpc = http.new()
-        httpc:set_timeout(timeout * 1000)
-        local res, err = httpc:request_uri(url, {
-            method = "GET",
-            headers = { ["User-Agent"] = "VeryNginx-GeoIP-Updater/2.0" },
-        })
-        if not res then return false, "download failed: " .. tostring(err) end
-        if res.status ~= 200 then return false, "HTTP " .. res.status end
-        local f, ferr = io.open(dest, "wb")
-        if not f then return false, "cannot write: " .. tostring(ferr) end
-        f:write(res.body)
-        f:close()
-        pcall(function() os.execute("chmod 644 '" .. dest .. "' 2>/dev/null") end)
-        return true
+    if not ok_http then
+        return false, "resty.http not available (required for secure download)"
     end
-    -- Fallback: curl CLI
-    local cmd = string.format("curl -fsSL --max-time %d -A 'VeryNginx-GeoIP-Updater/2.0' -o '%s' '%s' 2>&1",
-        timeout, dest, url)
-    local handle = io.popen(cmd)
-    local output = handle:read("*a") or ""
-    handle:close()
-    -- Verify file was actually written
-    -- Note: curl exit code is unreliable in OpenResty/LuaJIT.
-    -- validate_mmdb() will catch corrupted downloads.
-    local check = io.open(dest, "rb")
-    if not check then
-        return false, "curl did not create file: " .. tostring(output):sub(0, 200)
-    end
-    check:close()
-    pcall(function() os.execute("chmod 644 '" .. dest .. "' 2>/dev/null") end)
+    local httpc = http.new()
+    httpc:set_timeout(timeout * 1000)
+    local res, err = httpc:request_uri(url, {
+        method = "GET",
+        headers = { ["User-Agent"] = "VeryNginx-GeoIP-Updater/2.0" },
+    })
+    if not res then return false, "download failed: " .. tostring(err) end
+    if res.status ~= 200 then return false, "HTTP " .. res.status end
+    local f, ferr = io.open(dest, "wb")
+    if not f then return false, "cannot write: " .. tostring(ferr) end
+    f:write(res.body)
+    f:close()
+    -- Use lfs.chmod instead of shell command
+    pcall(function() require("lfs").chmod(dest, 644) end)
     return true
 end
 
--- Get remote ETag via HEAD request
+-- Get remote ETag via HEAD request (resty.http only)
 local function get_remote_etag(url)
     local ok_http, http = pcall(require, "resty.http")
-    if ok_http then
-        local httpc = http.new()
-        httpc:set_timeout(10000)
-        local res, err = httpc:request_uri(url, { method = "HEAD" })
-        if not res then return nil, tostring(err) end
-        return res.headers["ETag"] or res.headers["Last-Modified"]
+    if not ok_http then
+        return nil, "resty.http not available (required for secure HEAD request)"
     end
-    -- Fallback: curl
-    local handle = io.popen(string.format("curl -fsSI --max-time 10 '%s' 2>&1", url))
-    local output = handle:read("*a") or ""
-    handle:close()
-    local etag = output:match("ETag:[%s]*(.-)\r?\n")
-    if etag and etag ~= "" then return etag end
-    return output:match("Last%-Modified:[%s]*(.-)\r?\n")
+    local httpc = http.new()
+    httpc:set_timeout(10000)
+    local res, err = httpc:request_uri(url, { method = "HEAD" })
+    if not res then return nil, tostring(err) end
+    return res.headers["ETag"] or res.headers["Last-Modified"]
 end
 
 -- Acquire update lock
