@@ -90,6 +90,7 @@ _M.schema = {
                 ja3_cross_ip_threshold = 5,
                 shared_dict_alert_threshold = 80,
                 window_seconds = 360,
+                nameservers = {},  -- empty = auto from /etc/resolv.conf
             },
             children = {
                 enabled           = leaf({ type = "boolean", default = false }),
@@ -102,6 +103,7 @@ _M.schema = {
                 ja3_cross_ip_threshold   = leaf({ type = "integer", default = 5, min = 2, max = 1000 }),
                 shared_dict_alert_threshold = leaf({ type = "integer", default = 80, min = 10, max = 99 }),
                 window_seconds      = leaf({ type = "integer", default = 360, min = 60, max = 86400 }),
+                nameservers = leaf({ type = "array", default = {}, items = "string", unique_items = true }),
             },
             preserve_unknown = true,
         },

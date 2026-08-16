@@ -89,10 +89,11 @@ describe("webhook SSRF validation", function()
         assert.is_false(ok, "10.0.0.1 must be blocked")
     end)
 
-    it("allows public hostname (best-effort, no DNS in test)", function()
-        -- No DNS resolver in the test harness -> best-effort allows public host.
+    it("denies public hostname when DNS unavailable (fail-closed)", function()
+        -- No DNS resolver in the test harness -> fail-closed denies public host.
         local ok, err = check("https://example.com/hook")
-        assert.is_true(ok, "public hostname must be allowed, got err: " .. tostring(err))
+        assert.is_false(ok, "public hostname must be denied when DNS unavailable")
+        assert.truthy(err and err:find("DNS resolution unavailable"), "error must mention DNS unavailability, got: " .. tostring(err))
     end)
 end)
 
@@ -183,8 +184,9 @@ describe("config webhook SSRF validation at save time", function()
         assert.is_false(ok, "[::ffff:10.0.0.1] must be rejected at save time")
     end)
 
-    it("allows public hostname at save time", function()
+    it("denies public hostname at save time when DNS unavailable", function()
         local ok, err = save("https://example.com/hook")
-        assert.is_true(ok, "public hostname must pass save-time check, got err: " .. tostring(err))
+        assert.is_false(ok, "public hostname must be denied at save time when DNS unavailable")
+        assert.truthy(err and err:find("DNS resolution unavailable"), "error must mention DNS unavailability, got: " .. tostring(err))
     end)
 end)

@@ -36,6 +36,9 @@ local DEFAULTS = {
 -- ---------------------------------------------------------------
 -- Utility
 -- ---------------------------------------------------------------
+-- ---------------------------------------------------------------
+-- Utility
+-- ---------------------------------------------------------------
 local function cfg()
     local c = require("core.config").alerting
     if not c then return DEFAULTS end
@@ -48,7 +51,27 @@ local function cfg()
         fp_min_challenges = c.fp_min_challenges or DEFAULTS.fp_min_challenges,
         shared_dict_alert_threshold = c.shared_dict_alert_threshold or DEFAULTS.shared_dict_alert_threshold,
         window_seconds = c.window_seconds or DEFAULTS.window_seconds,
+        nameservers = c.nameservers or DEFAULTS.nameservers,
     }
+end
+
+-- Read nameservers from /etc/resolv.conf
+-- Returns array of IP strings, or nil if unavailable
+local function get_system_nameservers()
+    local f = io.open("/etc/resolv.conf", "r")
+    if not f then return nil end
+    local content = f:read("*a")
+    f:close()
+    if not content then return nil end
+    local servers = {}
+    for line in content:gmatch("[^\r\n]+") do
+        local ip = line:match("^nameserver%s+(%S+)")
+        if ip then
+            servers[#servers + 1] = ip
+        end
+    end
+    if #servers > 0 then return servers end
+    return nil
 end
 
 local function shared()
@@ -117,11 +140,22 @@ end
 
 --- Resolve a hostname and report whether any A/AAAA answer is private.
 -- @return boolean|nil, string: true=encloses private IP, false=all public,
---   nil=resolver unavailable (caller falls back to best-effort literal checks).
+--   nil=resolver unavailable (caller falls back to fail-closed: deny).
 local function resolves_to_private(host)
     local ok_mod, dns_mod = pcall(require, "resty.dns.resolver")
     if not ok_mod or type(dns_mod) ~= "table" then return nil end
-    local r, _ = dns_mod:new({ nameservers = { "8.8.8.8", "1.1.1.1" }, retrans = 1, timeout = 2000 })
+
+    -- Get nameservers: config > system resolv.conf > hardcoded fallback
+    local c = cfg()
+    local nameservers = c.nameservers
+    if not nameservers or #nameservers == 0 then
+        nameservers = get_system_nameservers()
+    end
+    if not nameservers or #nameservers == 0 then
+        nameservers = { "8.8.8.8", "1.1.1.1" }
+    end
+
+    local r, _ = dns_mod:new({ nameservers = nameservers, retrans = 1, timeout = 2000 })
     if not r then return nil end
     for _, qtype in ipairs({ "A", "AAAA" }) do
         local answers = r:query(host, { qtype = qtype })
@@ -171,10 +205,11 @@ local function validate_webhook_url(url)
     -- actually resolves to a private address.
     local priv, derr = resolves_to_private(host)
     if priv == nil then
-        -- Resolver unavailable (e.g. restricted network / unit test): best-effort.
+        -- Resolver unavailable (e.g. restricted network / unit test): fail-closed.
+        -- Deny the webhook to prevent DNS rebinding SSRF bypass.
         ngx.log(ngx.WARN, "alerting: DNS resolution unavailable for webhook host ",
-            host, ": ", tostring(derr))
-        return true
+            host, ": ", tostring(derr), " — denying (fail-closed)")
+        return false, "DNS resolution unavailable; webhook denied for security"
     end
     if priv then return false, "internal IP not allowed" end
     return true
