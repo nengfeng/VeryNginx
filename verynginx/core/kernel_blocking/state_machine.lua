@@ -404,6 +404,7 @@ end
 function _M.count(state_filter, policy_filter)
     local s = shared()
     if not s then return 0 end
+    compact_index()
     local idx_raw = s:get(INDEX_KEY) or "[]"
     local ok, idx = pcall(json.decode, idx_raw)
     if not ok or type(idx) ~= "table" then return 0 end
