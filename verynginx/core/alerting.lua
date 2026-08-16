@@ -146,6 +146,7 @@ local function is_private_ip(ip)
             end
         end
     end
+    -- IPv4 private / reserved
     if ip:match("^10%.") then return true end
     if ip:match("^172%.(1[6-9]%.)") then return true end
     if ip:match("^172%.2%d%.") then return true end
@@ -154,9 +155,16 @@ local function is_private_ip(ip)
     if ip:match("^169%.254%.") then return true end
     if ip:match("^127%.") then return true end
     if ip:match("^0%.") then return true end
-    if ip == "::1" then return true end
-    if ip:match("^fc") or ip:match("^fd") then return true end -- IPv6 ULA
-    if ip:match("^fe[89ab][0-9a-f]:") then return true end       -- IPv6 link-local (fe80::/10)
+    if ip == "255.255.255.255" then return true end               -- IPv4 broadcast
+    if ip:match("^100%.6[4-9]%.") then return true end           -- CGNAT 100.64.0.0/10
+    if ip:match("^100%.[7-9]%d%.") then return true end
+    if ip:match("^100%.[1-9]%d%d%.") then return true end
+    if ip:match("^2[2-3]%d%.") then return true end              -- multicast 224.0.0.0/4
+    -- IPv6 reserved
+    if ip == "::" or ip == "0:0:0:0:0:0:0:0" then return true end  -- unspecified
+    if ip == "::1" then return true end                             -- loopback
+    if ip:match("^fc") or ip:match("^fd") then return true end    -- ULA
+    if ip:match("^fe[89ab][0-9a-f]:") then return true end        -- link-local (fe80::/10)
     return false
 end
 

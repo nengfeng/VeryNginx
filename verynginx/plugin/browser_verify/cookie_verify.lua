@@ -46,6 +46,9 @@ function _M.check(ctx)
 end
 
 --- Issue a cookie challenge: set verification cookie and redirect.
+-- Sets a REDIRECT action on ctx for rule_engine to execute (outside pcall).
+-- Do NOT call ngx.redirect() directly — this function runs inside pcall
+-- and ngx.exit() would be swallowed (AGENTS.md 1.1).
 function _M.challenge(ctx)
     local cookie_sign = sign(ctx, "cookie")
     local prefix = (config and config.cookie_prefix) or "verynginx"
@@ -56,7 +59,8 @@ function _M.challenge(ctx)
     if ngx.var.query_string and ngx.var.query_string ~= "" then
         target = target .. "?" .. ngx.var.query_string
     end
-    ngx.redirect(target, ngx.HTTP_MOVED_TEMPORARILY)
+    -- Set action for rule_engine.apply() to execute outside pcall
+    ctx.set_action(ctx, "redirect", { url = target, code = ngx.HTTP_MOVED_TEMPORARILY })
 end
 
 return _M

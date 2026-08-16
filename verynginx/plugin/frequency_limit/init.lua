@@ -61,7 +61,7 @@ local function is_v2_active()
 end
 
 function _M.on_access(ctx)
-    local rules = config.rule.frequency_limit
+    local rules = config.rule and config.rule.frequency_limit
     if not rules then
         return
     end

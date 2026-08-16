@@ -92,6 +92,10 @@ local function handle_reputation_whitelist_remove()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip parameter required" })
     end
+    if not helpers.is_valid_ip(ip) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid IP address" })
+    end
     local rep = require "core.ip_reputation"
     rep.remove_whitelist(ip)
     return json.encode({ ret = "success" })

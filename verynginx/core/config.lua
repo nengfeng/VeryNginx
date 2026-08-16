@@ -43,6 +43,7 @@ _M.schema = {
             default = { session_ttl = 28800, csrf = true, rate_limit = { login = "10/m", config_save = "30/m" } },
             children = {
                 session_ttl = leaf({ type = "integer", default = 28800, min = 60, max = 86400 * 30 }),
+                session_secret = leaf({ type = "string", default = "", min_length = 16 }),
                 csrf = leaf({ type = "boolean", default = true }),
                 rate_limit = {
                     type = "object",
@@ -491,6 +492,22 @@ local function validate_rule(rule, rule_idx, rule_group, config)
                 return false, string.format("rule.%s[%d]: matcher '%s' not found in config.matcher",
                     rule_group, rule_idx, rule.matcher)
             end
+            -- Validate IP conditions in referenced matcher (same rules as inline)
+            local ref = config.matcher[rule.matcher]
+            if type(ref.IP) == "table" and type(ref.IP.value) == "string"
+                    and ref.IP.value ~= "" then
+                local addr = ref.IP.value
+                if addr:find("/") then
+                    return false, string.format(
+                        "rule.%s[%d]: referenced matcher '%s' IP does not support CIDR: %q",
+                        rule_group, rule_idx, rule.matcher, addr)
+                end
+                if not helpers.is_valid_ip(addr) then
+                    return false, string.format(
+                        "rule.%s[%d]: referenced matcher '%s' has invalid IP: %q",
+                        rule_group, rule_idx, rule.matcher, addr)
+                end
+            end
     elseif type(rule.matcher) == "table" then
             -- inline matcher: check on_body_error values in Args conditions
             for cond_type, cond in pairs(rule.matcher) do
@@ -652,6 +669,15 @@ local function validate_config(config)
             if not a.password_hash or a.password_hash == "" then
                 return false, string.format("admin[%d]: password_hash is required", i)
             end
+        end
+    end
+
+    -- session_secret: warn if explicitly set but too short (< 16 chars)
+    if config.security and config.security.session_secret then
+        local ss = config.security.session_secret
+        if type(ss) == "string" and ss ~= "" and ss ~= "(redacted)" and #ss < 16 then
+            ngx.log(ngx.WARN, "config: security.session_secret is only ", #ss,
+                " chars; recommended >= 16 for HMAC security")
         end
     end
 

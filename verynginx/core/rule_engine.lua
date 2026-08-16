@@ -68,7 +68,7 @@ function _M.apply(ctx, phase)
     end
 
     if action.type == RESULT.BLOCK then
-        local resp = response.resolve(action.data.response)
+        local resp = response.resolve(action.data.response) or {}
         ngx.status = action.data.code or resp.code or 403
         ngx.header["Content-Type"] = resp.content_type or "text/plain"
         ngx.say(resp.body or "Forbidden")
@@ -76,7 +76,7 @@ function _M.apply(ctx, phase)
     elseif action.type == RESULT.REDIRECT then
         return ngx.redirect(action.data.url, action.data.code or 302)
     elseif action.type == RESULT.RESPONSE then
-        local resp = response.resolve(action.data.response)
+        local resp = response.resolve(action.data.response) or {}
         ngx.status = action.data.code or resp.code or 200
         ngx.header["Content-Type"] = resp.content_type or "text/plain"
         ngx.say(resp.body or "")

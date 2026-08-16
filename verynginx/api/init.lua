@@ -166,7 +166,7 @@ local function run_route(route, ctx, method, path)
     if not ok then
         ngx.log(ngx.ERR, "api dispatch error: ", tostring(response))
         ngx.status = 500
-        response = json.encode({ ret = "failed", message = "internal error: " .. tostring(response) })
+        response = json.encode({ ret = "failed", message = "internal error" })
     end
     if not ngx.status or ngx.status == 0 then
         ngx.status = 200

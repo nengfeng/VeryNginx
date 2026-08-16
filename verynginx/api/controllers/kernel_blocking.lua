@@ -389,13 +389,17 @@ local function handle_flush_auto()
 
     desired.clear_auto()
     for _, policy in ipairs({ "scanner", "cc" }) do
-        local page = sm.list(0, 500, "installed", policy)
-        for _, e in ipairs(page.entries or {}) do
-            sm.transition(e.ip, policy, "cleared", {
-                cleared_at = ngx.time(),
-                reason = "flush_auto",
-            })
-        end
+        local cursor = 0
+        repeat
+            local page = sm.list(cursor, 500, "installed", policy)
+            for _, e in ipairs(page.entries or {}) do
+                sm.transition(e.ip, policy, "cleared", {
+                    cleared_at = ngx.time(),
+                    reason = "flush_auto",
+                })
+            end
+            cursor = page.next_cursor or 0
+        until not page.has_next or cursor == 0
     end
 
     return json.encode({
