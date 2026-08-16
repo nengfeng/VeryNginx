@@ -152,12 +152,7 @@ function _M.check_update(force)
     -- Pre-flight: deps check
     local ok_deps, deps_err = pcall(require, "resty.http")
     if not ok_deps then
-        local handle = io.popen("which curl 2>/dev/null")
-        local curl_path = handle:read("*a"):gsub("%s+", "")
-        handle:close()
-        if curl_path == "" then
-            return false, "neither lua-resty-http nor curl available: " .. tostring(deps_err), 500
-        end
+        return false, "lua-resty-http not available: " .. tostring(deps_err), 500
     end
 
     local ucfg = get_update_config()
