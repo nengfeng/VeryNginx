@@ -1016,6 +1016,9 @@ function _M.init_worker()
     _M.restore_recent_hits()
     _M.restore_rule_stats()
 
+    -- Only worker 0 runs periodic timers to avoid double counting / head races
+    if ngx.worker.id() ~= 0 then return end
+
     local ok, err = ngx.timer.every(30, function()
         _M.flush_hit_stats()
         _M.persist_recent_hits()
