@@ -181,7 +181,10 @@ function _M.set_desired(ip, family, list, evidence, ttl, extra)
     if entry.expires_at then
         store_ttl = math.max(entry.expires_at - now, 60)
     end
-    s:set(key, json.encode(entry), store_ttl)
+    local ok_set = s:set(key, json.encode(entry), store_ttl)
+    if not ok_set then
+        return false, "shared dict full, entry not persisted"
+    end
     local idx_ok = index_add(key)
     if not idx_ok then
         -- Entry already written but not indexed; remove it so reconcile has no

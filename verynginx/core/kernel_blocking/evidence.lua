@@ -61,12 +61,15 @@ end
 -- Ø  Uses shared:add() — one evidence per counter lifetime
 -- Ø  evidence_slot = floor(ngx.time() / rule.window)
 -- Ø  TTL >= rule.window × (cc.min_violation_windows + 1)
+-- Ø  Config schema restricts min_violation_windows ≤ 4, so window*5 is safe.
 -- ---------------------------------------------------------------------------
 function _M.record_cc_violation_evidence(rule_id, ip, window)
     if not rule_id or not ip or not window then return end
     local evidence_slot = math.floor(ngx.time() / window)
     local key = "fl:v2:kernel:violation:" .. rule_id .. ":" .. ip .. ":" .. evidence_slot
-    local ttl = window * 4  -- default: covers min_violation_windows + buffer
+    -- TTL must cover (min_violation_windows + 1) windows back; schema limits to 4,
+    -- so window * 5 is sufficient. Use window * 5 for safety margin.
+    local ttl = window * 5
     local s = ngx.shared[CC_DICT]
     if not s then return end
     local added = s:add(key, true, ttl)

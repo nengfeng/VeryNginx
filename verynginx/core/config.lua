@@ -324,7 +324,7 @@ _M.schema = {
                                             items = "string", unique_items = true }),
                         ttl                  = leaf({ type = "integer", default = 300, min = 60, max = 3600 }),
                         max_ttl              = leaf({ type = "integer", default = 1800, min = 300, max = 604800 }),
-                        min_violation_windows = leaf({ type = "integer", default = 3, min = 1, max = 100 }),
+                        min_violation_windows = leaf({ type = "integer", default = 3, min = 1, max = 4 }),
                         require_challenge_fail = leaf({ type = "boolean", default = true }),
                     },
                 },
@@ -1172,14 +1172,16 @@ function _M.save(config, opts)
         shared:set("config_backup_latest", final_path .. ".bak")
         shared:set("config_hash", new_hash)
     end
-    release_save_lock(lock_key, lock_token)
 
     -- Post-activation: kernel blocking lifecycle transitions (Design §10.5).
-    -- Failures must not roll back the already-activated config.
+    -- Must be called while holding the save lock to prevent generation bump race
+    -- when concurrent workers POST /config (B14).
     pcall(function()
         local life = require "core.kernel_blocking.lifecycle"
         life.on_config_activated(previous, compiled)
     end)
+
+    release_save_lock(lock_key, lock_token)
 
     return true
 end

@@ -219,7 +219,10 @@ function _M.upsert(ip, policy, state, evidence, extra)
     local key = entry_key(ip, policy)
     local ttl = extra.expires_at and math.max(extra.expires_at - ngx.time(), 60)
         or INDEX_TTL
-    s:set(key, json.encode(entry), ttl)
+    local ok_set = s:set(key, json.encode(entry), ttl)
+    if not ok_set then
+        return false, "shared dict full, entry not persisted"
+    end
     -- Add to index (append-only; dedup on next read) under the index lock so
     -- concurrent first-time upserts from multiple workers cannot both append
     -- the same composite key. The lock auto-expires (INDEX_LOCK_TTL); treat a

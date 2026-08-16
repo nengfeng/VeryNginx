@@ -55,10 +55,10 @@ local function health_check_transitions(exec)
     local helper_up = ok and health and health.state == "ok"
 
     if not helper_up then
-        local page = state_machine.list(0, 500, "installed")
-        for _, e in ipairs(page.entries) do
+        -- Iterate ALL installed entries, not just first page
+        state_machine.iterate_all(function(e)
             state_machine.to_scope_validation_pending(e.ip, e.policy)
-        end
+        end, nil, "installed")
         return "unreachable"
     end
 
@@ -86,18 +86,18 @@ local function health_check_transitions(exec)
                     end
                 end
                 if not rebound then
-                    local page = state_machine.list(0, 500, "installed")
-                    for _, e in ipairs(page.entries) do
+                    -- Iterate ALL installed entries, not just first page
+                    state_machine.iterate_all(function(e)
                         state_machine.to_scope_validation_pending(e.ip, e.policy)
-                    end
+                    end, nil, "installed")
                     return vreason or "scope_validation_pending"
                 end
             end
         end
     end
 
-    local pending = state_machine.list(0, 500, "scope_validation_pending")
-    for _, e in ipairs(pending.entries) do
+    -- Iterate ALL scope_validation_pending entries, not just first page
+    state_machine.iterate_all(function(e)
         local exists = false
         if e.list then
             local call_ok, present = pcall(function()
@@ -106,7 +106,7 @@ local function health_check_transitions(exec)
             exists = call_ok and present and true or false
         end
         state_machine.from_scope_validation_pending(e.ip, e.policy, exists)
-    end
+    end, nil, "scope_validation_pending")
     return "ok"
 end
 
