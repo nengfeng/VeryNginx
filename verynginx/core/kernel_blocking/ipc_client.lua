@@ -265,7 +265,7 @@ function _M.request(operation, source, payload)
         end
         local b1, b2, b3, b4 = len_data:byte(1, 4)
         local payload_len = (b1 * 16777216) + (b2 * 65536) + (b3 * 256) + b4
-        if payload_len > proto.max_frame_bytes() then
+        if payload_len == 0 or payload_len > proto.max_frame_bytes() then
             close_socket_no_backoff()
             _M.record_error("frame_too_large", operation)
             return nil, "frame_too_large"
