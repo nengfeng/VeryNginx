@@ -1029,17 +1029,19 @@ end
 -- ---------------------------------------------------------------------------
 -- persist_rule_stats  — save per-rule stats to disk so total/today hits
 --                       survive nginx restart.  Called by ngx.timer.every.
+-- Uses STATS_INDEX_KEY to avoid get_keys(0) 1024-key ceiling.
 -- ---------------------------------------------------------------------------
 function _M.persist_rule_stats()
     local shared = ngx.shared.vn_config
     if not shared then return end
 
-    local keys = shared:get_keys(0)
+    local idx_raw = shared:get(STATS_INDEX_KEY)
+    if not idx_raw then return end
+
     local stats = {}
-    for _, k in ipairs(keys) do
-        if k:sub(1, #STATS_PREFIX) == STATS_PREFIX then
-            local rule_id = k:sub(#STATS_PREFIX + 1)
-            local raw = shared:get(k)
+    for rule_id in idx_raw:gmatch("([^\n]+)") do
+        if rule_id ~= "" then
+            local raw = shared:get(STATS_PREFIX .. rule_id)
             if raw then
                 local ok, decoded = pcall(json.decode, raw)
                 if ok and type(decoded) == "table" then
