@@ -30,6 +30,7 @@ local CACHE_PREFIX  = "waf_rules:chunk:"
 local META_KEY      = "waf_rules:meta"
 local VERSION_KEY   = "waf_rules_version"
 local STATS_PREFIX  = "waf_rule_stats:"
+local STATS_INDEX_KEY = "waf_rule_stats:index"
 local RATE_PREFIX   = "waf_rate_limit:"
 local HIT_PREFIX    = "waf_hit:"
 
@@ -976,6 +977,12 @@ function _M.flush_hit_stats()
         end
 
         shared:set(stats_key, json.encode(agg))
+        -- Maintain index of rule stat keys for fast iteration
+        shared:add(STATS_INDEX_KEY, "", 0)  -- ensure index exists
+        local idx_raw = shared:get(STATS_INDEX_KEY) or ""
+        if not idx_raw:find("\n" .. rule_id .. "\n", 1, true) then
+            shared:set(STATS_INDEX_KEY, idx_raw .. rule_id .. "\n", 0)
+        end
     end
 end
 
@@ -1057,9 +1064,14 @@ function _M.restore_rule_stats()
     if not ok or type(stats) ~= "table" then return end
 
     local count = 0
+    local idx_parts = {}
     for rule_id, data in pairs(stats) do
         shared:set(STATS_PREFIX .. rule_id, json.encode(data))
+        idx_parts[#idx_parts + 1] = rule_id
         count = count + 1
+    end
+    if #idx_parts > 0 then
+        shared:set(STATS_INDEX_KEY, table.concat(idx_parts, "\n") .. "\n", 0)
     end
     ngx.log(ngx.NOTICE, "waf-rule-manager: restored stats for ", count, " rules")
 end

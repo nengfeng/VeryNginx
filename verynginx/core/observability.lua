@@ -81,12 +81,15 @@ function _M._collect_waf_rule_stats()
         rule_meta[r.id] = { category = r.category or "", action = r.action or "log", name = r.name or "" }
     end
 
-    local keys = shared:get_keys(200)
-    for _, k in ipairs(keys) do
-        if k:sub(1, 15) == "waf_rule_stats:" then
-            local rule_id = k:sub(16)
+    -- Use index instead of get_keys(200) to avoid 200-key ceiling and O(N) scan
+    local STATS_INDEX_KEY = "waf_rule_stats:index"
+    local idx_raw = shared:get(STATS_INDEX_KEY)
+    if not idx_raw then return end
+
+    for rule_id in idx_raw:gmatch("([^\n]+)") do
+        if rule_id ~= "" then
             local meta = rule_meta[rule_id] or { category = "", action = "log", name = rule_id }
-            local data = shared:get(k)
+            local data = shared:get("waf_rule_stats:" .. rule_id)
             if data then
                 local ok, stat = pcall(json.decode, data)
                 if ok and stat then

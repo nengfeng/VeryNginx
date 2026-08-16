@@ -319,17 +319,19 @@ function _M.evaluate()
     end
 
     -- Collect current per-rule stats and detect anomalies
-    local keys = s:get_keys(200)
+    local STATS_INDEX_KEY = "waf_rule_stats:index"
+    local idx_raw = s:get(STATS_INDEX_KEY)
     local current_hits = {}
 
-    for _, k in ipairs(keys) do
-        if k:sub(1, 15) == "waf_rule_stats:" then
-            local rule_id = k:sub(16)
-            local data = s:get(k)
-            if data then
-                local ok, stat = pcall(json.decode, data)
-                if ok and stat then
-                    current_hits[rule_id] = stat
+    if idx_raw then
+        for rule_id in idx_raw:gmatch("([^\n]+)") do
+            if rule_id ~= "" then
+                local data = s:get("waf_rule_stats:" .. rule_id)
+                if data then
+                    local ok, stat = pcall(json.decode, data)
+                    if ok and stat then
+                        current_hits[rule_id] = stat
+                    end
                 end
             end
         end
