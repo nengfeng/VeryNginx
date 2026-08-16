@@ -977,11 +977,34 @@ function _M.flush_hit_stats()
         end
 
         shared:set(stats_key, json.encode(agg))
-        -- Maintain index of rule stat keys for fast iteration
-        shared:add(STATS_INDEX_KEY, "", 0)  -- ensure index exists
-        local idx_raw = shared:get(STATS_INDEX_KEY) or ""
-        if not idx_raw:find("\n" .. rule_id .. "\n", 1, true) then
-            shared:set(STATS_INDEX_KEY, idx_raw .. rule_id .. "\n", 0)
+        -- Maintain index of rule stat keys for fast iteration (atomic with lock)
+        local locks = ngx.shared.vn_locks
+        if locks then
+            local STATS_INDEX_LOCK_KEY = "waf_rule_stats:index_lock"
+            local STATS_INDEX_LOCK_TTL = 5
+            local STATS_INDEX_LOCK_SLEEP = 0.002
+            local STATS_INDEX_LOCK_MAX_RETRIES = 500
+            local token = require("core.random").bytes(8)
+            local retries = 0
+            while not locks:add(STATS_INDEX_LOCK_KEY, token, STATS_INDEX_LOCK_TTL) do
+                retries = retries + 1
+                if retries > STATS_INDEX_LOCK_MAX_RETRIES then
+                    ngx.log(ngx.WARN, "waf-rule-manager: index lock unavailable after ",
+                        STATS_INDEX_LOCK_MAX_RETRIES, " retries; index may miss key: ",
+                        rule_id)
+                    goto index_done
+                end
+                ngx.sleep(STATS_INDEX_LOCK_SLEEP)
+            end
+            -- Re-check under lock
+            local idx_raw = shared:get(STATS_INDEX_KEY) or ""
+            if not idx_raw:find("\n" .. rule_id .. "\n", 1, true) then
+                shared:set(STATS_INDEX_KEY, idx_raw .. rule_id .. "\n", 0)
+            end
+            if locks:get(STATS_INDEX_LOCK_KEY) == token then
+                locks:delete(STATS_INDEX_LOCK_KEY)
+            end
+            ::index_done::
         end
     end
 end
