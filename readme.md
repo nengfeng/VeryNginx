@@ -4,6 +4,15 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 
 [中文文档](readme_zh.md) | [Installation Guide](docs/INSTALL_zh.md) | [Usage Manual](docs/USAGE_zh.md) | [Architecture Design](docs/DESIGN_V2.md)
 
+## v2.1 Highlights (2026-08-16)
+
+- **Performance optimizations**: Per-rule WAF stats via index (no more `get_keys` 200-key ceiling), cached `is_v2_active()` and `is_whitelisted()` generation reads, score cache fast-path in IP reputation collection
+- **Race condition fixes**: Atomic index updates for `waf_rule_stats` and `metrics` (token-verified locks), `flush_hit_stats` timer now worker-0 only (prevents double-counting)
+- **Security hardening**: `session_secret` redacted in `/config` and `/config/export`; config save restores `session_secret` from sentinel; case-insensitive IPv6 private address detection in SSRF guard
+- **Kernel blocking robustness**: Per-worker IPC mutex with token ownership, `close_socket_no_backoff` guards scope binding, generation bump under config save lock
+- **Observability improvements**: Prometheus export uses index-only (no `get_keys` fallback); shared dict usage alerting includes `metrics_labeled`
+- **Schema integrity**: `frequency_limit` template CIDR rejected (matcher has no CIDR semantics); `config.whitelist` entry format validated on save
+
 ---
 
 ## Features

@@ -1,5 +1,18 @@
 # VeryNginx v2 升级指南
 
+## v2.1 升级要点
+
+- **Schema 版本保持 2.0** — 无需手动修改 `config.json` 中的 `version` 字段
+- **共享字典新增**：`metrics_labeled`（Prometheus 高基数指标隔离，16m），需在 `nginx.conf` 的 `http {}` 块内声明：
+  ```nginx
+  lua_shared_dict metrics_labeled 16m;
+  ```
+  自动升级脚本已处理；手动升级请检查 `in_http_block.conf` 是否已包含。
+- **频率限制规则 CIDR 不再接受** — 规则 `matcher` 中的 IP 值若含 `/`（如 `10.0.0.0/8`）会被拒绝，请改为单 IP 或正则
+- **白名单条目格式校验** — `ip_reputation.whitelist` 保存时校验每条 IP/CIDR，非法条目会阻止保存
+- **session_secret 保护** — `/config` 与 `/config/export` 已脱敏；升级后首次保存配置会自动恢复真实密钥（从内存读取），无需手动操作
+- **GeoIP 目录权限** — 已修正为 755 + `chown nginx_user`，手动升级请确认 `/opt/verynginx/geoip` 权限
+
 ## 自动升级（推荐）
 
 ```bash
