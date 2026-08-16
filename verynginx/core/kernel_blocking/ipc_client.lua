@@ -99,18 +99,20 @@ end
 
 -- Close socket without resetting backoff state (used for reconnect).
 local function close_socket_no_backoff()
+    local had_socket = socket ~= nil
     if socket then
         socket:close()
         socket = nil
     end
     -- Design §8.3.4: only real disconnects invalidate scope binding.
-    -- This is a real disconnect, so notify scope_binding.
-    local ok_disc, err_disc = pcall(function()
-        local sb = require "core.kernel_blocking.scope_binding"
-        sb.on_ipc_disconnect()
-    end)
-    if not ok_disc then
-        ngx.log(ngx.WARN, "kernel_blocking: on_ipc_disconnect failed: ", tostring(err_disc))
+    if had_socket then
+        local ok_disc, err_disc = pcall(function()
+            local sb = require "core.kernel_blocking.scope_binding"
+            sb.on_ipc_disconnect()
+        end)
+        if not ok_disc then
+            ngx.log(ngx.WARN, "kernel_blocking: on_ipc_disconnect failed: ", tostring(err_disc))
+        end
     end
 end
 
