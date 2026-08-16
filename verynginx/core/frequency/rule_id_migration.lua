@@ -295,6 +295,12 @@ local function _migrate(skip_write)
         return { ok = false, reason = "save failed: " .. tostring(err) }
     end
 
+    -- Bump config generation so workers re-evaluate is_v2_active()
+    local s = ngx.shared.frequency_limit
+    if s then
+        s:incr("fl:v2:config_generation", 1, 0)
+    end
+
     return { ok = true, changed = changed }
 end
 

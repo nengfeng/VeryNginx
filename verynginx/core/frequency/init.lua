@@ -113,6 +113,7 @@ function _M.is_cutover_complete()
         local s = ngx.shared.frequency_limit
         if s and not s:get("fl:v2:cutover_epoch") then
             s:set("fl:v2:cutover_epoch", tostring(ngx.time()))
+            s:incr("fl:v2:config_generation", 1, 0)
         end
         return true
     end
@@ -126,6 +127,7 @@ function _M.is_cutover_complete()
             -- dict may have been cleared; restore marker from persisted status
             local epoch = status.cutover_epoch or tostring(ngx.time())
             s:set("fl:v2:cutover_epoch", epoch)
+            s:incr("fl:v2:config_generation", 1, 0)
             return true
         end
     end
