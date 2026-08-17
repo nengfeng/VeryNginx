@@ -177,6 +177,12 @@ local function handle_get_audit()
     local user_filter = ngx.var.arg_user
     local action_filter = ngx.var.arg_action
     local action_prefix = ngx.var.arg_action_prefix
+    -- Whitelist: only alphanumeric, underscore, dot allowed for prefix
+    if action_prefix and action_prefix ~= "" then
+        if not action_prefix:match("^[a-zA-Z0-9_%.]+$") then
+            return json.encode({ ret = "error", message = "invalid action_prefix" })
+        end
+    end
     local since_ts = tonumber(ngx.var.arg_since)
     local until_ts = tonumber(ngx.var.arg_until)
     local entries = audit.get_filtered(user_filter, action_filter, action_prefix, since_ts, until_ts, limit)
