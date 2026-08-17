@@ -2058,8 +2058,25 @@ async function api(method, path, body, opts2) {
       // token was only transiently stale this recovers without a reload.
       try {
         const d = await fetch('/verynginx/csrf', { method: 'GET', credentials: 'same-origin' });
-        if (d.ok) { const j = await d.json(); csrfToken = j.csrf_token; csrfBroken = false; }
-      } catch (e) { /* keep broken */ }
+        if (d.ok) {
+          const j = await d.json();
+          csrfToken = j.csrf_token;
+          csrfBroken = false;
+        } else if (d.status === 401 || d.status === 403) {
+          // Session actually expired — surface as session_expired so the
+          // central handler logs out and redirects to login.
+          csrfToken = null;
+          csrfBroken = false;
+          if (typeof store !== 'undefined') {
+            store.loggedIn = false;
+            store.user = null;
+          }
+          throw new Error('session_expired');
+        }
+      } catch (e) {
+        if (e.message === 'session_expired') throw e;
+        /* keep broken for transient failures */
+      }
     }
     if (csrfBroken) {
       throw new Error('CSRF 令牌刷新失败，请刷新页面后重试');
