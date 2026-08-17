@@ -176,9 +176,10 @@ local function handle_get_audit()
     if limit > 1000 then limit = 1000 end
     local user_filter = ngx.var.arg_user
     local action_filter = ngx.var.arg_action
+    local action_prefix = ngx.var.arg_action_prefix
     local since_ts = tonumber(ngx.var.arg_since)
     local until_ts = tonumber(ngx.var.arg_until)
-    local entries = audit.get_filtered(user_filter, action_filter, since_ts, until_ts, limit)
+    local entries = audit.get_filtered(user_filter, action_filter, action_prefix, since_ts, until_ts, limit)
     return json.encode({ ret = "success", data = entries })
 end
 

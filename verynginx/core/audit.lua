@@ -31,7 +31,7 @@ function _M.is_mutating_request(ctx)
     return method ~= "GET" and method ~= "HEAD" and method ~= "OPTIONS"
 end
 
-function _M.get_filtered(user_filter, action_filter, since_ts, until_ts, limit)
+function _M.get_filtered(user_filter, action_filter, action_prefix, since_ts, until_ts, limit)
     local shared = ngx.shared.vn_config
     if not shared then return {} end
     local tail = tonumber(shared:get(PREFIX .. "idx") or 0)
@@ -49,6 +49,7 @@ function _M.get_filtered(user_filter, action_filter, since_ts, until_ts, limit)
             -- Apply filters
             if user_filter and user_filter ~= "" and user ~= user_filter then goto continue end
             if action_filter and action_filter ~= "" and action ~= action_filter then goto continue end
+            if action_prefix and action_prefix ~= "" and not string.find(action, "^" .. action_prefix) then goto continue end
             if since_ts and since_ts > 0 and ts < since_ts then goto continue end
             if until_ts and until_ts > 0 and ts > until_ts then goto continue end
             entries[#entries + 1] = {

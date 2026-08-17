@@ -1608,7 +1608,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <option value="reconcile">协调</option>
               <option value="lifecycle">生命周期</option>
             </select>
-            <span style="font-size:12px;color:var(--muted)">{{ kbTimeline.length }} 条事件<span v-if="kbTimelineFilter">（按动作筛选，最多返回 300 条匹配）</span></span>
+            <span style="font-size:12px;color:var(--muted)">{{ kbTimeline.length }} 条事件<span v-if="kbTimelineFilter">（按动作筛选，最多返回 300 条匹配）</span><span v-else>（全类型内核封禁事件，最多 300 条）</span></span>
           </div>
           <div v-if="!kbTimeline.length" class="empty">无最近内核封禁审计事件。</div>
            <table v-else class="data-table">
@@ -4014,17 +4014,16 @@ const app = Vue.createApp({
       try {
         let url = '/verynginx/audit?limit=300';
         if (kbTimelineFilter.value) {
-          // Server-side filter across the full ring (up to 1000 entries),
-          // so sparse actions aren't missed among the newest 300.
+          // Specific action filter - exact match on server (full ring scan)
           url += '&action=kernel_blocking.' + encodeURIComponent(kbTimelineFilter.value);
+        } else {
+          // No filter: prefix match to get ALL kernel_blocking events from full ring (1000)
+          url += '&action_prefix=kernel_blocking';
         }
         const d = await api('GET', url);
         if (d.ret === 'success') {
           const all = d.data || [];
-          const filtered = all.filter(a => String(a.action || '').includes('kernel_blocking'));
-          kbTimeline.value = kbTimelineFilter.value
-            ? filtered.filter(a => String(a.action || '').includes('kernel_blocking.' + kbTimelineFilter.value))
-            : filtered;
+          kbTimeline.value = all;
         } else {
           kbError.value = d.message || 'Failed to load timeline';
         }
