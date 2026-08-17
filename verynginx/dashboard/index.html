@@ -3640,10 +3640,22 @@ const app = Vue.createApp({
       }
     }
 
-    function editRuleById(ruleId) {
-      // Find the rule in the loaded list and open edit modal
-      // Navigate to Rules tab and open edit
-      showToast('请在 Rules 标签中编辑规则: ' + ruleId, 'info')
+    async function editRuleById(ruleId) {
+      const rule = wafRules.value.find(r => r.id === ruleId);
+      if (rule) {
+        wafTab.value = 'rules';
+        wafOpenEdit(rule);
+      } else {
+        await loadWafRules();
+        const r = wafRules.value.find(x => x.id === ruleId);
+        if (r) {
+          wafTab.value = 'rules';
+          wafOpenEdit(r);
+        } else {
+          showToast('未找到规则: ' + ruleId, 'error');
+        }
+      }
+      wafHitDetailModal.show = false;
     }
 
     // ---- Frequency Limit ----
