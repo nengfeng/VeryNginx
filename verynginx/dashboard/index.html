@@ -2841,6 +2841,7 @@ const app = Vue.createApp({
 
     watch(page, (p) => {
       if (p === 'config') refreshConfig(true);
+      if (p === 'kb') kbFormDirty.value = false;
     });
 
     watch(kbTimelineFilter, () => {
