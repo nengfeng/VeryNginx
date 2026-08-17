@@ -4520,6 +4520,15 @@ const app = Vue.createApp({
           opts.headers = { 'X-CSRF-Token': csrfToken };
         }
         const res = await fetch('/verynginx/config/export', opts);
+        // Session expired or unauthorized — logout and redirect to login
+        if (res.status === 401 || res.status === 403) {
+          csrfToken = null;
+          if (typeof store !== 'undefined') {
+            store.loggedIn = false;
+            store.user = null;
+          }
+          throw new Error('session_expired');
+        }
         if (!res.ok) { showToast('Export failed: HTTP ' + res.status, 'error'); return; }
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
@@ -4529,7 +4538,7 @@ const app = Vue.createApp({
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } catch (e) {
-        showToast('Export failed: ' + e.message, 'error');
+        if (e.message !== 'session_expired') showToast('Export failed: ' + e.message, 'error');
       }
     }
 
