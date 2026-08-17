@@ -4872,7 +4872,7 @@ const app = Vue.createApp({
       wafTesting.value = false;
     }
 
-    return {
+return {
       store, page, dashTab, advTab, loading, loginUser, loginPass, loginError,
       status, s, cfg, healthData, overview, dictUsage, connHistory, connLinePoints, connFillPoints, cfgTab, theme, toggleTheme, rawJson, jsonSaving, jsonError,
       statsData, statsType, statsError, expandedUri,
@@ -4895,11 +4895,12 @@ const app = Vue.createApp({
       wafOpenCreate, wafOpenEdit, wafSaveRule,
       wafDeleteRule, wafToggleRule, wafPage, wafRefreshAll,
       wafRollback, wafRunTest,
+      wafDeleteBusy, wafToggleBusy,
       startStatusRefresh, startHealthRefresh,
       wafHits, wafHitsError, wafHitsTime, wafHitsLimit, loadWafHits, wafLoadMoreHits,
-      wafAnalytics, loadWafAnalytics, gradeStyle,
+      wafAnalytics, wafAnalyticsLoading, wafAnalyticsError, loadWafAnalytics, gradeStyle,
       wafPendingChanges, loadPendingRules, confirmPendingChange, discardPendingChange,
-      wafTimeline, wafTimelineHours, wafTimelineBucket, loadWafTimeline, hasTimelineData,
+      wafTimeline, wafTimelineHours, wafTimelineBucket, wafTimelineLoading, wafTimelineError, loadWafTimeline, hasTimelineData,
       categoryColor, wafDiffLines, timelineBarHeight,
       wafTestHistory, loadTestHistory, clearTestHistory,
       wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
@@ -4909,8 +4910,8 @@ const app = Vue.createApp({
       recs, recStats, recError, recLoading, loadRecs, runRecAnalysis, applyRec, dismissRec,
       freqStats, freqRules, freqTemplates, freqTemplatesLoaded, freqError, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
       previewFreqTemplate, applyFreqTemplate,
-      geoipLookupIP, geoipLookupResult, geoipStats, geoipMaxCount, geoipConfig, geoipStatus, loadGeoIP, loadGeoIPStatus, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
-      fingerprints, fpCategories, fpError, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
+      geoipLookupIP, geoipLookupResult, geoipStats, geoipMaxCount, geoipConfig, geoipStatus, geoipLoading, geoipError, loadGeoIP, loadGeoIPStatus, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
+      fingerprints, fpCategories, fpError, fpToggleBusy, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
       freqRuleModal, freqTemplateModal,
       plugins, pluginsError, loadPlugins, togglePlugin,
       toastMsg, toastType, toastVisible, formatAgo, showToast, parsePrometheus,
@@ -4921,7 +4922,7 @@ const app = Vue.createApp({
       // Reputation
       repStats, repFlagged, repWhitelist, repError,
       repNewWhitelist, repLookupIP, repLookupResult,
-      remaining, loadRepData, repClear, repAddWhitelist, repRemoveWhitelist, repPersist, repLookup,
+      remaining, loadRepData, repClear, repAddWhitelist, repRemoveWhitelist, repPersist, repLookup, repClearBusy,
       // Audit
       auditEntries, auditError, auditActionClass, loadAudit, clearAuditFilters, setAuditSincePreset,
       auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil,
@@ -4936,6 +4937,7 @@ const app = Vue.createApp({
       ccAutoReady, enableCcEnforceReady,
       kbOpenDetail, kbReloadList, kbSaveSettings, kbMarkFormDirty, loadKbTimeline,
       loadKbData, loadKbEntries, loadKbCandidates, loadKbDashboard, loadKbBucketHistory,
+      kbBucketHistoryLoading, kbBucketHistoryError,
       kbEntriesPagePrev, kbCandidatesPagePrev,
       kbEntriesPageNext, kbCandidatesPageNext,
       kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,
