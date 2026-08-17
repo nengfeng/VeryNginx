@@ -1608,7 +1608,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <option value="reconcile">协调</option>
               <option value="lifecycle">生命周期</option>
             </select>
-            <span style="font-size:12px;color:var(--muted)">{{ kbTimeline.length }} 条事件</span>
+            <span style="font-size:12px;color:var(--muted)">{{ kbTimeline.length }} 条事件<span v-if="kbTimelineFilter">（按动作筛选，最多返回 300 条匹配）</span></span>
           </div>
           <div v-if="!kbTimeline.length" class="empty">无最近内核封禁审计事件。</div>
            <table v-else class="data-table">
@@ -3694,11 +3694,36 @@ const app = Vue.createApp({
       } catch (e) { showToast(e.message, 'error'); }
     }
 
+    function freqMatcherSummary(mj) {
+      if (!mj || mj === '{}' || mj === '') return '';
+      try {
+        const obj = JSON.parse(mj);
+        if (typeof obj !== 'object' || obj === null) return '';
+        const keys = Object.keys(obj);
+        const conds = [];
+        for (const k of keys) {
+          const v = obj[k];
+          if (v && typeof v === 'object' && v.value != null) {
+            let desc = k;
+            if (v.operator === '≈') desc += ':≈' + String(v.value).slice(0, 24);
+            else if (v.operator === '=') desc += ':' + String(v.value).slice(0, 24);
+            else desc += ':...';
+            conds.push(desc);
+          } else {
+            conds.push(k);
+          }
+        }
+        return ' matcher条件=' + conds.join(', ');
+      } catch (e) {
+        return ' matcher=自定义';
+      }
+    }
+
     async function applyFreqTemplate() {
       const rule = freqTemplateModal;
       if (!confirm('从模板 ' + rule.label + ' 创建并下发限流规则？\n\n' +
         '键=' + rule.key + ' 限制=' + rule.limit + '/窗口=' + rule.window + 's ' +
-        '动作码=' + rule.code + (rule.matcherJson && rule.matcherJson !== '{}' ? ' matcher=' + rule.matcherJson : ''))) return;
+        '动作码=' + rule.code + freqMatcherSummary(rule.matcherJson))) return;
       try {
         const overrides = {
           id: freqTemplateModal.id,
@@ -3968,7 +3993,13 @@ const app = Vue.createApp({
 
     async function loadKbTimeline() {
       try {
-        const d = await api('GET', '/verynginx/audit?limit=300');
+        let url = '/verynginx/audit?limit=300';
+        if (kbTimelineFilter.value) {
+          // Server-side filter across the full ring (up to 1000 entries),
+          // so sparse actions aren't missed among the newest 300.
+          url += '&action=kernel_blocking.' + encodeURIComponent(kbTimelineFilter.value);
+        }
+        const d = await api('GET', url);
         if (d.ret === 'success') {
           const all = d.data || [];
           const filtered = all.filter(a => String(a.action || '').includes('kernel_blocking'));
