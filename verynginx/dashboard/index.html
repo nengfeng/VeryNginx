@@ -4923,7 +4923,7 @@ const app = Vue.createApp({
       repNewWhitelist, repLookupIP, repLookupResult,
       remaining, loadRepData, repClear, repAddWhitelist, repRemoveWhitelist, repPersist, repLookup,
       // Audit
-      auditEntries, auditError, auditActionClass, loadAudit, clearAuditFilters,
+      auditEntries, auditError, auditActionClass, loadAudit, clearAuditFilters, setAuditSincePreset,
       auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil,
       // Kernel Blocking
       kbStatus, kbEntries, kbCandidates, kbTimeline, kbBucketHistory, kbDiff, kbTab,
@@ -4935,11 +4935,12 @@ const app = Vue.createApp({
       kbTrendPoints, kbTrendFillEnforce, kbTrendFillObserve,
       ccAutoReady, enableCcEnforceReady,
       kbOpenDetail, kbReloadList, kbSaveSettings, kbMarkFormDirty, loadKbTimeline,
-      loadKbData, loadKbEntries, loadKbCandidates, loadKbDashboard,
+      loadKbData, loadKbEntries, loadKbCandidates, loadKbDashboard, loadKbBucketHistory,
       kbEntriesPagePrev, kbCandidatesPagePrev,
       kbEntriesPageNext, kbCandidatesPageNext,
       kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,
       refreshConfig, openFreqRuleEdit,
+      navigateTo,
     };
   }
 });
