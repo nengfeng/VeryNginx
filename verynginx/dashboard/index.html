@@ -3957,17 +3957,12 @@ const app = Vue.createApp({
         let url = '/verynginx/kernel-blocking/entries?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
         if (kbFilterPolicy.value) url += '&policy=' + encodeURIComponent(kbFilterPolicy.value);
+        if (kbFilterIP.value) url += '&ip=' + encodeURIComponent(kbFilterIP.value);
         const d = await api('GET', url);
         if (d.ret === 'success') {
           kbEntriesCurrentCursor.value = cursor || null;
           if (!cursor) kbEntriesPrev.value = [];
-          let entries = d.data.entries || [];
-          if (kbFilterPolicy.value) entries = entries.filter(e => (e.policy || '').includes(kbFilterPolicy.value) || (e.list || '').includes(kbFilterPolicy.value));
-          if (kbFilterIP.value) {
-            const q = kbFilterIP.value.toLowerCase();
-            entries = entries.filter(e => String(e.ip || '').toLowerCase().includes(q));
-          }
-          kbEntries.value = entries;
+          kbEntries.value = d.data.entries || [];
           kbEntriesNext.value = d.data.next_cursor;
         } else {
           kbError.value = d.message || 'Failed to load entries';
@@ -3991,17 +3986,12 @@ const app = Vue.createApp({
         let url = '/verynginx/kernel-blocking/candidates?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
         if (kbFilterState.value) url += '&state=' + encodeURIComponent(kbFilterState.value);
+        if (kbFilterIP.value) url += '&ip=' + encodeURIComponent(kbFilterIP.value);
         const d = await api('GET', url);
         if (d.ret === 'success') {
           kbCandidatesCurrentCursor.value = cursor || null;
           if (!cursor) kbCandidatesPrev.value = [];
-          let entries = d.data.entries || [];
-          if (kbFilterPolicy.value) entries = entries.filter(e => e.policy === kbFilterPolicy.value);
-          if (kbFilterIP.value) {
-            const q = kbFilterIP.value.toLowerCase();
-            entries = entries.filter(e => String(e.ip || '').toLowerCase().includes(q));
-          }
-          kbCandidates.value = entries;
+          kbCandidates.value = d.data.entries || [];
           kbCandidatesNext.value = d.data.next_cursor;
         } else {
           kbError.value = d.message || 'Failed to load candidates';

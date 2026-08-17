@@ -327,7 +327,7 @@ end
 -- @param policy_filter string|nil: optional policy filter
 -- @return table: { entries = {...}, next_cursor = number|nil }
 -- ---------------------------------------------------------------------------
-function _M.list(cursor, page_size, state_filter, policy_filter)
+function _M.list(cursor, page_size, state_filter, policy_filter, ip_filter)
     cursor = cursor or 0
     page_size = page_size or 50
     local s = shared()
@@ -345,10 +345,12 @@ function _M.list(cursor, page_size, state_filter, policy_filter)
         local ip, policy = composite:match("^(.+):([^:]+)$")
         if ip and policy then
             if not policy_filter or policy == policy_filter then
-                local entry = _M.get_policy(ip, policy)
-                if entry then
-                    if not state_filter or entry.state == state_filter then
-                        entries[#entries + 1] = entry
+                if not ip_filter or ip:lower():find(ip_filter:lower(), 1, true) then
+                    local entry = _M.get_policy(ip, policy)
+                    if entry then
+                        if not state_filter or entry.state == state_filter then
+                            entries[#entries + 1] = entry
+                        end
                     end
                 end
             end

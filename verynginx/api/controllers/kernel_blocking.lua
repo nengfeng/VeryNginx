@@ -26,7 +26,7 @@ local function handle_status()
 end
 
 -- ---------------------------------------------------------------------------
--- GET /kernel-blocking/entries?policy=scanner&cursor=0&page_size=50
+-- GET /kernel-blocking/entries?policy=scanner&cursor=0&page_size=50&ip=10.0.0
 -- Paginated list of installed entries from state machine + executor.
 -- ---------------------------------------------------------------------------
 local function handle_entries()
@@ -35,9 +35,10 @@ local function handle_entries()
     local page_size = tonumber(ngx.var.arg_page_size) or 50
     page_size = math.max(math.min(page_size, 200), 1)
     local policy_filter = ngx.var.arg_policy
+    local ip_filter = ngx.var.arg_ip
 
     local sm = require "core.kernel_blocking.state_machine"
-    local page = sm.list(cursor, page_size, "installed", policy_filter)
+    local page = sm.list(cursor, page_size, "installed", policy_filter, ip_filter)
 
     -- Enrich from one executor listing per set/family instead of one full
     -- contains scan per row.
@@ -91,7 +92,7 @@ local function handle_entries()
 end
 
 -- ---------------------------------------------------------------------------
--- GET /kernel-blocking/candidates?state=candidate&cursor=0&page_size=50
+-- GET /kernel-blocking/candidates?state=candidate&cursor=0&page_size=50&ip=10.0.0
 -- Paginated list of candidates from state machine.
 -- ---------------------------------------------------------------------------
 local function handle_candidates()
@@ -100,9 +101,10 @@ local function handle_candidates()
     local page_size = tonumber(ngx.var.arg_page_size) or 50
     page_size = math.max(math.min(page_size, 200), 1)
     local state_filter = ngx.var.arg_state
+    local ip_filter = ngx.var.arg_ip
 
     local sm = require "core.kernel_blocking.state_machine"
-    local page = sm.list(cursor, page_size, state_filter)
+    local page = sm.list(cursor, page_size, state_filter, nil, ip_filter)
 
     return json.encode({
         ret = "success",
