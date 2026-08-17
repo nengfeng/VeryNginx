@@ -345,13 +345,13 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <tbody>
                 <tr v-for="(r,i) in rules" :key="i">
                   <td>{{ i }}</td>
-                  <td><input type="checkbox" :checked="r.enable!==false" @change="ruleToggle(r, group)"></td>
+                  <td><input type="checkbox" :checked="r.enable!==false" @change="ruleToggle(r, group, i)"></td>
                    <td>{{ typeof r.matcher === 'string' ? r.matcher : '(内联)' }}</td>
                    <td><span class="tag" :class="actionClass(r.action)">{{ r.action }}</span></td>
                    <td><span class="json-inline">{{ summarizeRule(r) }}</span></td>
                    <td class="actions">
                      <button class="outline small" @click="ruleOpenEdit(r, group, i)">编辑</button>
-                     <button class="danger small" @click="ruleDelete(r, group)">删除</button>
+                     <button class="danger small" @click="ruleDelete(r, group, i)">删除</button>
                    </td>
                 </tr>
               </tbody>
@@ -1022,8 +1022,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         <!-- Create Rule Modal -->
         <div class="modal-overlay" v-if="freqRuleModal.show" @click.self="freqRuleModal.show=false">
           <div class="modal">
-             <h3>{{ freqRuleModal._isNew ? '创建频率规则' : '编辑频率规则' }}</h3>
-             <div class="field"><label>规则 ID</label><input v-model="freqRuleModal.id" placeholder="freq_login" :disabled="!freqRuleModal._isNew"></div>
+             <h3>{{ freqRuleModal.mode === 'create' ? '创建频率规则' : '编辑频率规则' }}</h3>
+            <div class="field"><label>规则 ID</label><input v-model="freqRuleModal.id" placeholder="freq_login" :disabled="freqRuleModal.mode !== 'create'"></div>
              <div class="field"><label>键维度</label>
               <select v-model="freqRuleModal.key" style="width:100%">
                 <option value="ip">IP</option>
@@ -1727,7 +1727,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
   <!-- Rule Editor Modal -->
   <div class="modal-overlay" v-if="wafEditModal.show" @click.self="wafEditModal.show=false">
     <div class="modal" style="max-width:640px">
-       <h3>{{ wafEditModal._isNew ? '创建规则' : '编辑规则' }}: {{ wafEditModal.name || '(新)' }}</h3>
+       <h3>{{ wafEditModal.mode === 'create' ? '创建规则' : '编辑规则' }}: {{ wafEditModal.name || '(新)' }}</h3>
       <div class="field">
          <label>名称 *</label>
          <input v-model="wafEditModal.name" type="text" placeholder="规则名称">
@@ -1796,7 +1796,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
          </div>
       </div>
       <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
-      <div v-if="!wafEditModal._isNew && wafDiffLines().length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
+      <div v-if="wafEditModal.mode === 'edit' && wafDiffLines().length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
         <div style="background:#f9fafb;padding:6px 12px;font-size:12px;font-weight:600;color:#374151;border-bottom:1px solid #e0e3eb">变更预览</div>
         <div style="max-height:200px;overflow-y:auto;font-family:ui-monospace,monospace;font-size:12px;background:#fff">
           <div v-for="(d,i) in wafDiffLines()" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
@@ -1896,7 +1896,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
   <!-- Rule Editor Modal -->
   <div class="modal-overlay" v-if="ruleEditModal.show" @click.self="ruleEditModal.show=false">
     <div class="modal" style="max-width:600px">
-       <h3>{{ ruleEditModal._isNew ? '添加规则' : '编辑规则' }} <small style="color:var(--muted)">组: {{ ruleEditModal._group }}</small></h3>
+       <h3>{{ ruleEditModal.mode === 'create' ? '添加规则' : '编辑规则' }} <small style="color:var(--muted)">组: {{ ruleEditModal._group }}</small></h3>
       <div class="field">
          <label><input type="checkbox" v-model="ruleEditModal.enable"> 启用</label>
       </div>
@@ -2113,7 +2113,7 @@ const app = Vue.createApp({
 
     // ---- Config Rule Editor State ----
     const ruleEditModal = reactive({
-      show: false, _isNew: false, _group: '', _index: -1,
+      show: false, mode: 'create', _group: '', _index: -1,
       enable: true, matcherType: 'inline', matcherJson: '{}',
       action: 'block', code: 403, to_uri: '', upstream: '',
       root: '', path: '', expires: '', response: '',
@@ -2137,7 +2137,7 @@ const app = Vue.createApp({
     const wafHistError = ref('');
     const wafRolling = ref(false);
     const wafEditModal = reactive({
-      show: false, _isNew: false,
+      show: false, mode: 'create',
       id: '', name: '', description: '', category: '', severity: '',
       action: 'block', code: 403, matcherJson: '{}',
       tagsStr: '',
@@ -2167,7 +2167,7 @@ const app = Vue.createApp({
     const freqRules = ref([]);
     const freqTemplates = ref([]);
     const freqTemplatesLoaded = ref(false);
-    const freqRuleModal = reactive({ show: false, _isNew: false, _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
+    const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
     const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
     const geoipLookupIP = ref('');
     const geoipLookupResult = ref(null);
@@ -2177,7 +2177,7 @@ const app = Vue.createApp({
     const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
     const fingerprints = ref([]);
     const fpCategories = ref({});
-    const fpEditModal = reactive({ show: false, _isNew: true, hash: '', name: '', category: 'scanner', action: 'block' });
+    const fpEditModal = reactive({ show: false, hash: '', name: '', category: 'scanner', action: 'block' });
 
     // ---- Reputation State ----
     const repStats = ref(null);
@@ -2586,14 +2586,14 @@ const app = Vue.createApp({
 
     function ruleOpenCreate(group) {
       ruleEditReset();
-      ruleEditModal._isNew = true;
+      ruleEditModal.mode = 'create';
       ruleEditModal._group = group;
       ruleEditModal.show = true;
     }
 
     function ruleOpenEdit(rule, group, idx) {
       ruleEditReset();
-      ruleEditModal._isNew = false;
+      ruleEditModal.mode = 'edit';
       ruleEditModal._group = group;
       ruleEditModal._index = idx;
       ruleEditModal.enable = rule.enable !== false;
@@ -2664,7 +2664,7 @@ const app = Vue.createApp({
         if (!newCfg.rule) newCfg.rule = {};
         if (!newCfg.rule[group]) newCfg.rule[group] = [];
         const rule = ruleBuildRule();
-        if (ruleEditModal._isNew) {
+        if (ruleEditModal.mode === 'create') {
           newCfg.rule[group].push(rule);
         } else {
           newCfg.rule[group][ruleEditModal._index] = rule;
@@ -2678,18 +2678,18 @@ const app = Vue.createApp({
       }
     }
 
-    function ruleDelete(rule, group) {
+    function ruleDelete(rule, group, index) {
       if (!confirm('Delete this rule?')) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
-      newCfg.rule[group] = newCfg.rule[group].filter(r => r !== rule);
+      newCfg.rule[group].splice(index, 1);
       commitConfig(newCfg);
     }
 
-    function ruleToggle(rule, group) {
+    function ruleToggle(rule, group, index) {
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
-      const r = newCfg.rule[group].find(r => r === rule);
+      const r = newCfg.rule[group][index];
       if (r) {
         r.enable = r.enable === false ? true : false;
         commitConfig(newCfg);
@@ -3260,7 +3260,7 @@ const app = Vue.createApp({
     }
 
     function wafOpenCreate() {
-      wafEditModal._isNew = true;
+      wafEditModal.mode = 'create';
       wafEditModal.id = '';
       wafEditModal.name = '';
       wafEditModal.description = '';
@@ -3279,7 +3279,7 @@ const app = Vue.createApp({
     }
 
     function wafOpenEdit(rule) {
-      wafEditModal._isNew = false;
+      wafEditModal.mode = 'edit';
       wafEditModal.id = rule.id;
       wafEditModal.name = rule.name;
       wafEditModal.description = rule.description || '';
@@ -3309,7 +3309,7 @@ const app = Vue.createApp({
     }
 
     function wafDiffLines() {
-      if (wafEditModal._isNew) return [];
+      if (wafEditModal.mode === 'create') return [];
       try {
         const orig = JSON.parse(wafEditModal._originalRule);
         const changed = {
@@ -3392,7 +3392,7 @@ const app = Vue.createApp({
       wafSaving.value = true;
       try {
         let d;
-        if (m._isNew) {
+        if (wafEditModal.mode === 'create') {
           d = await api('POST', '/verynginx/waf/rules', rule);
         } else {
           // Stage the change (requires confirmation via History tab)
@@ -3400,7 +3400,7 @@ const app = Vue.createApp({
         }
         if (d.ret === 'success') {
           wafEditModal.show = false;
-          if (!m._isNew) {
+          if (wafEditModal.mode === 'edit') {
             showToast('规则变更已暂存，请在 History 标签中确认发布', 'info');
           }
           await loadWafRules();
@@ -3760,7 +3760,6 @@ const app = Vue.createApp({
     }
 
     function openFpAdd() {
-      fpEditModal._isNew = true;
       fpEditModal.hash = '';
       fpEditModal.name = '';
       fpEditModal.category = 'scanner';
@@ -4067,7 +4066,7 @@ const app = Vue.createApp({
 
 
     function openFreqRuleCreate() {
-      freqRuleModal._isNew = true;
+      freqRuleModal.mode = 'create';
       freqRuleModal._matcherRef = null;
       freqRuleModal.id = 'freq_' + Date.now();
       freqRuleModal.key = 'ip';
@@ -4080,7 +4079,7 @@ const app = Vue.createApp({
     }
 
     function openFreqRuleEdit(rule) {
-      freqRuleModal._isNew = false;
+      freqRuleModal.mode = 'edit';
       freqRuleModal.id = rule.id;
       freqRuleModal.key = rule.key || 'ip';
       freqRuleModal.limit = rule.limit;
