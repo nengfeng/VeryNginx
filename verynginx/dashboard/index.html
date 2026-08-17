@@ -1588,16 +1588,26 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           </div>
         </div>
 
-        <!-- Timeline -->
+<!-- Timeline -->
         <div v-if="kbTab==='timeline'">
+          <div class="flex mb-8" style="gap:8px;align-items:center">
+            <select v-model="kbTimelineFilter" style="width:auto">
+              <option value="">全部动作</option>
+              <option value="promote">封禁</option>
+              <option value="clear">解除</option>
+              <option value="reconcile">协调</option>
+              <option value="lifecycle">生命周期</option>
+            </select>
+            <span style="font-size:12px;color:var(--muted)">{{ kbTimeline.length }} 条事件</span>
+          </div>
           <div v-if="!kbTimeline.length" class="empty">无最近内核封禁审计事件。</div>
            <table v-else class="data-table">
-             <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th></tr></thead>
+             <thead><tr><th>时间</th><th>用户</th><th>动作</th><th>详情</th></tr></thead>
             <tbody>
               <tr v-for="(a,i) in kbTimeline" :key="i">
                 <td>{{ formatKbTime(a.time) }}</td>
                 <td>{{ a.user }}</td>
-                <td><span class="tag tag-warn">{{ a.action }}</span></td>
+                <td><span class="tag" :class="kbTimelineActionClass(a.action)">{{ kbTimelineActionLabel(a.action) }}</span></td>
                 <td style="font-size:12px">{{ a.detail }}</td>
               </tr>
             </tbody>
@@ -2231,6 +2241,7 @@ const app = Vue.createApp({
     const kbEntries = ref([]);
     const kbCandidates = ref([]);
     const kbTimeline = ref([]);
+    const kbTimelineFilter = ref('');
     const kbEntriesNext = ref(null);
     const kbCandidatesNext = ref(null);
     const kbEntriesPrev = ref([]);
@@ -2712,6 +2723,7 @@ const app = Vue.createApp({
     }
 
     async function saveRawConfig() {
+      if (!confirm('确定用当前 JSON 覆盖全部配置？建议先导出备份。')) return;
       jsonError.value = '';
       jsonSaving.value = true;
       try {
@@ -2776,6 +2788,10 @@ const app = Vue.createApp({
 
     watch(page, (p) => {
       if (p === 'config') refreshConfig(true);
+    });
+
+    watch(kbTimelineFilter, () => {
+      if (page.value === 'kb' && kbTab.value === 'timeline') loadKbTimeline();
     });
 
     // ---- Dict Usage ----
@@ -3547,6 +3563,7 @@ const app = Vue.createApp({
     }
 
     async function addToWhitelist(ip) {
+      if (!confirm('将 ' + ip + ' 加入白名单？此后该 IP 将不受 WAF 规则限制。')) return;
       try {
         await api('POST', '/verynginx/reputation/whitelist', { ip })
         showToast('已加入白名单: ' + ip, 'success')
@@ -3883,11 +3900,31 @@ const app = Vue.createApp({
         const d = await api('GET', '/verynginx/audit?limit=300');
         if (d.ret === 'success') {
           const all = d.data || [];
-          kbTimeline.value = all.filter(a => String(a.action || '').includes('kernel_blocking'));
+          const filtered = all.filter(a => String(a.action || '').includes('kernel_blocking'));
+          kbTimeline.value = kbTimelineFilter.value
+            ? filtered.filter(a => String(a.action || '').includes('kernel_blocking.' + kbTimelineFilter.value))
+            : filtered;
         } else {
           kbError.value = d.message || 'Failed to load timeline';
         }
       } catch (e) { kbError.value = e.message; }
+    }
+
+    function kbTimelineActionLabel(action) {
+      const map = {
+        'kernel_blocking.promote': '封禁',
+        'kernel_blocking.clear': '解除',
+        'kernel_blocking.reconcile': '协调',
+        'kernel_blocking.lifecycle': '生命周期',
+      };
+      return map[action] || action || '-';
+    }
+
+    function kbTimelineActionClass(action) {
+      if (action === 'kernel_blocking.promote') return 'tag-err';
+      if (action === 'kernel_blocking.clear') return 'tag-ok';
+      if (action === 'kernel_blocking.reconcile') return 'tag-info';
+      return 'tag-warn';
     }
 
     async function loadKbBucketHistory() {
@@ -4502,6 +4539,7 @@ const app = Vue.createApp({
       kbStatus, kbEntries, kbCandidates, kbTimeline, kbBucketHistory, kbDiff, kbTab,
       kbNewIP, kbNewPolicy, kbNewTTL, kbError, kbBusy,
       kbEntriesNext, kbCandidatesNext, kbEntriesPrev, kbCandidatesPrev, kbFilterPolicy, kbFilterState, kbFilterIP,
+      kbTimelineFilter, kbTimelineActionLabel, kbTimelineActionClass,
       kbForm, kbDetail, kbDetailJson, kbReasonItems, kbChecklist,
       kbEffMode, kbEffReachable, formatKbTime, formatKbExpiry, kbEvidenceSummary,
       kbTrendPoints, kbTrendFillEnforce, kbTrendFillObserve,
