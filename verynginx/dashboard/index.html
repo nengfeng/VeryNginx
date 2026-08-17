@@ -2004,10 +2004,27 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
          <button class="outline" @click="ruleEditModal.show=false">取消</button>
          <button class="primary" :disabled="ruleSaving" @click="ruleSave">{{ ruleSaving ? '保存中…' : '保存' }}</button>
        </div>
+</div>
+ </div>
+
+  <!-- Unified Confirm Modal -->
+  <div class="modal-overlay" v-if="confirmModal.show" @click.self="confirmModalCancel">
+    <div class="modal" style="max-width:480px">
+      <h3 :style="{color: confirmModal.type==='danger' ? '#ef4444' : confirmModal.type==='warning' ? '#f59e0b' : '#3b82f6'}">{{ confirmModal.title }}</h3>
+      <div v-if="confirmModal.message" style="font-size:14px;color:var(--text);margin:12px 0;white-space:pre-wrap">{{ confirmModal.message }}</div>
+      <div v-if="confirmModal.requireInput" class="field" style="margin-top:16px">
+        <label style="font-size:13px;color:var(--muted)">{{ confirmModal.inputLabel }}</label>
+        <input v-model="confirmModal.inputValue" type="text" :placeholder="confirmModal.inputExpected" style="width:100%;font-family:monospace" @keyup.enter="confirmModalOk">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">请输入: <code>{{ confirmModal.inputExpected }}</code></div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="outline" @click="confirmModalCancel">取消</button>
+        <button :class="confirmModal.type==='danger' ? 'danger' : confirmModal.type==='warning' ? 'primary' : 'primary'" @click="confirmModalOk">确认</button>
+      </div>
     </div>
   </div>
 
-  </template>
+</template>
 </div>
 
 <script>
@@ -2247,6 +2264,52 @@ const app = Vue.createApp({
     const wafHitDetailModal = reactive({ show: false, loading: false, data: null, error: '' });
     const wafIpHits = ref([]);
     const wafIpHitsIp = ref('');
+
+    // Unified confirm modal
+    const confirmModal = reactive({
+      show: false,
+      title: '',
+      message: '',
+      type: 'danger',
+      requireInput: false,
+      inputLabel: '',
+      inputValue: '',
+      inputExpected: '',
+      resolve: null,
+      reject: null,
+    });
+
+    function showConfirm({ title, message, type = 'danger', requireInput = false, inputLabel = '', inputExpected = '' }) {
+      return new Promise((resolve, reject) => {
+        confirmModal.show = true;
+        confirmModal.title = title;
+        confirmModal.message = message;
+        confirmModal.type = type;
+        confirmModal.requireInput = requireInput;
+        confirmModal.inputLabel = inputLabel;
+        confirmModal.inputValue = '';
+        confirmModal.inputExpected = inputExpected;
+        confirmModal.resolve = resolve;
+        confirmModal.reject = reject;
+      });
+    }
+
+    function confirmModalOk() {
+      if (confirmModal.requireInput) {
+        if (confirmModal.inputValue.trim() !== confirmModal.inputExpected.trim()) {
+          showToast('确认文本不匹配', 'error');
+          return;
+        }
+      }
+      confirmModal.show = false;
+      confirmModal.resolve(true);
+    }
+
+    function confirmModalCancel() {
+      confirmModal.show = false;
+      confirmModal.resolve(false);
+    }
+
     const freqStats = ref([]);
     const freqRules = ref([]);
     const freqTemplates = ref([]);
@@ -2661,7 +2724,7 @@ const app = Vue.createApp({
     }
 
     async function deleteMatcher(name) {
-      if (!confirm(`Delete matcher "${name}"?`)) return;
+      if (!await showConfirm({ title: '删除匹配器', message: `删除匹配器 "${name}"?`, type: 'danger' })) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       delete newCfg.matcher[name];
       await commitConfig(newCfg);
@@ -2777,7 +2840,7 @@ const app = Vue.createApp({
     }
 
     async function ruleDelete(rule, group, index) {
-      if (!confirm('Delete this rule?')) return;
+      if (!await showConfirm({ title: '删除规则', message: 'Delete this rule?', type: 'danger' })) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
       newCfg.rule[group].splice(index, 1);
@@ -2813,7 +2876,14 @@ const app = Vue.createApp({
     }
 
     async function saveRawConfig() {
-      if (!confirm('确定用当前 JSON 覆盖全部配置？建议先导出备份。')) return;
+      if (!await showConfirm({
+        title: '覆盖全部配置',
+        message: '确定用当前 JSON 覆盖全部配置？建议先导出备份。',
+        type: 'danger',
+        requireInput: true,
+        inputLabel: '请输入 "OVERRIDE" 确认',
+        inputExpected: 'OVERRIDE',
+      })) return;
       jsonError.value = '';
       jsonSaving.value = true;
       try {
@@ -3252,7 +3322,14 @@ const app = Vue.createApp({
     }
 
     async function repClear(ip) {
-      if (!confirm('清除 IP ' + ip + ' 的声誉分数?')) return;
+      if (!await showConfirm({
+        title: '清除声誉分数',
+        message: `清除 IP ${ip} 的声誉分数?`,
+        type: 'danger',
+        requireInput: true,
+        inputLabel: `请输入 IP 地址 ${ip} 确认`,
+        inputExpected: ip,
+      })) return;
       repClearBusy.value[ip] = true;
       try {
         await api('POST', '/verynginx/reputation/clear?ip=' + encodeURIComponent(ip));
@@ -3280,7 +3357,7 @@ const app = Vue.createApp({
     }
 
     async function repRemoveWhitelist(ip) {
-      if (!confirm('从白名单移除 ' + ip + '?')) return;
+      if (!await showConfirm({ title: '移除白名单', message: `从白名单移除 ${ip}?`, type: 'danger' })) return;
       try {
         await api('DELETE', '/verynginx/reputation/whitelist?ip=' + encodeURIComponent(ip));
         loadRepData();
@@ -3290,7 +3367,7 @@ const app = Vue.createApp({
     }
 
     async function repPersist() {
-      if (!confirm('立即将 IP 声誉数据持久化到磁盘？')) return;
+      if (!await showConfirm({ title: '持久化声誉数据', message: '立即将 IP 声誉数据持久化到磁盘？', type: 'primary' })) return;
       try {
         await api('POST', '/verynginx/reputation/persist');
       } catch (e) {
@@ -3544,7 +3621,7 @@ const app = Vue.createApp({
     }
 
     async function confirmPendingChange(ruleId) {
-      if (!confirm('发布规则 ' + ruleId + ' 的暂存变更？将立即生效，影响所有请求。')) return;
+      if (!await showConfirm({ title: '发布暂存变更', message: `发布规则 ${ruleId} 的暂存变更？将立即生效，影响所有请求。`, type: 'danger' })) return;
       try {
         const d = await api('POST', '/verynginx/waf/rules/' + ruleId + '/confirm');
         if (d.ret === 'success') {
@@ -3559,7 +3636,7 @@ const app = Vue.createApp({
     }
 
     async function discardPendingChange(ruleId) {
-      if (!confirm('丢弃规则 ' + ruleId + ' 的暂存变更？此操作不可恢复。')) return;
+      if (!await showConfirm({ title: '丢弃暂存变更', message: `丢弃规则 ${ruleId} 的暂存变更？此操作不可恢复。`, type: 'danger' })) return;
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + ruleId + '/pending');
         if (d.ret === 'success') {
@@ -3632,7 +3709,7 @@ const app = Vue.createApp({
     }
 
     async function clearTestHistory() {
-      if (!confirm('确定清除全部 WAF 测试历史?')) return;
+      if (!await showConfirm({ title: '清除测试历史', message: '确定清除全部 WAF 测试历史?', type: 'warning' })) return;
       try {
         await api('DELETE', '/verynginx/waf/test-history');
         wafTestHistory.value = [];
@@ -3664,7 +3741,7 @@ const app = Vue.createApp({
     }
 
     async function addToWhitelist(ip) {
-      if (!confirm('将 ' + ip + ' 加入白名单？此后该 IP 将不受 WAF 规则限制。')) return;
+      if (!await showConfirm({ title: '加入白名单', message: `将 ${ip} 加入白名单？此后该 IP 将不受 WAF 规则限制。`, type: 'primary' })) return;
       try {
         await api('POST', '/verynginx/reputation/whitelist', { ip })
         showToast('已加入白名单: ' + ip, 'success')
@@ -3786,9 +3863,11 @@ const app = Vue.createApp({
 
     async function applyFreqTemplate() {
       const rule = freqTemplateModal;
-      if (!confirm('从模板 ' + rule.label + ' 创建并下发限流规则？\n\n' +
-        '键=' + rule.key + ' 限制=' + rule.limit + '/窗口=' + rule.window + 's ' +
-        '动作码=' + rule.code + freqMatcherSummary(rule.matcherJson))) return;
+      if (!await showConfirm({
+        title: '应用频率模板',
+        message: `从模板 ${rule.label} 创建并下发限流规则？\n\n键=${rule.key} 限制=${rule.limit}/窗口=${rule.window}s 动作码=${rule.code}${freqMatcherSummary(rule.matcherJson)}`,
+        type: 'primary',
+      })) return;
       try {
         const overrides = {
           id: freqTemplateModal.id,
@@ -3910,7 +3989,14 @@ const app = Vue.createApp({
     }
 
     async function triggerGeoIPUpdate() {
-      if (!confirm('立即从数据源下载并替换 GeoIP 数据库？现有 .mmdb 将被覆盖。')) return;
+      if (!await showConfirm({
+        title: '更新 GeoIP 数据库',
+        message: '立即从数据源下载并替换 GeoIP 数据库？现有 .mmdb 将被覆盖。',
+        type: 'danger',
+        requireInput: true,
+        inputLabel: '请输入 "UPDATE" 确认',
+        inputExpected: 'UPDATE',
+      })) return;
       try {
         const d = await api('POST', '/verynginx/geoip/update');
         if (d.ret === 'success') {
@@ -3977,7 +4063,7 @@ const app = Vue.createApp({
     }
 
     async function deleteFp(fp) {
-      if (!confirm('删除指纹 "' + fp.hash + '"?')) return;
+      if (!await showConfirm({ title: '删除指纹', message: `删除指纹 "${fp.hash}"?`, type: 'danger' })) return;
       try {
         const d = await api('DELETE', '/verynginx/fingerprints/' + fp.hash);
         if (d.ret === 'success') {
@@ -4139,7 +4225,14 @@ const app = Vue.createApp({
     }
 
     async function enableCcEnforceReady() {
-      if (!confirm('启用 CC enforce_ready? 这将为符合条件的 IP 激活自动 CC 内核封禁。')) return;
+      if (!await showConfirm({
+        title: '启用 CC enforce_ready',
+        message: '启用 CC enforce_ready? 这将为符合条件的 IP 激活自动 CC 内核封禁。',
+        type: 'danger',
+        requireInput: true,
+        inputLabel: '请输入 "ENABLE" 确认',
+        inputExpected: 'ENABLE',
+      })) return;
       kbBusy.value = true;
       try {
         const full = await api('GET', '/verynginx/config');
@@ -4163,8 +4256,16 @@ const app = Vue.createApp({
       if (kbForm.mode === 'enforce' && !kbForm.enabled) {
         showToast('启用执行模式前必须先启用全局开关', 'error'); return;
       }
-      if (kbForm.mode === 'enforce' && !confirm('切换/保存执行相关设置? 请确保 Helper、拓扑和检查清单已就绪。')) return;
-      if (kbForm.cc_enforce_ready && !confirm('确认迁移/切换/校准完成后启用 CC enforce_ready=true？')) return;
+      if (kbForm.mode === 'enforce' && !await showConfirm({
+        title: '保存执行模式设置',
+        message: '切换/保存执行相关设置? 请确保 Helper、拓扑和检查清单已就绪。',
+        type: 'warning',
+      })) return;
+      if (kbForm.cc_enforce_ready && !await showConfirm({
+        title: '启用 CC enforce_ready',
+        message: '确认迁移/切换/校准完成后启用 CC enforce_ready=true？',
+        type: 'danger',
+      })) return;
       kbBusy.value = true;
       try {
         const full = await api('GET', '/verynginx/config');
@@ -4199,7 +4300,7 @@ const app = Vue.createApp({
       // Client-side IP format validation (IPv4/IPv6 literal)
       const ip = kbNewIP.value.trim();
       if (!isValidIpLiteral(ip, false)) { showToast('IP 格式无效: ' + ip, 'error'); return; }
-      if (!confirm('手动封禁 ' + ip + ' 策略 ' + kbNewPolicy.value + ' TTL ' + kbNewTTL.value + '秒?')) return;
+      if (!await showConfirm({ title: '手动封禁 IP', message: `手动封禁 ${ip} 策略 ${kbNewPolicy.value} TTL ${kbNewTTL.value}秒?`, type: 'danger' })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', {
@@ -4218,7 +4319,7 @@ const app = Vue.createApp({
 
     async function kbPromoteIp(ip, policy) {
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
-      if (!confirm('晋升 ' + ip + ' 为 ' + policy + ' (TTL 300秒)?')) return;
+      if (!await showConfirm({ title: '晋升 IP', message: `晋升 ${ip} 为 ${policy} (TTL 300秒)?`, type: 'danger' })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy, ttl: 300 });
@@ -4233,7 +4334,7 @@ const app = Vue.createApp({
     }
 
     async function kbReconcile() {
-      if (!confirm('立即触发协调?')) return;
+      if (!await showConfirm({ title: '触发协调', message: '立即触发协调?', type: 'primary' })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/reconcile', {});
@@ -4250,7 +4351,7 @@ const app = Vue.createApp({
 
     async function kbClear(ip) {
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
-      if (!confirm('清除 ' + ip + ' 的所有内核封禁条目?')) return;
+      if (!await showConfirm({ title: '清除封禁条目', message: `清除 ${ip} 的所有内核封禁条目?`, type: 'danger' })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/clear', { ip });
@@ -4265,7 +4366,7 @@ const app = Vue.createApp({
     }
 
     async function kbPause(paused) {
-      if (!confirm(paused ? '暂停自动晋升?' : '恢复自动晋升?')) return;
+      if (!await showConfirm({ title: paused ? '暂停自动晋升' : '恢复自动晋升', message: paused ? '暂停自动晋升?' : '恢复自动晋升?', type: 'warning' })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/pause', { paused });
@@ -4280,8 +4381,19 @@ const app = Vue.createApp({
     }
 
     async function kbFlushAuto() {
-      if (!confirm('刷新所有自动扫描器/cc 内核条目? 此操作不可撤销。')) return;
-      if (!confirm('最终确认: 立即刷新自动集合?')) return;
+      if (!await showConfirm({
+        title: '刷新自动条目',
+        message: '刷新所有自动扫描器/cc 内核条目? 此操作不可撤销。',
+        type: 'danger',
+      })) return;
+      if (!await showConfirm({
+        title: '最终确认',
+        message: '最终确认: 立即刷新自动集合?',
+        type: 'danger',
+        requireInput: true,
+        inputLabel: '请输入 "FLUSH" 确认',
+        inputExpected: 'FLUSH',
+      })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/flush-auto');
@@ -4379,7 +4491,7 @@ const app = Vue.createApp({
     }
 
     async function deleteFreqRule(rule) {
-      if (!confirm('删除频率规则 "' + rule.id + '"?')) return;
+      if (!await showConfirm({ title: '删除频率规则', message: `删除频率规则 "${rule.id}"?`, type: 'danger' })) return;
       try {
         const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
         if (d.ret === 'success') {
@@ -4394,7 +4506,7 @@ const app = Vue.createApp({
     }
 
     async function wafDeleteRule(rule) {
-      if (!confirm('删除规则 "' + rule.name + '"? 此操作不可撤销。')) return;
+      if (!await showConfirm({ title: '删除 WAF 规则', message: `删除规则 "${rule.name}"? 此操作不可撤销。`, type: 'danger' })) return;
       wafDeleteBusy.value = true;
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
@@ -4412,7 +4524,7 @@ const app = Vue.createApp({
 
     async function wafToggleRule(rule) {
       const enable = rule.enable === false;
-      if (!confirm(enable ? '启用规则 ' + rule.name + '？将立即生效。' : '停用规则 ' + rule.name + '？将立即停止拦截。')) return;
+      if (!await showConfirm({ title: enable ? '启用规则' : '停用规则', message: enable ? `启用规则 ${rule.name}？将立即生效。` : `停用规则 ${rule.name}？将立即停止拦截。`, type: enable ? 'primary' : 'warning' })) return;
       wafToggleBusy.value = true;
       try {
         const endpoint = enable ? 'enable' : 'disable';
@@ -4499,7 +4611,14 @@ const app = Vue.createApp({
     }
 
     async function wafRollback(version) {
-      if (!confirm('回滚到版本 ' + version + '? 这将替换所有当前规则。')) return;
+      if (!await showConfirm({
+        title: '回滚规则版本',
+        message: `回滚到版本 ${version}? 这将替换所有当前规则。`,
+        type: 'danger',
+        requireInput: true,
+        inputLabel: `请输入版本号 ${version} 确认`,
+        inputExpected: version,
+      })) return;
       wafRolling.value = true;
       try {
         const d = await api('POST', '/verynginx/waf/rules/rollback', { version: version });
@@ -4733,6 +4852,7 @@ const app = Vue.createApp({
       wafTestHistory, loadTestHistory, clearTestHistory,
       wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
       wafIpHits, wafIpHitsIp,
+      confirmModal, showConfirm, confirmModalOk, confirmModalCancel,
       // WAF Recommender
       recs, recStats, recError, recLoading, loadRecs, runRecAnalysis, applyRec, dismissRec,
       freqStats, freqRules, freqTemplates, freqTemplatesLoaded, freqError, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
