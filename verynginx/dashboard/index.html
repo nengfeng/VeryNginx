@@ -94,7 +94,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
 /* Inline JSON */
 .json-inline{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}#topnav{padding:0 12px;flex-wrap:wrap;height:auto;padding:8px 12px}#topnav nav{gap:2px}#topnav nav a{padding:6px 10px;font-size:12px}#main{padding:12px}}
+@media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}#topnav{padding:0 12px;flex-wrap:wrap;height:auto;padding:8px 12px}#topnav nav{gap:2px}#topnav nav a{padding:6px 10px;font-size:12px}#main{padding:12px;overflow-x:auto}#main table th,#main table td{white-space:nowrap}.stat-card .stat-value{font-size:24px}}
 .toast{position:fixed;top:20px;right:20px;z-index:9999;padding:12px 20px;border-radius:8px;color:#fff;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.2);opacity:0;transform:translateY(-10px);transition:all .3s ease;pointer-events:none;max-width:360px}
 .toast.show{opacity:1;transform:translateY(0)}.toast.success{background:var(--success)}.toast.error{background:var(--danger)}.toast.info{background:var(--primary)}
 /* KB Dashboard: per-rule reachability rows (Design §12.2) */
@@ -146,7 +146,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
   <!-- App -->
   <template v-else>
     <div id="topnav">
-      <span class="brand">VeryNginx <small>v2</small></span>
+      <span class="brand">VeryNginx <small>v2{{ versionInfo.commit ? ' · ' + versionInfo.commit.slice(0,8) : '' }}</small></span>
       <nav>
         <a :class="{active:page==='dashboard'}" @click="page='dashboard'">仪表盘</a>
         <a :class="{active:page==='config'}" @click="page='config'">配置</a>
@@ -780,7 +780,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div v-if="wafHitsError" class="error" style="margin-bottom:8px">{{ wafHitsError }}</div>
           <div class="flex flex-between mb-8">
              <span style="font-size:13px;color:var(--muted)">最近 {{ wafHitsTime }} — 显示 {{ wafHits.length }} 条记录</span>
-             <button class="outline small" @click="loadWafHits">刷新</button>
+             <div class="flex gap-8">
+               <button class="outline small" v-if="wafHitsLimit < 100" @click="wafLoadMoreHits">加载更多</button>
+               <button class="outline small" @click="loadWafHits">刷新</button>
+             </div>
           </div>
           <div style="overflow-x:auto">
             <table>
@@ -958,6 +961,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <button class="primary small" style="width:100%" @click="previewFreqTemplate(t.name)">使用模板</button>
             </div>
           </div>
+          <div v-else-if="freqTemplatesLoaded" class="empty">无可用模板。</div>
           <div v-else class="empty">加载模板中...</div>
         </div>
 
@@ -1035,6 +1039,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 <div class="grid grid-2 mb-8">
                 <div class="field"><label>阻止代码</label><input v-model.number="freqRuleModal.code" type="number" min="100" max="599" placeholder="429"></div>
                 <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}'></div>
+             <div style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:8px">留空匹配所有请求；内联格式见占位符，或引用已有匹配器名。</div>
              </div>
              <div class="field" style="margin-bottom:0">
                <label class="checkbox-label"><input type="checkbox" v-model="freqRuleModal.enable"> 启用该规则</label>
@@ -1161,11 +1166,18 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <h3 style="font-size:14px;margin-bottom:8px">国家/地区分布 (前 20)</h3>
           <div v-if="geoipStats.length">
             <table>
-               <thead><tr><th>国家</th><th>命中</th></tr></thead>
+               <thead><tr><th>国家</th><th>命中</th><th>占比</th></tr></thead>
               <tbody>
                 <tr v-for="s in geoipStats" :key="s.code">
                   <td><code>{{ s.code }}</code></td>
                   <td>{{ s.count }}</td>
+                  <td style="min-width:160px">
+                    <span style="display:inline-block;width:120px;height:8px;border-radius:4px;background:var(--bg);vertical-align:middle;overflow:hidden">
+                      <span style="display:block;height:100%;border-radius:4px;background:var(--primary)"
+                            :style="{width: (geoipMaxCount ? (s.count / geoipMaxCount * 100) : 0) + '%'}"></span>
+                    </span>
+                    <span style="font-size:12px;color:var(--muted);margin-left:6px">{{ geoipMaxCount ? (s.count / geoipMaxCount * 100).toFixed(0) + '%' : '0%' }}</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1543,7 +1555,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tr>
             </tbody>
           </table>
-          <div v-if="kbEntriesNext" style="margin-top:8px"><button class="outline small" @click="loadKbEntries(kbEntriesNext)">下一页</button></div>
+          <div v-if="kbEntriesNext || kbEntriesPrev.length" class="flex flex-between mt-8">
+            <button class="outline small" :disabled="!kbEntriesPrev.length" @click="kbEntriesPagePrev">上一页</button>
+            <span v-if="kbEntriesPrev.length" style="font-size:12px;color:var(--muted)">第 {{ kbEntriesPrev.length + 1 }} 页</span>
+            <button class="outline small" v-if="kbEntriesNext" @click="loadKbEntries(kbEntriesNext)">下一页</button>
+          </div>
         </div>
 
         <!-- Candidates -->
@@ -1565,7 +1581,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               </tr>
             </tbody>
           </table>
-          <div v-if="kbCandidatesNext" style="margin-top:8px"><button class="outline small" @click="loadKbCandidates(kbCandidatesNext)">下一页</button></div>
+          <div v-if="kbCandidatesNext || kbCandidatesPrev.length" class="flex flex-between mt-8">
+            <button class="outline small" :disabled="!kbCandidatesPrev.length" @click="kbCandidatesPagePrev">上一页</button>
+            <span v-if="kbCandidatesPrev.length" style="font-size:12px;color:var(--muted)">第 {{ kbCandidatesPrev.length + 1 }} 页</span>
+            <button class="outline small" v-if="kbCandidatesNext" @click="loadKbCandidates(kbCandidatesNext)">下一页</button>
+          </div>
         </div>
 
         <!-- Timeline -->
@@ -2133,6 +2153,7 @@ const app = Vue.createApp({
     const wafHits = ref([]);
     const wafHitsError = ref('');
     const wafHitsTime = ref('');
+    const wafHitsLimit = ref(50);
     const wafAnalytics = ref({ rules: [], dead_rules: [] });
     const wafPendingChanges = ref([]);
     const wafTimeline = ref({ buckets: [], categories: [], bucket_minutes: 5, hours: 1 });
@@ -2145,11 +2166,13 @@ const app = Vue.createApp({
     const freqStats = ref([]);
     const freqRules = ref([]);
     const freqTemplates = ref([]);
+    const freqTemplatesLoaded = ref(false);
     const freqRuleModal = reactive({ show: false, _isNew: false, _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
     const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
     const geoipLookupIP = ref('');
     const geoipLookupResult = ref(null);
     const geoipStats = ref([]);
+    const geoipMaxCount = computed(() => (geoipStats.value.length ? geoipStats.value[0].count : 0));
     const geoipConfig = ref({ enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
     const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
     const fingerprints = ref([]);
@@ -2208,6 +2231,10 @@ const app = Vue.createApp({
     const kbEntries = ref([]);
     const kbCandidates = ref([]);
     const kbTimeline = ref([]);
+    const kbEntriesNext = ref(null);
+    const kbCandidatesNext = ref(null);
+    const kbEntriesPrev = ref([]);
+    const kbCandidatesPrev = ref([]);
     const kbBucketHistory = ref([]);
     const kbDiff = ref({ missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 });
     const kbTab = ref('entries');
@@ -2216,8 +2243,6 @@ const app = Vue.createApp({
     const kbNewTTL = ref(300);
     const kbError = ref('');
     const kbBusy = ref(false);
-    const kbEntriesNext = ref(null);
-    const kbCandidatesNext = ref(null);
     const kbFilterPolicy = ref('');
     const kbFilterState = ref('');
     const kbFilterIP = ref('');
@@ -2939,6 +2964,7 @@ const app = Vue.createApp({
       delete o.plugin_errors;
       delete o._plugin_dur_count;
       delete o._plugin_dur_sum;
+      o.dicts = (o.dicts || []).sort((a, b) => b.pct - a.pct).slice(0, 6);
       overview.value = o;
     }
 
@@ -3119,6 +3145,7 @@ const app = Vue.createApp({
     }
 
     async function repClear(ip) {
+      if (!confirm('清除 IP ' + ip + ' 的声誉分数?')) return;
       try {
         await api('POST', '/verynginx/reputation/clear?ip=' + encodeURIComponent(ip));
         loadRepData();
@@ -3143,6 +3170,7 @@ const app = Vue.createApp({
     }
 
     async function repRemoveWhitelist(ip) {
+      if (!confirm('从白名单移除 ' + ip + '?')) return;
       try {
         await api('DELETE', '/verynginx/reputation/whitelist?ip=' + encodeURIComponent(ip));
         loadRepData();
@@ -3209,8 +3237,13 @@ const app = Vue.createApp({
       auditFilterAction.value = '';
       auditFilterSince.value = '';
       auditFilterUntil.value = '';
-      loadAudit();
     }
+
+    let auditFilterTimer = null;
+    watch([auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil], () => {
+      if (auditFilterTimer) clearTimeout(auditFilterTimer);
+      auditFilterTimer = setTimeout(() => loadAudit(), 400);
+    });
 
     async function loadWafData() {
       await loadWafRules();
@@ -3472,6 +3505,7 @@ const app = Vue.createApp({
     }
 
     async function clearTestHistory() {
+      if (!confirm('确定清除全部 WAF 测试历史?')) return;
       try {
         await api('DELETE', '/verynginx/waf/test-history');
         wafTestHistory.value = [];
@@ -3551,6 +3585,7 @@ const app = Vue.createApp({
         if (statsRes.ret === 'success') freqStats.value = statsRes.data || [];
         if (rulesRes.ret === 'success') freqRules.value = rulesRes.data || [];
         if (tmplRes.ret === 'success') freqTemplates.value = tmplRes.data || [];
+        freqTemplatesLoaded.value = true;
       } catch (e) {
         // silent
       }
@@ -3795,6 +3830,8 @@ const app = Vue.createApp({
         if (kbFilterPolicy.value) url += '&policy=' + encodeURIComponent(kbFilterPolicy.value);
         const d = await api('GET', url);
         if (d.ret === 'success') {
+          if (cursor) kbEntriesPrev.value.push(cursor);
+          else kbEntriesPrev.value = [];
           let entries = d.data.entries || [];
           if (kbFilterPolicy.value) entries = entries.filter(e => (e.policy || '').includes(kbFilterPolicy.value) || (e.list || '').includes(kbFilterPolicy.value));
           if (kbFilterIP.value) {
@@ -3809,6 +3846,11 @@ const app = Vue.createApp({
       } catch (e) { kbError.value = e.message; }
     }
 
+    function kbEntriesPagePrev() {
+      const prev = kbEntriesPrev.value.pop();
+      if (prev) loadKbEntries(prev);
+    }
+
     async function loadKbCandidates(cursor) {
       try {
         let url = '/verynginx/kernel-blocking/candidates?page_size=50';
@@ -3816,6 +3858,8 @@ const app = Vue.createApp({
         if (kbFilterState.value) url += '&state=' + encodeURIComponent(kbFilterState.value);
         const d = await api('GET', url);
         if (d.ret === 'success') {
+          if (cursor) kbCandidatesPrev.value.push(cursor);
+          else kbCandidatesPrev.value = [];
           let entries = d.data.entries || [];
           if (kbFilterPolicy.value) entries = entries.filter(e => e.policy === kbFilterPolicy.value);
           if (kbFilterIP.value) {
@@ -3828,6 +3872,11 @@ const app = Vue.createApp({
           kbError.value = d.message || 'Failed to load candidates';
         }
       } catch (e) { kbError.value = e.message; }
+    }
+
+    function kbCandidatesPagePrev() {
+      const prev = kbCandidatesPrev.value.pop();
+      if (prev) loadKbCandidates(prev);
     }
 
     async function loadKbTimeline() {
@@ -4063,10 +4112,15 @@ const app = Vue.createApp({
         if (!code || code < 100 || code > 599) { showToast('响应码必须是 100-599 之间的合法状态码', 'error'); return; }
 
         let matcher = {};
-        if (freqRuleModal._matcherRef) {
-          matcher = null;
-        } else if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
-          matcher = JSON.parse(freqRuleModal.matcherJson);
+        try {
+          if (freqRuleModal._matcherRef) {
+            matcher = null;
+          } else if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
+            matcher = JSON.parse(freqRuleModal.matcherJson);
+          }
+        } catch (e) {
+          showToast('匹配器 JSON 格式无效: ' + e.message, 'error');
+          return;
         }
         const rule = {
           id: freqRuleModal.id,
@@ -4227,7 +4281,7 @@ const app = Vue.createApp({
     async function loadWafHits() {
       wafHitsError.value = '';
       try {
-        const d = await api('GET', '/verynginx/waf/hits?limit=50');
+        const d = await api('GET', '/verynginx/waf/hits?limit=' + wafHitsLimit.value);
         if (d.ret === 'success') {
           wafHits.value = d.data || [];
           wafHitsTime.value = wafHits.value.length ? new Date().toLocaleTimeString() : '';
@@ -4237,6 +4291,11 @@ const app = Vue.createApp({
       } catch (e) {
         wafHitsError.value = e.message;
       }
+    }
+
+    function wafLoadMoreHits() {
+      wafHitsLimit.value = 100;
+      loadWafHits();
     }
 
     // ---- WAF Analytics ----
@@ -4412,7 +4471,7 @@ const app = Vue.createApp({
       wafDeleteRule, wafToggleRule, wafPage, wafRefreshAll,
       wafRollback, wafRunTest,
       startStatusRefresh, startHealthRefresh,
-      wafHits, wafHitsError, wafHitsTime, loadWafHits,
+      wafHits, wafHitsError, wafHitsTime, wafHitsLimit, loadWafHits, wafLoadMoreHits,
       wafAnalytics, loadWafAnalytics, gradeStyle,
       wafPendingChanges, loadPendingRules, confirmPendingChange, discardPendingChange,
       wafTimeline, wafTimelineHours, wafTimelineBucket, loadWafTimeline, hasTimelineData,
@@ -4422,9 +4481,9 @@ const app = Vue.createApp({
       wafIpHits, wafIpHitsIp,
       // WAF Recommender
       recs, recStats, recError, recLoading, loadRecs, runRecAnalysis, applyRec, dismissRec,
-      freqStats, freqRules, freqTemplates, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
+      freqStats, freqRules, freqTemplates, freqTemplatesLoaded, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
       previewFreqTemplate, applyFreqTemplate,
-      geoipLookupIP, geoipLookupResult, geoipStats, geoipConfig, geoipStatus, loadGeoIP, loadGeoIPStatus, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
+      geoipLookupIP, geoipLookupResult, geoipStats, geoipMaxCount, geoipConfig, geoipStatus, loadGeoIP, loadGeoIPStatus, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
       fingerprints, fpCategories, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
       freqRuleModal, freqTemplateModal,
       plugins, pluginsError, loadPlugins, togglePlugin,
@@ -4443,13 +4502,14 @@ const app = Vue.createApp({
       // Kernel Blocking
       kbStatus, kbEntries, kbCandidates, kbTimeline, kbBucketHistory, kbDiff, kbTab,
       kbNewIP, kbNewPolicy, kbNewTTL, kbError, kbBusy,
-      kbEntriesNext, kbCandidatesNext, kbFilterPolicy, kbFilterState, kbFilterIP,
+      kbEntriesNext, kbCandidatesNext, kbEntriesPrev, kbCandidatesPrev, kbFilterPolicy, kbFilterState, kbFilterIP,
       kbForm, kbDetail, kbDetailJson, kbReasonItems, kbChecklist,
       kbEffMode, kbEffReachable, formatKbTime, formatKbExpiry, kbEvidenceSummary,
       kbTrendPoints, kbTrendFillEnforce, kbTrendFillObserve,
       ccAutoReady, enableCcEnforceReady,
       kbOpenDetail, kbReloadList, kbSaveSettings, loadKbTimeline,
       loadKbData, loadKbEntries, loadKbCandidates, loadKbDashboard,
+      kbEntriesPagePrev, kbCandidatesPagePrev,
       kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,
     };
   }
