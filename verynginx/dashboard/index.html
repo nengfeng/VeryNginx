@@ -2613,7 +2613,7 @@ const app = Vue.createApp({
       editMatcherModal.show = true;
     }
 
-    function saveMatcher() {
+    async function saveMatcher() {
       try {
         const updated = JSON.parse(editMatcherModal.conditions);
         const newCfg = JSON.parse(JSON.stringify(cfg.value));
@@ -2621,18 +2621,18 @@ const app = Vue.createApp({
           delete newCfg.matcher[editMatcherModal._origName];
         }
         newCfg.matcher[editMatcherModal.name] = updated;
-        commitConfig(newCfg);
-        editMatcherModal.show = false;
+        const ok = await commitConfig(newCfg);
+        if (ok) editMatcherModal.show = false;
       } catch (e) {
         showToast('Invalid JSON: ' + e.message, 'error');
       }
     }
 
-    function deleteMatcher(name) {
+    async function deleteMatcher(name) {
       if (!confirm(`Delete matcher "${name}"?`)) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       delete newCfg.matcher[name];
-      commitConfig(newCfg);
+      await commitConfig(newCfg);
     }
 
     // ---- Config Rules CRUD ----
@@ -2722,7 +2722,7 @@ const app = Vue.createApp({
       return rule;
     }
 
-    function ruleSave() {
+    async function ruleSave() {
       ruleSaving.value = true;
       try {
         const newCfg = JSON.parse(JSON.stringify(cfg.value));
@@ -2735,8 +2735,8 @@ const app = Vue.createApp({
         } else {
           newCfg.rule[group][ruleEditModal._index] = rule;
         }
-        commitConfig(newCfg);
-        ruleEditModal.show = false;
+        const ok = await commitConfig(newCfg);
+        if (ok) ruleEditModal.show = false;
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
       } finally {
@@ -2744,21 +2744,21 @@ const app = Vue.createApp({
       }
     }
 
-    function ruleDelete(rule, group, index) {
+    async function ruleDelete(rule, group, index) {
       if (!confirm('Delete this rule?')) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
       newCfg.rule[group].splice(index, 1);
-      commitConfig(newCfg);
+      await commitConfig(newCfg);
     }
 
-    function ruleToggle(rule, group, index) {
+    async function ruleToggle(rule, group, index) {
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
       const r = newCfg.rule[group][index];
       if (r) {
         r.enable = r.enable === false ? true : false;
-        commitConfig(newCfg);
+        await commitConfig(newCfg);
       }
     }
 
@@ -2769,11 +2769,14 @@ const app = Vue.createApp({
         if (d.ret === 'success') {
           await loadConfig();
           await refreshCsrf();
+          return true;
         } else {
           showToast('Save failed: ' + (d.message || d.err || 'unknown'), 'error');
+          return false;
         }
       } catch (e) {
         showToast('Save failed: ' + e.message, 'error');
+        return false;
       }
     }
 
