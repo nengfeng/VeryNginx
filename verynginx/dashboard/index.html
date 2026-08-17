@@ -2038,9 +2038,22 @@ async function api(method, path, body, opts2) {
       opts.body = body;
     }
   }
-  if (method !== 'GET' && csrfToken) {
-    opts.headers = opts.headers || {};
-    opts.headers['X-CSRF-Token'] = csrfToken;
+  if (method !== 'GET') {
+    if (csrfBroken) {
+      // Last CSRF refresh failed; try once more before blocking. If the
+      // token was only transiently stale this recovers without a reload.
+      try {
+        const d = await fetch('/verynginx/csrf', { method: 'GET', credentials: 'same-origin' });
+        if (d.ok) { const j = await d.json(); csrfToken = j.csrf_token; csrfBroken = false; }
+      } catch (e) { /* keep broken */ }
+    }
+    if (csrfBroken) {
+      throw new Error('CSRF 令牌刷新失败，请刷新页面后重试');
+    }
+    if (csrfToken) {
+      opts.headers = opts.headers || {};
+      opts.headers['X-CSRF-Token'] = csrfToken;
+    }
   }
   const res = await fetch(path, opts);
   if (!res.ok) {
@@ -2062,12 +2075,16 @@ async function api(method, path, body, opts2) {
   return res.json();
 }
 
+let csrfBroken = false;
+
 async function refreshCsrf() {
   try {
     const d = await api('GET', '/verynginx/csrf');
     csrfToken = d.csrf_token;
+    csrfBroken = false;
   } catch (e) {
     console.warn('CSRF token refresh failed:', e.message);
+    if (e.message !== 'session_expired') csrfBroken = true;
   }
 }
 
@@ -3206,6 +3223,7 @@ const app = Vue.createApp({
     async function repLookup() {
       const ip = repLookupIP.value.trim();
       if (!ip) return;
+      if (!isValidIpLiteral(ip)) { repError.value = 'IP 格式无效: ' + ip; return; }
       repLookupResult.value = null;
       try {
         const d = await api('GET', '/verynginx/reputation/score?ip=' + encodeURIComponent(ip));
@@ -3702,8 +3720,10 @@ const app = Vue.createApp({
 
     async function lookupGeoIP() {
       if (!geoipLookupIP.value) return;
+      const ip = geoipLookupIP.value.trim();
+      if (!isValidIpLiteral(ip)) { showToast('IP 格式无效: ' + ip, 'error'); return; }
       try {
-        const d = await api('GET', '/verynginx/geoip/lookup?ip=' + encodeURIComponent(geoipLookupIP.value));
+        const d = await api('GET', '/verynginx/geoip/lookup?ip=' + encodeURIComponent(ip));
         geoipLookupResult.value = d;
       } catch (e) {
         showToast(e.message || 'Lookup failed', 'error');
