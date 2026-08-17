@@ -2605,7 +2605,7 @@ const app = Vue.createApp({
         commitConfig(newCfg);
         editMatcherModal.show = false;
       } catch (e) {
-        alert('Invalid JSON: ' + e.message);
+        showToast('Invalid JSON: ' + e.message, 'error');
       }
     }
 
@@ -2719,7 +2719,7 @@ const app = Vue.createApp({
         commitConfig(newCfg);
         ruleEditModal.show = false;
       } catch (e) {
-        alert('Error: ' + e.message);
+        showToast('Error: ' + e.message, 'error');
       } finally {
         ruleSaving.value = false;
       }
@@ -2751,10 +2751,10 @@ const app = Vue.createApp({
           await loadConfig();
           await refreshCsrf();
         } else {
-          alert('Save failed: ' + (d.message || d.err || 'unknown'));
+          showToast('Save failed: ' + (d.message || d.err || 'unknown'), 'error');
         }
       } catch (e) {
-        alert('Save failed: ' + e.message);
+        showToast('Save failed: ' + e.message, 'error');
       }
     }
 
@@ -4444,7 +4444,7 @@ const app = Vue.createApp({
           opts.headers = { 'X-CSRF-Token': csrfToken };
         }
         const res = await fetch('/verynginx/config/export', opts);
-        if (!res.ok) { alert('Export failed: HTTP ' + res.status); return; }
+        if (!res.ok) { showToast('Export failed: HTTP ' + res.status, 'error'); return; }
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -4453,7 +4453,7 @@ const app = Vue.createApp({
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } catch (e) {
-        alert('Export failed: ' + e.message);
+        showToast('Export failed: ' + e.message, 'error');
       }
     }
 
