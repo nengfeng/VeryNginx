@@ -1281,19 +1281,19 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">
            <div>
              <label style="font-size:11px;color:#6b7280">用户</label>
-             <input v-model="auditFilterUser" placeholder="全部" style="width:100px" @keyup.enter="loadAudit">
+             <input v-model="auditFilterUser" placeholder="全部" style="width:100px">
            </div>
            <div>
              <label style="font-size:11px;color:#6b7280">操作类型</label>
-             <input v-model="auditFilterAction" placeholder="全部" style="width:120px" @keyup.enter="loadAudit">
+             <input v-model="auditFilterAction" placeholder="全部" style="width:120px">
            </div>
            <div>
              <label style="font-size:11px;color:#6b7280">起始时间</label>
-             <input v-model="auditFilterSince" type="datetime-local" style="width:160px" @change="loadAudit">
+             <input v-model="auditFilterSince" type="datetime-local" style="width:160px">
            </div>
            <div>
              <label style="font-size:11px;color:#6b7280">结束时间</label>
-             <input v-model="auditFilterUntil" type="datetime-local" style="width:160px" @change="loadAudit">
+             <input v-model="auditFilterUntil" type="datetime-local" style="width:160px">
            </div>
            <button class="outline small" @click="clearAuditFilters">清除筛选</button>
           </div>
