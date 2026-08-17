@@ -3232,6 +3232,7 @@ const app = Vue.createApp({
     }
 
     async function repPersist() {
+      if (!confirm('立即将 IP 声誉数据持久化到磁盘？')) return;
       try {
         await api('POST', '/verynginx/reputation/persist');
       } catch (e) {
@@ -3485,6 +3486,7 @@ const app = Vue.createApp({
     }
 
     async function confirmPendingChange(ruleId) {
+      if (!confirm('发布规则 ' + ruleId + ' 的暂存变更？将立即生效，影响所有请求。')) return;
       try {
         const d = await api('POST', '/verynginx/waf/rules/' + ruleId + '/confirm');
         if (d.ret === 'success') {
@@ -3499,6 +3501,7 @@ const app = Vue.createApp({
     }
 
     async function discardPendingChange(ruleId) {
+      if (!confirm('丢弃规则 ' + ruleId + ' 的暂存变更？此操作不可恢复。')) return;
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + ruleId + '/pending');
         if (d.ret === 'success') {
@@ -3674,6 +3677,10 @@ const app = Vue.createApp({
     }
 
     async function applyFreqTemplate() {
+      const rule = freqTemplateModal;
+      if (!confirm('从模板 ' + rule.label + ' 创建并下发限流规则？\n\n' +
+        '键=' + rule.key + ' 限制=' + rule.limit + '/窗口=' + rule.window + 's ' +
+        '动作码=' + rule.code + (rule.matcherJson && rule.matcherJson !== '{}' ? ' matcher=' + rule.matcherJson : ''))) return;
       try {
         const overrides = {
           id: freqTemplateModal.id,
@@ -3787,6 +3794,7 @@ const app = Vue.createApp({
     }
 
     async function triggerGeoIPUpdate() {
+      if (!confirm('立即从数据源下载并替换 GeoIP 数据库？现有 .mmdb 将被覆盖。')) return;
       try {
         const d = await api('POST', '/verynginx/geoip/update');
         if (d.ret === 'success') {
@@ -4263,6 +4271,7 @@ const app = Vue.createApp({
 
     async function wafToggleRule(rule) {
       const enable = rule.enable === false;
+      if (!confirm(enable ? '启用规则 ' + rule.name + '？将立即生效。' : '停用规则 ' + rule.name + '？将立即停止拦截。')) return;
       try {
         const endpoint = enable ? 'enable' : 'disable';
         const d = await api('POST', '/verynginx/waf/rules/' + rule.id + '/' + endpoint);
