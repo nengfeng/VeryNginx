@@ -600,17 +600,21 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <a :class="{active:wafAttackView==='timeline'}" @click="wafAttackView='timeline';loadWafTimeline()">时间线</a>
           <a :class="{active:wafAttackView==='hits'}" @click="wafAttackView='hits';loadWafHits()">命中</a>
         </div>
-
-        <!-- Analytics Panel -->
+<!-- Analytics Panel -->
         <div v-if="wafTab==='rules' && wafRuleView==='analytics'">
-          <div v-if="wafAnalytics.dead_rules && wafAnalytics.dead_rules.length" class="warn" style="margin-bottom:8px; padding:10px 14px; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; font-size:13px">
+          <div v-if="wafAnalyticsError" class="error" style="margin-bottom:8px">
+            {{ wafAnalyticsError }}
+            <button class="outline small" style="margin-left:12px" @click="loadWafAnalytics">重试</button>
+          </div>
+          <div v-if="wafAnalyticsLoading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
+          <div v-else-if="wafAnalytics.dead_rules && wafAnalytics.dead_rules.length" class="warn" style="margin-bottom:8px; padding:10px 14px; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; font-size:13px">
              ⚠ 以下规则 30 天未命中：
             <span v-for="dr in wafAnalytics.dead_rules" :key="dr.id" style="margin-right:8px">
               <strong>{{ dr.name || dr.id }}</strong>
-               <span v-if="dr.enable !== false" style="color:#92400e">(启用中)</span>
-               <span v-else style="color:#9ca3af">(已禁用)</span>
-             </span>
-             <span style="color:#6b7280">建议：检查正则是否需要更新，或删除无用的规则</span>
+              <span v-if="dr.enable !== false" style="color:#92400e">(启用中)</span>
+              <span v-else style="color:#9ca3af">(已禁用)</span>
+            </span>
+            <span style="color:#6b7280">建议：检查正则是否需要更新，或删除无用的规则</span>
           </div>
           <table class="table">
             <thead>
@@ -632,6 +636,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                   <span :class="'grade-' + r.grade" class="tag" :style="gradeStyle(r.grade)">{{ r.grade }}</span>
                 </td>
                  <td style="font-size:12px;color:#6b7280">{{ r.last_triggered_ago ? formatAgo(r.last_triggered_ago) : '从未触发' }}</td>
+
               </tr>
               <tr v-if="!(wafAnalytics.rules || []).length">
                 <td colspan="8" class="empty">暂无分析数据</td>
@@ -667,9 +672,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                  <th style="width:100px">最后触发</th>
                  <th style="width:140px">操作</th>
                </tr></thead>
-              <tbody>
+<tbody>
                 <tr v-for="r in wafRules" :key="r.id">
-                  <td style="text-align:center"><input type="checkbox" :checked="r.enable!==false" @change="wafToggleRule(r)"></td>
+                  <td style="text-align:center"><input type="checkbox" :checked="r.enable!==false" @change="wafToggleRule(r)" :disabled="wafToggleBusy"></td>
                    <td><a style="cursor:pointer;text-decoration:underline" @click="wafOpenEdit(r)">{{ r.name }}</a></td>
                    <td><span class="tag">{{ r.category }}</span></td>
                    <td><span class="tag" :class="sevClass(r.severity)">{{ r.severity }}</span></td>
@@ -677,10 +682,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                    <td style="white-space:nowrap">{{ r.last_triggered ? fmtTime(r.last_triggered) : '-' }}</td>
                    <td>
                      <button class="outline small" @click="wafOpenEdit(r)">编辑</button>
-                     <button class="danger small" @click="wafDeleteRule(r)">删除</button>
+                     <button class="danger small" @click="wafDeleteRule(r)" :disabled="wafDeleteBusy">删除</button>
                    </td>
-                </tr>
-              </tbody>
+                 </tr>
+               </tbody>
             </table>
           </div>
           <div v-if="wafPagination.total_pages > 1" class="flex flex-between mt-8">
@@ -755,8 +760,13 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
               <option value="30">30 分钟桶</option>
             </select>
           </div>
+          <div v-if="wafTimelineError" class="error" style="margin-bottom:8px">
+            {{ wafTimelineError }}
+            <button class="outline small" style="margin-left:12px" @click="loadWafTimeline">重试</button>
+          </div>
           <div class="card" style="padding:16px">
-            <div v-if="wafTimeline.buckets && wafTimeline.buckets.length" style="display:flex;align-items:flex-end;gap:2px;height:160px;margin-bottom:8px">
+            <div v-if="wafTimelineLoading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
+            <div v-else-if="wafTimeline.buckets && wafTimeline.buckets.length" style="display:flex;align-items:flex-end;gap:2px;height:160px;margin-bottom:8px">
               <div v-for="(b, i) in wafTimeline.buckets" :key="i" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
                 <div v-for="(count, cat) in b.counts" :key="cat"
                      :style="{height: timelineBarHeight(b.counts, cat), backgroundColor: categoryColor(cat)}"
@@ -1083,15 +1093,15 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div style="overflow-x:auto">
             <table>
                <thead><tr><th>IP</th><th>标记时间</th><th>过期时间</th><th>剩余</th><th></th></tr></thead>
-              <tbody>
+<tbody>
                 <tr v-for="ip in repFlagged" :key="ip.ip">
                   <td><code>{{ ip.ip }}</code></td>
                   <td>{{ fmtTime(ip.flagged_at) }}</td>
                   <td>{{ fmtTime(ip.expires_at) }}</td>
                   <td>{{ remaining(ip.expires_at) }}</td>
-                   <td><button class="danger small" @click="repClear(ip.ip)">清除</button></td>
-                </tr>
-              </tbody>
+                   <td><button class="danger small" @click="repClear(ip.ip)" :disabled="repClearBusy[ip.ip]">清除</button></td>
+                 </tr>
+               </tbody>
             </table>
           </div>
           <div v-if="!repFlagged.length" class="empty">无已标记 IP。</div>
@@ -1140,6 +1150,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
       <!-- GeoIP -->
       <div v-if="page==='geoip'">
+        <div v-if="geoipError" class="error" style="margin-bottom:12px">
+          {{ geoipError }}
+          <button class="outline small" style="margin-left:12px" @click="loadGeoIP">重试</button>
+        </div>
+        <div v-if="geoipLoading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
         <div class="flex flex-between mb-16">
           <h2 class="page-title" style="margin-bottom:0">GeoIP</h2>
           <button class="outline small" @click="loadGeoIP">刷新</button>
@@ -1255,14 +1270,14 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <table>
              <thead><tr><th>JA3 哈希</th><th>名称</th><th>分类</th><th>动作</th><th>启用</th><th></th></tr></thead>
             <tbody>
-              <tr v-for="fp in fingerprints" :key="fp.hash">
+<tr v-for="fp in fingerprints" :key="fp.hash">
                 <td><code style="font-size:10px">{{ fp.hash }}</code></td>
                 <td>{{ fp.name }}</td>
                 <td><span class="tag">{{ fp.category }}</span></td>
                 <td><span class="tag" :style="{background:fp.action==='block'?'#fee2e2':'#fef3c7'}">{{ fp.action }}</span></td>
-                <td><input type="checkbox" :checked="fp.enabled" @change="toggleFp(fp)"></td>
+                <td><input type="checkbox" :checked="fp.enabled" @change="toggleFp(fp)" :disabled="fpToggleBusy"></td>
                  <td><button class="outline small" @click="deleteFp(fp)">删除</button></td>
-              </tr>
+               </tr>
               <tr v-if="!fingerprints.length">
                 <td colspan="6" class="empty">未配置指纹。</td>
               </tr>
@@ -1626,6 +1641,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 
         <!-- Dashboard (Design §12.2) -->
         <div v-if="kbTab==='dashboard'">
+          <div v-if="kbBucketHistoryError" class="error" style="margin-bottom:12px">
+            {{ kbBucketHistoryError }}
+            <button class="outline small" style="margin-left:12px" @click="loadKbBucketHistory">重试</button>
+          </div>
+          <div v-if="kbBucketHistoryLoading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
           <!-- Bucket balance trend chart -->
           <div class="card mb-16">
              <h3 style="font-size:14px;margin-bottom:8px">晋升桶余额趋势</h3>
@@ -2194,6 +2214,8 @@ const app = Vue.createApp({
     const wafHistory = ref([]);
     const wafHistError = ref('');
     const wafRolling = ref(false);
+    const wafToggleBusy = ref(false);
+    const wafDeleteBusy = ref(false);
     const wafEditModal = reactive({
       show: false, mode: 'create',
       id: '', name: '', description: '', category: '', severity: '',
@@ -2213,10 +2235,14 @@ const app = Vue.createApp({
     const wafHitsTime = ref('');
     const wafHitsLimit = ref(50);
     const wafAnalytics = ref({ rules: [], dead_rules: [] });
+    const wafAnalyticsLoading = ref(false);
+    const wafAnalyticsError = ref('');
     const wafPendingChanges = ref([]);
     const wafTimeline = ref({ buckets: [], categories: [], bucket_minutes: 5, hours: 1 });
     const wafTimelineHours = ref(1);
     const wafTimelineBucket = ref(5);
+    const wafTimelineLoading = ref(false);
+    const wafTimelineError = ref('');
     const wafTestHistory = ref([]);
     const wafHitDetailModal = reactive({ show: false, loading: false, data: null, error: '' });
     const wafIpHits = ref([]);
@@ -2234,9 +2260,12 @@ const app = Vue.createApp({
     const geoipMaxCount = computed(() => (geoipStats.value.length ? geoipStats.value[0].count : 0));
     const geoipConfig = ref({ enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
     const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
+    const geoipLoading = ref(false);
+    const geoipError = ref('');
     const fingerprints = ref([]);
     const fpCategories = ref({});
     const fpError = ref('');
+    const fpToggleBusy = ref(false);
     const fpEditModal = reactive({ show: false, hash: '', name: '', category: 'scanner', action: 'block' });
 
     // ---- Reputation State ----
@@ -2247,6 +2276,7 @@ const app = Vue.createApp({
     const repNewWhitelist = ref('');
     const repLookupIP = ref('');
     const repLookupResult = ref(null);
+    const repClearBusy = ref({});
 
     // ---- Audit State ----
     const auditEntries = ref([]);
@@ -2299,6 +2329,8 @@ const app = Vue.createApp({
     const kbEntriesCurrentCursor = ref(null);
     const kbCandidatesCurrentCursor = ref(null);
     const kbBucketHistory = ref([]);
+    const kbBucketHistoryLoading = ref(false);
+    const kbBucketHistoryError = ref('');
     const kbDiff = ref({ missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 });
     const kbTab = ref('entries');
     const kbNewIP = ref('');
@@ -3221,11 +3253,14 @@ const app = Vue.createApp({
 
     async function repClear(ip) {
       if (!confirm('清除 IP ' + ip + ' 的声誉分数?')) return;
+      repClearBusy.value[ip] = true;
       try {
         await api('POST', '/verynginx/reputation/clear?ip=' + encodeURIComponent(ip));
         loadRepData();
       } catch (e) {
         repError.value = e.message;
+      } finally {
+        repClearBusy.value[ip] = false;
       }
     }
 
@@ -3540,13 +3575,21 @@ const app = Vue.createApp({
 
     // ---- WAF Timeline ----
     async function loadWafTimeline() {
+      wafTimelineLoading.value = true;
+      wafTimelineError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/timeline?hours=' + wafTimelineHours.value + '&bucket=' + wafTimelineBucket.value);
         if (d.ret === 'success') {
           wafTimeline.value = d.data || { buckets: [], categories: [] };
+        } else {
+          wafTimelineError.value = d.message || 'Failed to load timeline';
+          wafTimeline.value = { buckets: [], categories: [] };
         }
       } catch (e) {
+        if (e.message !== 'session_expired') wafTimelineError.value = e.message;
         wafTimeline.value = { buckets: [], categories: [] };
+      } finally {
+        wafTimelineLoading.value = false;
       }
     }
 
@@ -3772,11 +3815,13 @@ const app = Vue.createApp({
         const d = await api('GET', '/verynginx/geoip/status');
         if (d.ret === 'success') geoipStatus.value = d.data;
       } catch (e) {
-        // silent
+        // silent - status is non-critical
       }
     }
 
     async function loadGeoIP() {
+      geoipLoading.value = true;
+      geoipError.value = '';
       try {
         const [cfgRes, statsRes] = await Promise.all([
           api('GET', '/verynginx/geoip/config'),
@@ -3807,10 +3852,16 @@ const app = Vue.createApp({
             mirror, custom_mirror_url,
             license_key: cfg.license_key || '',
           };
+        } else {
+          geoipError.value = cfgRes.message || 'Failed to load geoip config';
         }
-        if (statsRes.ret === 'success') geoipStats.value = Object.entries(statsRes.data || {}).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count).slice(0, 20);
+        if (statsRes.ret === 'success') {
+          geoipStats.value = Object.entries(statsRes.data || {}).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count).slice(0, 20);
+        }
       } catch (e) {
-        // silent
+        if (e.message !== 'session_expired') geoipError.value = e.message;
+      } finally {
+        geoipLoading.value = false;
       }
     }
 
@@ -3903,8 +3954,13 @@ const app = Vue.createApp({
     }
 
     async function toggleFp(fp) {
+      fpToggleBusy.value = true;
       fp.enabled = !fp.enabled;
-      await saveFp(fp);
+      try {
+        await saveFp(fp);
+      } finally {
+        fpToggleBusy.value = false;
+      }
     }
 
     async function saveFp(fp) {
@@ -4053,11 +4109,21 @@ const app = Vue.createApp({
     }
 
     async function loadKbBucketHistory() {
+      kbBucketHistoryLoading.value = true;
+      kbBucketHistoryError.value = '';
       try {
         const d = await api('GET', '/verynginx/kernel-blocking/bucket-history');
-        if (d.ret === 'success') kbBucketHistory.value = d.data.samples || [];
+        if (d.ret === 'success') {
+          kbBucketHistory.value = d.data.samples || [];
+        } else {
+          kbBucketHistoryError.value = d.message || 'Failed to load bucket history';
+          kbBucketHistory.value = [];
+        }
       } catch (e) {
-        if (e.message !== 'session_expired') console.warn('loadKbBucketHistory failed:', e.message);
+        if (e.message !== 'session_expired') kbBucketHistoryError.value = e.message;
+        kbBucketHistory.value = [];
+      } finally {
+        kbBucketHistoryLoading.value = false;
       }
     }
 
@@ -4329,6 +4395,7 @@ const app = Vue.createApp({
 
     async function wafDeleteRule(rule) {
       if (!confirm('删除规则 "' + rule.name + '"? 此操作不可撤销。')) return;
+      wafDeleteBusy.value = true;
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
         if (d.ret === 'success') {
@@ -4338,12 +4405,15 @@ const app = Vue.createApp({
         }
       } catch (e) {
         wafError.value = e.message;
+      } finally {
+        wafDeleteBusy.value = false;
       }
     }
 
     async function wafToggleRule(rule) {
       const enable = rule.enable === false;
       if (!confirm(enable ? '启用规则 ' + rule.name + '？将立即生效。' : '停用规则 ' + rule.name + '？将立即停止拦截。')) return;
+      wafToggleBusy.value = true;
       try {
         const endpoint = enable ? 'enable' : 'disable';
         const d = await api('POST', '/verynginx/waf/rules/' + rule.id + '/' + endpoint);
@@ -4352,6 +4422,8 @@ const app = Vue.createApp({
         }
       } catch (e) {
         wafError.value = e.message;
+      } finally {
+        wafToggleBusy.value = false;
       }
     }
 
@@ -4465,13 +4537,21 @@ const app = Vue.createApp({
 
     // ---- WAF Analytics ----
     async function loadWafAnalytics() {
+      wafAnalyticsLoading.value = true;
+      wafAnalyticsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/analytics');
         if (d.ret === 'success') {
           wafAnalytics.value = d.data || { rules: [], dead_rules: [] };
+        } else {
+          wafAnalyticsError.value = d.message || 'Failed to load analytics';
+          wafAnalytics.value = { rules: [], dead_rules: [] };
         }
       } catch (e) {
-        // silent fail
+        if (e.message !== 'session_expired') wafAnalyticsError.value = e.message;
+        wafAnalytics.value = { rules: [], dead_rules: [] };
+      } finally {
+        wafAnalyticsLoading.value = false;
       }
     }
 
