@@ -3644,21 +3644,26 @@ const app = Vue.createApp({
     }
 
     async function editRuleById(ruleId) {
-      const rule = wafRules.value.find(r => r.id === ruleId);
-      if (rule) {
-        wafTab.value = 'rules';
-        wafOpenEdit(rule);
-      } else {
-        await loadWafRules();
-        const r = wafRules.value.find(x => x.id === ruleId);
-        if (r) {
+      try {
+        const rule = wafRules.value.find(r => r.id === ruleId);
+        if (rule) {
           wafTab.value = 'rules';
-          wafOpenEdit(r);
+          wafOpenEdit(rule);
         } else {
-          showToast('未找到规则: ' + ruleId, 'error');
+          await loadWafRules();
+          const r = wafRules.value.find(x => x.id === ruleId);
+          if (r) {
+            wafTab.value = 'rules';
+            wafOpenEdit(r);
+          } else {
+            showToast('未找到规则: ' + ruleId, 'error');
+          }
         }
+      } catch (e) {
+        if (e.message !== 'session_expired') showToast(e.message, 'error');
+      } finally {
+        wafHitDetailModal.show = false;
       }
-      wafHitDetailModal.show = false;
     }
 
     // ---- Frequency Limit ----
