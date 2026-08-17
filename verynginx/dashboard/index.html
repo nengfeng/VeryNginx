@@ -3478,6 +3478,7 @@ const app = Vue.createApp({
       else if (preset === 'today') since.setHours(0, 0, 0, 0);
       const pad = n => String(n).padStart(2, '0');
       const val = `${since.getFullYear()}-${pad(since.getMonth()+1)}-${pad(since.getDate())}T${pad(since.getHours())}:${pad(since.getMinutes())}`;
+      auditClearGuard = true;
       auditFilterSince.value = val;
       loadAudit();
     }
