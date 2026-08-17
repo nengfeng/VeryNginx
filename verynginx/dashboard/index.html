@@ -1568,7 +1568,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div v-if="kbEntriesNext || kbEntriesPrev.length" class="flex flex-between mt-8">
             <button class="outline small" :disabled="!kbEntriesPrev.length" @click="kbEntriesPagePrev">上一页</button>
             <span v-if="kbEntriesPrev.length" style="font-size:12px;color:var(--muted)">第 {{ kbEntriesPrev.length + 1 }} 页</span>
-            <button class="outline small" v-if="kbEntriesNext" @click="loadKbEntries(kbEntriesNext)">下一页</button>
+            <button class="outline small" v-if="kbEntriesNext" @click="kbEntriesPageNext">下一页</button>
           </div>
         </div>
 
@@ -1594,7 +1594,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           <div v-if="kbCandidatesNext || kbCandidatesPrev.length" class="flex flex-between mt-8">
             <button class="outline small" :disabled="!kbCandidatesPrev.length" @click="kbCandidatesPagePrev">上一页</button>
             <span v-if="kbCandidatesPrev.length" style="font-size:12px;color:var(--muted)">第 {{ kbCandidatesPrev.length + 1 }} 页</span>
-            <button class="outline small" v-if="kbCandidatesNext" @click="loadKbCandidates(kbCandidatesNext)">下一页</button>
+            <button class="outline small" v-if="kbCandidatesNext" @click="kbCandidatesPageNext">下一页</button>
           </div>
         </div>
 
@@ -2296,6 +2296,8 @@ const app = Vue.createApp({
     const kbCandidatesNext = ref(null);
     const kbEntriesPrev = ref([]);
     const kbCandidatesPrev = ref([]);
+    const kbEntriesCurrentCursor = ref(null);
+    const kbCandidatesCurrentCursor = ref(null);
     const kbBucketHistory = ref([]);
     const kbDiff = ref({ missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 });
     const kbTab = ref('entries');
@@ -3942,8 +3944,8 @@ const app = Vue.createApp({
         if (kbFilterPolicy.value) url += '&policy=' + encodeURIComponent(kbFilterPolicy.value);
         const d = await api('GET', url);
         if (d.ret === 'success') {
-          if (cursor) kbEntriesPrev.value.push(cursor);
-          else kbEntriesPrev.value = [];
+          kbEntriesCurrentCursor.value = cursor || null;
+          if (!cursor) kbEntriesPrev.value = [];
           let entries = d.data.entries || [];
           if (kbFilterPolicy.value) entries = entries.filter(e => (e.policy || '').includes(kbFilterPolicy.value) || (e.list || '').includes(kbFilterPolicy.value));
           if (kbFilterIP.value) {
@@ -3958,9 +3960,15 @@ const app = Vue.createApp({
       } catch (e) { kbError.value = e.message; }
     }
 
+    function kbEntriesPageNext() {
+      if (!kbEntriesNext.value) return;
+      kbEntriesPrev.value.push(kbEntriesCurrentCursor.value);
+      loadKbEntries(kbEntriesNext.value);
+    }
+
     function kbEntriesPagePrev() {
       const prev = kbEntriesPrev.value.pop();
-      if (prev) loadKbEntries(prev);
+      if (prev !== undefined) loadKbEntries(prev);
     }
 
     async function loadKbCandidates(cursor) {
@@ -3970,8 +3978,8 @@ const app = Vue.createApp({
         if (kbFilterState.value) url += '&state=' + encodeURIComponent(kbFilterState.value);
         const d = await api('GET', url);
         if (d.ret === 'success') {
-          if (cursor) kbCandidatesPrev.value.push(cursor);
-          else kbCandidatesPrev.value = [];
+          kbCandidatesCurrentCursor.value = cursor || null;
+          if (!cursor) kbCandidatesPrev.value = [];
           let entries = d.data.entries || [];
           if (kbFilterPolicy.value) entries = entries.filter(e => e.policy === kbFilterPolicy.value);
           if (kbFilterIP.value) {
@@ -3986,9 +3994,15 @@ const app = Vue.createApp({
       } catch (e) { kbError.value = e.message; }
     }
 
+    function kbCandidatesPageNext() {
+      if (!kbCandidatesNext.value) return;
+      kbCandidatesPrev.value.push(kbCandidatesCurrentCursor.value);
+      loadKbCandidates(kbCandidatesNext.value);
+    }
+
     function kbCandidatesPagePrev() {
       const prev = kbCandidatesPrev.value.pop();
-      if (prev) loadKbCandidates(prev);
+      if (prev !== undefined) loadKbCandidates(prev);
     }
 
     async function loadKbTimeline() {
