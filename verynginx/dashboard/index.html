@@ -148,15 +148,15 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     <div id="topnav">
       <span class="brand">VeryNginx <small>v2{{ versionInfo.commit ? ' · ' + versionInfo.commit.slice(0,8) : '' }}</small></span>
       <nav>
-        <a :class="{active:page==='dashboard'}" @click="page='dashboard'">仪表盘</a>
-        <a :class="{active:page==='config'}" @click="page='config'">配置</a>
-        <a :class="{active:page==='waf'}" @click="page='waf';loadWafData()">WAF</a>
-        <a :class="{active:page==='frequency'}" @click="page='frequency';loadFrequencyData()">频率限制</a>
-        <a :class="{active:page==='reputation'}" @click="page='reputation';loadRepData()">IP 声誉</a>
-        <a :class="{active:page==='geoip'}" @click="page='geoip';loadGeoIP();loadGeoIPStatus()">GeoIP</a>
-        <a :class="{active:page==='kb'}" @click="page='kb';loadKbData()">内核封禁</a>
-        <a :class="{active:page==='advanced'}" @click="page='advanced'">高级</a>
-        <a :class="{active:page==='about'}" @click="page='about'">关于</a>
+        <a :class="{active:page==='dashboard'}" @click="navigateTo('dashboard')">仪表盘</a>
+        <a :class="{active:page==='config'}" @click="navigateTo('config')">配置</a>
+        <a :class="{active:page==='waf'}" @click="navigateTo('waf')">WAF</a>
+        <a :class="{active:page==='frequency'}" @click="navigateTo('frequency')">频率限制</a>
+        <a :class="{active:page==='reputation'}" @click="navigateTo('reputation')">IP 声誉</a>
+        <a :class="{active:page==='geoip'}" @click="navigateTo('geoip')">GeoIP</a>
+        <a :class="{active:page==='kb'}" @click="navigateTo('kb')">内核封禁</a>
+        <a :class="{active:page==='advanced'}" @click="navigateTo('advanced')">高级</a>
+        <a :class="{active:page==='about'}" @click="navigateTo('about')">关于</a>
       </nav>
       <div class="user-area">
         <button class="outline small" @click="toggleTheme" :title="theme==='dark'?'切换到浅色模式':'切换到深色模式'" style="padding:4px 8px">
@@ -674,7 +674,14 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                </tr></thead>
 <tbody>
                 <tr v-for="r in wafRules" :key="r.id">
-                  <td style="text-align:center"><input type="checkbox" :checked="r.enable!==false" @change="wafToggleRule(r)" :disabled="wafToggleBusy"></td>
+                  <td style="text-align:center">
+                    <span class="tag" :class="r.enable !== false ? 'tag-ok' : 'tag-warn'"
+                          :style="{cursor: 'pointer'}"
+                          @click="wafToggleRule(r)"
+                          :title="r.enable !== false ? '点击禁用' : '点击启用'">
+                      {{ r.enable !== false ? '启用' : '禁用' }}
+                    </span>
+                  </td>
                    <td><a style="cursor:pointer;text-decoration:underline" @click="wafOpenEdit(r)">{{ r.name }}</a></td>
                    <td><span class="tag">{{ r.category }}</span></td>
                    <td><span class="tag" :class="sevClass(r.severity)">{{ r.severity }}</span></td>
@@ -994,7 +1001,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
                   <td>{{ r.limit }}</td>
                   <td>{{ r.window }}s</td>
                   <td><span class="tag">{{ r.code || 429 }}</span></td>
-                  <td><input type="checkbox" :checked="r.enable !== false" disabled></td>
+                  <td><span class="tag" :class="r.enable !== false ? 'tag-ok' : 'tag-warn'">{{ r.enable !== false ? '启用' : '禁用' }}</span></td>
                    <td class="flex gap-4" style="justify-content:flex-end">
                      <button class="outline small" @click="openFreqRuleEdit(r)">编辑</button>
                      <button class="outline small" @click="deleteFreqRule(r)">删除</button>
@@ -2419,6 +2426,24 @@ const app = Vue.createApp({
     const kbFormDirty = ref(false);
     function kbMarkFormDirty() { kbFormDirty.value = true; }
 
+    // Navigation guard for KB dirty form
+    async function navigateTo(newPage) {
+      if (page.value === 'kb' && kbFormDirty.value) {
+        if (!await showConfirm({
+          title: '未保存的更改',
+          message: 'KB 表单有未保存的更改，确定离开？',
+          type: 'warning',
+        })) return;
+      }
+      page.value = newPage;
+      // Load data based on page
+      if (newPage === 'waf') await loadWafData();
+      else if (newPage === 'frequency') await loadFrequencyData();
+      else if (newPage === 'reputation') await loadRepData();
+      else if (newPage === 'geoip') { await loadGeoIP(); await loadGeoIPStatus(); }
+      else if (newPage === 'kb') await loadKbData();
+    }
+
     const KB_REASON_HELP = {
       global_disabled: { title: '内核封禁已禁用', advice: '启用全局开关，然后从观察模式开始。' },
       global_observe: { title: '全局模式为观察', advice: '观察模式仅收集候选。检查清单变绿后切换到执行模式。' },
@@ -3769,12 +3794,14 @@ const app = Vue.createApp({
         if (rule) {
           wafTab.value = 'rules';
           wafOpenEdit(rule);
+          showToast('已定位到规则编辑器: ' + rule.name, 'info');
         } else {
           await loadWafRules();
           const r = wafRules.value.find(x => x.id === ruleId);
           if (r) {
             wafTab.value = 'rules';
             wafOpenEdit(r);
+            showToast('已定位到规则编辑器: ' + r.name, 'info');
           } else {
             showToast('未找到规则: ' + ruleId, 'error');
           }
