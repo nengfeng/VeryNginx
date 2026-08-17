@@ -934,6 +934,12 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
           </div>
         </div>
 
+        <!-- Load Error Banner -->
+        <div v-if="freqError" class="alert-error" style="padding:8px 12px;margin-bottom:16px;border-radius:6px">
+          <span>{{ freqError }}</span>
+          <button class="outline small" style="margin-left:12px" @click="loadFrequencyData">重试</button>
+        </div>
+
         <!-- Active Counters -->
         <div class="card" style="padding:16px;margin-bottom:16px">
           <h3 style="font-size:14px;margin-bottom:8px">当前活跃计数 (前 50)</h3>
@@ -1235,6 +1241,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <button class="primary small" @click="openFpAdd">+ 添加</button>
           </div>
         </div>
+        <div v-if="fpError" class="alert-error" style="padding:8px 12px;margin-bottom:16px;border-radius:6px">
+          <span>{{ fpError }}</span>
+          <button class="outline small" style="margin-left:12px" @click="loadFingerprints">重试</button>
+        </div>
         <!-- Stats -->
         <div class="grid grid-2 mb-16">
           <div class="stat-card"><div class="stat-label">指纹总数</div><div class="stat-value">{{ fingerprints.length }}</div></div>
@@ -1401,41 +1411,41 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
            <div class="card mb-16">
             <h3 style="font-size:14px;margin-bottom:12px">控制</h3>
            <div class="grid grid-3 mb-16 kb-controls">
-             <div class="field">
-               <label class="kb-check"><input type="checkbox" v-model="kbForm.enabled"> 全局启用</label>
-             </div>
-             <div class="field">
-               <label style="font-size:12px;color:var(--muted)">全局模式</label>
-               <select v-model="kbForm.mode" style="margin-top:4px">
-                 <option value="observe">观察 (observe)</option>
-                 <option value="enforce">执行 (enforce)</option>
-               </select>
-             </div>
-             <div class="field">
-               <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enforce_ready"> CC 执行就绪</label>
-             </div>
-             <div class="field">
-               <label class="kb-check"><input type="checkbox" v-model="kbForm.scanner_enabled"> 扫描器启用</label>
-             </div>
-             <div class="field">
-               <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enabled"> CC 启用</label>
-             </div>
               <div class="field">
-                <label style="font-size:12px;color:var(--muted)">拓扑</label>
-                <select v-model="kbForm.topology" style="margin-top:4px">
-<option value="direct">直连 (direct)</option>
-                   <option value="proxied">代理 (proxied)</option>
-                   <option value="unknown">未配置 (unknown)</option>
+                <label class="kb-check"><input type="checkbox" v-model="kbForm.enabled" @change="kbMarkFormDirty"> 全局启用</label>
+              </div>
+              <div class="field">
+                <label style="font-size:12px;color:var(--muted)">全局模式</label>
+                <select v-model="kbForm.mode" @change="kbMarkFormDirty" style="margin-top:4px">
+                  <option value="observe">观察 (observe)</option>
+                  <option value="enforce">执行 (enforce)</option>
                 </select>
               </div>
               <div class="field">
-                <label style="font-size:12px;color:var(--muted)">受保护地址 (逗号分隔)</label>
-                <input v-model="kbForm.protected_addresses_str" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px">
+                <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enforce_ready" @change="kbMarkFormDirty"> CC 执行就绪</label>
               </div>
               <div class="field">
-                <label style="font-size:12px;color:var(--muted)">受保护端口 (逗号分隔)</label>
-                <input v-model="kbForm.protected_ports_str" placeholder="如: 80, 443, 8080" style="margin-top:4px">
+                <label class="kb-check"><input type="checkbox" v-model="kbForm.scanner_enabled" @change="kbMarkFormDirty"> 扫描器启用</label>
               </div>
+              <div class="field">
+                <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enabled" @change="kbMarkFormDirty"> CC 启用</label>
+              </div>
+               <div class="field">
+                 <label style="font-size:12px;color:var(--muted)">拓扑</label>
+                 <select v-model="kbForm.topology" @change="kbMarkFormDirty" style="margin-top:4px">
+<option value="direct">直连 (direct)</option>
+                    <option value="proxied">代理 (proxied)</option>
+                    <option value="unknown">未配置 (unknown)</option>
+                 </select>
+               </div>
+               <div class="field">
+                 <label style="font-size:12px;color:var(--muted)">受保护地址 (逗号分隔)</label>
+                 <input v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px">
+               </div>
+               <div class="field">
+                 <label style="font-size:12px;color:var(--muted)">受保护端口 (逗号分隔)</label>
+                 <input v-model="kbForm.protected_ports_str" @change="kbMarkFormDirty" placeholder="如: 80, 443, 8080" style="margin-top:4px">
+               </div>
             </div>
             <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
               <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
@@ -1845,6 +1855,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     <div class="modal" style="max-width:700px">
       <h3>命中详情 <small style="color:var(--muted)">{{ wafHitDetailModal.data ? (wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id) : '' }}</small></h3>
       <div v-if="wafHitDetailModal.loading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
+      <div v-else-if="wafHitDetailModal.error" class="alert-error" style="padding:12px;border-radius:6px">
+        <div style="font-size:13px">{{ wafHitDetailModal.error }}</div>
+        <button class="outline small" style="margin-top:8px" @click="wafHitDetailModal.show=false">关闭</button>
+      </div>
       <div v-else-if="wafHitDetailModal.data">
          <div class="grid grid-2 mb-8">
            <div class="field"><label>规则</label><code>{{ wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id }}</code></div>
@@ -2187,13 +2201,14 @@ const app = Vue.createApp({
     const wafTimelineHours = ref(1);
     const wafTimelineBucket = ref(5);
     const wafTestHistory = ref([]);
-    const wafHitDetailModal = reactive({ show: false, loading: false, data: null });
+    const wafHitDetailModal = reactive({ show: false, loading: false, data: null, error: '' });
     const wafIpHits = ref([]);
     const wafIpHitsIp = ref('');
     const freqStats = ref([]);
     const freqRules = ref([]);
     const freqTemplates = ref([]);
     const freqTemplatesLoaded = ref(false);
+    const freqError = ref('');
     const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
     const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
     const geoipLookupIP = ref('');
@@ -2204,6 +2219,7 @@ const app = Vue.createApp({
     const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
     const fingerprints = ref([]);
     const fpCategories = ref({});
+    const fpError = ref('');
     const fpEditModal = reactive({ show: false, hash: '', name: '', category: 'scanner', action: 'block' });
 
     // ---- Reputation State ----
@@ -2286,6 +2302,8 @@ const app = Vue.createApp({
     });
     const kbDetail = reactive({ show: false, entry: null });
     const kbDetailJson = computed(() => kbDetail.entry ? JSON.stringify(kbDetail.entry, null, 2) : '');
+    const kbFormDirty = ref(false);
+    function kbMarkFormDirty() { kbFormDirty.value = true; }
 
     const KB_REASON_HELP = {
       global_disabled: { title: '内核封禁已禁用', advice: '启用全局开关，然后从观察模式开始。' },
@@ -2384,6 +2402,7 @@ const app = Vue.createApp({
       return parts.join(' ') || '-';
     }
     function kbSyncFormFromStatus() {
+      if (kbFormDirty.value) return;
       const c = kbStatus.value.configured || {};
       kbForm.enabled = !!c.enabled;
       kbForm.mode = c.mode || 'observe';
@@ -3266,15 +3285,20 @@ const app = Vue.createApp({
       }
     }
 
+    let auditClearGuard = false;
     function clearAuditFilters() {
+      auditClearGuard = true;
+      if (auditFilterTimer) { clearTimeout(auditFilterTimer); auditFilterTimer = null; }
       auditFilterUser.value = '';
       auditFilterAction.value = '';
       auditFilterSince.value = '';
       auditFilterUntil.value = '';
+      loadAudit();
     }
 
     let auditFilterTimer = null;
     watch([auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil], () => {
+      if (auditClearGuard) { auditClearGuard = false; return; }
       if (auditFilterTimer) clearTimeout(auditFilterTimer);
       auditFilterTimer = setTimeout(() => loadAudit(), 400);
     });
@@ -3554,28 +3578,18 @@ const app = Vue.createApp({
       wafHitDetailModal.show = true
       wafHitDetailModal.loading = true
       wafHitDetailModal.data = null
+      wafHitDetailModal.error = ''
       try {
         const ringIdx = hit.ring_idx != null ? hit.ring_idx : 0
         const d = await api('GET', '/verynginx/waf/hits/' + ringIdx)
         if (d.ret === 'success') {
           wafHitDetailModal.data = d.data
         } else {
-          wafHitDetailModal.data = {
-            rule_id: hit.rule_id, ip: hit.ip, uri: hit.uri,
-            method: hit.method, timestamp: hit.time,
-            user_agent: '', headers: {}, body_snippet: '',
-            rule_name: hit.rule_id, rule_category: '',
-            ip_score: 0, ip_flagged: false, ip_whitelisted: false, ip_hit_count: 0,
-          }
+          wafHitDetailModal.error = d.message || '加载失败'
         }
       } catch (e) {
-        wafHitDetailModal.data = {
-          rule_id: hit.rule_id, ip: hit.ip, uri: hit.uri,
-          method: hit.method, timestamp: hit.time,
-          user_agent: '', headers: {}, body_snippet: '',
-          rule_name: hit.rule_id, rule_category: '',
-          ip_score: 0, ip_flagged: false, ip_whitelisted: false, ip_hit_count: 0,
-        }
+        if (e.message === 'session_expired') throw e;
+        wafHitDetailModal.error = '加载命中详情失败: ' + e.message
       }
       wafHitDetailModal.loading = false
     }
@@ -3612,17 +3626,27 @@ const app = Vue.createApp({
     // ---- Frequency Limit ----
     async function loadFrequencyData() {
       try {
-        const [statsRes, rulesRes, tmplRes] = await Promise.all([
+        const results = await Promise.allSettled([
           api('GET', '/verynginx/frequency/stats'),
           api('GET', '/verynginx/frequency/rules'),
           api('GET', '/verynginx/frequency/templates'),
         ]);
-        if (statsRes.ret === 'success') freqStats.value = statsRes.data || [];
-        if (rulesRes.ret === 'success') freqRules.value = rulesRes.data || [];
-        if (tmplRes.ret === 'success') freqTemplates.value = tmplRes.data || [];
+        const [statsRes, rulesRes, tmplRes] = results.map(r => (r.status === 'fulfilled' ? r.value : null));
+        if (statsRes && statsRes.ret === 'success') freqStats.value = statsRes.data || [];
+        if (rulesRes && rulesRes.ret === 'success') freqRules.value = rulesRes.data || [];
+        if (tmplRes && tmplRes.ret === 'success') freqTemplates.value = tmplRes.data || [];
         freqTemplatesLoaded.value = true;
+        const failures = results.filter(r => r.status === 'rejected').map(r => r.reason.message);
+        if (failures.length) {
+          console.warn('loadFrequencyData partial failure:', failures.join('; '));
+          if (!failures.includes('session_expired')) freqError.value = '部分数据加载失败: ' + failures.join('; ');
+        } else {
+          freqError.value = '';
+        }
       } catch (e) {
-        // silent
+        console.warn('loadFrequencyData failed:', e.message);
+        freqTemplatesLoaded.value = true;
+        if (e.message !== 'session_expired') freqError.value = '加载频率限制数据失败: ' + e.message;
       }
     }
 
@@ -3792,7 +3816,8 @@ const app = Vue.createApp({
           fpCategories.value = cats;
         }
       } catch (e) {
-        // silent
+        console.warn('loadFingerprints failed:', e.message);
+        if (e.message !== 'session_expired') fpError.value = '加载指纹失败: ' + e.message;
       }
     }
 
@@ -3951,7 +3976,9 @@ const app = Vue.createApp({
       try {
         const d = await api('GET', '/verynginx/kernel-blocking/bucket-history');
         if (d.ret === 'success') kbBucketHistory.value = d.data.samples || [];
-      } catch (e) { /* non-critical */ }
+      } catch (e) {
+        if (e.message !== 'session_expired') console.warn('loadKbBucketHistory failed:', e.message);
+      }
     }
 
     async function loadKbDiff() {
@@ -4012,6 +4039,7 @@ const app = Vue.createApp({
         if (d.ret === 'success') {
           showToast('内核锁阻设置已保存', 'success');
           cfg.value = full;
+          kbFormDirty.value = false;
           await loadKbData();
         } else {
           showToast(d.message || 'Save failed', 'error');
@@ -4537,10 +4565,10 @@ const app = Vue.createApp({
       wafIpHits, wafIpHitsIp,
       // WAF Recommender
       recs, recStats, recError, recLoading, loadRecs, runRecAnalysis, applyRec, dismissRec,
-      freqStats, freqRules, freqTemplates, freqTemplatesLoaded, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
+      freqStats, freqRules, freqTemplates, freqTemplatesLoaded, freqError, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
       previewFreqTemplate, applyFreqTemplate,
       geoipLookupIP, geoipLookupResult, geoipStats, geoipMaxCount, geoipConfig, geoipStatus, loadGeoIP, loadGeoIPStatus, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
-      fingerprints, fpCategories, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
+      fingerprints, fpCategories, fpError, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
       freqRuleModal, freqTemplateModal,
       plugins, pluginsError, loadPlugins, togglePlugin,
       toastMsg, toastType, toastVisible, formatAgo, showToast, parsePrometheus,
@@ -4564,7 +4592,7 @@ const app = Vue.createApp({
       kbEffMode, kbEffReachable, formatKbTime, formatKbExpiry, kbEvidenceSummary,
       kbTrendPoints, kbTrendFillEnforce, kbTrendFillObserve,
       ccAutoReady, enableCcEnforceReady,
-      kbOpenDetail, kbReloadList, kbSaveSettings, loadKbTimeline,
+      kbOpenDetail, kbReloadList, kbSaveSettings, kbMarkFormDirty, loadKbTimeline,
       loadKbData, loadKbEntries, loadKbCandidates, loadKbDashboard,
       kbEntriesPagePrev, kbCandidatesPagePrev,
       kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,
