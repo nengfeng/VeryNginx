@@ -935,7 +935,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
         </div>
 
         <!-- Load Error Banner -->
-        <div v-if="freqError" class="alert-error" style="padding:8px 12px;margin-bottom:16px;border-radius:6px">
+        <div v-if="freqError" class="error">
           <span>{{ freqError }}</span>
           <button class="outline small" style="margin-left:12px" @click="loadFrequencyData">重试</button>
         </div>
@@ -1241,7 +1241,7 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
             <button class="primary small" @click="openFpAdd">+ 添加</button>
           </div>
         </div>
-        <div v-if="fpError" class="alert-error" style="padding:8px 12px;margin-bottom:16px;border-radius:6px">
+        <div v-if="fpError" class="error">
           <span>{{ fpError }}</span>
           <button class="outline small" style="margin-left:12px" @click="loadFingerprints">重试</button>
         </div>
@@ -1855,8 +1855,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     <div class="modal" style="max-width:700px">
       <h3>命中详情 <small style="color:var(--muted)">{{ wafHitDetailModal.data ? (wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id) : '' }}</small></h3>
       <div v-if="wafHitDetailModal.loading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
-      <div v-else-if="wafHitDetailModal.error" class="alert-error" style="padding:12px;border-radius:6px">
-        <div style="font-size:13px">{{ wafHitDetailModal.error }}</div>
+      <div v-else-if="wafHitDetailModal.error" class="error">
+        <div>{{ wafHitDetailModal.error }}</div>
         <button class="outline small" style="margin-top:8px" @click="wafHitDetailModal.show=false">关闭</button>
       </div>
       <div v-else-if="wafHitDetailModal.data">
