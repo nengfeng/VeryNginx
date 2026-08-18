@@ -5,13 +5,13 @@ const path = require('path');
 const file = path.join(__dirname, '../../verynginx/dashboard/index.html');
 const content = fs.readFileSync(file, 'utf8');
 
-const scriptMatches = [...content.matchAll(/<script>([\s\S]*?)<\/script>/g)];
-  if (scriptMatches.length < 2) {
-    console.error('ERROR: Expected at least 2 <script> blocks, found', scriptMatches.length);
-    process.exit(1);
-  }
-  // Use the LAST script block (the Vue app)
-  const script = scriptMatches[scriptMatches.length - 1][1];
+// Read app.js for the Vue app script
+const appJsFile = path.join(__dirname, '../../verynginx/dashboard/app.js');
+if (!fs.existsSync(appJsFile)) {
+  console.error('ERROR: app.js not found at', appJsFile);
+  process.exit(1);
+}
+const script = fs.readFileSync(appJsFile, 'utf8');
 
 // Extract template from #app div
 const lines = content.split('\n');
