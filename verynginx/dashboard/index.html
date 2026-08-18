@@ -2331,6 +2331,13 @@ const app = Vue.createApp({
       confirmModal.resolve(false);
     }
 
+    // Watcher to ensure Promise always resolves if modal closes unexpectedly
+    watch(() => confirmModal.show, (show) => {
+      if (!show && confirmModal.resolve) {
+        confirmModal.resolve(false);
+      }
+    });
+
     const freqStats = ref([]);
     const freqRules = ref([]);
     const freqTemplates = ref([]);
