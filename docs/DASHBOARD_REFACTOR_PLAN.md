@@ -2,7 +2,7 @@
 
 > 关联代码：`verynginx/dashboard/index.html`（单文件 SPA）
 > 校验工具：`test/v2/check_bindings.js`、`test/v2/refactor_expose.js`
-> **当前状态**：Phase 0 基线锁定 ✅完成 (2026-08-18)；Phase 1 拆 CSS ✅完成 (2026-08-18)；Phase 2 拆 JS 主体 🚧进行中
+> **当前状态**：Phase 0 基线锁定 ✅完成 (2026-08-18)；Phase 1 拆 CSS ✅完成 (2026-08-18)；Phase 2 拆 JS 主体 ✅完成 (2026-08-18)；Phase 3 分域拆模块 🚧进行中
 
 ---
 
@@ -163,6 +163,6 @@ dashboard/
 |-------|------|---------|------|
 | Phase 0 基线锁定 | ✅已完成 | 2026-08-18 | check_bindings 131/292/161、spec 168/0、phase0 309/0 全绿 |
 | Phase 1 拆 CSS | ✅已完成 | 2026-08-18 | style.css 108行提取，link 替换，全测试通过 |
-| Phase 2 拆 JS 主体 | 🚧进行中 | - | |
-| Phase 3 分域拆模块 | 未开始 | - | |
+| Phase 2 拆 JS 主体 | ✅已完成 | 2026-08-18 | app.js 117903字符提取，script src 替换，check_bindings 适配，全测试通过 |
+| Phase 3 分域拆模块 | 🚧进行中 | - | |
 | Phase 4 收尾 | 未开始 | - | |
