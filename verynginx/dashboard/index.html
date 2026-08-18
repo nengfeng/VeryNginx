@@ -2912,11 +2912,11 @@ const app = Vue.createApp({
           await refreshCsrf();
           return true;
         } else {
-          showToast('Save failed: ' + (d.message || d.err || 'unknown'), 'error');
+          showToast('保存失败: ' + (d.message || d.err || '未知错误'), 'error');
           return false;
         }
       } catch (e) {
-        showToast('Save failed: ' + e.message, 'error');
+        showToast('保存失败: ' + e.message, 'error');
         return false;
       }
     }
@@ -2939,7 +2939,7 @@ const app = Vue.createApp({
           await loadConfig();
           await refreshCsrf();
         } else {
-          jsonError.value = d.message || d.err || 'Save failed';
+          jsonError.value = d.message || d.err || '保存失败';
         }
       } catch (e) {
         jsonError.value = e.message;
@@ -3660,7 +3660,7 @@ const app = Vue.createApp({
           await loadWafRules();
           loadWafHistory();
         } else {
-          wafEditError.value = d.message || 'Save failed';
+          wafEditError.value = d.message || '保存失败';
         }
       } catch (e) {
         wafEditError.value = e.message;
@@ -3941,11 +3941,11 @@ const app = Vue.createApp({
         };
         const d = await api('POST', '/verynginx/frequency/templates/' + freqTemplateModal.name, overrides);
         if (d.ret === 'success') {
-          showToast('Rule created from template: ' + d.data.id, 'success');
+          showToast('规则已从模板创建: ' + d.data.id, 'success');
           freqTemplateModal.show = false;
           await loadFrequencyData();
         } else {
-          showToast(d.message || 'Apply failed', 'error');
+          showToast(d.message || '应用失败', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
     }
@@ -4043,10 +4043,10 @@ const app = Vue.createApp({
           license_key: geoipConfig.value.license_key || '',
         };
         const d = await api('PUT', '/verynginx/geoip/config', cfg);
-        if (d.ret === 'success') showToast('GeoIP config saved', 'success');
-        else showToast(d.message || 'Save failed', 'error');
+        if (d.ret === 'success') showToast('GeoIP 配置已保存', 'success');
+        else showToast(d.message || '保存失败', 'error');
       } catch (e) {
-        showToast(e.message || 'Save failed', 'error');
+        showToast(e.message || '保存失败', 'error');
       }
     }
 
@@ -4117,10 +4117,10 @@ const app = Vue.createApp({
         if (d.ret === 'success') {
           await loadFingerprints();
         } else {
-          showToast(d.message || 'Save failed', 'error');
+          showToast(d.message || '保存失败', 'error');
         }
       } catch (e) {
-        showToast(e.message || 'Save failed', 'error');
+        showToast(e.message || '保存失败', 'error');
       }
     }
 
@@ -4129,7 +4129,7 @@ const app = Vue.createApp({
       try {
         const d = await api('DELETE', '/verynginx/fingerprints/' + fp.hash);
         if (d.ret === 'success') {
-          showToast('Fingerprint deleted', 'success');
+          showToast('指纹已删除', 'success');
           await loadFingerprints();
         }
       } catch (e) {
@@ -4308,7 +4308,7 @@ const app = Vue.createApp({
           cfg.value = full;
           await loadKbData();
         } else {
-          showToast(d.message || 'Save failed', 'error');
+          showToast(d.message || '保存失败', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
       finally { kbBusy.value = false; }
@@ -4351,7 +4351,7 @@ const app = Vue.createApp({
           kbFormDirty.value = false;
           await loadKbData();
         } else {
-          showToast(d.message || 'Save failed', 'error');
+          showToast(d.message || '保存失败', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
       finally { kbBusy.value = false; }
@@ -4386,10 +4386,10 @@ const app = Vue.createApp({
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy, ttl: 300 });
         if (d.ret === 'success') {
-          showToast('IP ' + ip + ' promoted', 'success');
+          showToast('IP ' + ip + ' 已晋升', 'success');
           await loadKbData();
         } else {
-          showToast(d.message || 'Promote failed', 'error');
+          showToast(d.message || '晋升失败', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
       finally { kbBusy.value = false; }
@@ -4433,7 +4433,7 @@ const app = Vue.createApp({
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/pause', { paused });
         if (d.ret === 'success') {
-          showToast(paused ? 'Promotion paused' : 'Promotion resumed', 'success');
+          showToast(paused ? '晋升已暂停' : '晋升已恢复', 'success');
           await loadKbData();
         } else {
           showToast(d.message || '暂停失败', 'error');
@@ -4825,10 +4825,10 @@ const app = Vue.createApp({
         const parsed = JSON.parse(text);
         const d = await api('POST', '/verynginx/config/import', parsed);
         if (d.ret === 'success') {
-          configImportOk.value = 'Configuration imported successfully.';
+          configImportOk.value = '配置导入成功。';
           await loadConfig();
         } else {
-          configImportError.value = d.message || 'Import failed';
+          configImportError.value = d.message || '导入失败';
         }
       } catch (e) {
         configImportError.value = e.message;
