@@ -24,6 +24,9 @@ jobs:
           luacheck verynginx/action/ --no-color
           luacheck verynginx/plugin/ --no-color
           luacheck verynginx/api/ --no-color
+      - name: Check dashboard bindings (template vs export)
+        run: |
+          node test/v2/check_bindings.js
 
   unit-tests:
     runs-on: ubuntu-latest
