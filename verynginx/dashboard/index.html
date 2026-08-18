@@ -2191,41 +2191,69 @@ async function refreshCsrf() {
 
 const app = Vue.createApp({
   setup() {
+    const exports = new Map();
+    function expose(name, value) { exports.set(name, value); }
+    // Expose module-level store for template access
+    expose('store', store);
     const page = ref('dashboard');
+        expose('page', page);
     const dashTab = ref('overview');
+        expose('dashTab', dashTab);
     const advTab = ref('fingerprints');
+        expose('advTab', advTab);
     const loading = ref(false);
+        expose('loading', loading);
     const loginUser = ref('');
+        expose('loginUser', loginUser);
     const loginPass = ref('');
+        expose('loginPass', loginPass);
     const loginError = ref('');
+        expose('loginError', loginError);
     const status = ref({});
+        expose('status', status);
     const connHistory = ref([]);
+        expose('connHistory', connHistory);
     const cfg = ref({});
+        expose('cfg', cfg);
     const healthData = ref({});
+        expose('healthData', healthData);
     const overview = ref({});
+        expose('overview', overview);
     const dictUsage = ref([]);
+        expose('dictUsage', dictUsage);
      const cfgTab = ref('system');
+         expose('cfgTab', cfgTab);
      const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+         expose('theme', theme);
 
      function toggleTheme() {
+         expose('toggleTheme', toggleTheme);
        const newTheme = theme.value === 'dark' ? 'light' : 'dark';
        theme.value = newTheme;
        document.documentElement.setAttribute('data-theme', newTheme);
        try { localStorage.setItem('vn_theme', newTheme); } catch(e) {}
      }
     const rawJson = ref('');
+        expose('rawJson', rawJson);
     const jsonError = ref('');
+        expose('jsonError', jsonError);
     watch(rawJson, (val) => {
       jsonError.value = '';
       if (!val) return;
       try { JSON.parse(val); } catch (e) { jsonError.value = 'JSON: ' + e.message; }
     });
     const jsonSaving = ref(false);
+        expose('jsonSaving', jsonSaving);
     const statsData = ref(null);
+        expose('statsData', statsData);
     const statsType = ref('long');
+        expose('statsType', statsType);
     const statsError = ref('');
+        expose('statsError', statsError);
     const expandedUri = ref(null);
+        expose('expandedUri', expandedUri);
     const editMatcherModal = reactive({ show: false, name: '', conditions: '' });
+        expose('editMatcherModal', editMatcherModal);
 
     // ---- Config Rule Editor State ----
     const ruleEditModal = reactive({
@@ -2234,26 +2262,45 @@ const app = Vue.createApp({
       action: 'block', code: 403, to_uri: '', upstream: '',
       root: '', path: '', expires: '', response: '',
     });
+        expose('ruleEditModal', ruleEditModal);
     const ruleSaving = ref(false);
+        expose('ruleSaving', ruleSaving);
     const upstreamKeys = computed(() => Object.keys(cfg.value.backend_upstream || {}).sort());
+        expose('upstreamKeys', upstreamKeys);
 
     // ---- WAF State ----
     const wafTab = ref('rules');
+        expose('wafTab', wafTab);
     const wafRuleView = ref('list');
+        expose('wafRuleView', wafRuleView);
     const wafAttackView = ref('stats');
+        expose('wafAttackView', wafAttackView);
     const wafError = ref('');
+        expose('wafError', wafError);
     const wafRules = ref([]);
+        expose('wafRules', wafRules);
     const wafCategories = ref({});
+        expose('wafCategories', wafCategories);
     const wafPagination = reactive({ page: 1, limit: 20, total: 0, total_pages: 0 });
+        expose('wafPagination', wafPagination);
     const wafFilterCat = ref('');
+        expose('wafFilterCat', wafFilterCat);
     const wafFilterSev = ref('');
+        expose('wafFilterSev', wafFilterSev);
     const wafStatsData = ref(null);
+        expose('wafStatsData', wafStatsData);
     const wafStatsError = ref('');
+        expose('wafStatsError', wafStatsError);
     const wafHistory = ref([]);
+        expose('wafHistory', wafHistory);
     const wafHistError = ref('');
+        expose('wafHistError', wafHistError);
     const wafRolling = ref(false);
+        expose('wafRolling', wafRolling);
     const wafToggleBusy = ref(false);
+        expose('wafToggleBusy', wafToggleBusy);
     const wafDeleteBusy = ref(false);
+        expose('wafDeleteBusy', wafDeleteBusy);
     const wafEditModal = reactive({
       show: false, mode: 'create',
       id: '', name: '', description: '', category: '', severity: '',
@@ -2261,30 +2308,55 @@ const app = Vue.createApp({
       tagsStr: '',
       rateLimitEnabled: false, rateLimitMax: 10, rateLimitWindow: 60, rateLimitAction: 'log'
     });
+        expose('wafEditModal', wafEditModal);
     const wafEditError = ref('');
+        expose('wafEditError', wafEditError);
     const wafSaving = ref(false);
+        expose('wafSaving', wafSaving);
     const wafTestRuleJson = ref('');
+        expose('wafTestRuleJson', wafTestRuleJson);
     const wafTestCasesJson = ref('');
+        expose('wafTestCasesJson', wafTestCasesJson);
     const wafTestError = ref('');
+        expose('wafTestError', wafTestError);
     const wafTesting = ref(false);
+        expose('wafTesting', wafTesting);
     const wafTestResults = ref(null);
+        expose('wafTestResults', wafTestResults);
     const wafHits = ref([]);
+        expose('wafHits', wafHits);
     const wafHitsError = ref('');
+        expose('wafHitsError', wafHitsError);
     const wafHitsTime = ref('');
+        expose('wafHitsTime', wafHitsTime);
     const wafHitsLimit = ref(50);
+        expose('wafHitsLimit', wafHitsLimit);
     const wafAnalytics = ref({ rules: [], dead_rules: [] });
+        expose('wafAnalytics', wafAnalytics);
     const wafAnalyticsLoading = ref(false);
+        expose('wafAnalyticsLoading', wafAnalyticsLoading);
     const wafAnalyticsError = ref('');
+        expose('wafAnalyticsError', wafAnalyticsError);
     const wafPendingChanges = ref([]);
+        expose('wafPendingChanges', wafPendingChanges);
     const wafTimeline = ref({ buckets: [], categories: [], bucket_minutes: 5, hours: 1 });
+        expose('wafTimeline', wafTimeline);
     const wafTimelineHours = ref(1);
+        expose('wafTimelineHours', wafTimelineHours);
     const wafTimelineBucket = ref(5);
+        expose('wafTimelineBucket', wafTimelineBucket);
     const wafTimelineLoading = ref(false);
+        expose('wafTimelineLoading', wafTimelineLoading);
     const wafTimelineError = ref('');
+        expose('wafTimelineError', wafTimelineError);
     const wafTestHistory = ref([]);
+        expose('wafTestHistory', wafTestHistory);
     const wafHitDetailModal = reactive({ show: false, loading: false, data: null, error: '' });
+        expose('wafHitDetailModal', wafHitDetailModal);
     const wafIpHits = ref([]);
+        expose('wafIpHits', wafIpHits);
     const wafIpHitsIp = ref('');
+        expose('wafIpHitsIp', wafIpHitsIp);
 
     // Unified confirm modal
     const confirmModal = reactive({
@@ -2299,8 +2371,10 @@ const app = Vue.createApp({
       resolve: null,
       reject: null,
     });
+        expose('confirmModal', confirmModal);
 
     function showConfirm({ title, message, type = 'danger', requireInput = false, inputLabel = '', inputExpected = '' }) {
+        expose('showConfirm', showConfirm);
       return new Promise((resolve, reject) => {
         confirmModal.show = true;
         confirmModal.title = title;
@@ -2316,6 +2390,7 @@ const app = Vue.createApp({
     }
 
     function confirmModalOk() {
+        expose('confirmModalOk', confirmModalOk);
       if (confirmModal.requireInput) {
         if (confirmModal.inputValue.trim() !== confirmModal.inputExpected.trim()) {
           showToast('确认文本不匹配', 'error');
@@ -2327,6 +2402,7 @@ const app = Vue.createApp({
     }
 
     function confirmModalCancel() {
+        expose('confirmModalCancel', confirmModalCancel);
       confirmModal.show = false;
       confirmModal.resolve(false);
     }
@@ -2339,52 +2415,93 @@ const app = Vue.createApp({
     });
 
     const freqStats = ref([]);
+        expose('freqStats', freqStats);
     const freqRules = ref([]);
+        expose('freqRules', freqRules);
     const freqTemplates = ref([]);
+        expose('freqTemplates', freqTemplates);
     const freqTemplatesLoaded = ref(false);
+        expose('freqTemplatesLoaded', freqTemplatesLoaded);
     const freqError = ref('');
+        expose('freqError', freqError);
     const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
+        expose('freqRuleModal', freqRuleModal);
     const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
+        expose('freqTemplateModal', freqTemplateModal);
     const geoipLookupIP = ref('');
+        expose('geoipLookupIP', geoipLookupIP);
     const geoipLookupResult = ref(null);
+        expose('geoipLookupResult', geoipLookupResult);
     const geoipStats = ref([]);
+        expose('geoipStats', geoipStats);
     const geoipMaxCount = computed(() => (geoipStats.value.length ? geoipStats.value[0].count : 0));
+        expose('geoipMaxCount', geoipMaxCount);
     const geoipConfig = ref({ enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
+        expose('geoipConfig', geoipConfig);
     const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
+        expose('geoipStatus', geoipStatus);
     const geoipLoading = ref(false);
+        expose('geoipLoading', geoipLoading);
     const geoipError = ref('');
+        expose('geoipError', geoipError);
     const fingerprints = ref([]);
+        expose('fingerprints', fingerprints);
     const fpCategories = ref({});
+        expose('fpCategories', fpCategories);
     const fpError = ref('');
+        expose('fpError', fpError);
     const fpToggleBusy = ref(false);
+        expose('fpToggleBusy', fpToggleBusy);
     const fpEditModal = reactive({ show: false, hash: '', name: '', category: 'scanner', action: 'block' });
+        expose('fpEditModal', fpEditModal);
 
     // ---- Reputation State ----
     const repStats = ref(null);
+        expose('repStats', repStats);
     const repFlagged = ref([]);
+        expose('repFlagged', repFlagged);
     const repWhitelist = ref([]);
+        expose('repWhitelist', repWhitelist);
     const repError = ref('');
+        expose('repError', repError);
     const repNewWhitelist = ref('');
+        expose('repNewWhitelist', repNewWhitelist);
     const repLookupIP = ref('');
+        expose('repLookupIP', repLookupIP);
     const repLookupResult = ref(null);
+        expose('repLookupResult', repLookupResult);
     const repClearBusy = ref({});
+        expose('repClearBusy', repClearBusy);
 
     // ---- Audit State ----
     const auditEntries = ref([]);
+        expose('auditEntries', auditEntries);
     const auditError = ref('');
+        expose('auditError', auditError);
     const auditFilterUser = ref('');
+        expose('auditFilterUser', auditFilterUser);
     const auditFilterAction = ref('');
+        expose('auditFilterAction', auditFilterAction);
     const auditFilterSince = ref('');
+        expose('auditFilterSince', auditFilterSince);
     const auditFilterUntil = ref('');
+        expose('auditFilterUntil', auditFilterUntil);
 
     const plugins = ref([]);
+        expose('plugins', plugins);
     const pluginsError = ref('');
+        expose('pluginsError', pluginsError);
     const versionInfo = ref({ version: '', commit: '' });
+        expose('versionInfo', versionInfo);
     const toastMsg = ref('');
+        expose('toastMsg', toastMsg);
     const toastType = ref('info');
+        expose('toastType', toastType);
     const toastVisible = ref(false);
+        expose('toastVisible', toastVisible);
     let toastTimer = null;
     function showToast(msg, type) {
+        expose('showToast', showToast);
       toastMsg.value = msg;
       toastType.value = type || 'info';
       toastVisible.value = true;
@@ -2392,8 +2509,11 @@ const app = Vue.createApp({
       toastTimer = setTimeout(() => { toastVisible.value = false; }, 2500);
     }
     const configImportError = ref('');
+        expose('configImportError', configImportError);
     const configImportOk = ref('');
+        expose('configImportOk', configImportOk);
     const topPaths = ref([]);
+        expose('topPaths', topPaths);
 
     // ---- Kernel Blocking State ----
     const kbStatus = ref({
@@ -2409,29 +2529,51 @@ const app = Vue.createApp({
       whitelist_generation: {},
       last_reconcile: null,
     });
+        expose('kbStatus', kbStatus);
     const kbEntries = ref([]);
+        expose('kbEntries', kbEntries);
     const kbCandidates = ref([]);
+        expose('kbCandidates', kbCandidates);
     const kbTimeline = ref([]);
+        expose('kbTimeline', kbTimeline);
     const kbTimelineFilter = ref('');
+        expose('kbTimelineFilter', kbTimelineFilter);
     const kbEntriesNext = ref(null);
+        expose('kbEntriesNext', kbEntriesNext);
     const kbCandidatesNext = ref(null);
+        expose('kbCandidatesNext', kbCandidatesNext);
     const kbEntriesPrev = ref([]);
+        expose('kbEntriesPrev', kbEntriesPrev);
     const kbCandidatesPrev = ref([]);
+        expose('kbCandidatesPrev', kbCandidatesPrev);
     const kbEntriesCurrentCursor = ref(null);
     const kbCandidatesCurrentCursor = ref(null);
     const kbBucketHistory = ref([]);
+        expose('kbBucketHistory', kbBucketHistory);
     const kbBucketHistoryLoading = ref(false);
+        expose('kbBucketHistoryLoading', kbBucketHistoryLoading);
     const kbBucketHistoryError = ref('');
+        expose('kbBucketHistoryError', kbBucketHistoryError);
     const kbDiff = ref({ missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 });
+        expose('kbDiff', kbDiff);
     const kbTab = ref('entries');
+        expose('kbTab', kbTab);
     const kbNewIP = ref('');
+        expose('kbNewIP', kbNewIP);
     const kbNewPolicy = ref('scanner');
+        expose('kbNewPolicy', kbNewPolicy);
     const kbNewTTL = ref(300);
+        expose('kbNewTTL', kbNewTTL);
     const kbError = ref('');
+        expose('kbError', kbError);
     const kbBusy = ref(false);
+        expose('kbBusy', kbBusy);
     const kbFilterPolicy = ref('');
+        expose('kbFilterPolicy', kbFilterPolicy);
     const kbFilterState = ref('');
+        expose('kbFilterState', kbFilterState);
     const kbFilterIP = ref('');
+        expose('kbFilterIP', kbFilterIP);
     const kbForm = reactive({
       enabled: false,
       mode: 'observe',
@@ -2442,13 +2584,18 @@ const app = Vue.createApp({
       scanner_enabled: true,
       cc_enabled: true,
     });
+        expose('kbForm', kbForm);
     const kbDetail = reactive({ show: false, entry: null });
+        expose('kbDetail', kbDetail);
     const kbDetailJson = computed(() => kbDetail.entry ? JSON.stringify(kbDetail.entry, null, 2) : '');
+        expose('kbDetailJson', kbDetailJson);
     const kbFormDirty = ref(false);
     function kbMarkFormDirty() { kbFormDirty.value = true; }
+        expose('kbMarkFormDirty', kbMarkFormDirty);
 
     // Navigation guard for KB dirty form
     async function navigateTo(newPage) {
+        expose('navigateTo', navigateTo);
       if (page.value === 'kb' && kbFormDirty.value) {
         if (!await showConfirm({
           title: '未保存的更改',
@@ -2497,14 +2644,17 @@ const app = Vue.createApp({
       const help = KB_REASON_HELP[code] || { title: code, advice: '参见设计文档 / 日志了解详情。' };
       return { code, title: help.title, advice: help.advice };
     }));
+        expose('kbReasonItems', kbReasonItems);
 
     function kbEffMode(policy) {
+        expose('kbEffMode', kbEffMode);
       const eff = kbStatus.value.effective || {};
       if (policy === 'scanner') return (eff.scanner && eff.scanner.mode) || '-';
       if (policy === 'cc') return (eff.cc && eff.cc.mode) || '-';
       return eff.global_mode || '-';
     }
     function kbEffReachable(policy) {
+        expose('kbEffReachable', kbEffReachable);
       const eff = kbStatus.value.effective || {};
       if (policy === 'scanner') return !!(eff.scanner && eff.scanner.install_reachable);
       if (policy === 'cc') return !!(eff.cc && eff.cc.install_reachable);
@@ -2515,6 +2665,7 @@ const app = Vue.createApp({
       const e = kbStatus.value.effective || {};
       return !!(e.cc && e.cc.auto_ready);
     });
+        expose('ccAutoReady', ccAutoReady);
 
     const kbChecklist = computed(() => {
       const c = kbStatus.value.configured || {};
@@ -2534,14 +2685,17 @@ const app = Vue.createApp({
         { id: 'cc_ready', label: 'CC enforce_ready 已确认（如需 CC 执行）', ok: !!c.cc_enforce_ready || c.cc_enabled === false, auto_ready: kbStatus.value.effective && kbStatus.value.effective.cc && kbStatus.value.effective.cc.auto_ready },
       ];
     });
+        expose('kbChecklist', kbChecklist);
 
     function formatKbTime(ts) {
+        expose('formatKbTime', formatKbTime);
       if (!ts) return '-';
       const d = new Date(ts * 1000);
       if (isNaN(d.getTime())) return String(ts);
       return d.toLocaleString();
     }
     function formatKbExpiry(ts) {
+        expose('formatKbExpiry', formatKbExpiry);
       if (!ts) return '-';
       const now = Math.floor(Date.now() / 1000);
       const left = ts - now;
@@ -2552,6 +2706,7 @@ const app = Vue.createApp({
       return Math.floor(left / 86400) + 'd left';
     }
     function kbEvidenceSummary(c) {
+        expose('kbEvidenceSummary', kbEvidenceSummary);
       const e = (c && c.evidence) || {};
       const parts = [];
       if (e.block_hits != null) parts.push('blocks=' + e.block_hits);
@@ -2574,16 +2729,19 @@ const app = Vue.createApp({
       kbForm.cc_enabled = c.cc_enabled !== false;
     }
     function kbOpenDetail(entry) {
+        expose('kbOpenDetail', kbOpenDetail);
       kbDetail.entry = entry;
       kbDetail.show = true;
     }
     function kbReloadList() {
+        expose('kbReloadList', kbReloadList);
       if (kbTab.value === 'entries') loadKbEntries();
       else if (kbTab.value === 'candidates') loadKbCandidates();
     }
 
 
     const s = computed(() => status.value);
+        expose('s', s);
 
     // ---- Bucket trend chart data (Design §12.2) ----
     const kbTrendPoints = computed(() => {
@@ -2604,17 +2762,20 @@ const app = Vue.createApp({
       });
       return { enforce: toPts('enforce_tokens'), observe: toPts('observe_tokens'), max, labels };
     });
+        expose('kbTrendPoints', kbTrendPoints);
 
     const kbTrendFillEnforce = computed(() => {
       const p = kbTrendPoints.value;
       if (!p.enforce) return '';
       return `0,100 ${p.enforce} 100,100`;
     });
+        expose('kbTrendFillEnforce', kbTrendFillEnforce);
     const kbTrendFillObserve = computed(() => {
       const p = kbTrendPoints.value;
       if (!p.observe) return '';
       return `0,100 ${p.observe} 100,100`;
     });
+        expose('kbTrendFillObserve', kbTrendFillObserve);
 
     const connLinePoints = computed(() => {
       const pts = connHistory.value;
@@ -2623,6 +2784,7 @@ const app = Vue.createApp({
       const w = 100 / (pts.length - 1);
       return pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
     });
+        expose('connLinePoints', connLinePoints);
 
     const connFillPoints = computed(() => {
       const pts = connHistory.value;
@@ -2632,6 +2794,7 @@ const app = Vue.createApp({
       const line = pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
       return `0,100 ` + line + ` 100,100`;
     });
+        expose('connFillPoints', connFillPoints);
 
     // ---- Auto-login on page load (check existing session cookie) ----
     async function checkSession() {
@@ -2652,6 +2815,7 @@ const app = Vue.createApp({
 
     // ---- Login ----
     async function doLogin() {
+        expose('doLogin', doLogin);
       loginError.value = '';
       if (!loginUser.value || !loginPass.value) { loginError.value = '请输入用户名和密码。'; return; }
       loading.value = true;
@@ -2680,6 +2844,7 @@ const app = Vue.createApp({
 
     // ---- Logout ----
     async function doLogout() {
+        expose('doLogout', doLogout);
       // Clear all auto-refresh timers
       clearInterval(statusTimer);
       clearInterval(healthTimer);
@@ -2694,11 +2859,13 @@ const app = Vue.createApp({
 
     // ---- Load ----
     async function loadData() {
+        expose('loadData', loadData);
       await Promise.all([loadStatus(), loadConfig()]);
       loadHealth();
     }
 
     async function loadStatus() {
+        expose('loadStatus', loadStatus);
       try {
         const s = await api('GET', '/verynginx/status');
         status.value = s;
@@ -2713,6 +2880,7 @@ const app = Vue.createApp({
     }
 
     async function loadConfig() {
+        expose('loadConfig', loadConfig);
       try {
         const d = await api('GET', '/verynginx/config');
         cfg.value = d;
@@ -2723,6 +2891,7 @@ const app = Vue.createApp({
     }
 
     async function refreshConfig(silent) {
+        expose('refreshConfig', refreshConfig);
       await Promise.allSettled([loadConfig(), loadHealth()]);
       if (cfgTab.value === 'plugins') await loadPlugins();
       if (!silent) showToast('配置已刷新', 'success');
@@ -2739,9 +2908,12 @@ const app = Vue.createApp({
 
     // ---- Matchers ----
     const matcherKeys = computed(() => Object.keys(cfg.value.matcher || {}).sort());
+        expose('matcherKeys', matcherKeys);
     const respKeys = computed(() => Object.keys(cfg.value.response || {}).sort());
+        expose('respKeys', respKeys);
 
     function editMatcher(name) {
+        expose('editMatcher', editMatcher);
       if (name) {
         editMatcherModal._origName = name;
         editMatcherModal.name = name;
@@ -2755,6 +2927,7 @@ const app = Vue.createApp({
     }
 
     async function saveMatcher() {
+        expose('saveMatcher', saveMatcher);
       try {
         const updated = JSON.parse(editMatcherModal.conditions);
         const newCfg = JSON.parse(JSON.stringify(cfg.value));
@@ -2770,6 +2943,7 @@ const app = Vue.createApp({
     }
 
     async function deleteMatcher(name) {
+        expose('deleteMatcher', deleteMatcher);
       if (!await showConfirm({ title: '删除匹配器', message: `删除匹配器 "${name}"?`, type: 'danger' })) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       delete newCfg.matcher[name];
@@ -2778,6 +2952,7 @@ const app = Vue.createApp({
 
     // ---- Config Rules CRUD ----
     function ruleEditReset() {
+        expose('ruleEditReset', ruleEditReset);
       ruleEditModal.enable = true;
       ruleEditModal.matcherType = 'inline';
       ruleEditModal.matcherJson = '{}';
@@ -2792,6 +2967,7 @@ const app = Vue.createApp({
     }
 
     function ruleOpenCreate(group) {
+        expose('ruleOpenCreate', ruleOpenCreate);
       ruleEditReset();
       ruleEditModal.mode = 'create';
       ruleEditModal._group = group;
@@ -2799,6 +2975,7 @@ const app = Vue.createApp({
     }
 
     function ruleOpenEdit(rule, group, idx) {
+        expose('ruleOpenEdit', ruleOpenEdit);
       ruleEditReset();
       ruleEditModal.mode = 'edit';
       ruleEditModal._group = group;
@@ -2823,6 +3000,7 @@ const app = Vue.createApp({
     }
 
     function ruleEditModalChanged() {
+        expose('ruleEditModalChanged', ruleEditModalChanged);
       // Clear stale fields when action changes
       if (ruleEditModal.action !== 'block') { ruleEditModal.response = ''; }
       if (ruleEditModal.action !== 'redirect' && ruleEditModal.action !== 'block') { ruleEditModal.code = 403; }
@@ -2833,6 +3011,7 @@ const app = Vue.createApp({
     }
 
     function ruleBuildRule() {
+        expose('ruleBuildRule', ruleBuildRule);
       const rule = { enable: ruleEditModal.enable };
       if (ruleEditModal.matcherType === 'inline') {
         try { rule.matcher = JSON.parse(ruleEditModal.matcherJson); } catch { rule.matcher = {}; }
@@ -2864,6 +3043,7 @@ const app = Vue.createApp({
     }
 
     async function ruleSave() {
+        expose('ruleSave', ruleSave);
       ruleSaving.value = true;
       try {
         const newCfg = JSON.parse(JSON.stringify(cfg.value));
@@ -2886,6 +3066,7 @@ const app = Vue.createApp({
     }
 
     async function ruleDelete(rule, group, index) {
+        expose('ruleDelete', ruleDelete);
       if (!await showConfirm({ title: '删除规则', message: 'Delete this rule?', type: 'danger' })) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
@@ -2894,6 +3075,7 @@ const app = Vue.createApp({
     }
 
     async function ruleToggle(rule, group, index) {
+        expose('ruleToggle', ruleToggle);
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
       const r = newCfg.rule[group][index];
@@ -2905,6 +3087,7 @@ const app = Vue.createApp({
 
     // ---- Save ----
     async function commitConfig(newCfg) {
+        expose('commitConfig', commitConfig);
       try {
         const d = await api('POST', '/verynginx/config', newCfg);
         if (d.ret === 'success') {
@@ -2922,6 +3105,7 @@ const app = Vue.createApp({
     }
 
     async function saveRawConfig() {
+        expose('saveRawConfig', saveRawConfig);
       if (!await showConfirm({
         title: '覆盖全部配置',
         message: '确定用当前 JSON 覆盖全部配置？建议先导出备份。',
@@ -2950,6 +3134,7 @@ const app = Vue.createApp({
     // Auto-refresh status every 3s
     let statusTimer;
     function startStatusRefresh() {
+        expose('startStatusRefresh', startStatusRefresh);
       clearInterval(statusTimer);
       loadStatus();
       statusTimer = setInterval(loadStatus, 3000);
@@ -2982,6 +3167,7 @@ const app = Vue.createApp({
     // Auto-refresh health every 10s when on Upstreams tab
     let healthTimer;
     function startHealthRefresh() {
+        expose('startHealthRefresh', startHealthRefresh);
       clearInterval(healthTimer);
       loadHealth();
       healthTimer = setInterval(loadHealth, 10000);
@@ -3003,6 +3189,7 @@ const app = Vue.createApp({
 
     // ---- Dict Usage ----
     async function loadDictUsage() {
+        expose('loadDictUsage', loadDictUsage);
       try {
         const text = await api('GET', '/verynginx/metrics', null, { text: true });
         const parsed = parsePrometheus(typeof text === 'string' ? text : '');
@@ -3046,6 +3233,7 @@ const app = Vue.createApp({
 
     // ---- Overview ----
     function parsePrometheus(text) {
+        expose('parsePrometheus', parsePrometheus);
       const result = {};
       const lines = text.split('\n');
       for (const line of lines) {
@@ -3076,6 +3264,7 @@ const app = Vue.createApp({
     }
 
     async function loadOverview() {
+        expose('loadOverview', loadOverview);
       const o = { conn_active: 0, req_rate: 0, up_healthy: 0, up_total: 0, waf_hits: 0, dicts: [], top_uris: [], plugin_errors: [] };
       try {
         // Status: connection counts
@@ -3212,6 +3401,7 @@ const app = Vue.createApp({
 
     // ---- Stats ----
     async function loadStats() {
+        expose('loadStats', loadStats);
       statsError.value = '';
       try {
         statsData.value = await api('GET', `/verynginx/summary?type=${statsType.value}`);
@@ -3223,11 +3413,13 @@ const app = Vue.createApp({
 
     // ---- Helpers ----
     function formatTime(t) {
+        expose('formatTime', formatTime);
       if (!t) return '-';
       return new Date(t * 1000).toLocaleString();
     }
 
     function formatBytes(b) {
+        expose('formatBytes', formatBytes);
       if (b == null) return '-';
       if (b < 1024) return b.toFixed(0) + ' B';
       if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
@@ -3235,6 +3427,7 @@ const app = Vue.createApp({
     }
 
     function calcSuccess(v) {
+        expose('calcSuccess', calcSuccess);
       let ok = 0, total = 0;
       for (const code in v.status || {}) {
         const c = v.status[code];
@@ -3245,6 +3438,7 @@ const app = Vue.createApp({
     }
 
     function successClass(v) {
+        expose('successClass', successClass);
       const p = parseFloat(calcSuccess(v));
       if (p >= 99) return 'tag-ok';
       if (p >= 90) return 'tag-warn';
@@ -3252,6 +3446,7 @@ const app = Vue.createApp({
     }
 
     function summarizeRule(r) {
+        expose('summarizeRule', summarizeRule);
       const parts = [];
       if (r.to_uri) parts.push('→ ' + r.to_uri);
       if (r.upstream) parts.push('→ ' + r.upstream);
@@ -3262,6 +3457,7 @@ const app = Vue.createApp({
     }
 
     function actionClass(a) {
+        expose('actionClass', actionClass);
       if (a === 'block' || a === 'filter') return 'tag-err';
       if (a === 'accept' || a === 'proxy' || a === 'static') return 'tag-ok';
       return 'tag-warn';
@@ -3269,18 +3465,21 @@ const app = Vue.createApp({
 
     // ---- WAF Methods ----
     function sevClass(s) {
+        expose('sevClass', sevClass);
       if (s === 'critical') return 'tag-err';
       if (s === 'high') return 'tag-warn';
       return 'tag-ok';
     }
 
     function fmtTime(ts) {
+        expose('fmtTime', fmtTime);
       if (!ts) return '-';
       const d = new Date(ts * 1000);
       return d.toLocaleString();
     }
 
     async function loadWafRules() {
+        expose('loadWafRules', loadWafRules);
       wafError.value = '';
       try {
         const params = new URLSearchParams();
@@ -3305,11 +3504,13 @@ const app = Vue.createApp({
     }
 
     function formatNumber(n) {
+        expose('formatNumber', formatNumber);
       if (n == null) return '0';
       return Number(n).toLocaleString();
     }
 
     function formatAgo(seconds) {
+        expose('formatAgo', formatAgo);
       if (seconds < 60) return seconds + 's ago';
       if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
       if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
@@ -3317,6 +3518,7 @@ const app = Vue.createApp({
     }
 
     async function loadWafStats() {
+        expose('loadWafStats', loadWafStats);
       wafStatsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/stats');
@@ -3331,6 +3533,7 @@ const app = Vue.createApp({
     }
 
     async function loadWafHistory() {
+        expose('loadWafHistory', loadWafHistory);
       wafHistError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/rules/history');
@@ -3345,6 +3548,7 @@ const app = Vue.createApp({
     }
 
     function remaining(expiresAt) {
+        expose('remaining', remaining);
       if (!expiresAt) return '-';
       const sec = Math.max(0, Math.floor((expiresAt * 1000 - Date.now()) / 1000));
       if (sec === 0) return 'expired';
@@ -3352,6 +3556,7 @@ const app = Vue.createApp({
     }
 
     async function loadRepData() {
+        expose('loadRepData', loadRepData);
       repError.value = '';
       try {
         const [sd, fd, wd] = await Promise.all([
@@ -3368,6 +3573,7 @@ const app = Vue.createApp({
     }
 
     async function repClear(ip) {
+        expose('repClear', repClear);
       if (!await showConfirm({
         title: '清除声誉分数',
         message: `清除 IP ${ip} 的声誉分数?`,
@@ -3388,6 +3594,7 @@ const app = Vue.createApp({
     }
 
     async function repAddWhitelist() {
+        expose('repAddWhitelist', repAddWhitelist);
       const ip = repNewWhitelist.value.trim();
       if (!ip) return;
       // Client-side IP format validation (allows CIDR prefix for whitelist)
@@ -3403,6 +3610,7 @@ const app = Vue.createApp({
     }
 
     async function repRemoveWhitelist(ip) {
+        expose('repRemoveWhitelist', repRemoveWhitelist);
       if (!await showConfirm({ title: '移除白名单', message: `从白名单移除 ${ip}?`, type: 'danger' })) return;
       try {
         await api('DELETE', '/verynginx/reputation/whitelist?ip=' + encodeURIComponent(ip));
@@ -3413,6 +3621,7 @@ const app = Vue.createApp({
     }
 
     async function repPersist() {
+        expose('repPersist', repPersist);
       if (!await showConfirm({ title: '持久化声誉数据', message: '立即将 IP 声誉数据持久化到磁盘？', type: 'primary' })) return;
       try {
         await api('POST', '/verynginx/reputation/persist');
@@ -3422,6 +3631,7 @@ const app = Vue.createApp({
     }
 
     async function repLookup() {
+        expose('repLookup', repLookup);
       const ip = repLookupIP.value.trim();
       if (!ip) return;
       if (!isValidIpLiteral(ip)) { repError.value = 'IP 格式无效: ' + ip; return; }
@@ -3435,6 +3645,7 @@ const app = Vue.createApp({
     }
 
     function auditActionClass(a) {
+        expose('auditActionClass', auditActionClass);
       if (!a) return '';
       if (a.startsWith('login')) return a === 'login_success' ? 'tag-ok' : 'tag-err';
       if (a.startsWith('waf_rule')) return 'tag-warn';
@@ -3443,6 +3654,7 @@ const app = Vue.createApp({
     }
 
     async function loadAudit() {
+        expose('loadAudit', loadAudit);
       auditError.value = '';
       try {
         let url = '/verynginx/audit?limit=500';
@@ -3469,6 +3681,7 @@ const app = Vue.createApp({
 
     let auditClearGuard = false;
     function clearAuditFilters() {
+        expose('clearAuditFilters', clearAuditFilters);
       auditClearGuard = true;
       if (auditFilterTimer) { clearTimeout(auditFilterTimer); auditFilterTimer = null; }
       auditFilterUser.value = '';
@@ -3479,6 +3692,7 @@ const app = Vue.createApp({
     }
 
     function setAuditSincePreset(preset) {
+        expose('setAuditSincePreset', setAuditSincePreset);
       const now = new Date();
       let since = new Date(now);
       if (preset === '1h') since.setHours(now.getHours() - 1);
@@ -3500,6 +3714,7 @@ const app = Vue.createApp({
     });
 
     async function loadWafData() {
+        expose('loadWafData', loadWafData);
       await loadWafRules();
       if (wafTab.value === 'attacks') await loadWafAttackData();
       if (wafTab.value === 'rules' && wafRuleView.value === 'analytics') await loadWafAnalytics();
@@ -3508,12 +3723,14 @@ const app = Vue.createApp({
     }
 
     async function loadWafAttackData() {
+        expose('loadWafAttackData', loadWafAttackData);
       if (wafAttackView.value === 'stats') await loadWafStats();
       if (wafAttackView.value === 'timeline') await loadWafTimeline();
       if (wafAttackView.value === 'hits') await loadWafHits();
     }
 
     function wafOpenCreate() {
+        expose('wafOpenCreate', wafOpenCreate);
       wafEditModal.mode = 'create';
       wafEditModal.id = '';
       wafEditModal.name = '';
@@ -3533,6 +3750,7 @@ const app = Vue.createApp({
     }
 
     function wafOpenEdit(rule) {
+        expose('wafOpenEdit', wafOpenEdit);
       wafEditModal.mode = 'edit';
       wafEditModal.id = rule.id;
       wafEditModal.name = rule.name;
@@ -3563,6 +3781,7 @@ const app = Vue.createApp({
     }
 
     function wafDiffLines() {
+        expose('wafDiffLines', wafDiffLines);
       if (wafEditModal.mode === 'create') return [];
       try {
         const orig = JSON.parse(wafEditModal._originalRule);
@@ -3603,6 +3822,7 @@ const app = Vue.createApp({
     const VALID_ACTIONS = ['block', 'accept', 'log', 'challenge'];
 
     async function wafSaveRule() {
+        expose('wafSaveRule', wafSaveRule);
       wafEditError.value = '';
       const m = wafEditModal;
       if (!m.name) { wafEditError.value = 'Name is required'; return; }
@@ -3670,6 +3890,7 @@ const app = Vue.createApp({
 
     // ---- Pending Rule Changes ----
     async function loadPendingRules() {
+        expose('loadPendingRules', loadPendingRules);
       try {
         const d = await api('GET', '/verynginx/waf/rules/pending');
         if (d.ret === 'success') {
@@ -3681,6 +3902,7 @@ const app = Vue.createApp({
     }
 
     async function confirmPendingChange(ruleId) {
+        expose('confirmPendingChange', confirmPendingChange);
       if (!await showConfirm({ title: '发布暂存变更', message: `发布规则 ${ruleId} 的暂存变更？将立即生效，影响所有请求。`, type: 'danger' })) return;
       try {
         const d = await api('POST', '/verynginx/waf/rules/' + ruleId + '/confirm');
@@ -3696,6 +3918,7 @@ const app = Vue.createApp({
     }
 
     async function discardPendingChange(ruleId) {
+        expose('discardPendingChange', discardPendingChange);
       if (!await showConfirm({ title: '丢弃暂存变更', message: `丢弃规则 ${ruleId} 的暂存变更？此操作不可恢复。`, type: 'danger' })) return;
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + ruleId + '/pending');
@@ -3712,6 +3935,7 @@ const app = Vue.createApp({
 
     // ---- WAF Timeline ----
     async function loadWafTimeline() {
+        expose('loadWafTimeline', loadWafTimeline);
       wafTimelineLoading.value = true;
       wafTimelineError.value = '';
       try {
@@ -3739,8 +3963,10 @@ const app = Vue.createApp({
       }
       return false;
     });
+        expose('hasTimelineData', hasTimelineData);
 
     function timelineBarHeight(counts, cat) {
+        expose('timelineBarHeight', timelineBarHeight);
       let max = 1;
       for (const b of wafTimeline.value.buckets) {
         for (const c in b.counts) {
@@ -3751,6 +3977,7 @@ const app = Vue.createApp({
     }
 
     function categoryColor(cat) {
+        expose('categoryColor', categoryColor);
       const colors = { sqli: '#ef4444', xss: '#f97316', scanner: '#3b82f6', rce: '#dc2626',
                        path_traversal: '#f59e0b', injection: '#e11d48', other: '#6b7280' };
       return colors[cat] || '#6b7280';
@@ -3758,6 +3985,7 @@ const app = Vue.createApp({
 
     // ---- Test History ----
     async function loadTestHistory() {
+        expose('loadTestHistory', loadTestHistory);
       try {
         const d = await api('GET', '/verynginx/waf/test-history');
         if (d.ret === 'success') {
@@ -3769,6 +3997,7 @@ const app = Vue.createApp({
     }
 
     async function clearTestHistory() {
+        expose('clearTestHistory', clearTestHistory);
       if (!await showConfirm({ title: '清除测试历史', message: '确定清除全部 WAF 测试历史?', type: 'warning' })) return;
       try {
         await api('DELETE', '/verynginx/waf/test-history');
@@ -3781,6 +4010,7 @@ const app = Vue.createApp({
 
     // ---- Hit Detail Drill-down ----
     async function openHitDetail(hit) {
+        expose('openHitDetail', openHitDetail);
       wafHitDetailModal.show = true
       wafHitDetailModal.loading = true
       wafHitDetailModal.data = null
@@ -3801,6 +4031,7 @@ const app = Vue.createApp({
     }
 
     async function addToWhitelist(ip) {
+        expose('addToWhitelist', addToWhitelist);
       if (!await showConfirm({ title: '加入白名单', message: `将 ${ip} 加入白名单？此后该 IP 将不受 WAF 规则限制。`, type: 'primary' })) return;
       try {
         await api('POST', '/verynginx/reputation/whitelist', { ip })
@@ -3812,6 +4043,7 @@ const app = Vue.createApp({
     }
 
     async function viewIpHits(ip) {
+        expose('viewIpHits', viewIpHits);
       try {
         const d = await api('GET', '/verynginx/waf/hits/by-ip?ip=' + encodeURIComponent(ip))
         if (d.ret === 'success') {
@@ -3824,6 +4056,7 @@ const app = Vue.createApp({
     }
 
     async function editRuleById(ruleId) {
+        expose('editRuleById', editRuleById);
       try {
         const rule = wafRules.value.find(r => r.id === ruleId);
         if (rule) {
@@ -3850,6 +4083,7 @@ const app = Vue.createApp({
 
     // ---- Frequency Limit ----
     async function loadFrequencyData() {
+        expose('loadFrequencyData', loadFrequencyData);
       try {
         const results = await Promise.allSettled([
           api('GET', '/verynginx/frequency/stats'),
@@ -3876,6 +4110,7 @@ const app = Vue.createApp({
     }
 
     async function previewFreqTemplate(name) {
+        expose('previewFreqTemplate', previewFreqTemplate);
       try {
         const d = await api('GET', '/verynginx/frequency/templates/' + name);
         if (d.ret === 'success') {
@@ -3924,6 +4159,7 @@ const app = Vue.createApp({
     }
 
     async function applyFreqTemplate() {
+        expose('applyFreqTemplate', applyFreqTemplate);
       const rule = freqTemplateModal;
       if (!await showConfirm({
         title: '应用频率模板',
@@ -3952,6 +4188,7 @@ const app = Vue.createApp({
 
     // ---- GeoIP ----
     async function loadGeoIPStatus() {
+        expose('loadGeoIPStatus', loadGeoIPStatus);
       try {
         const d = await api('GET', '/verynginx/geoip/status');
         if (d.ret === 'success') geoipStatus.value = d.data;
@@ -3961,6 +4198,7 @@ const app = Vue.createApp({
     }
 
     async function loadGeoIP() {
+        expose('loadGeoIP', loadGeoIP);
       geoipLoading.value = true;
       geoipError.value = '';
       try {
@@ -4007,6 +4245,7 @@ const app = Vue.createApp({
     }
 
     async function lookupGeoIP() {
+        expose('lookupGeoIP', lookupGeoIP);
       if (!geoipLookupIP.value) return;
       const ip = geoipLookupIP.value.trim();
       if (!isValidIpLiteral(ip)) { showToast('IP 格式无效: ' + ip, 'error'); return; }
@@ -4019,6 +4258,7 @@ const app = Vue.createApp({
     }
 
     async function saveGeoIPConfig() {
+        expose('saveGeoIPConfig', saveGeoIPConfig);
       try {
         const MIRROR_URLS = {
           p3terx: 'https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-City.mmdb',
@@ -4051,6 +4291,7 @@ const app = Vue.createApp({
     }
 
     async function triggerGeoIPUpdate() {
+        expose('triggerGeoIPUpdate', triggerGeoIPUpdate);
       if (!await showConfirm({
         title: '更新 GeoIP 数据库',
         message: '立即从数据源下载并替换 GeoIP 数据库？现有 .mmdb 将被覆盖。',
@@ -4077,6 +4318,7 @@ const app = Vue.createApp({
 
     // ---- Fingerprints ----
     async function loadFingerprints() {
+        expose('loadFingerprints', loadFingerprints);
       try {
         const d = await api('GET', '/verynginx/fingerprints');
         if (d.ret === 'success') {
@@ -4094,6 +4336,7 @@ const app = Vue.createApp({
     }
 
     function openFpAdd() {
+        expose('openFpAdd', openFpAdd);
       fpEditModal.hash = '';
       fpEditModal.name = '';
       fpEditModal.category = 'scanner';
@@ -4102,6 +4345,7 @@ const app = Vue.createApp({
     }
 
     async function toggleFp(fp) {
+        expose('toggleFp', toggleFp);
       fpToggleBusy.value = true;
       fp.enabled = !fp.enabled;
       try {
@@ -4125,6 +4369,7 @@ const app = Vue.createApp({
     }
 
     async function deleteFp(fp) {
+        expose('deleteFp', deleteFp);
       if (!await showConfirm({ title: '删除指纹', message: `删除指纹 "${fp.hash}"?`, type: 'danger' })) return;
       try {
         const d = await api('DELETE', '/verynginx/fingerprints/' + fp.hash);
@@ -4139,6 +4384,7 @@ const app = Vue.createApp({
 
     // ---- Kernel Blocking ----
     async function loadKbData() {
+        expose('loadKbData', loadKbData);
       kbError.value = '';
       const statusRequest = (async () => {
         try {
@@ -4162,6 +4408,7 @@ const app = Vue.createApp({
     }
 
     async function loadKbEntries(cursor) {
+        expose('loadKbEntries', loadKbEntries);
       try {
         let url = '/verynginx/kernel-blocking/entries?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
@@ -4180,17 +4427,20 @@ const app = Vue.createApp({
     }
 
     function kbEntriesPageNext() {
+        expose('kbEntriesPageNext', kbEntriesPageNext);
       if (!kbEntriesNext.value) return;
       kbEntriesPrev.value.push(kbEntriesCurrentCursor.value);
       loadKbEntries(kbEntriesNext.value);
     }
 
     function kbEntriesPagePrev() {
+        expose('kbEntriesPagePrev', kbEntriesPagePrev);
       const prev = kbEntriesPrev.value.pop();
       if (prev != null) loadKbEntries(prev);
     }
 
     async function loadKbCandidates(cursor) {
+        expose('loadKbCandidates', loadKbCandidates);
       try {
         let url = '/verynginx/kernel-blocking/candidates?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
@@ -4209,17 +4459,20 @@ const app = Vue.createApp({
     }
 
     function kbCandidatesPageNext() {
+        expose('kbCandidatesPageNext', kbCandidatesPageNext);
       if (!kbCandidatesNext.value) return;
       kbCandidatesPrev.value.push(kbCandidatesCurrentCursor.value);
       loadKbCandidates(kbCandidatesNext.value);
     }
 
     function kbCandidatesPagePrev() {
+        expose('kbCandidatesPagePrev', kbCandidatesPagePrev);
       const prev = kbCandidatesPrev.value.pop();
       if (prev != null) loadKbCandidates(prev);
     }
 
     async function loadKbTimeline() {
+        expose('loadKbTimeline', loadKbTimeline);
       try {
         let url = '/verynginx/audit?limit=300';
         if (kbTimelineFilter.value) {
@@ -4240,6 +4493,7 @@ const app = Vue.createApp({
     }
 
     function kbTimelineActionLabel(action) {
+        expose('kbTimelineActionLabel', kbTimelineActionLabel);
       const map = {
         'kernel_blocking.promote': '封禁',
         'kernel_blocking.clear': '解除',
@@ -4250,6 +4504,7 @@ const app = Vue.createApp({
     }
 
     function kbTimelineActionClass(action) {
+        expose('kbTimelineActionClass', kbTimelineActionClass);
       if (action === 'kernel_blocking.promote') return 'tag-err';
       if (action === 'kernel_blocking.clear') return 'tag-ok';
       if (action === 'kernel_blocking.reconcile') return 'tag-info';
@@ -4257,6 +4512,7 @@ const app = Vue.createApp({
     }
 
     async function loadKbBucketHistory() {
+        expose('loadKbBucketHistory', loadKbBucketHistory);
       kbBucketHistoryLoading.value = true;
       kbBucketHistoryError.value = '';
       try {
@@ -4283,10 +4539,12 @@ const app = Vue.createApp({
     }
 
     async function loadKbDashboard() {
+        expose('loadKbDashboard', loadKbDashboard);
       await Promise.all([loadKbBucketHistory(), loadKbDiff()]);
     }
 
     async function enableCcEnforceReady() {
+        expose('enableCcEnforceReady', enableCcEnforceReady);
       if (!await showConfirm({
         title: '启用 CC enforce_ready',
         message: '启用 CC enforce_ready? 这将为符合条件的 IP 激活自动 CC 内核封禁。',
@@ -4315,6 +4573,7 @@ const app = Vue.createApp({
     }
 
     async function kbSaveSettings() {
+        expose('kbSaveSettings', kbSaveSettings);
       if (kbForm.mode === 'enforce' && !kbForm.enabled) {
         showToast('启用执行模式前必须先启用全局开关', 'error'); return;
       }
@@ -4358,6 +4617,7 @@ const app = Vue.createApp({
     }
 
     async function kbPromote() {
+        expose('kbPromote', kbPromote);
       if (!kbNewIP.value) { showToast('请输入 IP', 'error'); return; }
       // Client-side IP format validation (IPv4/IPv6 literal)
       const ip = kbNewIP.value.trim();
@@ -4380,6 +4640,7 @@ const app = Vue.createApp({
     }
 
     async function kbPromoteIp(ip, policy) {
+        expose('kbPromoteIp', kbPromoteIp);
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
       if (!await showConfirm({ title: '晋升 IP', message: `晋升 ${ip} 为 ${policy} (TTL 300秒)?`, type: 'danger' })) return;
       kbBusy.value = true;
@@ -4396,6 +4657,7 @@ const app = Vue.createApp({
     }
 
     async function kbReconcile() {
+        expose('kbReconcile', kbReconcile);
       if (!await showConfirm({ title: '触发协调', message: '立即触发协调?', type: 'primary' })) return;
       kbBusy.value = true;
       try {
@@ -4412,6 +4674,7 @@ const app = Vue.createApp({
     }
 
     async function kbClear(ip) {
+        expose('kbClear', kbClear);
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
       if (!await showConfirm({ title: '清除封禁条目', message: `清除 ${ip} 的所有内核封禁条目?`, type: 'danger' })) return;
       kbBusy.value = true;
@@ -4428,6 +4691,7 @@ const app = Vue.createApp({
     }
 
     async function kbPause(paused) {
+        expose('kbPause', kbPause);
       if (!await showConfirm({ title: paused ? '暂停自动晋升' : '恢复自动晋升', message: paused ? '暂停自动晋升?' : '恢复自动晋升?', type: 'warning' })) return;
       kbBusy.value = true;
       try {
@@ -4443,6 +4707,7 @@ const app = Vue.createApp({
     }
 
     async function kbFlushAuto() {
+        expose('kbFlushAuto', kbFlushAuto);
       if (!await showConfirm({
         title: '刷新自动条目',
         message: '刷新所有自动扫描器/cc 内核条目? 此操作不可撤销。',
@@ -4471,6 +4736,7 @@ const app = Vue.createApp({
 
 
     function openFreqRuleCreate() {
+        expose('openFreqRuleCreate', openFreqRuleCreate);
       freqRuleModal.mode = 'create';
       freqRuleModal._matcherRef = null;
       freqRuleModal.id = 'freq_' + Date.now();
@@ -4484,6 +4750,7 @@ const app = Vue.createApp({
     }
 
     function openFreqRuleEdit(rule) {
+        expose('openFreqRuleEdit', openFreqRuleEdit);
       freqRuleModal.mode = 'edit';
       freqRuleModal.id = rule.id;
       freqRuleModal.key = rule.key || 'ip';
@@ -4503,6 +4770,7 @@ const app = Vue.createApp({
     }
 
     async function saveFreqRule() {
+        expose('saveFreqRule', saveFreqRule);
       try {
         // Client-side validation
         if (!freqRuleModal.key || freqRuleModal.key.trim() === '') {
@@ -4553,6 +4821,7 @@ const app = Vue.createApp({
     }
 
     async function deleteFreqRule(rule) {
+        expose('deleteFreqRule', deleteFreqRule);
       if (!await showConfirm({ title: '删除频率规则', message: `删除频率规则 "${rule.id}"?`, type: 'danger' })) return;
       try {
         const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
@@ -4568,6 +4837,7 @@ const app = Vue.createApp({
     }
 
     async function wafDeleteRule(rule) {
+        expose('wafDeleteRule', wafDeleteRule);
       if (!await showConfirm({ title: '删除 WAF 规则', message: `删除规则 "${rule.name}"? 此操作不可撤销。`, type: 'danger' })) return;
       wafDeleteBusy.value = true;
       try {
@@ -4585,6 +4855,7 @@ const app = Vue.createApp({
     }
 
     async function wafToggleRule(rule) {
+        expose('wafToggleRule', wafToggleRule);
       const enable = rule.enable === false;
       if (!await showConfirm({ title: enable ? '启用规则' : '停用规则', message: enable ? `启用规则 ${rule.name}？将立即生效。` : `停用规则 ${rule.name}？将立即停止拦截。`, type: enable ? 'primary' : 'warning' })) return;
       wafToggleBusy.value = true;
@@ -4602,26 +4873,34 @@ const app = Vue.createApp({
     }
 
     function wafPage(p) {
+        expose('wafPage', wafPage);
       wafPagination.page = p;
       loadWafRules();
     }
 
     function wafFilterChange() {
+        expose('wafFilterChange', wafFilterChange);
       wafPagination.page = 1;
       loadWafRules();
     }
 
     async function wafRefreshAll() {
+        expose('wafRefreshAll', wafRefreshAll);
       await loadWafData();
     }
 
     // ---- WAF Recommender ----
     const recs = ref([]);
+        expose('recs', recs);
     const recStats = ref(null);
+        expose('recStats', recStats);
     const recError = ref('');
+        expose('recError', recError);
     const recLoading = ref(false);
+        expose('recLoading', recLoading);
 
     async function loadRecs() {
+        expose('loadRecs', loadRecs);
       recError.value = '';
       try {
         const [d, s] = await Promise.all([
@@ -4636,6 +4915,7 @@ const app = Vue.createApp({
     }
 
     async function runRecAnalysis() {
+        expose('runRecAnalysis', runRecAnalysis);
       recLoading.value = true;
       recError.value = '';
       try {
@@ -4652,6 +4932,7 @@ const app = Vue.createApp({
     }
 
     async function applyRec(id) {
+        expose('applyRec', applyRec);
       try {
         const d = await api('POST', '/verynginx/waf/recommendations/' + id + '/apply');
         if (d.ret === 'success') {
@@ -4664,6 +4945,7 @@ const app = Vue.createApp({
     }
 
     async function dismissRec(id) {
+        expose('dismissRec', dismissRec);
       try {
         await api('POST', '/verynginx/waf/recommendations/' + id + '/dismiss');
         await loadRecs();
@@ -4673,6 +4955,7 @@ const app = Vue.createApp({
     }
 
     async function wafRollback(version) {
+        expose('wafRollback', wafRollback);
       if (!await showConfirm({
         title: '回滚规则版本',
         message: `回滚到版本 ${version}? 这将替换所有当前规则。`,
@@ -4697,6 +4980,7 @@ const app = Vue.createApp({
 
     // ---- WAF Hits ----
     async function loadWafHits() {
+        expose('loadWafHits', loadWafHits);
       wafHitsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/hits?limit=' + wafHitsLimit.value);
@@ -4712,12 +4996,14 @@ const app = Vue.createApp({
     }
 
     function wafLoadMoreHits() {
+        expose('wafLoadMoreHits', wafLoadMoreHits);
       wafHitsLimit.value = 100;
       loadWafHits();
     }
 
     // ---- WAF Analytics ----
     async function loadWafAnalytics() {
+        expose('loadWafAnalytics', loadWafAnalytics);
       wafAnalyticsLoading.value = true;
       wafAnalyticsError.value = '';
       try {
@@ -4737,12 +5023,14 @@ const app = Vue.createApp({
     }
 
     function gradeStyle(g) {
+        expose('gradeStyle', gradeStyle);
       const colors = { 'A+': '#16a34a', A: '#22c55e', B: '#f59e0b', C: '#f97316', D: '#ef4444' };
       return { background: colors[g] || '#6b7280', color: '#fff' };
     }
 
     // ---- Plugins ----
     async function loadPlugins() {
+        expose('loadPlugins', loadPlugins);
       pluginsError.value = '';
       try {
         const d = await api('GET', '/verynginx/plugins');
@@ -4757,6 +5045,7 @@ const app = Vue.createApp({
     }
 
     async function togglePlugin(p) {
+        expose('togglePlugin', togglePlugin);
       pluginsError.value = '';
       const old = p.enable;
       p.enable = !p.enable;
@@ -4778,8 +5067,10 @@ const app = Vue.createApp({
 
     // ---- Config Export/Import ----
     const importFileInput = ref(null);
+        expose('importFileInput', importFileInput);
 
     async function exportConfig() {
+        expose('exportConfig', exportConfig);
       try {
         const opts = { method: 'GET', credentials: 'same-origin' };
         if (csrfToken) {
@@ -4809,12 +5100,14 @@ const app = Vue.createApp({
     }
 
     function importConfig() {
+        expose('importConfig', importConfig);
       configImportError.value = '';
       configImportOk.value = '';
       if (importFileInput.value) importFileInput.value.click();
     }
 
     async function onImportFile(e) {
+        expose('onImportFile', onImportFile);
       configImportError.value = '';
       configImportOk.value = '';
       const file = e.target.files && e.target.files[0];
@@ -4838,6 +5131,7 @@ const app = Vue.createApp({
 
     // ---- Top Paths ----
     async function loadTopPaths() {
+        expose('loadTopPaths', loadTopPaths);
       try {
         const d = await api('GET', '/verynginx/stats/top-paths?limit=20');
         if (d.ret === 'success') {
@@ -4849,6 +5143,7 @@ const app = Vue.createApp({
     }
 
     async function wafRunTest() {
+        expose('wafRunTest', wafRunTest);
       wafTestError.value = '';
       wafTestResults.value = null;
 
@@ -4882,79 +5177,9 @@ const app = Vue.createApp({
       wafTesting.value = false;
     }
 
-return {
-      store, page, dashTab, advTab, loading, loginUser, loginPass, loginError,
-      status, s, cfg, healthData, overview, dictUsage, connHistory, connLinePoints, connFillPoints, cfgTab, theme, toggleTheme, rawJson, jsonSaving, jsonError,
-      statsData, statsType, statsError, expandedUri,
-      matcherKeys, respKeys, editMatcherModal,
-      doLogin, doLogout, loadStatus, loadConfig, loadData, loadOverview, loadDictUsage,
-      editMatcher, saveMatcher, deleteMatcher,
-      commitConfig, saveRawConfig, loadStats,
-      formatTime, formatBytes, formatNumber, calcSuccess, successClass, summarizeRule, actionClass,
-      // Config Rules CRUD
-      ruleEditModal, ruleSaving, upstreamKeys, ruleEditReset, ruleBuildRule,
-      ruleOpenCreate, ruleOpenEdit, ruleEditModalChanged, ruleSave, ruleDelete, ruleToggle,
-      // WAF
-      wafTab, wafRuleView, wafAttackView, wafError, wafRules, wafCategories, wafPagination,
-      wafFilterCat, wafFilterSev, wafFilterChange, wafStatsData, wafStatsError,
-      wafHistory, wafHistError, wafRolling,
-      wafEditModal, wafEditError, wafSaving,
-      wafTestRuleJson, wafTestCasesJson, wafTestError, wafTesting, wafTestResults,
-      sevClass, fmtTime,
-      loadWafRules, loadWafStats, loadWafHistory, loadWafData, loadWafAttackData,
-      wafOpenCreate, wafOpenEdit, wafSaveRule,
-      wafDeleteRule, wafToggleRule, wafPage, wafRefreshAll,
-      wafRollback, wafRunTest,
-      wafDeleteBusy, wafToggleBusy,
-      startStatusRefresh, startHealthRefresh,
-      wafHits, wafHitsError, wafHitsTime, wafHitsLimit, loadWafHits, wafLoadMoreHits,
-      wafAnalytics, wafAnalyticsLoading, wafAnalyticsError, loadWafAnalytics, gradeStyle,
-      wafPendingChanges, loadPendingRules, confirmPendingChange, discardPendingChange,
-      wafTimeline, wafTimelineHours, wafTimelineBucket, wafTimelineLoading, wafTimelineError, loadWafTimeline, hasTimelineData,
-      categoryColor, wafDiffLines, timelineBarHeight,
-      wafTestHistory, loadTestHistory, clearTestHistory,
-      wafHitDetailModal, openHitDetail, addToWhitelist, viewIpHits, editRuleById,
-      wafIpHits, wafIpHitsIp,
-      confirmModal, showConfirm, confirmModalOk, confirmModalCancel,
-      // WAF Recommender
-      recs, recStats, recError, recLoading, loadRecs, runRecAnalysis, applyRec, dismissRec,
-      freqStats, freqRules, freqTemplates, freqTemplatesLoaded, freqError, loadFrequencyData, openFreqRuleCreate, saveFreqRule, deleteFreqRule,
-      previewFreqTemplate, applyFreqTemplate,
-      geoipLookupIP, geoipLookupResult, geoipStats, geoipMaxCount, geoipConfig, geoipStatus, geoipLoading, geoipError, loadGeoIP, loadGeoIPStatus, lookupGeoIP, saveGeoIPConfig, triggerGeoIPUpdate,
-      fingerprints, fpCategories, fpError, fpToggleBusy, loadFingerprints, openFpAdd, toggleFp, deleteFp, fpEditModal,
-      freqRuleModal, freqTemplateModal,
-      plugins, pluginsError, loadPlugins, togglePlugin,
-      toastMsg, toastType, toastVisible, formatAgo, showToast, parsePrometheus,
-      configImportError, configImportOk, importFileInput,
-      versionInfo,
-      exportConfig, importConfig, onImportFile,
-      topPaths, loadTopPaths,
-      // Reputation
-      repStats, repFlagged, repWhitelist, repError,
-      repNewWhitelist, repLookupIP, repLookupResult,
-      remaining, loadRepData, repClear, repAddWhitelist, repRemoveWhitelist, repPersist, repLookup, repClearBusy,
-      // Audit
-      auditEntries, auditError, auditActionClass, loadAudit, clearAuditFilters, setAuditSincePreset,
-      auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil,
-      // Kernel Blocking
-      kbStatus, kbEntries, kbCandidates, kbTimeline, kbBucketHistory, kbDiff, kbTab,
-      kbNewIP, kbNewPolicy, kbNewTTL, kbError, kbBusy,
-      kbEntriesNext, kbCandidatesNext, kbEntriesPrev, kbCandidatesPrev, kbFilterPolicy, kbFilterState, kbFilterIP,
-      kbTimelineFilter, kbTimelineActionLabel, kbTimelineActionClass,
-      kbForm, kbDetail, kbDetailJson, kbReasonItems, kbChecklist,
-      kbEffMode, kbEffReachable, formatKbTime, formatKbExpiry, kbEvidenceSummary,
-      kbTrendPoints, kbTrendFillEnforce, kbTrendFillObserve,
-      ccAutoReady, enableCcEnforceReady,
-      kbOpenDetail, kbReloadList, kbSaveSettings, kbMarkFormDirty, loadKbTimeline,
-      loadKbData, loadKbEntries, loadKbCandidates, loadKbDashboard, loadKbBucketHistory,
-      kbBucketHistoryLoading, kbBucketHistoryError,
-      kbEntriesPagePrev, kbCandidatesPagePrev,
-      kbEntriesPageNext, kbCandidatesPageNext,
-      kbPromote, kbPromoteIp, kbClear, kbPause, kbFlushAuto, kbReconcile,
-      refreshConfig, openFreqRuleEdit,
-      navigateTo,
-    };
+    return Object.fromEntries(exports);
   }
+  
 });
 
 app.mount('#app');
