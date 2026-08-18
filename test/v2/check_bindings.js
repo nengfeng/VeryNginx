@@ -37,36 +37,9 @@ for (let i = 0; i < lines.length; i++) {
 const template = templateLines.join('\n');
 
 function extractReturnBindings(script) {
-  // Find the setup() function body - look for "setup() {" 
-  const setupIdx = script.indexOf('setup() {');
-  if (setupIdx < 0) return new Set();
-  
-  // Find the matching closing brace for setup function
-  let depth = 1;
-  let i = setupIdx + 9; // after "setup() {"
-  for (; i < script.length && depth > 0; i++) {
-    if (script[i] === '{') depth++;
-    else if (script[i] === '}') depth--;
-  }
-  const setupBody = script.substring(setupIdx + 9, i - 1);
-  
-  // Find all return statements in setup body, take the last one
-  const returnMatches = [...setupBody.matchAll(/return\s*{([\s\S]*?)};/g)];
-  if (returnMatches.length === 0) return new Set();
-  const returnBody = returnMatches[returnMatches.length - 1][1];
-  
-  const bindings = new Set();
-  const lines = returnBody.split('\n');
-  for (const line of lines) {
-    const trimmed = line.trim().replace(/,$/, '');
-    if (!trimmed || trimmed.startsWith('//')) continue;
-    const parts = trimmed.split(/\s+/);
-    for (const part of parts) {
-      const name = part.replace(/,$/, '').trim();
-      if (name && !name.includes(':')) bindings.add(name);
-    }
-  }
-  return bindings;
+  // New pattern: all exports are via expose() calls
+  // Delegate to extractExposedBindings
+  return extractExposedBindings(script);
 }
 
 function extractTemplateBindings(template) {
