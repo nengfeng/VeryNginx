@@ -4180,7 +4180,7 @@ const app = Vue.createApp({
 
     function kbEntriesPagePrev() {
       const prev = kbEntriesPrev.value.pop();
-      if (prev !== undefined) loadKbEntries(prev);
+      if (prev != null) loadKbEntries(prev);
     }
 
     async function loadKbCandidates(cursor) {
@@ -4209,7 +4209,7 @@ const app = Vue.createApp({
 
     function kbCandidatesPagePrev() {
       const prev = kbCandidatesPrev.value.pop();
-      if (prev !== undefined) loadKbCandidates(prev);
+      if (prev != null) loadKbCandidates(prev);
     }
 
     async function loadKbTimeline() {
