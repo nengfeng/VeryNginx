@@ -2214,13 +2214,13 @@ const app = Vue.createApp({
        try { localStorage.setItem('vn_theme', newTheme); } catch(e) {}
      }
     const rawJson = ref('');
+    const jsonError = ref('');
     watch(rawJson, (val) => {
       jsonError.value = '';
       if (!val) return;
       try { JSON.parse(val); } catch (e) { jsonError.value = 'JSON: ' + e.message; }
     });
     const jsonSaving = ref(false);
-    const jsonError = ref('');
     const statsData = ref(null);
     const statsType = ref('long');
     const statsError = ref('');
