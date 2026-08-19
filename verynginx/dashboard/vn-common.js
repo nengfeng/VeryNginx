@@ -1,9 +1,14 @@
-// vn-common.js - Core infrastructure for VeryNginx Dashboard
-// Provides shared utilities, API client, session management, core state
+// vn-common.js - Domain module for VeryNginx Dashboard
+// IIFE pattern for classic script loading
 
-export function createCommonModule(ctx) {
-    const { expose } = ctx;
+(function() {
+    // Register factory on global namespace
+    window.VN = window.VN || {};
+    window.VN.modules = window.VN.modules || {};
     
+    window.VN.modules['vncommon'] = function createvncommonModule(ctx) {
+        const { expose } = ctx;
+        
     // Module-level store so api() can access it for session expiration handling
     let store = reactive({ loggedIn: false, user: null });
 
@@ -205,4 +210,9 @@ export function createCommonModule(ctx) {
     expose('refreshCsrf', refreshCsrf);
     expose('refreshCsrfOnce', refreshCsrfOnce);
     expose('csrfToken', () => csrfToken); // getter for current token
-}
+
+        
+        // Module initialization (if any)
+        // No return needed; expose() calls register everything
+    };
+})();

@@ -1,12 +1,14 @@
 // vn-frequency.js - Domain module for VeryNginx Dashboard
-// Factory function pattern: receives ctx with shared dependencies
+// IIFE pattern for classic script loading
 
-export function createvnfrequencyModule(ctx) {
-    const { 
-        expose, api, store, showToast, showConfirm, navigateTo,
-        isValidIpLiteral, refreshCsrf, loadStatus, loadConfig
-    } = ctx;
+(function() {
+    // Register factory on global namespace
+    window.VN = window.VN || {};
+    window.VN.modules = window.VN.modules || {};
     
+    window.VN.modules['vnfrequency'] = function createvnfrequencyModule(ctx) {
+        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken } = ctx;
+        
     // ---- Frequency Limit ----
     async function loadFrequencyData() {
         expose('loadFrequencyData', loadFrequencyData);
@@ -111,7 +113,8 @@ export function createvnfrequencyModule(ctx) {
         }
       } catch (e) { showToast(e.message, 'error'); }
     }
-    
-    // Module initialization (if any)
-    // return {}; // No additional exports needed; expose() calls register everything
-}
+        
+        // Module initialization (if any)
+        // No return needed; expose() calls register everything
+    };
+})();

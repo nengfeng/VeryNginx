@@ -1,12 +1,14 @@
 // vn-kb.js - Domain module for VeryNginx Dashboard
-// Factory function pattern: receives ctx with shared dependencies
+// IIFE pattern for classic script loading
 
-export function createvnkbModule(ctx) {
-    const { 
-        expose, api, store, showToast, showConfirm, navigateTo,
-        isValidIpLiteral, refreshCsrf, loadStatus, loadConfig
-    } = ctx;
+(function() {
+    // Register factory on global namespace
+    window.VN = window.VN || {};
+    window.VN.modules = window.VN.modules || {};
     
+    window.VN.modules['vnkb'] = function createvnkbModule(ctx) {
+        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken } = ctx;
+        
     // ---- Kernel Blocking State ----
     const kbStatus = ref({
       configured: { enabled: false, mode: 'observe', emergency_pause: false, topology: 'unknown', protected_addresses: [], protected_ports: [] },
@@ -796,7 +798,8 @@ export function createvnkbModule(ctx) {
         expose('wafRefreshAll', wafRefreshAll);
       await loadWafData();
     }
-    
-    // Module initialization (if any)
-    // return {}; // No additional exports needed; expose() calls register everything
-}
+        
+        // Module initialization (if any)
+        // No return needed; expose() calls register everything
+    };
+})();

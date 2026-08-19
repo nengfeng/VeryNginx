@@ -1,60 +1,88 @@
 // app.js - Main entry point for VeryNginx Dashboard
-// Assembles all domain modules and mounts Vue app
+// IIFE pattern for classic script loading
 
-import { createCommonModule } from './vn-common.js';
-import { createVnDashboardModule } from './vn-dashboard.js';
-import { createVnConfigModule } from './vn-config.js';
-import { createVnWafModule } from './vn-waf.js';
-import { createVnFrequencyModule } from './vn-frequency.js';
-import { createVnGeoipModule } from './vn-geoip.js';
-import { createVnReputationModule } from './vn-reputation.js';
-import { createVnAdvancedModule } from './vn-advanced.js';
-import { createVnKbModule } from './vn-kb.js';
+(function() {
+    // Namespace for module factories
+    window.VN = window.VN || {};
+    window.VN.modules = window.VN.modules || {};
 
-const exports = new Map();
-function expose(name, value) { exports.set(name, value); }
+    const exports = new Map();
+    function expose(name, value) { exports.set(name, value); }
 
-// Create shared context
-const ctx = {
-    expose,
-    // These will be populated by createCommonModule
-    api: null,
-    store: null,
-    showToast: null,
-    showConfirm: null,
-    navigateTo: null,
-    isValidIpLiteral: null,
-    refreshCsrf: null,
-    loadStatus: null,
-    loadConfig: null,
-};
+    // Create shared context - ONLY initial state refs + core utilities
+    // Domain modules declare their own functions locally (loadStatus, showToast, etc.)
+    const ctx = {
+        expose,
+        // Initial state refs (from setup() initial state)
+        page: null,
+        dashTab: null,
+        advTab: null,
+        loading: null,
+        loginUser: null,
+        loginPass: null,
+        loginError: null,
+        status: null,
+        connHistory: null,
+        cfg: null,
+        healthData: null,
+        overview: null,
+        dictUsage: null,
+        cfgTab: null,
+        theme: null,
+        rawJson: null,
+        jsonError: null,
+        jsonSaving: null,
+        statsData: null,
+        statsType: null,
+        statsError: null,
+        expandedUri: null,
+        editMatcherModal: null,
+        // Core utilities
+        api: null,
+        store: null,
+        isValidIpLiteral: null,
+        refreshCsrf: null,
+        refreshCsrfOnce: null,
+        csrfToken: null,
+    };
 
-// Initialize common module (provides api, store, etc.)
-createCommonModule(ctx);
-
-// Now ctx has api, store, etc. - initialize domain modules
-createVnDashboardModule(ctx);
-createVnConfigModule(ctx);
-createVnWafModule(ctx);
-createVnFrequencyModule(ctx);
-createVnGeoipModule(ctx);
-createVnReputationModule(ctx);
-createVnAdvancedModule(ctx);
-createVnKbModule(ctx);
-
-// Mount Vue app
-const app = Vue.createApp({
-    setup() {
-        return Object.fromEntries(exports);
+    // Initialize modules in dependency order
+    // 1. Common (provides api, store, and populates initial state refs in ctx)
+    if (window.VN.modules.vnCommon) {
+        window.VN.modules.vnCommon(ctx);
     }
-});
 
-app.mount('#app');
-
-// Global unhandled rejection handler for session_expired
-window.addEventListener('unhandledrejection', (ev) => {
-    const reason = ev && ev.reason;
-    if (reason && reason.message === 'session_expired') {
-        ev.preventDefault();
+    // 2. Domain modules (all depend on ctx from common)
+    const domainModules = [
+        'vnDashboard',
+        'vnConfig',
+        'vnWaf',
+        'vnFrequency',
+        'vnGeoip',
+        'vnReputation',
+        'vnAdvanced',
+        'vnKb',
+    ];
+    for (const name of domainModules) {
+        if (window.VN.modules[name]) {
+            window.VN.modules[name](ctx);
+        }
     }
-});
+
+    // Mount Vue app
+    const app = Vue.createApp({
+        setup() {
+            return Object.fromEntries(exports);
+        }
+    });
+
+    app.mount('#app');
+
+    // Global unhandled rejection handler for session_expired
+    window.addEventListener('unhandledrejection', (ev) => {
+        const reason = ev && ev.reason;
+        if (reason && reason.message === 'session_expired') {
+            ev.preventDefault();
+        }
+    });
+})();

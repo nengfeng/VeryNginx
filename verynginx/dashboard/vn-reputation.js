@@ -1,12 +1,14 @@
 // vn-reputation.js - Domain module for VeryNginx Dashboard
-// Factory function pattern: receives ctx with shared dependencies
+// IIFE pattern for classic script loading
 
-export function createvnreputationModule(ctx) {
-    const { 
-        expose, api, store, showToast, showConfirm, navigateTo,
-        isValidIpLiteral, refreshCsrf, loadStatus, loadConfig
-    } = ctx;
+(function() {
+    // Register factory on global namespace
+    window.VN = window.VN || {};
+    window.VN.modules = window.VN.modules || {};
     
+    window.VN.modules['vnreputation'] = function createvnreputationModule(ctx) {
+        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken } = ctx;
+        
     // ---- Reputation State ----
     const repStats = ref(null);
         expose('repStats', repStats);
@@ -24,7 +26,8 @@ export function createvnreputationModule(ctx) {
         expose('repLookupResult', repLookupResult);
     const repClearBusy = ref({});
         expose('repClearBusy', repClearBusy);
-    
-    // Module initialization (if any)
-    // return {}; // No additional exports needed; expose() calls register everything
-}
+        
+        // Module initialization (if any)
+        // No return needed; expose() calls register everything
+    };
+})();
