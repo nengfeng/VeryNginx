@@ -207,7 +207,6 @@
 
     // expose core utilities
     expose('api', api);
-    expose('store', store);
     expose('isValidIpLiteral', isValidIpLiteral);
     expose('refreshCsrf', refreshCsrf);
     expose('refreshCsrfOnce', refreshCsrfOnce);
