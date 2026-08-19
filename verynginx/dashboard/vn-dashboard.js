@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vndashboard'] = function createvndashboardModule(shared) {
-        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast } = shared;
+        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -170,55 +170,30 @@
     }
 
 
-    // ---- Auto-refresh timers (owned here so logout can clear them) ----
-    let statusTimer = null;
-    let healthTimer = null;
-    let overviewTimer = null;
-
-    function startStatusRefresh() {
-      clearInterval(statusTimer);
-      loadStatus();
-      statusTimer = setInterval(loadStatus, 3000);
-    }
-
-    function startHealthRefresh() {
-      clearInterval(healthTimer);
-      loadHealth();
-      healthTimer = setInterval(loadHealth, 10000);
-    }
-
-    function startOverviewRefresh() {
-      clearInterval(overviewTimer);
-      loadOverview();
-      overviewTimer = setInterval(loadOverview, 5000);
-    }
-
-    function stopAllTimers() {
-      clearInterval(statusTimer);
-      clearInterval(healthTimer);
-      clearInterval(overviewTimer);
-      statusTimer = null;
-      healthTimer = null;
-      overviewTimer = null;
-    }
-
-    // Dashboard tab polling (overview + status). Health polling only belongs
-    // to config/upstreams, so any page/dashTab navigation clears it too.
-    watch([page, dashTab], ([p, d]) => {
-      clearInterval(healthTimer);
-      if (p === 'dashboard' && d === 'overview') {
-        clearInterval(statusTimer);
-        startOverviewRefresh();
-      } else if (p === 'dashboard' && d === 'status') {
-        clearInterval(overviewTimer);
-        startStatusRefresh();
-      } else {
-        clearInterval(overviewTimer);
-        clearInterval(statusTimer);
-      }
+    // ---- Auto-refresh polling ----
+    // Every poller lives in the central registry (vn-common) and declares an
+    // `active()` predicate. A single [page, dashTab, cfgTab] watcher reconciles
+    // all pollers, so navigation can never leak an interval.
+    registerPoll('status', {
+        active: () => page.value === 'dashboard' && dashTab.value === 'status',
+        interval: 3000,
+        load: loadStatus,
+    });
+    registerPoll('overview', {
+        active: () => page.value === 'dashboard' && dashTab.value === 'overview',
+        interval: 5000,
+        load: loadOverview,
+    });
+    registerPoll('health', {
+        active: () => page.value === 'config' && cfgTab.value === 'upstreams',
+        interval: 10000,
+        load: loadHealth,
     });
 
-    // Advanced tab load (fingerprints / audit) - late-bound via ctx
+    // Single reconciler: page/dashTab/cfgTab navigation starts/stops pollers.
+    watch([page, dashTab, cfgTab], syncPolls);
+
+    // Advanced tab load (fingerprints / audit) - late-bound via shared
     watch([page, advTab], ([p, d]) => {
       if (p === 'advanced') {
         if (d === 'fingerprints') { if (shared.loadFingerprints) shared.loadFingerprints(); }
@@ -226,25 +201,21 @@
       }
     });
 
-    // Config tab: health polling on upstreams, dict usage on system
+    // Config tab: dict usage on system tab (polling handled by registry)
     watch(cfgTab, (tab) => {
-      if (tab === 'upstreams') startHealthRefresh();
-      else clearInterval(healthTimer);
       if (tab === 'system') loadDictUsage();
     });
 
     // Stop all polling when the session ends
     watch(() => store.loggedIn, (loggedIn) => {
-      if (!loggedIn) stopAllTimers();
+      if (!loggedIn) stopAllPolls();
     });
 
     // Kick off on first mount if already logged in (e.g. session cookie)
     Vue.nextTick(() => {
       if (store.loggedIn) {
         loadVersion();
-        if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
-        if (page.value === 'dashboard' && dashTab.value === 'overview') startOverviewRefresh();
-        if (page.value === 'config' && cfgTab.value === 'upstreams') startHealthRefresh();
+        syncPolls();
       }
     });
 
@@ -419,8 +390,7 @@
           loginUser.value = '';
           await refreshCsrf();
           loadData();
-          if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
-          if (page.value === 'dashboard' && dashTab.value === 'overview') startOverviewRefresh();
+          syncPolls();
         } else {
           loginError.value = d.message || '登录失败';
         }
@@ -433,8 +403,8 @@
 
     // ---- Logout ----
     async function doLogout() {
-      // Clear all auto-refresh timers
-      stopAllTimers();
+      // Stop all polling; session revocation below clears the loggedIn watcher
+      stopAllPolls();
       // Revoke session server-side (best-effort)
       try { await api('POST', '/verynginx/logout'); } catch (_) {}
       document.cookie = 'verynginx_session=; Path=/; Max-Age=0';
@@ -454,8 +424,6 @@
     ctx('loadHealth', loadHealth);
     view('loadDictUsage', loadDictUsage);
     view('loadTopPaths', loadTopPaths);
-    ctx('startStatusRefresh', startStatusRefresh);
-    ctx('startHealthRefresh', startHealthRefresh);
     view('doLogin', doLogin);
     view('doLogout', doLogout);
     view('formatTime', formatTime);

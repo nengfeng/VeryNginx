@@ -446,6 +446,23 @@ const app = Vue.createApp({
 }).mount('#app');
 ```
 
+### 8.3b 轮询生命周期（中央注册表）
+
+**禁止**在模块里 ad-hoc 地 `watch(page)` 里手写 `setInterval/clearInterval`——历史泄漏（status/overview/health 轮询切页残留）就是这么来的。所有自动刷新轮询必须注册进 vn-common 的中央注册表：
+
+```javascript
+registerPoll('health', {
+    active: () => page.value === 'config' && cfgTab.value === 'upstreams',
+    interval: 10000,
+    load: loadHealth,
+});
+```
+
+- 每个 poller 声明 `active()` 谓词；`syncPolls()` 遍历注册表，按谓词 reconcile 每个 poller 的启动/停止（幂等：应跑而未跑则 load 一次 + 起 interval；不应跑而跑着则 clear）。
+- 单一 `watch([page, dashTab, cfgTab], syncPolls)` 接管全部切换；登出走 `stopAllPolls()`；登录/首挂载走 `syncPolls()`（此时谓词已由当前 ref 状态决定）。
+- 新增轮询 = 加一行 `registerPoll`，无需再碰任何 watch；再也不会出现"新页面忘了清旧 timer"的分支遗漏。
+- `registerPoll` 对重名注册会 `console.error` 拒绝（由 dashboard_init_check 的 `_dups` 断言覆盖）。
+
 ### 8.4 路由与 WAF Tab
 
 WAF 面板的子页签切换通过 `wafTab` ref 控制。新增 tab 时：

@@ -300,6 +300,54 @@
     ctx('refreshCsrfOnce', refreshCsrfOnce);
     ctx('csrfToken', () => csrfToken); // getter for current token
 
+    // ---- Polling registry ----
+    // Central lifecycle for every auto-refresh poller. Each poller declares an
+    // `active()` predicate; syncPolls() reconciles start/stop on navigation.
+    // Pollers MUST register here instead of wiring ad-hoc per-page watches -
+    // ad-hoc clear logic is how the status/overview/health timer leak crept in.
+    const polls = new Map();
+
+    function registerPoll(name, spec) {
+        if (polls.has(name)) {
+            console.error('[VeryNginx] duplicate poll registration: ' + name);
+            return;
+        }
+        polls.set(name, {
+            active: spec.active,
+            interval: spec.interval,
+            load: spec.load,
+            timer: null,
+        });
+    }
+
+    function syncPolls() {
+        for (const poll of polls.values()) {
+            const shouldRun = poll.active();
+            if (shouldRun && poll.timer === null) {
+                try { poll.load(); } catch (e) { console.error('[VeryNginx] poll load failed: ' + e.message); }
+                poll.timer = setInterval(() => {
+                    try { poll.load(); } catch (e) { console.error('[VeryNginx] poll load failed: ' + e.message); }
+                }, poll.interval);
+            } else if (!shouldRun && poll.timer !== null) {
+                clearInterval(poll.timer);
+                poll.timer = null;
+            }
+        }
+    }
+
+    function stopAllPolls() {
+        for (const poll of polls.values()) {
+            if (poll.timer !== null) {
+                clearInterval(poll.timer);
+                poll.timer = null;
+            }
+        }
+    }
+
+    ctx('registerPoll', registerPoll);
+    ctx('syncPolls', syncPolls);
+    ctx('stopAllPolls', stopAllPolls);
+
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything
     };
