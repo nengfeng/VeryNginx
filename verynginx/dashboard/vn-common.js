@@ -104,7 +104,7 @@
       }
       const res = await fetch(path, opts);
       if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
+        if ((res.status === 401 || res.status === 403) && path !== '/verynginx/login') {
           csrfToken = null;
           store.loggedIn = false;
           store.user = null;
@@ -299,6 +299,7 @@
     ctx('refreshCsrf', refreshCsrf);
     ctx('refreshCsrfOnce', refreshCsrfOnce);
     ctx('csrfToken', () => csrfToken); // getter for current token
+    ctx('clearCsrf', () => { csrfToken = null; csrfBroken = false; });
 
     // ---- Polling registry ----
     // Central lifecycle for every auto-refresh poller. Each poller declares an
@@ -324,14 +325,22 @@
         for (const poll of polls.values()) {
             const shouldRun = poll.active();
             if (shouldRun && poll.timer === null) {
-                try { poll.load(); } catch (e) { console.error('[VeryNginx] poll load failed: ' + e.message); }
-                poll.timer = setInterval(() => {
-                    try { poll.load(); } catch (e) { console.error('[VeryNginx] poll load failed: ' + e.message); }
-                }, poll.interval);
+                runPollLoad(poll);
+                poll.timer = setInterval(() => runPollLoad(poll), poll.interval);
             } else if (!shouldRun && poll.timer !== null) {
                 clearInterval(poll.timer);
                 poll.timer = null;
             }
+        }
+    }
+
+    function runPollLoad(poll) {
+        try {
+            Promise.resolve(poll.load()).catch((e) => {
+                console.error('[VeryNginx] poll load failed: ' + e.message);
+            });
+        } catch (e) {
+            console.error('[VeryNginx] poll load failed: ' + e.message);
         }
     }
 

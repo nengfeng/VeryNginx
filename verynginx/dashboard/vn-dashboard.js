@@ -201,9 +201,11 @@
       }
     });
 
-    // Config tab: dict usage on system tab (polling handled by registry)
-    watch(cfgTab, (tab) => {
-      if (tab === 'system') loadDictUsage();
+    // Config tab: dict usage on system tab. Combined page+cfgTab watch so the
+    // first entry into 配置→系统 loads usage without a manual button click
+    // (a cfgTab-only watch never fires when cfgTab is already 'system').
+    watch([page, cfgTab], ([p, tab]) => {
+      if (p === 'config' && tab === 'system' && store.loggedIn) loadDictUsage();
     });
 
     // Stop all polling when the session ends
@@ -405,6 +407,8 @@
     async function doLogout() {
       // Stop all polling; session revocation below clears the loggedIn watcher
       stopAllPolls();
+      // Drop the CSRF token so a re-login can't reuse the stale one
+      if (shared.clearCsrf) shared.clearCsrf();
       // Revoke session server-side (best-effort)
       try { await api('POST', '/verynginx/logout'); } catch (_) {}
       document.cookie = 'verynginx_session=; Path=/; Max-Age=0';
