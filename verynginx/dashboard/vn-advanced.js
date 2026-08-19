@@ -115,9 +115,11 @@
 
     async function toggleFp(fp) {
       fpToggleBusy.value = true;
-      fp.enabled = !fp.enabled;
+      const old = fp.enabled;
+      fp.enabled = !old;
       try {
-        await saveFp(fp);
+        const ok = await saveFp(fp);
+        if (!ok) fp.enabled = old;
       } finally {
         fpToggleBusy.value = false;
       }
@@ -128,12 +130,14 @@
         const d = await api('PUT', '/verynginx/fingerprints', fp);
         if (d.ret === 'success') {
           await loadFingerprints();
+          return true;
         } else {
           showToast(d.message || '保存失败', 'error');
         }
       } catch (e) {
         showToast(e.message || '保存失败', 'error');
       }
+      return false;
     }
 
     async function deleteFp(fp) {

@@ -202,11 +202,15 @@
       overviewTimer = null;
     }
 
-    // Dashboard tab polling (overview + status)
+    // Dashboard tab polling (overview + status). Health polling only belongs
+    // to config/upstreams, so any page/dashTab navigation clears it too.
     watch([page, dashTab], ([p, d]) => {
+      clearInterval(healthTimer);
       if (p === 'dashboard' && d === 'overview') {
+        clearInterval(statusTimer);
         startOverviewRefresh();
       } else if (p === 'dashboard' && d === 'status') {
+        clearInterval(overviewTimer);
         startStatusRefresh();
       } else {
         clearInterval(overviewTimer);
@@ -240,6 +244,7 @@
         loadVersion();
         if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
         if (page.value === 'dashboard' && dashTab.value === 'overview') startOverviewRefresh();
+        if (page.value === 'config' && cfgTab.value === 'upstreams') startHealthRefresh();
       }
     });
 
