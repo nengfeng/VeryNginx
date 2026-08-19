@@ -1,16 +1,16 @@
-// vn-config.js - Domain module for VeryNginx Dashboard
-// IIFE pattern for classic script loading
+// vn-config.js - Config module for VeryNginx Dashboard
+// IIFE pattern for classic script loading. Loaded after vn-dashboard.
 
 (function() {
     // Register factory on global namespace
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
-    
+
     window.VN.modules['vnconfig'] = function createvnconfigModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, showToast, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
+        const { expose, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showConfirm } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
-        
+
     // ---- Config Rule Editor State ----
     const ruleEditModal = reactive({
       show: false, mode: 'create', _group: '', _index: -1,
@@ -18,21 +18,18 @@
       action: 'block', code: 403, to_uri: '', upstream: '',
       root: '', path: '', expires: '', response: '',
     });
-        expose('ruleEditModal', ruleEditModal);
     const ruleSaving = ref(false);
-        expose('ruleSaving', ruleSaving);
     const upstreamKeys = computed(() => Object.keys(cfg.value.backend_upstream || {}).sort());
-        expose('upstreamKeys', upstreamKeys);
+    expose('upstreamKeys', upstreamKeys);
 
 
     // ---- Matchers ----
     const matcherKeys = computed(() => Object.keys(cfg.value.matcher || {}).sort());
-        expose('matcherKeys', matcherKeys);
+    expose('matcherKeys', matcherKeys);
     const respKeys = computed(() => Object.keys(cfg.value.response || {}).sort());
-        expose('respKeys', respKeys);
+    expose('respKeys', respKeys);
 
     function editMatcher(name) {
-        expose('editMatcher', editMatcher);
       if (name) {
         editMatcherModal._origName = name;
         editMatcherModal.name = name;
@@ -46,7 +43,6 @@
     }
 
     async function saveMatcher() {
-        expose('saveMatcher', saveMatcher);
       try {
         const updated = JSON.parse(editMatcherModal.conditions);
         const newCfg = JSON.parse(JSON.stringify(cfg.value));
@@ -62,7 +58,6 @@
     }
 
     async function deleteMatcher(name) {
-        expose('deleteMatcher', deleteMatcher);
       if (!await showConfirm({ title: '删除匹配器', message: `删除匹配器 "${name}"?`, type: 'danger' })) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       delete newCfg.matcher[name];
@@ -72,7 +67,6 @@
 
     // ---- Config Rules CRUD ----
     function ruleEditReset() {
-        expose('ruleEditReset', ruleEditReset);
       ruleEditModal.enable = true;
       ruleEditModal.matcherType = 'inline';
       ruleEditModal.matcherJson = '{}';
@@ -87,7 +81,6 @@
     }
 
     function ruleOpenCreate(group) {
-        expose('ruleOpenCreate', ruleOpenCreate);
       ruleEditReset();
       ruleEditModal.mode = 'create';
       ruleEditModal._group = group;
@@ -95,7 +88,6 @@
     }
 
     function ruleOpenEdit(rule, group, idx) {
-        expose('ruleOpenEdit', ruleOpenEdit);
       ruleEditReset();
       ruleEditModal.mode = 'edit';
       ruleEditModal._group = group;
@@ -120,7 +112,6 @@
     }
 
     function ruleEditModalChanged() {
-        expose('ruleEditModalChanged', ruleEditModalChanged);
       // Clear stale fields when action changes
       if (ruleEditModal.action !== 'block') { ruleEditModal.response = ''; }
       if (ruleEditModal.action !== 'redirect' && ruleEditModal.action !== 'block') { ruleEditModal.code = 403; }
@@ -131,7 +122,6 @@
     }
 
     function ruleBuildRule() {
-        expose('ruleBuildRule', ruleBuildRule);
       const rule = { enable: ruleEditModal.enable };
       if (ruleEditModal.matcherType === 'inline') {
         try { rule.matcher = JSON.parse(ruleEditModal.matcherJson); } catch { rule.matcher = {}; }
@@ -163,7 +153,6 @@
     }
 
     async function ruleSave() {
-        expose('ruleSave', ruleSave);
       ruleSaving.value = true;
       try {
         const newCfg = JSON.parse(JSON.stringify(cfg.value));
@@ -186,7 +175,6 @@
     }
 
     async function ruleDelete(rule, group, index) {
-        expose('ruleDelete', ruleDelete);
       if (!await showConfirm({ title: '删除规则', message: 'Delete this rule?', type: 'danger' })) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
@@ -195,7 +183,6 @@
     }
 
     async function ruleToggle(rule, group, index) {
-        expose('ruleToggle', ruleToggle);
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
       const r = newCfg.rule[group][index];
@@ -208,7 +195,6 @@
 
     // ---- Save ----
     async function commitConfig(newCfg) {
-        expose('commitConfig', commitConfig);
       try {
         const d = await api('POST', '/verynginx/config', newCfg);
         if (d.ret === 'success') {
@@ -226,7 +212,6 @@
     }
 
     async function saveRawConfig() {
-        expose('saveRawConfig', saveRawConfig);
       if (!await showConfirm({
         title: '覆盖全部配置',
         message: '确定用当前 JSON 覆盖全部配置？建议先导出备份。',
@@ -252,62 +237,77 @@
       jsonSaving.value = false;
     }
 
-    // Auto-refresh status every 3s
-    let statusTimer;
-    function startStatusRefresh() {
-        expose('startStatusRefresh', startStatusRefresh);
-      clearInterval(statusTimer);
-      loadStatus();
-      statusTimer = setInterval(loadStatus, 3000);
+
+    // ---- Import / Export ----
+    const importFileInput = ref(null);
+    expose('importFileInput', importFileInput);
+    const configImportError = ref('');
+    expose('configImportError', configImportError);
+    const configImportOk = ref('');
+    expose('configImportOk', configImportOk);
+
+    function exportConfig() {
+      const blob = new Blob([JSON.stringify(cfg.value, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'verynginx-config.json';
+      a.click();
+      URL.revokeObjectURL(url);
     }
-    watch([page, dashTab], ([p, d]) => {
-      if (p === 'dashboard' && d === 'status') startStatusRefresh();
-      else clearInterval(statusTimer);
-    });
-    // Stop all auto-refresh polling when the session ends (logout or expiry).
-    // api() sets store.loggedIn=false on 401/403, so timer callbacks stop
-    // firing session_expired requests instead of polling every 3-10s.
-    watch(() => store.loggedIn, (loggedIn) => {
-      if (!loggedIn) {
-        clearInterval(statusTimer);
-        clearInterval(healthTimer);
-        clearInterval(overviewTimer);
-      }
-    });
-    // Kick off auto-refresh on first mount based on landing view
-    Vue.nextTick(() => {
-      if (store.loggedIn) {
-        if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
-        if (page.value === 'dashboard' && dashTab.value === 'overview') {
-          loadOverview();
-          overviewTimer = setInterval(loadOverview, 5000);
+
+    function importConfig() {
+      if (importFileInput.value) importFileInput.value.click();
+    }
+
+    async function onImportFile(e) {
+      const file = e.target && e.target.files && e.target.files[0];
+      if (!file) return;
+      configImportError.value = '';
+      configImportOk.value = '';
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const d = await api('POST', '/verynginx/config', parsed);
+        if (d.ret === 'success') {
+          await loadConfig();
+          await refreshCsrf();
+          configImportOk.value = '配置已成功导入并生效';
+        } else {
+          configImportError.value = d.message || d.err || '导入失败';
         }
+      } catch (err) {
+        configImportError.value = '导入失败: ' + err.message;
+      } finally {
+        if (e.target) e.target.value = '';
       }
-    });
-
-    // Auto-refresh health every 10s when on Upstreams tab
-    let healthTimer;
-    function startHealthRefresh() {
-        expose('startHealthRefresh', startHealthRefresh);
-      clearInterval(healthTimer);
-      loadHealth();
-      healthTimer = setInterval(loadHealth, 10000);
     }
-    watch(cfgTab, (tab) => {
-      if (tab === 'upstreams') startHealthRefresh();
-      else clearInterval(healthTimer);
-      if (tab === 'system') loadDictUsage();
-    });
 
+    // Refresh config data when entering the config page
     watch(page, (p) => {
-      if (p === 'config') refreshConfig(true);
-      if (p === 'kb') kbFormDirty.value = false;
+      if (p === 'config') { if (ctx.refreshConfig) ctx.refreshConfig(true); }
     });
 
-    watch(kbTimelineFilter, () => {
-      if (page.value === 'kb' && kbTab.value === 'timeline') loadKbTimeline();
-    });
-        
+    // ---- Exports ----
+    expose('ruleEditModal', ruleEditModal);
+    expose('ruleSaving', ruleSaving);
+    expose('editMatcher', editMatcher);
+    expose('saveMatcher', saveMatcher);
+    expose('deleteMatcher', deleteMatcher);
+    expose('ruleEditReset', ruleEditReset);
+    expose('ruleOpenCreate', ruleOpenCreate);
+    expose('ruleOpenEdit', ruleOpenEdit);
+    expose('ruleEditModalChanged', ruleEditModalChanged);
+    expose('ruleBuildRule', ruleBuildRule);
+    expose('ruleSave', ruleSave);
+    expose('ruleDelete', ruleDelete);
+    expose('ruleToggle', ruleToggle);
+    expose('commitConfig', commitConfig);
+    expose('saveRawConfig', saveRawConfig);
+    expose('exportConfig', exportConfig);
+    expose('importConfig', importConfig);
+    expose('onImportFile', onImportFile);
+
         // Module initialization (if any)
         // No return needed; expose() calls register everything
     };

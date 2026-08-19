@@ -1,16 +1,16 @@
-// vn-dashboard.js - Domain module for VeryNginx Dashboard
-// IIFE pattern for classic script loading
+// vn-dashboard.js - Dashboard module for VeryNginx Dashboard
+// IIFE pattern for classic script loading. Loaded after vn-common.
 
 (function() {
     // Register factory on global namespace
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
-    
+
     window.VN.modules['vndashboard'] = function createvndashboardModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, showToast, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
+        const { expose, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
-        
+
     // ---- Version ----
     async function loadVersion() {
       try {
@@ -24,7 +24,6 @@
 
     // ---- Overview ----
     function parsePrometheus(text) {
-        expose('parsePrometheus', parsePrometheus);
       const result = {};
       const lines = text.split('\n');
       for (const line of lines) {
@@ -55,7 +54,6 @@
     }
 
     async function loadOverview() {
-        expose('loadOverview', loadOverview);
       const o = { conn_active: 0, req_rate: 0, up_healthy: 0, up_total: 0, waf_hits: 0, dicts: [], top_uris: [], plugin_errors: [] };
       try {
         // Status: connection counts
@@ -171,29 +169,83 @@
       overview.value = o;
     }
 
-    // Auto-refresh overview every 5s
-    let overviewTimer;
+
+    // ---- Auto-refresh timers (owned here so logout can clear them) ----
+    let statusTimer = null;
+    let healthTimer = null;
+    let overviewTimer = null;
+
+    function startStatusRefresh() {
+      clearInterval(statusTimer);
+      loadStatus();
+      statusTimer = setInterval(loadStatus, 3000);
+    }
+
+    function startHealthRefresh() {
+      clearInterval(healthTimer);
+      loadHealth();
+      healthTimer = setInterval(loadHealth, 10000);
+    }
+
+    function startOverviewRefresh() {
+      clearInterval(overviewTimer);
+      loadOverview();
+      overviewTimer = setInterval(loadOverview, 5000);
+    }
+
+    function stopAllTimers() {
+      clearInterval(statusTimer);
+      clearInterval(healthTimer);
+      clearInterval(overviewTimer);
+      statusTimer = null;
+      healthTimer = null;
+      overviewTimer = null;
+    }
+
+    // Dashboard tab polling (overview + status)
     watch([page, dashTab], ([p, d]) => {
       if (p === 'dashboard' && d === 'overview') {
-        clearInterval(overviewTimer);
-        loadOverview();
-        overviewTimer = setInterval(loadOverview, 5000);
+        startOverviewRefresh();
+      } else if (p === 'dashboard' && d === 'status') {
+        startStatusRefresh();
       } else {
         clearInterval(overviewTimer);
+        clearInterval(statusTimer);
       }
     });
 
+    // Advanced tab load (fingerprints / audit) - late-bound via ctx
     watch([page, advTab], ([p, d]) => {
       if (p === 'advanced') {
-        if (d === 'fingerprints') loadFingerprints();
-        else loadAudit();
+        if (d === 'fingerprints') { if (ctx.loadFingerprints) ctx.loadFingerprints(); }
+        else { if (ctx.loadAudit) ctx.loadAudit(); }
+      }
+    });
+
+    // Config tab: health polling on upstreams, dict usage on system
+    watch(cfgTab, (tab) => {
+      if (tab === 'upstreams') startHealthRefresh();
+      else clearInterval(healthTimer);
+      if (tab === 'system') loadDictUsage();
+    });
+
+    // Stop all polling when the session ends
+    watch(() => store.loggedIn, (loggedIn) => {
+      if (!loggedIn) stopAllTimers();
+    });
+
+    // Kick off on first mount if already logged in (e.g. session cookie)
+    Vue.nextTick(() => {
+      if (store.loggedIn) {
+        loadVersion();
+        if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
+        if (page.value === 'dashboard' && dashTab.value === 'overview') startOverviewRefresh();
       }
     });
 
 
     // ---- Stats ----
     async function loadStats() {
-        expose('loadStats', loadStats);
       statsError.value = '';
       try {
         statsData.value = await api('GET', `/verynginx/summary?type=${statsType.value}`);
@@ -206,13 +258,11 @@
 
     // ---- Helpers ----
     function formatTime(t) {
-        expose('formatTime', formatTime);
       if (!t) return '-';
       return new Date(t * 1000).toLocaleString();
     }
 
     function formatBytes(b) {
-        expose('formatBytes', formatBytes);
       if (b == null) return '-';
       if (b < 1024) return b.toFixed(0) + ' B';
       if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
@@ -220,7 +270,6 @@
     }
 
     function calcSuccess(v) {
-        expose('calcSuccess', calcSuccess);
       let ok = 0, total = 0;
       for (const code in v.status || {}) {
         const c = v.status[code];
@@ -231,7 +280,6 @@
     }
 
     function successClass(v) {
-        expose('successClass', successClass);
       const p = parseFloat(calcSuccess(v));
       if (p >= 99) return 'tag-ok';
       if (p >= 90) return 'tag-warn';
@@ -239,7 +287,6 @@
     }
 
     function summarizeRule(r) {
-        expose('summarizeRule', summarizeRule);
       const parts = [];
       if (r.to_uri) parts.push('→ ' + r.to_uri);
       if (r.upstream) parts.push('→ ' + r.upstream);
@@ -250,7 +297,6 @@
     }
 
     function actionClass(a) {
-        expose('actionClass', actionClass);
       if (a === 'block' || a === 'filter') return 'tag-err';
       if (a === 'accept' || a === 'proxy' || a === 'static') return 'tag-ok';
       return 'tag-warn';
@@ -259,13 +305,12 @@
 
     // ---- Load ----
     async function loadData() {
-        expose('loadData', loadData);
+      loadVersion();
       await Promise.all([loadStatus(), loadConfig()]);
       loadHealth();
     }
 
     async function loadStatus() {
-        expose('loadStatus', loadStatus);
       try {
         const s = await api('GET', '/verynginx/status');
         status.value = s;
@@ -280,7 +325,6 @@
     }
 
     async function loadConfig() {
-        expose('loadConfig', loadConfig);
       try {
         const d = await api('GET', '/verynginx/config');
         cfg.value = d;
@@ -291,9 +335,8 @@
     }
 
     async function refreshConfig(silent) {
-        expose('refreshConfig', refreshConfig);
       await Promise.allSettled([loadConfig(), loadHealth()]);
-      if (cfgTab.value === 'plugins') await loadPlugins();
+      if (cfgTab.value === 'plugins') { if (ctx.loadPlugins) await ctx.loadPlugins(); }
       if (!silent) showToast('配置已刷新', 'success');
     }
 
@@ -309,7 +352,6 @@
 
     // ---- Dict Usage ----
     async function loadDictUsage() {
-        expose('loadDictUsage', loadDictUsage);
       try {
         const text = await api('GET', '/verynginx/metrics', null, { text: true });
         const parsed = parsePrometheus(typeof text === 'string' ? text : '');
@@ -344,7 +386,6 @@
 
     // ---- Top Paths ----
     async function loadTopPaths() {
-        expose('loadTopPaths', loadTopPaths);
       try {
         const d = await api('GET', '/verynginx/stats/top-paths?limit=20');
         if (d.ret === 'success') {
@@ -355,44 +396,9 @@
       }
     }
 
-    async function wafRunTest() {
-        expose('wafRunTest', wafRunTest);
-      wafTestError.value = '';
-      wafTestResults.value = null;
-
-      let rule, cases;
-      try {
-        rule = JSON.parse(wafTestRuleJson.value);
-      } catch (e) {
-        wafTestError.value = 'Invalid rule JSON: ' + e.message;
-        return;
-      }
-      try {
-        cases = JSON.parse(wafTestCasesJson.value);
-        if (!Array.isArray(cases) || !cases.length) throw new Error('Must be a non-empty array');
-      } catch (e) {
-        wafTestError.value = 'Invalid test cases JSON: ' + e.message;
-        return;
-      }
-
-      wafTesting.value = true;
-      try {
-        const d = await api('POST', '/verynginx/waf/rules/test', { rule, test_cases: cases });
-        if (d.ret === 'success') {
-          wafTestResults.value = d.data;
-          await loadTestHistory();
-        } else {
-          wafTestError.value = d.message || 'Test failed';
-        }
-      } catch (e) {
-        wafTestError.value = e.message;
-      }
-      wafTesting.value = false;
-    }
 
     // ---- Login ----
     async function doLogin() {
-        expose('doLogin', doLogin);
       loginError.value = '';
       if (!loginUser.value || !loginPass.value) { loginError.value = '请输入用户名和密码。'; return; }
       loading.value = true;
@@ -409,7 +415,7 @@
           await refreshCsrf();
           loadData();
           if (page.value === 'dashboard' && dashTab.value === 'status') startStatusRefresh();
-          if (page.value === 'dashboard' && dashTab.value === 'overview') loadOverview();
+          if (page.value === 'dashboard' && dashTab.value === 'overview') startOverviewRefresh();
         } else {
           loginError.value = d.message || '登录失败';
         }
@@ -422,39 +428,38 @@
 
     // ---- Logout ----
     async function doLogout() {
-        expose('doLogout', doLogout);
       // Clear all auto-refresh timers
-      clearInterval(statusTimer);
-      clearInterval(healthTimer);
-      clearInterval(overviewTimer);
+      stopAllTimers();
       // Revoke session server-side (best-effort)
       try { await api('POST', '/verynginx/logout'); } catch (_) {}
       document.cookie = 'verynginx_session=; Path=/; Max-Age=0';
-      csrfToken = null;
       store.loggedIn = false;
       store.user = null;
     }
 
-    // Write back to ctx for subsequent modules (vn-config loads after vn-dashboard)
-    ctx.loadOverview = loadOverview;
-    ctx.loadStatus = loadStatus;
-    ctx.loadConfig = loadConfig;
-    ctx.refreshConfig = refreshConfig;
-    ctx.loadHealth = loadHealth;
-    ctx.loadDictUsage = loadDictUsage;
-    ctx.loadTopPaths = loadTopPaths;
-    ctx.parsePrometheus = parsePrometheus;
-    ctx.loadData = loadData;
-    ctx.wafRunTest = wafRunTest;
-    ctx.doLogin = doLogin;
-    ctx.doLogout = doLogout;
-    ctx.formatTime = formatTime;
-    ctx.formatBytes = formatBytes;
-    ctx.calcSuccess = calcSuccess;
-    ctx.successClass = successClass;
-    ctx.summarizeRule = summarizeRule;
-    ctx.actionClass = actionClass;
-        
+    // ---- Exports ----
+    expose('parsePrometheus', parsePrometheus);
+    expose('loadVersion', loadVersion);
+    expose('loadOverview', loadOverview);
+    expose('loadStats', loadStats);
+    expose('loadData', loadData);
+    expose('loadStatus', loadStatus);
+    expose('loadConfig', loadConfig);
+    expose('refreshConfig', refreshConfig);
+    expose('loadHealth', loadHealth);
+    expose('loadDictUsage', loadDictUsage);
+    expose('loadTopPaths', loadTopPaths);
+    expose('startStatusRefresh', startStatusRefresh);
+    expose('startHealthRefresh', startHealthRefresh);
+    expose('doLogin', doLogin);
+    expose('doLogout', doLogout);
+    expose('formatTime', formatTime);
+    expose('formatBytes', formatBytes);
+    expose('calcSuccess', calcSuccess);
+    expose('successClass', successClass);
+    expose('summarizeRule', summarizeRule);
+    expose('actionClass', actionClass);
+
         // Module initialization (if any)
         // No return needed; expose() calls register everything
     };

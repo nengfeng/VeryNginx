@@ -1,16 +1,16 @@
-// vn-kb.js - Domain module for VeryNginx Dashboard
-// IIFE pattern for classic script loading
+// vn-kb.js - Kernel blocking module for VeryNginx Dashboard
+// IIFE pattern for classic script loading. Loaded LAST (after all domain modules).
 
 (function() {
     // Register factory on global namespace
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
-    
+
     window.VN.modules['vnkb'] = function createvnkbModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, showToast, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
+        const { expose, api, store, page, status, connHistory, isValidIpLiteral, showToast, showConfirm } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
-        
+
     // ---- Kernel Blocking State ----
     const kbStatus = ref({
       configured: { enabled: false, mode: 'observe', emergency_pause: false, topology: 'unknown', protected_addresses: [], protected_ports: [] },
@@ -25,51 +25,29 @@
       whitelist_generation: {},
       last_reconcile: null,
     });
-        expose('kbStatus', kbStatus);
     const kbEntries = ref([]);
-        expose('kbEntries', kbEntries);
     const kbCandidates = ref([]);
-        expose('kbCandidates', kbCandidates);
     const kbTimeline = ref([]);
-        expose('kbTimeline', kbTimeline);
     const kbTimelineFilter = ref('');
-        expose('kbTimelineFilter', kbTimelineFilter);
     const kbEntriesNext = ref(null);
-        expose('kbEntriesNext', kbEntriesNext);
     const kbCandidatesNext = ref(null);
-        expose('kbCandidatesNext', kbCandidatesNext);
     const kbEntriesPrev = ref([]);
-        expose('kbEntriesPrev', kbEntriesPrev);
     const kbCandidatesPrev = ref([]);
-        expose('kbCandidatesPrev', kbCandidatesPrev);
     const kbEntriesCurrentCursor = ref(null);
     const kbCandidatesCurrentCursor = ref(null);
     const kbBucketHistory = ref([]);
-        expose('kbBucketHistory', kbBucketHistory);
     const kbBucketHistoryLoading = ref(false);
-        expose('kbBucketHistoryLoading', kbBucketHistoryLoading);
     const kbBucketHistoryError = ref('');
-        expose('kbBucketHistoryError', kbBucketHistoryError);
     const kbDiff = ref({ missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 });
-        expose('kbDiff', kbDiff);
     const kbTab = ref('entries');
-        expose('kbTab', kbTab);
     const kbNewIP = ref('');
-        expose('kbNewIP', kbNewIP);
     const kbNewPolicy = ref('scanner');
-        expose('kbNewPolicy', kbNewPolicy);
     const kbNewTTL = ref(300);
-        expose('kbNewTTL', kbNewTTL);
     const kbError = ref('');
-        expose('kbError', kbError);
     const kbBusy = ref(false);
-        expose('kbBusy', kbBusy);
     const kbFilterPolicy = ref('');
-        expose('kbFilterPolicy', kbFilterPolicy);
     const kbFilterState = ref('');
-        expose('kbFilterState', kbFilterState);
     const kbFilterIP = ref('');
-        expose('kbFilterIP', kbFilterIP);
     const kbForm = reactive({
       enabled: false,
       mode: 'observe',
@@ -80,18 +58,13 @@
       scanner_enabled: true,
       cc_enabled: true,
     });
-        expose('kbForm', kbForm);
     const kbDetail = reactive({ show: false, entry: null });
-        expose('kbDetail', kbDetail);
     const kbDetailJson = computed(() => kbDetail.entry ? JSON.stringify(kbDetail.entry, null, 2) : '');
-        expose('kbDetailJson', kbDetailJson);
     const kbFormDirty = ref(false);
     function kbMarkFormDirty() { kbFormDirty.value = true; }
-        expose('kbMarkFormDirty', kbMarkFormDirty);
 
-    // Navigation guard for KB dirty form
+    // Navigation guard for KB dirty form. Cross-page loads are late-bound via ctx.
     async function navigateTo(newPage) {
-        expose('navigateTo', navigateTo);
       if (page.value === 'kb' && kbFormDirty.value) {
         if (!await showConfirm({
           title: '未保存的更改',
@@ -101,10 +74,10 @@
       }
       page.value = newPage;
       // Load data based on page
-      if (newPage === 'waf') await loadWafData();
-      else if (newPage === 'frequency') await loadFrequencyData();
-      else if (newPage === 'reputation') await loadRepData();
-      else if (newPage === 'geoip') { await loadGeoIP(); await loadGeoIPStatus(); }
+      if (newPage === 'waf') { if (ctx.loadWafData) await ctx.loadWafData(); }
+      else if (newPage === 'frequency') { if (ctx.loadFrequencyData) await ctx.loadFrequencyData(); }
+      else if (newPage === 'reputation') { if (ctx.loadRepData) await ctx.loadRepData(); }
+      else if (newPage === 'geoip') { if (ctx.loadGeoIP) await ctx.loadGeoIP(); if (ctx.loadGeoIPStatus) await ctx.loadGeoIPStatus(); }
       else if (newPage === 'kb') await loadKbData();
     }
 
@@ -140,17 +113,14 @@
       const help = KB_REASON_HELP[code] || { title: code, advice: '参见设计文档 / 日志了解详情。' };
       return { code, title: help.title, advice: help.advice };
     }));
-        expose('kbReasonItems', kbReasonItems);
 
     function kbEffMode(policy) {
-        expose('kbEffMode', kbEffMode);
       const eff = kbStatus.value.effective || {};
       if (policy === 'scanner') return (eff.scanner && eff.scanner.mode) || '-';
       if (policy === 'cc') return (eff.cc && eff.cc.mode) || '-';
       return eff.global_mode || '-';
     }
     function kbEffReachable(policy) {
-        expose('kbEffReachable', kbEffReachable);
       const eff = kbStatus.value.effective || {};
       if (policy === 'scanner') return !!(eff.scanner && eff.scanner.install_reachable);
       if (policy === 'cc') return !!(eff.cc && eff.cc.install_reachable);
@@ -161,7 +131,6 @@
       const e = kbStatus.value.effective || {};
       return !!(e.cc && e.cc.auto_ready);
     });
-        expose('ccAutoReady', ccAutoReady);
 
     const kbChecklist = computed(() => {
       const c = kbStatus.value.configured || {};
@@ -181,17 +150,14 @@
         { id: 'cc_ready', label: 'CC enforce_ready 已确认（如需 CC 执行）', ok: !!c.cc_enforce_ready || c.cc_enabled === false, auto_ready: kbStatus.value.effective && kbStatus.value.effective.cc && kbStatus.value.effective.cc.auto_ready },
       ];
     });
-        expose('kbChecklist', kbChecklist);
 
     function formatKbTime(ts) {
-        expose('formatKbTime', formatKbTime);
       if (!ts) return '-';
       const d = new Date(ts * 1000);
       if (isNaN(d.getTime())) return String(ts);
       return d.toLocaleString();
     }
     function formatKbExpiry(ts) {
-        expose('formatKbExpiry', formatKbExpiry);
       if (!ts) return '-';
       const now = Math.floor(Date.now() / 1000);
       const left = ts - now;
@@ -202,7 +168,6 @@
       return Math.floor(left / 86400) + 'd left';
     }
     function kbEvidenceSummary(c) {
-        expose('kbEvidenceSummary', kbEvidenceSummary);
       const e = (c && c.evidence) || {};
       const parts = [];
       if (e.block_hits != null) parts.push('blocks=' + e.block_hits);
@@ -225,22 +190,19 @@
       kbForm.cc_enabled = c.cc_enabled !== false;
     }
     function kbOpenDetail(entry) {
-        expose('kbOpenDetail', kbOpenDetail);
       kbDetail.entry = entry;
       kbDetail.show = true;
     }
     function kbReloadList() {
-        expose('kbReloadList', kbReloadList);
       if (kbTab.value === 'entries') loadKbEntries();
       else if (kbTab.value === 'candidates') loadKbCandidates();
     }
 
 
     const s = computed(() => status.value);
-        expose('s', s);
 
 
-    // ---- Bucket trend chart data (Design §12.2) ----
+    // ---- Bucket trend chart data ----
     const kbTrendPoints = computed(() => {
       const samples = kbBucketHistory.value;
       if (samples.length < 2) return { enforce: '', observe: '', max: 1, labels: [] };
@@ -259,20 +221,17 @@
       });
       return { enforce: toPts('enforce_tokens'), observe: toPts('observe_tokens'), max, labels };
     });
-        expose('kbTrendPoints', kbTrendPoints);
 
     const kbTrendFillEnforce = computed(() => {
       const p = kbTrendPoints.value;
       if (!p.enforce) return '';
       return `0,100 ${p.enforce} 100,100`;
     });
-        expose('kbTrendFillEnforce', kbTrendFillEnforce);
     const kbTrendFillObserve = computed(() => {
       const p = kbTrendPoints.value;
       if (!p.observe) return '';
       return `0,100 ${p.observe} 100,100`;
     });
-        expose('kbTrendFillObserve', kbTrendFillObserve);
 
     const connLinePoints = computed(() => {
       const pts = connHistory.value;
@@ -281,7 +240,6 @@
       const w = 100 / (pts.length - 1);
       return pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
     });
-        expose('connLinePoints', connLinePoints);
 
     const connFillPoints = computed(() => {
       const pts = connHistory.value;
@@ -291,12 +249,10 @@
       const line = pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
       return `0,100 ` + line + ` 100,100`;
     });
-        expose('connFillPoints', connFillPoints);
 
 
     // ---- Kernel Blocking ----
     async function loadKbData() {
-        expose('loadKbData', loadKbData);
       kbError.value = '';
       const statusRequest = (async () => {
         try {
@@ -320,7 +276,6 @@
     }
 
     async function loadKbEntries(cursor) {
-        expose('loadKbEntries', loadKbEntries);
       try {
         let url = '/verynginx/kernel-blocking/entries?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
@@ -339,20 +294,17 @@
     }
 
     function kbEntriesPageNext() {
-        expose('kbEntriesPageNext', kbEntriesPageNext);
       if (!kbEntriesNext.value) return;
       kbEntriesPrev.value.push(kbEntriesCurrentCursor.value);
       loadKbEntries(kbEntriesNext.value);
     }
 
     function kbEntriesPagePrev() {
-        expose('kbEntriesPagePrev', kbEntriesPagePrev);
       const prev = kbEntriesPrev.value.pop();
       if (prev != null) loadKbEntries(prev);
     }
 
     async function loadKbCandidates(cursor) {
-        expose('loadKbCandidates', loadKbCandidates);
       try {
         let url = '/verynginx/kernel-blocking/candidates?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
@@ -371,20 +323,17 @@
     }
 
     function kbCandidatesPageNext() {
-        expose('kbCandidatesPageNext', kbCandidatesPageNext);
       if (!kbCandidatesNext.value) return;
       kbCandidatesPrev.value.push(kbCandidatesCurrentCursor.value);
       loadKbCandidates(kbCandidatesNext.value);
     }
 
     function kbCandidatesPagePrev() {
-        expose('kbCandidatesPagePrev', kbCandidatesPagePrev);
       const prev = kbCandidatesPrev.value.pop();
       if (prev != null) loadKbCandidates(prev);
     }
 
     async function loadKbTimeline() {
-        expose('loadKbTimeline', loadKbTimeline);
       try {
         let url = '/verynginx/audit?limit=300';
         if (kbTimelineFilter.value) {
@@ -404,8 +353,17 @@
       } catch (e) { kbError.value = e.message; }
     }
 
+    // Reload timeline when the filter changes while on the timeline tab
+    watch(kbTimelineFilter, () => {
+      if (page.value === 'kb' && kbTab.value === 'timeline') loadKbTimeline();
+    });
+
+    // Clear the dirty-form guard when leaving the KB page
+    watch(page, (p) => {
+      if (p !== 'kb') kbFormDirty.value = false;
+    });
+
     function kbTimelineActionLabel(action) {
-        expose('kbTimelineActionLabel', kbTimelineActionLabel);
       const map = {
         'kernel_blocking.promote': '封禁',
         'kernel_blocking.clear': '解除',
@@ -416,7 +374,6 @@
     }
 
     function kbTimelineActionClass(action) {
-        expose('kbTimelineActionClass', kbTimelineActionClass);
       if (action === 'kernel_blocking.promote') return 'tag-err';
       if (action === 'kernel_blocking.clear') return 'tag-ok';
       if (action === 'kernel_blocking.reconcile') return 'tag-info';
@@ -424,7 +381,6 @@
     }
 
     async function loadKbBucketHistory() {
-        expose('loadKbBucketHistory', loadKbBucketHistory);
       kbBucketHistoryLoading.value = true;
       kbBucketHistoryError.value = '';
       try {
@@ -451,12 +407,10 @@
     }
 
     async function loadKbDashboard() {
-        expose('loadKbDashboard', loadKbDashboard);
       await Promise.all([loadKbBucketHistory(), loadKbDiff()]);
     }
 
     async function enableCcEnforceReady() {
-        expose('enableCcEnforceReady', enableCcEnforceReady);
       if (!await showConfirm({
         title: '启用 CC enforce_ready',
         message: '启用 CC enforce_ready? 这将为符合条件的 IP 激活自动 CC 内核封禁。',
@@ -475,7 +429,7 @@
         const d = await api('POST', '/verynginx/config', full);
         if (d.ret === 'success') {
           showToast('CC enforce_ready enabled — CC auto-promotion active', 'success');
-          cfg.value = full;
+          if (ctx.cfg) ctx.cfg.value = full;
           await loadKbData();
         } else {
           showToast(d.message || '保存失败', 'error');
@@ -485,7 +439,6 @@
     }
 
     async function kbSaveSettings() {
-        expose('kbSaveSettings', kbSaveSettings);
       if (kbForm.mode === 'enforce' && !kbForm.enabled) {
         showToast('启用执行模式前必须先启用全局开关', 'error'); return;
       }
@@ -518,7 +471,7 @@
         const d = await api('POST', '/verynginx/config', full);
         if (d.ret === 'success') {
           showToast('内核锁阻设置已保存', 'success');
-          cfg.value = full;
+          if (ctx.cfg) ctx.cfg.value = full;
           kbFormDirty.value = false;
           await loadKbData();
         } else {
@@ -529,7 +482,6 @@
     }
 
     async function kbPromote() {
-        expose('kbPromote', kbPromote);
       if (!kbNewIP.value) { showToast('请输入 IP', 'error'); return; }
       // Client-side IP format validation (IPv4/IPv6 literal)
       const ip = kbNewIP.value.trim();
@@ -552,7 +504,6 @@
     }
 
     async function kbPromoteIp(ip, policy) {
-        expose('kbPromoteIp', kbPromoteIp);
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
       if (!await showConfirm({ title: '晋升 IP', message: `晋升 ${ip} 为 ${policy} (TTL 300秒)?`, type: 'danger' })) return;
       kbBusy.value = true;
@@ -569,7 +520,6 @@
     }
 
     async function kbReconcile() {
-        expose('kbReconcile', kbReconcile);
       if (!await showConfirm({ title: '触发协调', message: '立即触发协调?', type: 'primary' })) return;
       kbBusy.value = true;
       try {
@@ -586,7 +536,6 @@
     }
 
     async function kbClear(ip) {
-        expose('kbClear', kbClear);
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
       if (!await showConfirm({ title: '清除封禁条目', message: `清除 ${ip} 的所有内核封禁条目?`, type: 'danger' })) return;
       kbBusy.value = true;
@@ -603,7 +552,6 @@
     }
 
     async function kbPause(paused) {
-        expose('kbPause', kbPause);
       if (!await showConfirm({ title: paused ? '暂停自动晋升' : '恢复自动晋升', message: paused ? '暂停自动晋升?' : '恢复自动晋升?', type: 'warning' })) return;
       kbBusy.value = true;
       try {
@@ -619,7 +567,6 @@
     }
 
     async function kbFlushAuto() {
-        expose('kbFlushAuto', kbFlushAuto);
       if (!await showConfirm({
         title: '刷新自动条目',
         message: '刷新所有自动扫描器/cc 内核条目? 此操作不可撤销。',
@@ -646,161 +593,72 @@
       finally { kbBusy.value = false; }
     }
 
+    // ---- Exports ----
+    expose('kbStatus', kbStatus);
+    expose('kbEntries', kbEntries);
+    expose('kbCandidates', kbCandidates);
+    expose('kbTimeline', kbTimeline);
+    expose('kbTimelineFilter', kbTimelineFilter);
+    expose('kbEntriesNext', kbEntriesNext);
+    expose('kbCandidatesNext', kbCandidatesNext);
+    expose('kbEntriesPrev', kbEntriesPrev);
+    expose('kbCandidatesPrev', kbCandidatesPrev);
+    expose('kbBucketHistory', kbBucketHistory);
+    expose('kbBucketHistoryLoading', kbBucketHistoryLoading);
+    expose('kbBucketHistoryError', kbBucketHistoryError);
+    expose('kbDiff', kbDiff);
+    expose('kbTab', kbTab);
+    expose('kbNewIP', kbNewIP);
+    expose('kbNewPolicy', kbNewPolicy);
+    expose('kbNewTTL', kbNewTTL);
+    expose('kbError', kbError);
+    expose('kbBusy', kbBusy);
+    expose('kbFilterPolicy', kbFilterPolicy);
+    expose('kbFilterState', kbFilterState);
+    expose('kbFilterIP', kbFilterIP);
+    expose('kbForm', kbForm);
+    expose('kbDetail', kbDetail);
+    expose('kbDetailJson', kbDetailJson);
+    expose('kbFormDirty', kbFormDirty);
+    expose('kbMarkFormDirty', kbMarkFormDirty);
+    expose('navigateTo', navigateTo);
+    expose('kbReasonItems', kbReasonItems);
+    expose('kbEffMode', kbEffMode);
+    expose('kbEffReachable', kbEffReachable);
+    expose('ccAutoReady', ccAutoReady);
+    expose('kbChecklist', kbChecklist);
+    expose('formatKbTime', formatKbTime);
+    expose('formatKbExpiry', formatKbExpiry);
+    expose('kbEvidenceSummary', kbEvidenceSummary);
+    expose('kbOpenDetail', kbOpenDetail);
+    expose('kbReloadList', kbReloadList);
+    expose('s', s);
+    expose('kbTrendPoints', kbTrendPoints);
+    expose('kbTrendFillEnforce', kbTrendFillEnforce);
+    expose('kbTrendFillObserve', kbTrendFillObserve);
+    expose('connLinePoints', connLinePoints);
+    expose('connFillPoints', connFillPoints);
+    expose('loadKbData', loadKbData);
+    expose('loadKbEntries', loadKbEntries);
+    expose('kbEntriesPageNext', kbEntriesPageNext);
+    expose('kbEntriesPagePrev', kbEntriesPagePrev);
+    expose('loadKbCandidates', loadKbCandidates);
+    expose('kbCandidatesPageNext', kbCandidatesPageNext);
+    expose('kbCandidatesPagePrev', kbCandidatesPagePrev);
+    expose('loadKbTimeline', loadKbTimeline);
+    expose('kbTimelineActionLabel', kbTimelineActionLabel);
+    expose('kbTimelineActionClass', kbTimelineActionClass);
+    expose('loadKbBucketHistory', loadKbBucketHistory);
+    expose('loadKbDashboard', loadKbDashboard);
+    expose('enableCcEnforceReady', enableCcEnforceReady);
+    expose('kbSaveSettings', kbSaveSettings);
+    expose('kbPromote', kbPromote);
+    expose('kbPromoteIp', kbPromoteIp);
+    expose('kbReconcile', kbReconcile);
+    expose('kbClear', kbClear);
+    expose('kbPause', kbPause);
+    expose('kbFlushAuto', kbFlushAuto);
 
-    function openFreqRuleCreate() {
-        expose('openFreqRuleCreate', openFreqRuleCreate);
-      freqRuleModal.mode = 'create';
-      freqRuleModal._matcherRef = null;
-      freqRuleModal.id = 'freq_' + Date.now();
-      freqRuleModal.key = 'ip';
-      freqRuleModal.limit = 60;
-      freqRuleModal.window = 60;
-      freqRuleModal.code = 429;
-      freqRuleModal.enable = true;
-      freqRuleModal.matcherJson = '{}';
-      freqRuleModal.show = true;
-    }
-
-    function openFreqRuleEdit(rule) {
-        expose('openFreqRuleEdit', openFreqRuleEdit);
-      freqRuleModal.mode = 'edit';
-      freqRuleModal.id = rule.id;
-      freqRuleModal.key = rule.key || 'ip';
-      freqRuleModal.limit = rule.limit;
-      freqRuleModal.window = rule.window;
-      freqRuleModal.code = rule.code || 429;
-      freqRuleModal.enable = rule.enable !== false;
-      if (typeof rule.matcher === 'string') {
-        freqRuleModal._matcherRef = rule.matcher;
-        freqRuleModal.matcherJson = '{}';
-      } else {
-        freqRuleModal._matcherRef = null;
-        freqRuleModal.matcherJson = (rule.matcher && typeof rule.matcher === 'object')
-          ? JSON.stringify(rule.matcher, null, 2) : '{}';
-      }
-      freqRuleModal.show = true;
-    }
-
-    async function saveFreqRule() {
-        expose('saveFreqRule', saveFreqRule);
-      try {
-        // Client-side validation
-        if (!freqRuleModal.key || freqRuleModal.key.trim() === '') {
-          showToast('限速键 (key) 不能为空', 'error'); return;
-        }
-        const limit = Number(freqRuleModal.limit);
-        const window = Number(freqRuleModal.window);
-        const code = Number(freqRuleModal.code);
-        if (!limit || limit < 1) { showToast('limit 必须 >= 1', 'error'); return; }
-        if (!window || window < 1) { showToast('window 必须 >= 1 秒', 'error'); return; }
-        if (!code || code < 100 || code > 599) { showToast('响应码必须是 100-599 之间的合法状态码', 'error'); return; }
-
-        let matcher = {};
-        try {
-          if (freqRuleModal._matcherRef) {
-            matcher = null;
-          } else if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
-            matcher = JSON.parse(freqRuleModal.matcherJson);
-          }
-        } catch (e) {
-          showToast('匹配器 JSON 格式无效: ' + e.message, 'error');
-          return;
-        }
-        const rule = {
-          id: freqRuleModal.id,
-          key: freqRuleModal.key,
-          limit,
-          window,
-          code,
-          enable: freqRuleModal.enable,
-        };
-        if (freqRuleModal._matcherRef) {
-          rule.matcher = freqRuleModal._matcherRef;
-        } else if (Object.keys(matcher).length > 0) {
-          rule.matcher = matcher;
-        }
-        const d = await api('POST', '/verynginx/frequency/rules', rule);
-        if (d.ret === 'success') {
-          freqRuleModal.show = false;
-          showToast('规则已保存', 'success');
-          await loadFrequencyData();
-        } else {
-          showToast(d.message || '保存失败', 'error');
-        }
-      } catch (e) {
-        showToast(e.message, 'error');
-      }
-    }
-
-    async function deleteFreqRule(rule) {
-        expose('deleteFreqRule', deleteFreqRule);
-      if (!await showConfirm({ title: '删除频率规则', message: `删除频率规则 "${rule.id}"?`, type: 'danger' })) return;
-      try {
-        const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
-        if (d.ret === 'success') {
-          showToast('规则已删除', 'success');
-          await loadFrequencyData();
-        } else {
-          showToast(d.message || '删除失败', 'error');
-        }
-      } catch (e) {
-        showToast(e.message, 'error');
-      }
-    }
-
-    async function wafDeleteRule(rule) {
-        expose('wafDeleteRule', wafDeleteRule);
-      if (!await showConfirm({ title: '删除 WAF 规则', message: `删除规则 "${rule.name}"? 此操作不可撤销。`, type: 'danger' })) return;
-      wafDeleteBusy.value = true;
-      try {
-        const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
-        if (d.ret === 'success') {
-          await loadWafRules();
-        } else {
-          wafError.value = d.message || 'Delete failed';
-        }
-      } catch (e) {
-        wafError.value = e.message;
-      } finally {
-        wafDeleteBusy.value = false;
-      }
-    }
-
-    async function wafToggleRule(rule) {
-        expose('wafToggleRule', wafToggleRule);
-      const enable = rule.enable === false;
-      if (!await showConfirm({ title: enable ? '启用规则' : '停用规则', message: enable ? `启用规则 ${rule.name}？将立即生效。` : `停用规则 ${rule.name}？将立即停止拦截。`, type: enable ? 'primary' : 'warning' })) return;
-      wafToggleBusy.value = true;
-      try {
-        const endpoint = enable ? 'enable' : 'disable';
-        const d = await api('POST', '/verynginx/waf/rules/' + rule.id + '/' + endpoint);
-        if (d.ret === 'success') {
-          rule.enable = enable;
-        }
-      } catch (e) {
-        wafError.value = e.message;
-      } finally {
-        wafToggleBusy.value = false;
-      }
-    }
-
-    function wafPage(p) {
-        expose('wafPage', wafPage);
-      wafPagination.page = p;
-      loadWafRules();
-    }
-
-    function wafFilterChange() {
-        expose('wafFilterChange', wafFilterChange);
-      wafPagination.page = 1;
-      loadWafRules();
-    }
-
-    async function wafRefreshAll() {
-        expose('wafRefreshAll', wafRefreshAll);
-      await loadWafData();
-    }
-        
         // Module initialization (if any)
         // No return needed; expose() calls register everything
     };

@@ -1,49 +1,33 @@
-// vn-waf.js - Domain module for VeryNginx Dashboard
-// IIFE pattern for classic script loading
+// vn-waf.js - WAF module for VeryNginx Dashboard
+// IIFE pattern for classic script loading. Loaded after vn-config.
 
 (function() {
     // Register factory on global namespace
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
-    
+
     window.VN.modules['vnwaf'] = function createvnwafModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil, showToast, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
+        const { expose, api, store, page, showToast, showConfirm } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
-        
+
     // ---- WAF State ----
     const wafTab = ref('rules');
-        expose('wafTab', wafTab);
     const wafRuleView = ref('list');
-        expose('wafRuleView', wafRuleView);
     const wafAttackView = ref('stats');
-        expose('wafAttackView', wafAttackView);
     const wafError = ref('');
-        expose('wafError', wafError);
     const wafRules = ref([]);
-        expose('wafRules', wafRules);
     const wafCategories = ref({});
-        expose('wafCategories', wafCategories);
     const wafPagination = reactive({ page: 1, limit: 20, total: 0, total_pages: 0 });
-        expose('wafPagination', wafPagination);
     const wafFilterCat = ref('');
-        expose('wafFilterCat', wafFilterCat);
     const wafFilterSev = ref('');
-        expose('wafFilterSev', wafFilterSev);
     const wafStatsData = ref(null);
-        expose('wafStatsData', wafStatsData);
     const wafStatsError = ref('');
-        expose('wafStatsError', wafStatsError);
     const wafHistory = ref([]);
-        expose('wafHistory', wafHistory);
     const wafHistError = ref('');
-        expose('wafHistError', wafHistError);
     const wafRolling = ref(false);
-        expose('wafRolling', wafRolling);
     const wafToggleBusy = ref(false);
-        expose('wafToggleBusy', wafToggleBusy);
     const wafDeleteBusy = ref(false);
-        expose('wafDeleteBusy', wafDeleteBusy);
     const wafEditModal = reactive({
       show: false, mode: 'create',
       id: '', name: '', description: '', category: '', severity: '',
@@ -51,117 +35,50 @@
       tagsStr: '',
       rateLimitEnabled: false, rateLimitMax: 10, rateLimitWindow: 60, rateLimitAction: 'log'
     });
-        expose('wafEditModal', wafEditModal);
     const wafEditError = ref('');
-        expose('wafEditError', wafEditError);
     const wafSaving = ref(false);
-        expose('wafSaving', wafSaving);
     const wafTestRuleJson = ref('');
-        expose('wafTestRuleJson', wafTestRuleJson);
     const wafTestCasesJson = ref('');
-        expose('wafTestCasesJson', wafTestCasesJson);
     const wafTestError = ref('');
-        expose('wafTestError', wafTestError);
     const wafTesting = ref(false);
-        expose('wafTesting', wafTesting);
     const wafTestResults = ref(null);
-        expose('wafTestResults', wafTestResults);
     const wafHits = ref([]);
-        expose('wafHits', wafHits);
     const wafHitsError = ref('');
-        expose('wafHitsError', wafHitsError);
     const wafHitsTime = ref('');
-        expose('wafHitsTime', wafHitsTime);
     const wafHitsLimit = ref(50);
-        expose('wafHitsLimit', wafHitsLimit);
     const wafAnalytics = ref({ rules: [], dead_rules: [] });
-        expose('wafAnalytics', wafAnalytics);
     const wafAnalyticsLoading = ref(false);
-        expose('wafAnalyticsLoading', wafAnalyticsLoading);
     const wafAnalyticsError = ref('');
-        expose('wafAnalyticsError', wafAnalyticsError);
     const wafPendingChanges = ref([]);
-        expose('wafPendingChanges', wafPendingChanges);
     const wafTimeline = ref({ buckets: [], categories: [], bucket_minutes: 5, hours: 1 });
-        expose('wafTimeline', wafTimeline);
     const wafTimelineHours = ref(1);
-        expose('wafTimelineHours', wafTimelineHours);
     const wafTimelineBucket = ref(5);
-        expose('wafTimelineBucket', wafTimelineBucket);
     const wafTimelineLoading = ref(false);
-        expose('wafTimelineLoading', wafTimelineLoading);
     const wafTimelineError = ref('');
-        expose('wafTimelineError', wafTimelineError);
     const wafTestHistory = ref([]);
-        expose('wafTestHistory', wafTestHistory);
     const wafHitDetailModal = reactive({ show: false, loading: false, data: null, error: '' });
-        expose('wafHitDetailModal', wafHitDetailModal);
     const wafIpHits = ref([]);
-        expose('wafIpHits', wafIpHits);
     const wafIpHitsIp = ref('');
-        expose('wafIpHitsIp', wafIpHitsIp);
-
-    // confirmModal / showConfirm / confirmModalOk / confirmModalCancel provided by vn-common.js via ctx
-
-    const freqStats = ref([]);
-        expose('freqStats', freqStats);
-    const freqRules = ref([]);
-        expose('freqRules', freqRules);
-    const freqTemplates = ref([]);
-        expose('freqTemplates', freqTemplates);
-    const freqTemplatesLoaded = ref(false);
-        expose('freqTemplatesLoaded', freqTemplatesLoaded);
-    const freqError = ref('');
-        expose('freqError', freqError);
-    const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
-        expose('freqRuleModal', freqRuleModal);
-    const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
-        expose('freqTemplateModal', freqTemplateModal);
-    const geoipLookupIP = ref('');
-        expose('geoipLookupIP', geoipLookupIP);
-    const geoipLookupResult = ref(null);
-        expose('geoipLookupResult', geoipLookupResult);
-    const geoipStats = ref([]);
-        expose('geoipStats', geoipStats);
-    const geoipMaxCount = computed(() => (geoipStats.value.length ? geoipStats.value[0].count : 0));
-        expose('geoipMaxCount', geoipMaxCount);
-    const geoipConfig = ref({ enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
-        expose('geoipConfig', geoipConfig);
-    const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
-        expose('geoipStatus', geoipStatus);
-    const geoipLoading = ref(false);
-        expose('geoipLoading', geoipLoading);
-    const geoipError = ref('');
-        expose('geoipError', geoipError);
-    const fingerprints = ref([]);
-        expose('fingerprints', fingerprints);
-    const fpCategories = ref({});
-        expose('fpCategories', fpCategories);
-    const fpError = ref('');
-        expose('fpError', fpError);
-    const fpToggleBusy = ref(false);
-        expose('fpToggleBusy', fpToggleBusy);
-    const fpEditModal = reactive({ show: false, hash: '', name: '', category: 'scanner', action: 'block' });
-        expose('fpEditModal', fpEditModal);
+    const recs = ref([]);
+    const recStats = ref(null);
+    const recError = ref('');
+    const recLoading = ref(false);
 
 
     // ---- WAF Methods ----
     function sevClass(s) {
-        expose('sevClass', sevClass);
       if (s === 'critical') return 'tag-err';
       if (s === 'high') return 'tag-warn';
       return 'tag-ok';
     }
 
     function fmtTime(ts) {
-        expose('fmtTime', fmtTime);
       if (!ts) return '-';
       const d = new Date(ts * 1000);
       return d.toLocaleString();
     }
 
     async function loadWafRules() {
-        expose('loadWafRules', loadWafRules);
       wafError.value = '';
       try {
         const params = new URLSearchParams();
@@ -186,13 +103,11 @@
     }
 
     function formatNumber(n) {
-        expose('formatNumber', formatNumber);
       if (n == null) return '0';
       return Number(n).toLocaleString();
     }
 
     function formatAgo(seconds) {
-        expose('formatAgo', formatAgo);
       if (seconds < 60) return seconds + 's ago';
       if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
       if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
@@ -200,7 +115,6 @@
     }
 
     async function loadWafStats() {
-        expose('loadWafStats', loadWafStats);
       wafStatsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/stats');
@@ -215,7 +129,6 @@
     }
 
     async function loadWafHistory() {
-        expose('loadWafHistory', loadWafHistory);
       wafHistError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/rules/history');
@@ -230,173 +143,13 @@
     }
 
     function remaining(expiresAt) {
-        expose('remaining', remaining);
       if (!expiresAt) return '-';
       const sec = Math.max(0, Math.floor((expiresAt * 1000 - Date.now()) / 1000));
       if (sec === 0) return 'expired';
       return `${sec}s`;
     }
 
-    async function loadRepData() {
-        expose('loadRepData', loadRepData);
-      repError.value = '';
-      try {
-        const [sd, fd, wd] = await Promise.all([
-          api('GET', '/verynginx/reputation/stats'),
-          api('GET', '/verynginx/reputation/flagged'),
-          api('GET', '/verynginx/reputation/whitelist'),
-        ]);
-        repStats.value = sd.data;
-        repFlagged.value = fd.data || [];
-        repWhitelist.value = wd.data || [];
-      } catch (e) {
-        repError.value = e.message;
-      }
-    }
-
-    async function repClear(ip) {
-        expose('repClear', repClear);
-      if (!await showConfirm({
-        title: '清除声誉分数',
-        message: `清除 IP ${ip} 的声誉分数?`,
-        type: 'danger',
-        requireInput: true,
-        inputLabel: `请输入 IP 地址 ${ip} 确认`,
-        inputExpected: ip,
-      })) return;
-      repClearBusy.value[ip] = true;
-      try {
-        await api('POST', '/verynginx/reputation/clear?ip=' + encodeURIComponent(ip));
-        loadRepData();
-      } catch (e) {
-        repError.value = e.message;
-      } finally {
-        repClearBusy.value[ip] = false;
-      }
-    }
-
-    async function repAddWhitelist() {
-        expose('repAddWhitelist', repAddWhitelist);
-      const ip = repNewWhitelist.value.trim();
-      if (!ip) return;
-      // Client-side IP format validation (allows CIDR prefix for whitelist)
-      if (!isValidIpLiteral(ip, true)) { repError.value = 'IP 格式无效: ' + ip; return; }
-      try {
-        await api('POST', '/verynginx/reputation/whitelist', { ip });
-        repNewWhitelist.value = '';
-        repError.value = '';
-        loadRepData();
-      } catch (e) {
-        repError.value = e.message;
-      }
-    }
-
-    async function repRemoveWhitelist(ip) {
-        expose('repRemoveWhitelist', repRemoveWhitelist);
-      if (!await showConfirm({ title: '移除白名单', message: `从白名单移除 ${ip}?`, type: 'danger' })) return;
-      try {
-        await api('DELETE', '/verynginx/reputation/whitelist?ip=' + encodeURIComponent(ip));
-        loadRepData();
-      } catch (e) {
-        repError.value = e.message;
-      }
-    }
-
-    async function repPersist() {
-        expose('repPersist', repPersist);
-      if (!await showConfirm({ title: '持久化声誉数据', message: '立即将 IP 声誉数据持久化到磁盘？', type: 'primary' })) return;
-      try {
-        await api('POST', '/verynginx/reputation/persist');
-      } catch (e) {
-        repError.value = e.message;
-      }
-    }
-
-    async function repLookup() {
-        expose('repLookup', repLookup);
-      const ip = repLookupIP.value.trim();
-      if (!ip) return;
-      if (!isValidIpLiteral(ip)) { repError.value = 'IP 格式无效: ' + ip; return; }
-      repLookupResult.value = null;
-      try {
-        const d = await api('GET', '/verynginx/reputation/score?ip=' + encodeURIComponent(ip));
-        repLookupResult.value = d.data;
-      } catch (e) {
-        repError.value = e.message;
-      }
-    }
-
-    function auditActionClass(a) {
-        expose('auditActionClass', auditActionClass);
-      if (!a) return '';
-      if (a.startsWith('login')) return a === 'login_success' ? 'tag-ok' : 'tag-err';
-      if (a.startsWith('waf_rule')) return 'tag-warn';
-      if (a === 'POST' || a === 'PUT' || a === 'DELETE') return 'tag-warn';
-      return '';
-    }
-
-    async function loadAudit() {
-        expose('loadAudit', loadAudit);
-      auditError.value = '';
-      try {
-        let url = '/verynginx/audit?limit=500';
-        if (auditFilterUser.value) url += '&user=' + encodeURIComponent(auditFilterUser.value);
-        if (auditFilterAction.value) url += '&action=' + encodeURIComponent(auditFilterAction.value);
-        if (auditFilterSince.value) {
-          const sinceTs = Math.floor(new Date(auditFilterSince.value).getTime() / 1000);
-          url += '&since=' + sinceTs;
-        }
-        if (auditFilterUntil.value) {
-          const untilTs = Math.floor(new Date(auditFilterUntil.value).getTime() / 1000);
-          url += '&until=' + untilTs;
-        }
-        const d = await api('GET', url);
-        if (d.ret === 'success') {
-          auditEntries.value = d.data || [];
-        } else {
-          auditError.value = d.message || 'Failed to load audit';
-        }
-      } catch (e) {
-        auditError.value = e.message;
-      }
-    }
-
-    let auditClearGuard = false;
-    function clearAuditFilters() {
-        expose('clearAuditFilters', clearAuditFilters);
-      auditClearGuard = true;
-      if (auditFilterTimer) { clearTimeout(auditFilterTimer); auditFilterTimer = null; }
-      auditFilterUser.value = '';
-      auditFilterAction.value = '';
-      auditFilterSince.value = '';
-      auditFilterUntil.value = '';
-      loadAudit();
-    }
-
-    function setAuditSincePreset(preset) {
-        expose('setAuditSincePreset', setAuditSincePreset);
-      const now = new Date();
-      let since = new Date(now);
-      if (preset === '1h') since.setHours(now.getHours() - 1);
-      else if (preset === '24h') since.setHours(now.getHours() - 24);
-      else if (preset === '7d') since.setDate(now.getDate() - 7);
-      else if (preset === 'today') since.setHours(0, 0, 0, 0);
-      const pad = n => String(n).padStart(2, '0');
-      const val = `${since.getFullYear()}-${pad(since.getMonth()+1)}-${pad(since.getDate())}T${pad(since.getHours())}:${pad(since.getMinutes())}`;
-      auditClearGuard = true;
-      auditFilterSince.value = val;
-      loadAudit();
-    }
-
-    let auditFilterTimer = null;
-    watch([auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil], () => {
-      if (auditClearGuard) { auditClearGuard = false; return; }
-      if (auditFilterTimer) clearTimeout(auditFilterTimer);
-      auditFilterTimer = setTimeout(() => loadAudit(), 400);
-    });
-
     async function loadWafData() {
-        expose('loadWafData', loadWafData);
       await loadWafRules();
       if (wafTab.value === 'attacks') await loadWafAttackData();
       if (wafTab.value === 'rules' && wafRuleView.value === 'analytics') await loadWafAnalytics();
@@ -405,14 +158,12 @@
     }
 
     async function loadWafAttackData() {
-        expose('loadWafAttackData', loadWafAttackData);
       if (wafAttackView.value === 'stats') await loadWafStats();
       if (wafAttackView.value === 'timeline') await loadWafTimeline();
       if (wafAttackView.value === 'hits') await loadWafHits();
     }
 
     function wafOpenCreate() {
-        expose('wafOpenCreate', wafOpenCreate);
       wafEditModal.mode = 'create';
       wafEditModal.id = '';
       wafEditModal.name = '';
@@ -432,7 +183,6 @@
     }
 
     function wafOpenEdit(rule) {
-        expose('wafOpenEdit', wafOpenEdit);
       wafEditModal.mode = 'edit';
       wafEditModal.id = rule.id;
       wafEditModal.name = rule.name;
@@ -463,7 +213,6 @@
     }
 
     function wafDiffLines() {
-        expose('wafDiffLines', wafDiffLines);
       if (wafEditModal.mode === 'create') return [];
       try {
         const orig = JSON.parse(wafEditModal._originalRule);
@@ -504,7 +253,6 @@
     const VALID_ACTIONS = ['block', 'accept', 'log', 'challenge'];
 
     async function wafSaveRule() {
-        expose('wafSaveRule', wafSaveRule);
       wafEditError.value = '';
       const m = wafEditModal;
       if (!m.name) { wafEditError.value = 'Name is required'; return; }
@@ -573,7 +321,6 @@
 
     // ---- Pending Rule Changes ----
     async function loadPendingRules() {
-        expose('loadPendingRules', loadPendingRules);
       try {
         const d = await api('GET', '/verynginx/waf/rules/pending');
         if (d.ret === 'success') {
@@ -585,7 +332,6 @@
     }
 
     async function confirmPendingChange(ruleId) {
-        expose('confirmPendingChange', confirmPendingChange);
       if (!await showConfirm({ title: '发布暂存变更', message: `发布规则 ${ruleId} 的暂存变更？将立即生效，影响所有请求。`, type: 'danger' })) return;
       try {
         const d = await api('POST', '/verynginx/waf/rules/' + ruleId + '/confirm');
@@ -601,7 +347,6 @@
     }
 
     async function discardPendingChange(ruleId) {
-        expose('discardPendingChange', discardPendingChange);
       if (!await showConfirm({ title: '丢弃暂存变更', message: `丢弃规则 ${ruleId} 的暂存变更？此操作不可恢复。`, type: 'danger' })) return;
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + ruleId + '/pending');
@@ -619,7 +364,6 @@
 
     // ---- WAF Timeline ----
     async function loadWafTimeline() {
-        expose('loadWafTimeline', loadWafTimeline);
       wafTimelineLoading.value = true;
       wafTimelineError.value = '';
       try {
@@ -647,10 +391,8 @@
       }
       return false;
     });
-        expose('hasTimelineData', hasTimelineData);
 
     function timelineBarHeight(counts, cat) {
-        expose('timelineBarHeight', timelineBarHeight);
       let max = 1;
       for (const b of wafTimeline.value.buckets) {
         for (const c in b.counts) {
@@ -661,7 +403,6 @@
     }
 
     function categoryColor(cat) {
-        expose('categoryColor', categoryColor);
       const colors = { sqli: '#ef4444', xss: '#f97316', scanner: '#3b82f6', rce: '#dc2626',
                        path_traversal: '#f59e0b', injection: '#e11d48', other: '#6b7280' };
       return colors[cat] || '#6b7280';
@@ -670,7 +411,6 @@
 
     // ---- Test History ----
     async function loadTestHistory() {
-        expose('loadTestHistory', loadTestHistory);
       try {
         const d = await api('GET', '/verynginx/waf/test-history');
         if (d.ret === 'success') {
@@ -682,7 +422,6 @@
     }
 
     async function clearTestHistory() {
-        expose('clearTestHistory', clearTestHistory);
       if (!await showConfirm({ title: '清除测试历史', message: '确定清除全部 WAF 测试历史?', type: 'warning' })) return;
       try {
         await api('DELETE', '/verynginx/waf/test-history');
@@ -694,9 +433,44 @@
     }
 
 
+    // ---- WAF Rule Test ----
+    async function wafRunTest() {
+      wafTestError.value = '';
+      wafTestResults.value = null;
+
+      let rule, cases;
+      try {
+        rule = JSON.parse(wafTestRuleJson.value);
+      } catch (e) {
+        wafTestError.value = 'Invalid rule JSON: ' + e.message;
+        return;
+      }
+      try {
+        cases = JSON.parse(wafTestCasesJson.value);
+        if (!Array.isArray(cases) || !cases.length) throw new Error('Must be a non-empty array');
+      } catch (e) {
+        wafTestError.value = 'Invalid test cases JSON: ' + e.message;
+        return;
+      }
+
+      wafTesting.value = true;
+      try {
+        const d = await api('POST', '/verynginx/waf/rules/test', { rule, test_cases: cases });
+        if (d.ret === 'success') {
+          wafTestResults.value = d.data;
+          await loadTestHistory();
+        } else {
+          wafTestError.value = d.message || 'Test failed';
+        }
+      } catch (e) {
+        wafTestError.value = e.message;
+      }
+      wafTesting.value = false;
+    }
+
+
     // ---- Hit Detail Drill-down ----
     async function openHitDetail(hit) {
-        expose('openHitDetail', openHitDetail);
       wafHitDetailModal.show = true
       wafHitDetailModal.loading = true
       wafHitDetailModal.data = null
@@ -717,7 +491,6 @@
     }
 
     async function addToWhitelist(ip) {
-        expose('addToWhitelist', addToWhitelist);
       if (!await showConfirm({ title: '加入白名单', message: `将 ${ip} 加入白名单？此后该 IP 将不受 WAF 规则限制。`, type: 'primary' })) return;
       try {
         await api('POST', '/verynginx/reputation/whitelist', { ip })
@@ -729,7 +502,6 @@
     }
 
     async function viewIpHits(ip) {
-        expose('viewIpHits', viewIpHits);
       try {
         const d = await api('GET', '/verynginx/waf/hits/by-ip?ip=' + encodeURIComponent(ip))
         if (d.ret === 'success') {
@@ -742,7 +514,6 @@
     }
 
     async function editRuleById(ruleId) {
-        expose('editRuleById', editRuleById);
       try {
         const rule = wafRules.value.find(r => r.id === ruleId);
         if (rule) {
@@ -770,7 +541,6 @@
 
     // ---- WAF Hits ----
     async function loadWafHits() {
-        expose('loadWafHits', loadWafHits);
       wafHitsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/hits?limit=' + wafHitsLimit.value);
@@ -786,7 +556,6 @@
     }
 
     function wafLoadMoreHits() {
-        expose('wafLoadMoreHits', wafLoadMoreHits);
       wafHitsLimit.value = 100;
       loadWafHits();
     }
@@ -794,7 +563,6 @@
 
     // ---- WAF Analytics ----
     async function loadWafAnalytics() {
-        expose('loadWafAnalytics', loadWafAnalytics);
       wafAnalyticsLoading.value = true;
       wafAnalyticsError.value = '';
       try {
@@ -814,24 +582,13 @@
     }
 
     function gradeStyle(g) {
-        expose('gradeStyle', gradeStyle);
       const colors = { 'A+': '#16a34a', A: '#22c55e', B: '#f59e0b', C: '#f97316', D: '#ef4444' };
       return { background: colors[g] || '#6b7280', color: '#fff' };
     }
 
 
     // ---- WAF Recommender ----
-    const recs = ref([]);
-        expose('recs', recs);
-    const recStats = ref(null);
-        expose('recStats', recStats);
-    const recError = ref('');
-        expose('recError', recError);
-    const recLoading = ref(false);
-        expose('recLoading', recLoading);
-
     async function loadRecs() {
-        expose('loadRecs', loadRecs);
       recError.value = '';
       try {
         const [d, s] = await Promise.all([
@@ -846,7 +603,6 @@
     }
 
     async function runRecAnalysis() {
-        expose('runRecAnalysis', runRecAnalysis);
       recLoading.value = true;
       recError.value = '';
       try {
@@ -863,7 +619,6 @@
     }
 
     async function applyRec(id) {
-        expose('applyRec', applyRec);
       try {
         const d = await api('POST', '/verynginx/waf/recommendations/' + id + '/apply');
         if (d.ret === 'success') {
@@ -876,7 +631,6 @@
     }
 
     async function dismissRec(id) {
-        expose('dismissRec', dismissRec);
       try {
         await api('POST', '/verynginx/waf/recommendations/' + id + '/dismiss');
         await loadRecs();
@@ -886,7 +640,6 @@
     }
 
     async function wafRollback(version) {
-        expose('wafRollback', wafRollback);
       if (!await showConfirm({
         title: '回滚规则版本',
         message: `回滚到版本 ${version}? 这将替换所有当前规则。`,
@@ -909,127 +662,146 @@
       wafRolling.value = false;
     }
 
-    // Write back to ctx for subsequent modules (vn-kb loads after vn-waf)
-    ctx.loadWafRules = loadWafRules;
-    ctx.loadWafStats = loadWafStats;
-    ctx.loadWafHistory = loadWafHistory;
-    ctx.loadRepData = loadRepData;
-    ctx.loadAudit = loadAudit;
-    ctx.loadWafData = loadWafData;
-    ctx.loadWafAttackData = loadWafAttackData;
-    ctx.loadWafTimeline = loadWafTimeline;
-    ctx.loadTestHistory = loadTestHistory;
-    ctx.loadPendingRules = loadPendingRules;
-    ctx.loadRecs = loadRecs;
-    ctx.runRecAnalysis = runRecAnalysis;
-    ctx.applyRec = applyRec;
-    ctx.dismissRec = dismissRec;
-    ctx.loadWafHits = loadWafHits;
-    ctx.loadWafAnalytics = loadWafAnalytics;
-    ctx.wafOpenCreate = wafOpenCreate;
-    ctx.wafOpenEdit = wafOpenEdit;
-    ctx.wafSaveRule = wafSaveRule;
-    ctx.wafDiffLines = wafDiffLines;
-    ctx.wafRollback = wafRollback;
-    ctx.openHitDetail = openHitDetail;
-    ctx.viewIpHits = viewIpHits;
-    ctx.addToWhitelist = addToWhitelist;
-    ctx.repClear = repClear;
-    ctx.repAddWhitelist = repAddWhitelist;
-    ctx.repRemoveWhitelist = repRemoveWhitelist;
-    ctx.repPersist = repPersist;
-    ctx.repLookup = repLookup;
-    ctx.clearAuditFilters = clearAuditFilters;
-    ctx.setAuditSincePreset = setAuditSincePreset;
-    ctx.clearTestHistory = clearTestHistory;
-    ctx.wafToggleBusy = wafToggleBusy;
-    ctx.wafDeleteBusy = wafDeleteBusy;
-    ctx.wafSaving = wafSaving;
-    ctx.wafTestError = wafTestError;
-    ctx.wafTesting = wafTesting;
-    ctx.wafHitsError = wafHitsError;
-    ctx.wafHistError = wafHistError;
-    ctx.wafTimelineError = wafTimelineError;
-    ctx.wafAnalyticsError = wafAnalyticsError;
-    ctx.recError = recError;
-    ctx.recLoading = recLoading;
-    ctx.wafTimelineLoading = wafTimelineLoading;
-    ctx.wafPendingChanges = wafPendingChanges;
-    ctx.wafHitDetailModal = wafHitDetailModal;
-    ctx.confirmPendingChange = confirmPendingChange;
-    ctx.discardPendingChange = discardPendingChange;
-    ctx.wafLoadMoreHits = wafLoadMoreHits;
-    ctx.wafRefreshAll = wafRefreshAll;
-    ctx.wafToggleRule = wafToggleRule;
-    ctx.wafDeleteRule = wafDeleteRule;
-    ctx.wafPage = wafPage;
-    ctx.wafFilterChange = wafFilterChange;
-    ctx.editRuleById = editRuleById;
-    ctx.wafOpenEdit = wafOpenEdit;
-    ctx.wafOpenCreate = wafOpenCreate;
-    ctx.formatNumber = formatNumber;
-    ctx.formatAgo = formatAgo;
-    ctx.remaining = remaining;
-    ctx.categoryColor = categoryColor;
-    ctx.gradeStyle = gradeStyle;
-    ctx.timelineBarHeight = timelineBarHeight;
-    ctx.hasTimelineData = hasTimelineData;
-    ctx.fmtTime = fmtTime;
-    ctx.sevClass = sevClass;
-    ctx.auditActionClass = auditActionClass;
-    ctx.wafIpHits = wafIpHits;
-    ctx.wafIpHitsIp = wafIpHitsIp;
-    ctx.freqStats = freqStats;
-    ctx.freqRules = freqRules;
-    ctx.freqTemplates = freqTemplates;
-    ctx.freqTemplatesLoaded = freqTemplatesLoaded;
-    ctx.freqError = freqError;
-    ctx.freqRuleModal = freqRuleModal;
-    ctx.freqTemplateModal = freqTemplateModal;
-    ctx.geoipLookupIP = geoipLookupIP;
-    ctx.geoipLookupResult = geoipLookupResult;
-    ctx.geoipStats = geoipStats;
-    ctx.geoipMaxCount = geoipMaxCount;
-    ctx.geoipConfig = geoipConfig;
-    ctx.geoipStatus = geoipStatus;
-    ctx.geoipLoading = geoipLoading;
-    ctx.geoipError = geoipError;
-    ctx.fingerprints = fingerprints;
-    ctx.fpCategories = fpCategories;
-    ctx.fpError = fpError;
-    ctx.fpToggleBusy = fpToggleBusy;
-    ctx.fpEditModal = fpEditModal;
-    ctx.wafRuleView = wafRuleView;
-    ctx.wafAttackView = wafAttackView;
-    ctx.wafError = wafError;
-    ctx.wafRules = wafRules;
-    ctx.wafCategories = wafCategories;
-    ctx.wafPagination = wafPagination;
-    ctx.wafFilterCat = wafFilterCat;
-    ctx.wafFilterSev = wafFilterSev;
-    ctx.wafStatsData = wafStatsData;
-    ctx.wafStatsError = wafStatsError;
-    ctx.wafHistory = wafHistory;
-    ctx.wafHistError = wafHistError;
-    ctx.wafRolling = wafRolling;
-    ctx.wafTimeline = wafTimeline;
-    ctx.wafTimelineHours = wafTimelineHours;
-    ctx.wafTimelineBucket = wafTimelineBucket;
-    ctx.wafTimelineLoading = wafTimelineLoading;
-    ctx.wafTimelineError = wafTimelineError;
-    ctx.wafTestHistory = wafTestHistory;
-    ctx.wafHits = wafHits;
-    ctx.wafHitsError = wafHitsError;
-    ctx.wafHitsTime = wafHitsTime;
-    ctx.wafHitsLimit = wafHitsLimit;
-    ctx.wafAnalytics = wafAnalytics;
-    ctx.wafAnalyticsLoading = wafAnalyticsLoading;
-    ctx.wafAnalyticsError = wafAnalyticsError;
-    ctx.wafPendingChanges = wafPendingChanges;
-    ctx.wafHitDetailModal = wafHitDetailModal;
-    ctx.recs = recs;
-    ctx.recStats = recStats;
-        
+
+    // ---- Rule delete / toggle / pagination (used from KB page too) ----
+    async function wafDeleteRule(rule) {
+      if (!await showConfirm({ title: '删除 WAF 规则', message: `删除规则 "${rule.name}"? 此操作不可撤销。`, type: 'danger' })) return;
+      wafDeleteBusy.value = true;
+      try {
+        const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
+        if (d.ret === 'success') {
+          await loadWafRules();
+        } else {
+          wafError.value = d.message || 'Delete failed';
+        }
+      } catch (e) {
+        wafError.value = e.message;
+      } finally {
+        wafDeleteBusy.value = false;
+      }
+    }
+
+    async function wafToggleRule(rule) {
+      const enable = rule.enable === false;
+      if (!await showConfirm({ title: enable ? '启用规则' : '停用规则', message: enable ? `启用规则 ${rule.name}？将立即生效。` : `停用规则 ${rule.name}？将立即停止拦截。`, type: enable ? 'primary' : 'warning' })) return;
+      wafToggleBusy.value = true;
+      try {
+        const endpoint = enable ? 'enable' : 'disable';
+        const d = await api('POST', '/verynginx/waf/rules/' + rule.id + '/' + endpoint);
+        if (d.ret === 'success') {
+          rule.enable = enable;
+        }
+      } catch (e) {
+        wafError.value = e.message;
+      } finally {
+        wafToggleBusy.value = false;
+      }
+    }
+
+    function wafPage(p) {
+      wafPagination.page = p;
+      loadWafRules();
+    }
+
+    function wafFilterChange() {
+      wafPagination.page = 1;
+      loadWafRules();
+    }
+
+    async function wafRefreshAll() {
+      await loadWafData();
+    }
+
+
+    // ---- Exports ----
+    expose('wafTab', wafTab);
+    expose('wafRuleView', wafRuleView);
+    expose('wafAttackView', wafAttackView);
+    expose('wafError', wafError);
+    expose('wafRules', wafRules);
+    expose('wafCategories', wafCategories);
+    expose('wafPagination', wafPagination);
+    expose('wafFilterCat', wafFilterCat);
+    expose('wafFilterSev', wafFilterSev);
+    expose('wafStatsData', wafStatsData);
+    expose('wafStatsError', wafStatsError);
+    expose('wafHistory', wafHistory);
+    expose('wafHistError', wafHistError);
+    expose('wafRolling', wafRolling);
+    expose('wafToggleBusy', wafToggleBusy);
+    expose('wafDeleteBusy', wafDeleteBusy);
+    expose('wafEditModal', wafEditModal);
+    expose('wafEditError', wafEditError);
+    expose('wafSaving', wafSaving);
+    expose('wafTestRuleJson', wafTestRuleJson);
+    expose('wafTestCasesJson', wafTestCasesJson);
+    expose('wafTestError', wafTestError);
+    expose('wafTesting', wafTesting);
+    expose('wafTestResults', wafTestResults);
+    expose('wafHits', wafHits);
+    expose('wafHitsError', wafHitsError);
+    expose('wafHitsTime', wafHitsTime);
+    expose('wafHitsLimit', wafHitsLimit);
+    expose('wafAnalytics', wafAnalytics);
+    expose('wafAnalyticsLoading', wafAnalyticsLoading);
+    expose('wafAnalyticsError', wafAnalyticsError);
+    expose('wafPendingChanges', wafPendingChanges);
+    expose('wafTimeline', wafTimeline);
+    expose('wafTimelineHours', wafTimelineHours);
+    expose('wafTimelineBucket', wafTimelineBucket);
+    expose('wafTimelineLoading', wafTimelineLoading);
+    expose('wafTimelineError', wafTimelineError);
+    expose('wafTestHistory', wafTestHistory);
+    expose('wafHitDetailModal', wafHitDetailModal);
+    expose('wafIpHits', wafIpHits);
+    expose('wafIpHitsIp', wafIpHitsIp);
+    expose('recs', recs);
+    expose('recStats', recStats);
+    expose('recError', recError);
+    expose('recLoading', recLoading);
+    expose('sevClass', sevClass);
+    expose('fmtTime', fmtTime);
+    expose('loadWafRules', loadWafRules);
+    expose('formatNumber', formatNumber);
+    expose('formatAgo', formatAgo);
+    expose('loadWafStats', loadWafStats);
+    expose('loadWafHistory', loadWafHistory);
+    expose('remaining', remaining);
+    expose('loadWafData', loadWafData);
+    expose('loadWafAttackData', loadWafAttackData);
+    expose('wafOpenCreate', wafOpenCreate);
+    expose('wafOpenEdit', wafOpenEdit);
+    expose('wafDiffLines', wafDiffLines);
+    expose('wafSaveRule', wafSaveRule);
+    expose('loadPendingRules', loadPendingRules);
+    expose('confirmPendingChange', confirmPendingChange);
+    expose('discardPendingChange', discardPendingChange);
+    expose('loadWafTimeline', loadWafTimeline);
+    expose('hasTimelineData', hasTimelineData);
+    expose('timelineBarHeight', timelineBarHeight);
+    expose('categoryColor', categoryColor);
+    expose('loadTestHistory', loadTestHistory);
+    expose('clearTestHistory', clearTestHistory);
+    expose('wafRunTest', wafRunTest);
+    expose('openHitDetail', openHitDetail);
+    expose('addToWhitelist', addToWhitelist);
+    expose('viewIpHits', viewIpHits);
+    expose('editRuleById', editRuleById);
+    expose('loadWafHits', loadWafHits);
+    expose('wafLoadMoreHits', wafLoadMoreHits);
+    expose('loadWafAnalytics', loadWafAnalytics);
+    expose('gradeStyle', gradeStyle);
+    expose('loadRecs', loadRecs);
+    expose('runRecAnalysis', runRecAnalysis);
+    expose('applyRec', applyRec);
+    expose('dismissRec', dismissRec);
+    expose('wafRollback', wafRollback);
+    expose('wafDeleteRule', wafDeleteRule);
+    expose('wafToggleRule', wafToggleRule);
+    expose('wafPage', wafPage);
+    expose('wafFilterChange', wafFilterChange);
+    expose('wafRefreshAll', wafRefreshAll);
+
         // Module initialization (if any)
         // No return needed; expose() calls register everything
     };

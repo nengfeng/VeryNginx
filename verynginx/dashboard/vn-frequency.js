@@ -1,19 +1,27 @@
-// vn-frequency.js - Domain module for VeryNginx Dashboard
-// IIFE pattern for classic script loading
+// vn-frequency.js - Frequency limiting module for VeryNginx Dashboard
+// IIFE pattern for classic script loading. Loaded after vn-waf.
 
 (function() {
     // Register factory on global namespace
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
-    
+
     window.VN.modules['vnfrequency'] = function createvnfrequencyModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, showToast, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
+        const { expose, api, showToast, showConfirm } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
-        
-    // ---- Frequency Limit ----
+
+    // ---- Frequency Limit State ----
+    const freqStats = ref([]);
+    const freqRules = ref([]);
+    const freqTemplates = ref([]);
+    const freqTemplatesLoaded = ref(false);
+    const freqError = ref('');
+    const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
+    const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
+
+    // ---- Load ----
     async function loadFrequencyData() {
-        expose('loadFrequencyData', loadFrequencyData);
       try {
         const results = await Promise.allSettled([
           api('GET', '/verynginx/frequency/stats'),
@@ -39,8 +47,8 @@
       }
     }
 
+    // ---- Templates ----
     async function previewFreqTemplate(name) {
-        expose('previewFreqTemplate', previewFreqTemplate);
       try {
         const d = await api('GET', '/verynginx/frequency/templates/' + name);
         if (d.ret === 'success') {
@@ -89,7 +97,6 @@
     }
 
     async function applyFreqTemplate() {
-        expose('applyFreqTemplate', applyFreqTemplate);
       const rule = freqTemplateModal;
       if (!await showConfirm({
         title: '应用频率模板',
@@ -115,7 +122,122 @@
         }
       } catch (e) { showToast(e.message, 'error'); }
     }
-        
+
+    // ---- Rule CRUD ----
+    function openFreqRuleCreate() {
+      freqRuleModal.mode = 'create';
+      freqRuleModal._matcherRef = null;
+      freqRuleModal.id = 'freq_' + Date.now();
+      freqRuleModal.key = 'ip';
+      freqRuleModal.limit = 60;
+      freqRuleModal.window = 60;
+      freqRuleModal.code = 429;
+      freqRuleModal.enable = true;
+      freqRuleModal.matcherJson = '{}';
+      freqRuleModal.show = true;
+    }
+
+    function openFreqRuleEdit(rule) {
+      freqRuleModal.mode = 'edit';
+      freqRuleModal.id = rule.id;
+      freqRuleModal.key = rule.key || 'ip';
+      freqRuleModal.limit = rule.limit;
+      freqRuleModal.window = rule.window;
+      freqRuleModal.code = rule.code || 429;
+      freqRuleModal.enable = rule.enable !== false;
+      if (typeof rule.matcher === 'string') {
+        freqRuleModal._matcherRef = rule.matcher;
+        freqRuleModal.matcherJson = '{}';
+      } else {
+        freqRuleModal._matcherRef = null;
+        freqRuleModal.matcherJson = (rule.matcher && typeof rule.matcher === 'object')
+          ? JSON.stringify(rule.matcher, null, 2) : '{}';
+      }
+      freqRuleModal.show = true;
+    }
+
+    async function saveFreqRule() {
+      try {
+        // Client-side validation
+        if (!freqRuleModal.key || freqRuleModal.key.trim() === '') {
+          showToast('限速键 (key) 不能为空', 'error'); return;
+        }
+        const limit = Number(freqRuleModal.limit);
+        const window = Number(freqRuleModal.window);
+        const code = Number(freqRuleModal.code);
+        if (!limit || limit < 1) { showToast('limit 必须 >= 1', 'error'); return; }
+        if (!window || window < 1) { showToast('window 必须 >= 1 秒', 'error'); return; }
+        if (!code || code < 100 || code > 599) { showToast('响应码必须是 100-599 之间的合法状态码', 'error'); return; }
+
+        let matcher = {};
+        try {
+          if (freqRuleModal._matcherRef) {
+            matcher = null;
+          } else if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
+            matcher = JSON.parse(freqRuleModal.matcherJson);
+          }
+        } catch (e) {
+          showToast('匹配器 JSON 格式无效: ' + e.message, 'error');
+          return;
+        }
+        const rule = {
+          id: freqRuleModal.id,
+          key: freqRuleModal.key,
+          limit,
+          window,
+          code,
+          enable: freqRuleModal.enable,
+        };
+        if (freqRuleModal._matcherRef) {
+          rule.matcher = freqRuleModal._matcherRef;
+        } else if (Object.keys(matcher).length > 0) {
+          rule.matcher = matcher;
+        }
+        const d = await api('POST', '/verynginx/frequency/rules', rule);
+        if (d.ret === 'success') {
+          freqRuleModal.show = false;
+          showToast('规则已保存', 'success');
+          await loadFrequencyData();
+        } else {
+          showToast(d.message || '保存失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function deleteFreqRule(rule) {
+      if (!await showConfirm({ title: '删除频率规则', message: `删除频率规则 "${rule.id}"?`, type: 'danger' })) return;
+      try {
+        const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
+        if (d.ret === 'success') {
+          showToast('规则已删除', 'success');
+          await loadFrequencyData();
+        } else {
+          showToast(d.message || '删除失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    // ---- Exports ----
+    expose('freqStats', freqStats);
+    expose('freqRules', freqRules);
+    expose('freqTemplates', freqTemplates);
+    expose('freqTemplatesLoaded', freqTemplatesLoaded);
+    expose('freqError', freqError);
+    expose('freqRuleModal', freqRuleModal);
+    expose('freqTemplateModal', freqTemplateModal);
+    expose('loadFrequencyData', loadFrequencyData);
+    expose('previewFreqTemplate', previewFreqTemplate);
+    expose('freqMatcherSummary', freqMatcherSummary);
+    expose('applyFreqTemplate', applyFreqTemplate);
+    expose('openFreqRuleCreate', openFreqRuleCreate);
+    expose('openFreqRuleEdit', openFreqRuleEdit);
+    expose('saveFreqRule', saveFreqRule);
+    expose('deleteFreqRule', deleteFreqRule);
+
         // Module initialization (if any)
         // No return needed; expose() calls register everything
     };

@@ -7,53 +7,22 @@
     window.VN.modules = window.VN.modules || {};
 
     const exports = new Map();
-    function expose(name, value) { exports.set(name, value); }
-
-    // Create shared context - ONLY initial state refs + core utilities
-    // Domain modules declare their own functions locally (loadStatus, showToast, etc.)
-    const ctx = {
-        expose,
-        // Initial state refs (from setup() initial state)
-        page: null,
-        dashTab: null,
-        advTab: null,
-        loading: null,
-        loginUser: null,
-        loginPass: null,
-        loginError: null,
-        status: null,
-        connHistory: null,
-        cfg: null,
-        healthData: null,
-        overview: null,
-        dictUsage: null,
-        cfgTab: null,
-        theme: null,
-        rawJson: null,
-        jsonError: null,
-        jsonSaving: null,
-        statsData: null,
-        statsType: null,
-        statsError: null,
-        expandedUri: null,
-        editMatcherModal: null,
-        // Core utilities
-        api: null,
-        store: null,
-        isValidIpLiteral: null,
-        refreshCsrf: null,
-        refreshCsrfOnce: null,
-        csrfToken: null,
-    };
-
-    // Initialize modules in dependency order
-    // 1. Common (provides api, store, and populates initial state refs in ctx)
-    if (window.VN.modules.vnCommon) {
-        window.VN.modules.vnCommon(ctx);
+    // expose() populates BOTH the Vue render scope AND ctx (shared registry).
+    // Any module can therefore read anything exposed by an earlier module via ctx.
+    function expose(name, value) {
+        exports.set(name, value);
+        ctx[name] = value;
     }
 
-    // 2. Domain modules (all depend on ctx from common)
+    // Shared context - populated live by expose() as modules initialize.
+    // Modules running later can destructure anything exposed earlier.
+    const ctx = { expose };
+
+    // Initialize modules in dependency order:
+    // 1. Common (shared state + core utilities)
+    // 2. Domain modules (may read earlier modules' exports from ctx)
     const domainModules = [
+        'vncommon',
         'vndashboard',
         'vnconfig',
         'vnwaf',

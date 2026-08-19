@@ -1,19 +1,28 @@
-// vn-geoip.js - Domain module for VeryNginx Dashboard
-// IIFE pattern for classic script loading
+// vn-geoip.js - GeoIP module for VeryNginx Dashboard
+// IIFE pattern for classic script loading. Loaded after vn-frequency.
 
 (function() {
     // Register factory on global namespace
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
-    
+
     window.VN.modules['vngeoip'] = function createvngeoipModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, showToast, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
+        const { expose, api, isValidIpLiteral, showToast, showConfirm } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
-        
-    // ---- GeoIP ----
+
+    // ---- GeoIP State ----
+    const geoipLookupIP = ref('');
+    const geoipLookupResult = ref(null);
+    const geoipStats = ref([]);
+    const geoipMaxCount = computed(() => (geoipStats.value.length ? geoipStats.value[0].count : 0));
+    const geoipConfig = ref({ enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
+    const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
+    const geoipLoading = ref(false);
+    const geoipError = ref('');
+
+    // ---- Load ----
     async function loadGeoIPStatus() {
-        expose('loadGeoIPStatus', loadGeoIPStatus);
       try {
         const d = await api('GET', '/verynginx/geoip/status');
         if (d.ret === 'success') geoipStatus.value = d.data;
@@ -23,7 +32,6 @@
     }
 
     async function loadGeoIP() {
-        expose('loadGeoIP', loadGeoIP);
       geoipLoading.value = true;
       geoipError.value = '';
       try {
@@ -69,8 +77,8 @@
       }
     }
 
+    // ---- Lookup ----
     async function lookupGeoIP() {
-        expose('lookupGeoIP', lookupGeoIP);
       if (!geoipLookupIP.value) return;
       const ip = geoipLookupIP.value.trim();
       if (!isValidIpLiteral(ip)) { showToast('IP 格式无效: ' + ip, 'error'); return; }
@@ -82,8 +90,8 @@
       }
     }
 
+    // ---- Save / Update ----
     async function saveGeoIPConfig() {
-        expose('saveGeoIPConfig', saveGeoIPConfig);
       try {
         const MIRROR_URLS = {
           p3terx: 'https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-City.mmdb',
@@ -116,7 +124,6 @@
     }
 
     async function triggerGeoIPUpdate() {
-        expose('triggerGeoIPUpdate', triggerGeoIPUpdate);
       if (!await showConfirm({
         title: '更新 GeoIP 数据库',
         message: '立即从数据源下载并替换 GeoIP 数据库？现有 .mmdb 将被覆盖。',
@@ -140,7 +147,22 @@
         showToast(e.message || 'Update failed', 'error');
       }
     }
-        
+
+    // ---- Exports ----
+    expose('geoipLookupIP', geoipLookupIP);
+    expose('geoipLookupResult', geoipLookupResult);
+    expose('geoipStats', geoipStats);
+    expose('geoipMaxCount', geoipMaxCount);
+    expose('geoipConfig', geoipConfig);
+    expose('geoipStatus', geoipStatus);
+    expose('geoipLoading', geoipLoading);
+    expose('geoipError', geoipError);
+    expose('loadGeoIPStatus', loadGeoIPStatus);
+    expose('loadGeoIP', loadGeoIP);
+    expose('lookupGeoIP', lookupGeoIP);
+    expose('saveGeoIPConfig', saveGeoIPConfig);
+    expose('triggerGeoIPUpdate', triggerGeoIPUpdate);
+
         // Module initialization (if any)
         // No return needed; expose() calls register everything
     };

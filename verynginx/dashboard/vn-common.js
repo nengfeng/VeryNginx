@@ -1,21 +1,23 @@
-// vn-common.js - Domain module for VeryNginx Dashboard
-// IIFE pattern for classic script loading
+// vn-common.js - Shared state + core utilities for VeryNginx Dashboard
+// IIFE pattern for classic script loading. Loaded FIRST.
 
 (function() {
     // Register factory on global namespace
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
-    
+
     window.VN.modules['vncommon'] = function createvncommonModule(ctx) {
         const { expose } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
-        
+
     // Module-level store so api() can access it for session expiration handling
     let store = reactive({ loggedIn: false, user: null });
-    
+    expose('store', store);
+
     // ---- API ----
     let csrfToken = null;
+    let csrfBroken = false;
 
     // Strict IP literal validation (IPv4 0-255 per octet, IPv6 with optional /prefix).
     // Mirrors api/helpers.lua is_valid_ip semantics on the client side.
@@ -84,10 +86,8 @@
             } else if (d.status === 401 || d.status === 403) {
               csrfToken = null;
               csrfBroken = false;
-              if (typeof store !== 'undefined') {
-                store.loggedIn = false;
-                store.user = null;
-              }
+              store.loggedIn = false;
+              store.user = null;
               throw new Error('session_expired');
             }
           } catch (e) {
@@ -106,10 +106,8 @@
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           csrfToken = null;
-          if (typeof store !== 'undefined') {
-            store.loggedIn = false;
-            store.user = null;
-          }
+          store.loggedIn = false;
+          store.user = null;
           throw new Error('session_expired');
         }
         const text = await res.text().catch(() => '');
@@ -141,9 +139,8 @@
       return await refreshCsrf();
     }
 
-    // ===== SHARED UI UTILITIES (toast, confirm modal) =====
-    
-    // Toast state (module-level refs for reactivity)
+    // ===== Shared UI utilities (toast, confirm modal) =====
+
     const toastMsg = ref('');
     const toastType = ref('info');
     const toastVisible = ref(false);
@@ -161,7 +158,6 @@
     expose('toastType', toastType);
     expose('toastVisible', toastVisible);
 
-    // Confirm modal state
     const confirmModal = reactive({
       show: false,
       title: '',
@@ -210,118 +206,100 @@
     }
     expose('confirmModalCancel', confirmModalCancel);
 
-    // Watch for modal close
+    // Watch for modal close - always resolve the pending Promise
     watch(() => confirmModal.show, (show) => {
       if (!show && confirmModal.resolve) {
         confirmModal.resolve(false);
       }
     });
 
-    // Write back to ctx for subsequent modules
-    ctx.showToast = showToast;
-    ctx.showConfirm = showConfirm;
-    ctx.confirmModal = confirmModal;
-    ctx.confirmModalOk = confirmModalOk;
-    ctx.confirmModalCancel = confirmModalCancel;
-    ctx.toastMsg = toastMsg;
-    ctx.toastType = toastType;
-    ctx.toastVisible = toastVisible;
-
-    // ===== CORE STATE DECLARATIONS (from setup() initial state) =====
-    
-    // Expose module-level store for template access
-    expose('store', store);
+    // ===== Shared navigation state =====
     const page = ref('dashboard');
-        expose('page', page);
+    expose('page', page);
     const dashTab = ref('overview');
-        expose('dashTab', dashTab);
+    expose('dashTab', dashTab);
     const advTab = ref('fingerprints');
-        expose('advTab', advTab);
+    expose('advTab', advTab);
+    const cfgTab = ref('system');
+    expose('cfgTab', cfgTab);
+    const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+    expose('theme', theme);
+
+    function toggleTheme() {
+      const newTheme = theme.value === 'dark' ? 'light' : 'dark';
+      theme.value = newTheme;
+      document.documentElement.setAttribute('data-theme', newTheme);
+      try { localStorage.setItem('vn_theme', newTheme); } catch(e) {}
+    }
+    expose('toggleTheme', toggleTheme);
+
+    // ===== Shared data state (populated by domain modules) =====
     const loading = ref(false);
-        expose('loading', loading);
+    expose('loading', loading);
     const loginUser = ref('');
-        expose('loginUser', loginUser);
+    expose('loginUser', loginUser);
     const loginPass = ref('');
-        expose('loginPass', loginPass);
+    expose('loginPass', loginPass);
     const loginError = ref('');
-        expose('loginError', loginError);
+    expose('loginError', loginError);
     const status = ref({});
-        expose('status', status);
+    expose('status', status);
     const connHistory = ref([]);
-        expose('connHistory', connHistory);
+    expose('connHistory', connHistory);
     const cfg = ref({});
-        expose('cfg', cfg);
+    expose('cfg', cfg);
     const healthData = ref({});
-        expose('healthData', healthData);
+    expose('healthData', healthData);
     const overview = ref({});
-        expose('overview', overview);
+    expose('overview', overview);
     const dictUsage = ref([]);
-        expose('dictUsage', dictUsage);
-    // Shared audit filter state (used by vn-waf.js and vn-advanced.js)
-    const auditFilterUser = ref('');
-        expose('auditFilterUser', auditFilterUser);
-    const auditFilterAction = ref('');
-        expose('auditFilterAction', auditFilterAction);
-    const auditFilterSince = ref('');
-        expose('auditFilterSince', auditFilterSince);
-    const auditFilterUntil = ref('');
-        expose('auditFilterUntil', auditFilterUntil);
-
-    ctx.auditFilterUser = auditFilterUser;
-    ctx.auditFilterAction = auditFilterAction;
-    ctx.auditFilterSince = auditFilterSince;
-    ctx.auditFilterUntil = auditFilterUntil;
-
-     const cfgTab = ref('system');
-         expose('cfgTab', cfgTab);
-     const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
-         expose('theme', theme);
-
-     function toggleTheme() {
-         expose('toggleTheme', toggleTheme);
-       const newTheme = theme.value === 'dark' ? 'light' : 'dark';
-       theme.value = newTheme;
-       document.documentElement.setAttribute('data-theme', newTheme);
-       try { localStorage.setItem('vn_theme', newTheme); } catch(e) {}
-     }
+    expose('dictUsage', dictUsage);
     const rawJson = ref('');
-        expose('rawJson', rawJson);
+    expose('rawJson', rawJson);
     const jsonError = ref('');
-        expose('jsonError', jsonError);
+    expose('jsonError', jsonError);
     watch(rawJson, (val) => {
       jsonError.value = '';
       if (!val) return;
       try { JSON.parse(val); } catch (e) { jsonError.value = 'JSON: ' + e.message; }
     });
     const jsonSaving = ref(false);
-        expose('jsonSaving', jsonSaving);
+    expose('jsonSaving', jsonSaving);
     const statsData = ref(null);
-        expose('statsData', statsData);
+    expose('statsData', statsData);
     const statsType = ref('long');
-        expose('statsType', statsType);
+    expose('statsType', statsType);
     const statsError = ref('');
-        expose('statsError', statsError);
+    expose('statsError', statsError);
     const expandedUri = ref(null);
-        expose('expandedUri', expandedUri);
+    expose('expandedUri', expandedUri);
     const editMatcherModal = reactive({ show: false, name: '', conditions: '' });
-        expose('editMatcherModal', editMatcherModal);
+    expose('editMatcherModal', editMatcherModal);
 
-    // expose core utilities
+    // versionInfo / topPaths are shared between dashboard (loader) and other
+    // modules (advanced/about). Owned here to avoid load-order coupling.
+    const versionInfo = ref({ version: '', commit: '' });
+    expose('versionInfo', versionInfo);
+    const topPaths = ref([]);
+    expose('topPaths', topPaths);
+
+    // Shared audit filter state (used by advanced/audit module)
+    const auditFilterUser = ref('');
+    expose('auditFilterUser', auditFilterUser);
+    const auditFilterAction = ref('');
+    expose('auditFilterAction', auditFilterAction);
+    const auditFilterSince = ref('');
+    expose('auditFilterSince', auditFilterSince);
+    const auditFilterUntil = ref('');
+    expose('auditFilterUntil', auditFilterUntil);
+
+    // Expose core utilities
     expose('api', api);
     expose('isValidIpLiteral', isValidIpLiteral);
     expose('refreshCsrf', refreshCsrf);
     expose('refreshCsrfOnce', refreshCsrfOnce);
     expose('csrfToken', () => csrfToken); // getter for current token
 
-    // Write back to ctx for subsequent modules
-    ctx.api = api;
-    ctx.store = store;
-    ctx.isValidIpLiteral = isValidIpLiteral;
-    ctx.refreshCsrf = refreshCsrf;
-    ctx.refreshCsrfOnce = refreshCsrfOnce;
-    ctx.csrfToken = () => csrfToken;
-
-        
         // Module initialization (if any)
         // No return needed; expose() calls register everything
     };
