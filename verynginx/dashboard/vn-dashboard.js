@@ -390,8 +390,6 @@
       wafTesting.value = false;
     }
 
-    return Object.fromEntries(exports);
-
     // ---- Login ----
     async function doLogin() {
         expose('doLogin', doLogin);
