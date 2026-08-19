@@ -45,6 +45,20 @@
         }
     });
 
+    // In prod builds Vue swallows render/computed errors into a silent white
+    // screen. Surface them as a toast so the failure is visible instead.
+    app.config.errorHandler = (err, instance, info) => {
+        const msg = err && err.message ? err.message : String(err);
+        try {
+            if (ctx.showToast) {
+                ctx.showToast('渲染错误: ' + msg + (info ? ' (' + info + ')' : ''), 'error');
+            }
+        } catch (e) {
+            console.error('errorHandler failed', e);
+        }
+        console.error('Vue render error' + (info ? ' [' + info + ']' : ''), err);
+    };
+
     app.mount('#app');
 
 })();

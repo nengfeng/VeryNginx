@@ -53,7 +53,7 @@ const VueMock = {
     },
     createApp: (options) => {
         appOptions = options;
-        return { mount() {} };
+        return { config: {}, mount() {} };
     },
 };
 
