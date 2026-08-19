@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
     
     window.VN.modules['vnadvanced'] = function createvnadvancedModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken } = ctx;
+        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
         
@@ -25,21 +25,7 @@
         expose('pluginsError', pluginsError);
     const versionInfo = ref({ version: '', commit: '' });
         expose('versionInfo', versionInfo);
-    const toastMsg = ref('');
-        expose('toastMsg', toastMsg);
-    const toastType = ref('info');
-        expose('toastType', toastType);
-    const toastVisible = ref(false);
-        expose('toastVisible', toastVisible);
-    let toastTimer = null;
-    function showToast(msg, type) {
-        expose('showToast', showToast);
-      toastMsg.value = msg;
-      toastType.value = type || 'info';
-      toastVisible.value = true;
-      if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toastVisible.value = false; }, 2500);
-    }
+    // toastMsg/toastType/toastVisible/showToast provided by vn-common.js via ctx
     const configImportError = ref('');
         expose('configImportError', configImportError);
     const configImportOk = ref('');

@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
     
     window.VN.modules['vnwaf'] = function createvnwafModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil } = ctx;
+        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil, showToast, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
         
@@ -101,61 +101,7 @@
     const wafIpHitsIp = ref('');
         expose('wafIpHitsIp', wafIpHitsIp);
 
-    // Unified confirm modal
-    const confirmModal = reactive({
-      show: false,
-      title: '',
-      message: '',
-      type: 'danger',
-      requireInput: false,
-      inputLabel: '',
-      inputValue: '',
-      inputExpected: '',
-      resolve: null,
-      reject: null,
-    });
-        expose('confirmModal', confirmModal);
-
-    function showConfirm({ title, message, type = 'danger', requireInput = false, inputLabel = '', inputExpected = '' }) {
-        expose('showConfirm', showConfirm);
-      return new Promise((resolve, reject) => {
-        confirmModal.show = true;
-        confirmModal.title = title;
-        confirmModal.message = message;
-        confirmModal.type = type;
-        confirmModal.requireInput = requireInput;
-        confirmModal.inputLabel = inputLabel;
-        confirmModal.inputValue = '';
-        confirmModal.inputExpected = inputExpected;
-        confirmModal.resolve = resolve;
-        confirmModal.reject = reject;
-      });
-    }
-
-    function confirmModalOk() {
-        expose('confirmModalOk', confirmModalOk);
-      if (confirmModal.requireInput) {
-        if (confirmModal.inputValue.trim() !== confirmModal.inputExpected.trim()) {
-          showToast('确认文本不匹配', 'error');
-          return;
-        }
-      }
-      confirmModal.show = false;
-      confirmModal.resolve(true);
-    }
-
-    function confirmModalCancel() {
-        expose('confirmModalCancel', confirmModalCancel);
-      confirmModal.show = false;
-      confirmModal.resolve(false);
-    }
-
-    // Watcher to ensure Promise always resolves if modal closes unexpectedly
-    watch(() => confirmModal.show, (show) => {
-      if (!show && confirmModal.resolve) {
-        confirmModal.resolve(false);
-      }
-    });
+    // confirmModal / showConfirm / confirmModalOk / confirmModalCancel provided by vn-common.js via ctx
 
     const freqStats = ref([]);
         expose('freqStats', freqStats);
@@ -962,6 +908,127 @@
       }
       wafRolling.value = false;
     }
+
+    // Write back to ctx for subsequent modules (vn-kb loads after vn-waf)
+    ctx.loadWafRules = loadWafRules;
+    ctx.loadWafStats = loadWafStats;
+    ctx.loadWafHistory = loadWafHistory;
+    ctx.loadRepData = loadRepData;
+    ctx.loadAudit = loadAudit;
+    ctx.loadWafData = loadWafData;
+    ctx.loadWafAttackData = loadWafAttackData;
+    ctx.loadWafTimeline = loadWafTimeline;
+    ctx.loadTestHistory = loadTestHistory;
+    ctx.loadPendingRules = loadPendingRules;
+    ctx.loadRecs = loadRecs;
+    ctx.runRecAnalysis = runRecAnalysis;
+    ctx.applyRec = applyRec;
+    ctx.dismissRec = dismissRec;
+    ctx.loadWafHits = loadWafHits;
+    ctx.loadWafAnalytics = loadWafAnalytics;
+    ctx.wafOpenCreate = wafOpenCreate;
+    ctx.wafOpenEdit = wafOpenEdit;
+    ctx.wafSaveRule = wafSaveRule;
+    ctx.wafDiffLines = wafDiffLines;
+    ctx.wafRollback = wafRollback;
+    ctx.openHitDetail = openHitDetail;
+    ctx.viewIpHits = viewIpHits;
+    ctx.addToWhitelist = addToWhitelist;
+    ctx.repClear = repClear;
+    ctx.repAddWhitelist = repAddWhitelist;
+    ctx.repRemoveWhitelist = repRemoveWhitelist;
+    ctx.repPersist = repPersist;
+    ctx.repLookup = repLookup;
+    ctx.clearAuditFilters = clearAuditFilters;
+    ctx.setAuditSincePreset = setAuditSincePreset;
+    ctx.clearTestHistory = clearTestHistory;
+    ctx.wafToggleBusy = wafToggleBusy;
+    ctx.wafDeleteBusy = wafDeleteBusy;
+    ctx.wafSaving = wafSaving;
+    ctx.wafTestError = wafTestError;
+    ctx.wafTesting = wafTesting;
+    ctx.wafHitsError = wafHitsError;
+    ctx.wafHistError = wafHistError;
+    ctx.wafTimelineError = wafTimelineError;
+    ctx.wafAnalyticsError = wafAnalyticsError;
+    ctx.recError = recError;
+    ctx.recLoading = recLoading;
+    ctx.wafTimelineLoading = wafTimelineLoading;
+    ctx.wafPendingChanges = wafPendingChanges;
+    ctx.wafHitDetailModal = wafHitDetailModal;
+    ctx.confirmPendingChange = confirmPendingChange;
+    ctx.discardPendingChange = discardPendingChange;
+    ctx.wafLoadMoreHits = wafLoadMoreHits;
+    ctx.wafRefreshAll = wafRefreshAll;
+    ctx.wafToggleRule = wafToggleRule;
+    ctx.wafDeleteRule = wafDeleteRule;
+    ctx.wafPage = wafPage;
+    ctx.wafFilterChange = wafFilterChange;
+    ctx.editRuleById = editRuleById;
+    ctx.wafOpenEdit = wafOpenEdit;
+    ctx.wafOpenCreate = wafOpenCreate;
+    ctx.formatNumber = formatNumber;
+    ctx.formatAgo = formatAgo;
+    ctx.remaining = remaining;
+    ctx.categoryColor = categoryColor;
+    ctx.gradeStyle = gradeStyle;
+    ctx.timelineBarHeight = timelineBarHeight;
+    ctx.hasTimelineData = hasTimelineData;
+    ctx.fmtTime = fmtTime;
+    ctx.sevClass = sevClass;
+    ctx.auditActionClass = auditActionClass;
+    ctx.wafIpHits = wafIpHits;
+    ctx.wafIpHitsIp = wafIpHitsIp;
+    ctx.freqStats = freqStats;
+    ctx.freqRules = freqRules;
+    ctx.freqTemplates = freqTemplates;
+    ctx.freqTemplatesLoaded = freqTemplatesLoaded;
+    ctx.freqError = freqError;
+    ctx.freqRuleModal = freqRuleModal;
+    ctx.freqTemplateModal = freqTemplateModal;
+    ctx.geoipLookupIP = geoipLookupIP;
+    ctx.geoipLookupResult = geoipLookupResult;
+    ctx.geoipStats = geoipStats;
+    ctx.geoipMaxCount = geoipMaxCount;
+    ctx.geoipConfig = geoipConfig;
+    ctx.geoipStatus = geoipStatus;
+    ctx.geoipLoading = geoipLoading;
+    ctx.geoipError = geoipError;
+    ctx.fingerprints = fingerprints;
+    ctx.fpCategories = fpCategories;
+    ctx.fpError = fpError;
+    ctx.fpToggleBusy = fpToggleBusy;
+    ctx.fpEditModal = fpEditModal;
+    ctx.wafRuleView = wafRuleView;
+    ctx.wafAttackView = wafAttackView;
+    ctx.wafError = wafError;
+    ctx.wafRules = wafRules;
+    ctx.wafCategories = wafCategories;
+    ctx.wafPagination = wafPagination;
+    ctx.wafFilterCat = wafFilterCat;
+    ctx.wafFilterSev = wafFilterSev;
+    ctx.wafStatsData = wafStatsData;
+    ctx.wafStatsError = wafStatsError;
+    ctx.wafHistory = wafHistory;
+    ctx.wafHistError = wafHistError;
+    ctx.wafRolling = wafRolling;
+    ctx.wafTimeline = wafTimeline;
+    ctx.wafTimelineHours = wafTimelineHours;
+    ctx.wafTimelineBucket = wafTimelineBucket;
+    ctx.wafTimelineLoading = wafTimelineLoading;
+    ctx.wafTimelineError = wafTimelineError;
+    ctx.wafTestHistory = wafTestHistory;
+    ctx.wafHits = wafHits;
+    ctx.wafHitsError = wafHitsError;
+    ctx.wafHitsTime = wafHitsTime;
+    ctx.wafHitsLimit = wafHitsLimit;
+    ctx.wafAnalytics = wafAnalytics;
+    ctx.wafAnalyticsLoading = wafAnalyticsLoading;
+    ctx.wafAnalyticsError = wafAnalyticsError;
+    ctx.wafPendingChanges = wafPendingChanges;
+    ctx.wafHitDetailModal = wafHitDetailModal;
+    ctx.recs = recs;
+    ctx.recStats = recStats;
         
         // Module initialization (if any)
         // No return needed; expose() calls register everything

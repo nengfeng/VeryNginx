@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
     
     window.VN.modules['vndashboard'] = function createvndashboardModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken } = ctx;
+        const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken, showToast, showConfirm, confirmModal, confirmModalOk, confirmModalCancel, toastMsg, toastType, toastVisible } = ctx;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
         
@@ -434,6 +434,26 @@
       store.loggedIn = false;
       store.user = null;
     }
+
+    // Write back to ctx for subsequent modules (vn-config loads after vn-dashboard)
+    ctx.loadOverview = loadOverview;
+    ctx.loadStatus = loadStatus;
+    ctx.loadConfig = loadConfig;
+    ctx.refreshConfig = refreshConfig;
+    ctx.loadHealth = loadHealth;
+    ctx.loadDictUsage = loadDictUsage;
+    ctx.loadTopPaths = loadTopPaths;
+    ctx.parsePrometheus = parsePrometheus;
+    ctx.loadData = loadData;
+    ctx.wafRunTest = wafRunTest;
+    ctx.doLogin = doLogin;
+    ctx.doLogout = doLogout;
+    ctx.formatTime = formatTime;
+    ctx.formatBytes = formatBytes;
+    ctx.calcSuccess = calcSuccess;
+    ctx.successClass = successClass;
+    ctx.summarizeRule = summarizeRule;
+    ctx.actionClass = actionClass;
         
         // Module initialization (if any)
         // No return needed; expose() calls register everything

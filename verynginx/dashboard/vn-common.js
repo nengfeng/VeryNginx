@@ -141,6 +141,92 @@
       return await refreshCsrf();
     }
 
+    // ===== SHARED UI UTILITIES (toast, confirm modal) =====
+    
+    // Toast state (module-level refs for reactivity)
+    const toastMsg = ref('');
+    const toastType = ref('info');
+    const toastVisible = ref(false);
+    let toastTimer = null;
+
+    function showToast(msg, type) {
+      toastMsg.value = msg;
+      toastType.value = type || 'info';
+      toastVisible.value = true;
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toastVisible.value = false; }, 2500);
+    }
+    expose('showToast', showToast);
+    expose('toastMsg', toastMsg);
+    expose('toastType', toastType);
+    expose('toastVisible', toastVisible);
+
+    // Confirm modal state
+    const confirmModal = reactive({
+      show: false,
+      title: '',
+      message: '',
+      type: 'danger',
+      requireInput: false,
+      inputLabel: '',
+      inputValue: '',
+      inputExpected: '',
+      resolve: null,
+      reject: null
+    });
+    expose('confirmModal', confirmModal);
+
+    function showConfirm({ title, message, type = 'danger', requireInput = false, inputLabel = '', inputExpected = '' }) {
+      return new Promise((resolve, reject) => {
+        confirmModal.show = true;
+        confirmModal.title = title;
+        confirmModal.message = message;
+        confirmModal.type = type;
+        confirmModal.requireInput = requireInput;
+        confirmModal.inputLabel = inputLabel;
+        confirmModal.inputValue = '';
+        confirmModal.inputExpected = inputExpected;
+        confirmModal.resolve = resolve;
+        confirmModal.reject = reject;
+      });
+    }
+    expose('showConfirm', showConfirm);
+
+    function confirmModalOk() {
+      if (confirmModal.requireInput) {
+        if (confirmModal.inputValue.trim() !== confirmModal.inputExpected.trim()) {
+          showToast('确认文本不匹配', 'error');
+          return;
+        }
+      }
+      confirmModal.show = false;
+      confirmModal.resolve(true);
+    }
+    expose('confirmModalOk', confirmModalOk);
+
+    function confirmModalCancel() {
+      confirmModal.show = false;
+      confirmModal.resolve(false);
+    }
+    expose('confirmModalCancel', confirmModalCancel);
+
+    // Watch for modal close
+    watch(() => confirmModal.show, (show) => {
+      if (!show && confirmModal.resolve) {
+        confirmModal.resolve(false);
+      }
+    });
+
+    // Write back to ctx for subsequent modules
+    ctx.showToast = showToast;
+    ctx.showConfirm = showConfirm;
+    ctx.confirmModal = confirmModal;
+    ctx.confirmModalOk = confirmModalOk;
+    ctx.confirmModalCancel = confirmModalCancel;
+    ctx.toastMsg = toastMsg;
+    ctx.toastType = toastType;
+    ctx.toastVisible = toastVisible;
+
     // ===== CORE STATE DECLARATIONS (from setup() initial state) =====
     
     // Expose module-level store for template access
