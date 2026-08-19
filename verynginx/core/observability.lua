@@ -34,6 +34,8 @@ function _M._collect_worker_stats()
             if capacity > 0 then
                 local pct = math.floor((used / capacity) * 100)
                 metrics.gauge("shared_dict_usage_pct", pct, { dict = name })
+                metrics.gauge("shared_dict_usage_bytes", used, { dict = name })
+                metrics.gauge("shared_dict_capacity_bytes", capacity, { dict = name })
             end
         end
     end

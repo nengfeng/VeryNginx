@@ -199,7 +199,7 @@
     }
 
 
-    const s = computed(() => status.value);
+    const statusRow = computed(() => status.value);
 
 
     // ---- Bucket trend chart data ----
@@ -632,7 +632,7 @@
     view('kbEvidenceSummary', kbEvidenceSummary);
     view('kbOpenDetail', kbOpenDetail);
     view('kbReloadList', kbReloadList);
-    view('s', s);
+    view('statusRow', statusRow);
     view('kbTrendPoints', kbTrendPoints);
     view('kbTrendFillEnforce', kbTrendFillEnforce);
     view('kbTrendFillObserve', kbTrendFillObserve);

@@ -159,6 +159,8 @@ local METADATA = {
     nginx_connections_writing = { type = "gauge", help = "Writing connections" },
     nginx_connections_waiting = { type = "gauge", help = "Waiting connections" },
     shared_dict_usage_pct = { type = "gauge", help = "Shared dict usage percentage" },
+    shared_dict_usage_bytes = { type = "gauge", help = "Shared dict used bytes" },
+    shared_dict_capacity_bytes = { type = "gauge", help = "Shared dict capacity bytes" },
     plugin_duration_seconds_count = { type = "counter", help = "Total plugin duration count" },
     plugin_duration_seconds_sum = { type = "counter", help = "Total plugin duration sum" },
     verynginx_kernel_block_candidates = { type = "gauge", help = "Kernel blocking candidate count" },

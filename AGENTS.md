@@ -413,10 +413,10 @@ window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
 
 | 动作 | 作用域 | 用途 |
 |------|--------|------|
-| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（仅 273 个） |
+| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（275 个） |
 | `ctx('name', value)` | 仅 shared 注册表 | 跨模块内部共享，不进 render scope（如 `loadWafData`、`kbBucketHistory`） |
 
-**为什么分两种**：曾经 302 个导出全堆进 `setup()` 返回的 render scope，模板只需 273 个，其余 29 个纯内部值造成全局命名污染与未来碰撞隐患。现在 view 集合与模板绑定**严格相等**，由 `test/v2/dashboard_bindings.js`（静态提取模板绑定，零依赖）驱动两个 CI gate 校验：
+**为什么分两种**：曾经 302 个导出全堆进 `setup()` 返回的 render scope，模板只需 275 个，其余 27 个纯内部值造成全局命名污染与未来碰撞隐患。现在 view 集合与模板绑定**严格相等**，由 `test/v2/dashboard_bindings.js`（静态提取模板绑定，零依赖）驱动两个 CI gate 校验：
 - `check_bindings.js`：模板引用了但未 `view()` → 报错；`view()` 了但模板未引用 → 报错（死导出）。
 - `dashboard_init_check.js`：真实执行 app.js 接线，断言 `setup()` 返回集合 == 模板绑定集合、工厂初始化不抛错、watch 源不为 undefined、无重复 `view()/ctx()`。
 
@@ -438,7 +438,7 @@ window.VN.modules['vnadvanced'](shared)
 window.VN.modules['vnkb'](shared)
 ```
 
-最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 273 个绑定）。
+最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 275 个绑定）。
 
 ### 8.3 mount API
 
@@ -461,10 +461,10 @@ registerPoll('health', {
 });
 ```
 
-- 每个 poller 声明 `active()` 谓词；`syncPolls()` 遍历注册表，按谓词 reconcile 每个 poller 的启动/停止（幂等：应跑而未跑则 load 一次 + 起 interval；不应跑而跑着则 clear）。
+- 每个 poller 声明 `active()` 谓词；`syncPolls()` 遍历注册表，按谓词 reconcile 每个 poller 的启动/停止（幂等：应跑而未跑则 load 一次 + 起 interval；不应跑而跑着则 clear）。`syncPolls()` 顶部有 `!store.loggedIn` 守卫：未登录时直接 `stopAllPolls()` 返回，杜绝"未来导航改动导致登出态起轮询"。
 - 单一 `watch([page, dashTab, cfgTab], syncPolls)` 接管全部切换；登出走 `stopAllPolls()`；登录/首挂载走 `syncPolls()`（此时谓词已由当前 ref 状态决定）。
 - 新增轮询 = 加一行 `registerPoll`，无需再碰任何 watch；再也不会出现"新页面忘了清旧 timer"的分支遗漏。
-- `registerPoll` 对重名注册会 `console.error` 拒绝（由 dashboard_init_check 的 `_dups` 断言覆盖）。
+- `registerPoll` 对重名注册会 `console.error` + 记入 `window.VN._dups` 拒绝（由 dashboard_init_check 的 `_dups` 断言覆盖）。
 
 ### 8.4 路由与 WAF Tab
 

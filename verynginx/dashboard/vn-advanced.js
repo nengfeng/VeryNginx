@@ -72,6 +72,12 @@
       auditFilterTimer = setTimeout(() => loadAudit(), 400);
     });
 
+    // Clear a pending debounce on logout so it can't fire a loadAudit after
+    // the session is gone.
+    watch(() => shared.store.loggedIn, (v) => {
+      if (!v && auditFilterTimer) { clearTimeout(auditFilterTimer); auditFilterTimer = null; }
+    });
+
     function auditActionClass(a) {
       if (!a) return '';
       if (a.startsWith('login')) return a === 'login_success' ? 'tag-ok' : 'tag-err';
@@ -111,6 +117,26 @@
       fpEditModal.category = 'scanner';
       fpEditModal.action = 'block';
       fpEditModal.show = true;
+    }
+
+    async function saveFpAdd() {
+      const hash = (fpEditModal.hash || '').trim();
+      const name = (fpEditModal.name || '').trim();
+      if (!hash || !name) { showToast('哈希和名称必填', 'error'); return; }
+      try {
+        const d = await api('POST', '/verynginx/fingerprints', {
+          hash, name, category: fpEditModal.category, action: fpEditModal.action
+        });
+        if (d.ret === 'success') {
+          fpEditModal.show = false;
+          showToast('指纹已添加', 'success');
+          await loadFingerprints();
+        } else {
+          showToast(d.message || '添加失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message || '添加失败', 'error');
+      }
     }
 
     async function toggleFp(fp) {
@@ -203,9 +229,10 @@
     view('fpCategories', fpCategories);
     view('fpError', fpError);
     view('fpToggleBusy', fpToggleBusy);
-    ctx('fpEditModal', fpEditModal);
+    view('fpEditModal', fpEditModal);
     view('loadFingerprints', loadFingerprints);
     view('openFpAdd', openFpAdd);
+    view('saveFpAdd', saveFpAdd);
     view('toggleFp', toggleFp);
     ctx('saveFp', saveFp);
     view('deleteFp', deleteFp);

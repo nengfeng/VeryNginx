@@ -63,7 +63,7 @@
       <div v-if="page==='dashboard'" class="config-tabs" style="margin-bottom:16px">
         <a :class="{active:dashTab==='overview'}" @click="dashTab='overview'">概览</a>
         <a :class="{active:dashTab==='status'}" @click="dashTab='status'">连接</a>
-        <a :class="{active:dashTab==='stats'}" @click="dashTab='stats';loadStats()">统计</a>
+        <a :class="{active:dashTab==='stats'}" @click="dashTab='stats'">统计</a>
       </div>
 
       <!-- Overview -->
@@ -144,10 +144,10 @@
       <div v-if="page==='dashboard' && dashTab==='status'">
         <h2 class="page-title">连接状态</h2>
         <div class="grid grid-4 mb-16">
-          <div class="stat-card"><div class="stat-label">活跃连接</div><div class="stat-value">{{ s.connections_active || 0 }}</div></div>
-          <div class="stat-card"><div class="stat-label">读取中</div><div class="stat-value">{{ s.connections_reading || 0 }}</div></div>
-          <div class="stat-card"><div class="stat-label">写入中</div><div class="stat-value">{{ s.connections_writing || 0 }}</div></div>
-          <div class="stat-card"><div class="stat-label">等待中</div><div class="stat-value">{{ s.connections_waiting || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">活跃连接</div><div class="stat-value">{{ statusRow.connections_active || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">读取中</div><div class="stat-value">{{ statusRow.connections_reading || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">写入中</div><div class="stat-value">{{ statusRow.connections_writing || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-label">等待中</div><div class="stat-value">{{ statusRow.connections_waiting || 0 }}</div></div>
         </div>
         <!-- Connection trend chart -->
         <div class="card mb-16" v-if="connHistory.length > 1">
@@ -167,7 +167,7 @@
             <button class="outline small" @click="loadStatus">刷新</button>
           </div>
           <table>
-            <tr><th>时间</th><td>{{ formatTime(s.time) }}</td></tr>
+            <tr><th>时间</th><td>{{ formatTime(statusRow.time) }}</td></tr>
             <tr><th>运行状态</th><td><span class="tag tag-ok">在线</span></td></tr>
           </table>
         </div>
@@ -1141,8 +1141,8 @@
 
             <!-- Advanced sub-tabs -->
       <div v-if="page==='advanced'" class="config-tabs" style="margin-bottom:16px">
-        <a :class="{active:advTab==='fingerprints'}" @click="advTab='fingerprints';loadFingerprints()">TLS 指纹</a>
-        <a :class="{active:advTab==='audit'}" @click="advTab='audit';loadAudit()">审计日志</a>
+        <a :class="{active:advTab==='fingerprints'}" @click="advTab='fingerprints'">TLS 指纹</a>
+        <a :class="{active:advTab==='audit'}" @click="advTab='audit'">审计日志</a>
       </div>
 
       <!-- Fingerprints -->
@@ -1746,10 +1746,10 @@
          </div>
       </div>
       <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
-      <div v-if="wafEditModal.mode === 'edit' && wafDiffLines().length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
+      <div v-if="wafEditModal.mode === 'edit' && wafDiffLines.length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
         <div style="background:#f9fafb;padding:6px 12px;font-size:12px;font-weight:600;color:#374151;border-bottom:1px solid #e0e3eb">变更预览</div>
         <div style="max-height:200px;overflow-y:auto;font-family:ui-monospace,monospace;font-size:12px;background:#fff">
-          <div v-for="(d,i) in wafDiffLines()" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
+          <div v-for="(d,i) in wafDiffLines" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
             {{ d.type === 'added' ? '+' : '-' }} {{ d.text }}
           </div>
         </div>
@@ -1758,6 +1758,44 @@
          <button class="outline" @click="wafEditModal.show=false">取消</button>
          <button class="primary" :disabled="wafSaving" @click="wafSaveRule">{{ wafSaving ? '保存中…' : '保存' }}</button>
        </div>
+    </div>
+  </div>
+
+  <!-- Fingerprint Add Modal -->
+  <div class="modal-overlay" v-if="fpEditModal.show" @click.self="fpEditModal.show=false">
+    <div class="modal" style="max-width:480px">
+      <h3>添加 TLS 指纹</h3>
+      <div class="field">
+        <label>指纹哈希 *</label>
+        <input v-model="fpEditModal.hash" type="text" placeholder="如 3A:00:00:00:... 或明文指纹串">
+      </div>
+      <div class="field">
+        <label>名称 *</label>
+        <input v-model="fpEditModal.name" type="text" placeholder="指纹名称/说明">
+      </div>
+      <div class="grid-2 mb-8">
+        <div class="field">
+          <label>分类</label>
+          <select v-model="fpEditModal.category" style="width:100%">
+            <option value="scanner">扫描器</option>
+            <option value="bot">机器人</option>
+            <option value="browser">浏览器</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>动作</label>
+          <select v-model="fpEditModal.action" style="width:100%">
+            <option value="block">拦截</option>
+            <option value="challenge">挑战</option>
+            <option value="log">仅记录</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="fpEditModal.show=false">取消</button>
+        <button class="primary" @click="saveFpAdd">保存</button>
+      </div>
     </div>
   </div>
 

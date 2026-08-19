@@ -59,9 +59,22 @@ local function handle_logout()
     return json.encode({ ret = "success" })
 end
 
+--- GET /session - return the current authenticated user (for session restore
+-- on page reload; the auth middleware has already validated the cookie).
+local function handle_session()
+    local ctx = ngx.ctx.vn_ctx
+    local user = ctx and ctx.get_data and ctx.get_data(ctx, "auth:user")
+    if not user then
+        ngx.status = 401
+        return json.encode({ ret = "failed", message = "no active session" })
+    end
+    return json.encode({ ret = "success", user = user })
+end
+
 function _M.register(api)
     api.register("POST", "/login", handle_login, false)
     api.register("POST", "/logout", handle_logout, true)
+    api.register("GET", "/session", handle_session, true)
 end
 
 return _M

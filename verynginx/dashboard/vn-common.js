@@ -310,7 +310,9 @@
 
     function registerPoll(name, spec) {
         if (polls.has(name)) {
-            console.error('[VeryNginx] duplicate poll registration: ' + name);
+            const msg = 'Duplicate poll registration: ' + name;
+            console.error('[VeryNginx] ' + msg);
+            if (window.VN && window.VN._dups) window.VN._dups.push(msg);
             return;
         }
         polls.set(name, {
@@ -322,6 +324,7 @@
     }
 
     function syncPolls() {
+        if (!store.loggedIn) { stopAllPolls(); return; }
         for (const poll of polls.values()) {
             const shouldRun = poll.active();
             if (shouldRun && poll.timer === null) {

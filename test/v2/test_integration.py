@@ -58,6 +58,22 @@ def test_login():
     print(f"  [PASS] Valid login: {resp.get('ret')}")
 
 
+def test_session_restore():
+    """Session restore endpoint returns the current user for a valid cookie."""
+    cookies = get_shared_session()
+    status, body = curl("GET", "/verynginx/session", cookies=cookies)
+    assert status == 200, f"GET /session failed: status={status}, body={body[:200]}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Session response: {body[:200]}"
+    assert resp.get("user") == USER, f"Session user mismatch: {body[:200]}"
+    print(f"  [PASS] GET /session returns current user: {resp.get('user')}")
+
+    # Without a cookie -> 401
+    status, body = curl("GET", "/verynginx/session")
+    assert status == 401, f"Unauthenticated /session should be 401: {status}"
+    print("  [PASS] GET /session without cookie rejected (401)")
+
+
 def _get_auth():
     """Login and return session cookies."""
     status, body = curl("POST", "/verynginx/login", data=f"user={USER}&password={PASS}")

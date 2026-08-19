@@ -212,7 +212,7 @@
       wafEditModal.show = true;
     }
 
-    function wafDiffLines() {
+    const wafDiffLines = computed(() => {
       if (wafEditModal.mode === 'create') return [];
       try {
         const orig = JSON.parse(wafEditModal._originalRule);
@@ -246,7 +246,7 @@
       } catch (e) {
         return [];
       }
-    }
+    });
 
     const VALID_CATEGORIES = ['sqli', 'xss', 'rce', 'lfi', 'path_traversal', 'scanner', 'bot', 'brute', 'spam', 'custom'];
     const VALID_SEVERITIES = ['critical', 'high', 'medium', 'low'];

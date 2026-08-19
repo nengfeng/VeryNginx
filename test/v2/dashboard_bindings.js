@@ -13,10 +13,11 @@ const path = require('path');
 
 const DASH = path.join(__dirname, '..', '..', 'verynginx', 'dashboard');
 
-const MODULE_FILES = [
-    'vn-common.js', 'vn-dashboard.js', 'vn-config.js', 'vn-waf.js', 'vn-frequency.js',
-    'vn-geoip.js', 'vn-reputation.js', 'vn-advanced.js', 'vn-kb.js', 'app.js',
-];
+// Derive the module list from the dashboard directory instead of a static
+// list, so a newly added vn-*.js is automatically covered by the gates.
+const MODULE_FILES = fs.readdirSync(DASH)
+    .filter((f) => /^(vn-.*\.js|app\.js)$/.test(f))
+    .sort();
 
 const GLOBALS = new Set([
     'Math', 'JSON', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'RegExp',

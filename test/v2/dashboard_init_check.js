@@ -20,13 +20,14 @@ function makeRef(v) {
 
 let appOptions = null;
 const watchProblems = [];
+const computedErrors = [];
 
 const VueMock = {
     ref: (v) => makeRef(v),
     reactive: (obj) => (obj || {}),
     computed: (fn) => {
         const r = makeRef(undefined);
-        try { r.value = fn(); } catch (e) { r._error = e; }
+        try { r.value = fn(); } catch (e) { r._error = e; computedErrors.push(String(e.message || e)); }
         return r;
     },
     watch: (source) => {
@@ -126,7 +127,15 @@ if (watchProblems.length > 0) {
     pass('no watch source resolves to undefined/null');
 }
 
-// 5. No duplicate view()/ctx() exports (silent last-wins overwrite).
+// 5. No computed may throw at init (a throwing computed = silent white screen
+//    in the runtime-only Vue build once the page actually renders).
+if (computedErrors.length > 0) {
+    fail(`computed(s) threw at init: ${[...new Set(computedErrors)].join(', ')}`);
+} else {
+    pass('no computed throws at init');
+}
+
+// 6. No duplicate view()/ctx() exports (silent last-wins overwrite).
 const dups = global.VN._dups || [];
 if (dups.length > 0) {
     fail(`duplicate exports: ${[...new Set(dups)].join(', ')}`);

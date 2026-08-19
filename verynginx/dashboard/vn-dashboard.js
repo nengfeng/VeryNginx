@@ -84,8 +84,9 @@
           } else if (key.startsWith('shared_dict_usage_bytes')) {
             for (const [labels, val] of Object.entries(vals)) {
               const lb = JSON.parse(labels);
-              const d = (o.dicts || []).find(x => x.name === lb.dict);
-              if (d) { d.used = val; if (!d.cap) { const p = parsed['shared_dict_capacity_bytes']; if (p) for (const [lk, v] of Object.entries(p)) { const l = JSON.parse(lk); if (l.dict === lb.dict) d.cap = v; } } }
+              let d = (o.dicts || []).find(x => x.name === lb.dict);
+              if (!d) { o.dicts.push({ name: lb.dict, pct: 0, used: 0, cap: 0 }); d = o.dicts[o.dicts.length - 1]; }
+              d.used = val; if (!d.cap) { const p = parsed['shared_dict_capacity_bytes']; if (p) for (const [lk, v] of Object.entries(p)) { const l = JSON.parse(lk); if (l.dict === lb.dict) d.cap = v; } }
             }
           } else if (key === 'vn_plugin_errors_total') {
             for (const [labels, val] of Object.entries(vals)) {
@@ -193,6 +194,12 @@
     // Single reconciler: page/dashTab/cfgTab navigation starts/stops pollers.
     watch([page, dashTab, cfgTab], syncPolls);
 
+    // Stats tab: load on entry (tab click OR returning to the page), so the
+    // stats view is never stale after navigating away and back.
+    watch([page, dashTab], ([p, d]) => {
+      if (p === 'dashboard' && d === 'stats' && store.loggedIn) loadStats();
+    });
+
     // Advanced tab load (fingerprints / audit) - late-bound via shared
     watch([page, advTab], ([p, d]) => {
       if (p === 'advanced') {
@@ -213,10 +220,16 @@
       if (!loggedIn) stopAllPolls();
     });
 
-    // Kick off on first mount if already logged in (e.g. session cookie)
-    Vue.nextTick(() => {
-      if (store.loggedIn) {
+    // Kick off on first mount: restore an existing session cookie so a page
+    // reload doesn't force re-login.
+    Vue.nextTick(async () => {
+      const d = await api('GET', '/verynginx/session').catch(() => null);
+      if (d && d.ret === 'success') {
+        store.loggedIn = true;
+        store.user = d.user;
+        await refreshCsrf();
         loadVersion();
+        loadConfig();
         syncPolls();
       }
     });
@@ -282,12 +295,6 @@
 
 
     // ---- Load ----
-    async function loadData() {
-      loadVersion();
-      await Promise.all([loadStatus(), loadConfig()]);
-      loadHealth();
-    }
-
     async function loadStatus() {
       try {
         const s = await api('GET', '/verynginx/status');
@@ -391,7 +398,8 @@
           store.user = loginUser.value;
           loginUser.value = '';
           await refreshCsrf();
-          loadData();
+          loadVersion();
+          loadConfig();
           syncPolls();
         } else {
           loginError.value = d.message || '登录失败';
@@ -421,7 +429,6 @@
     ctx('loadVersion', loadVersion);
     ctx('loadOverview', loadOverview);
     view('loadStats', loadStats);
-    ctx('loadData', loadData);
     view('loadStatus', loadStatus);
     view('loadConfig', loadConfig);
     view('refreshConfig', refreshConfig);
