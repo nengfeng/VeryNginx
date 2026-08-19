@@ -13,7 +13,7 @@
         
     // Module-level store so api() can access it for session expiration handling
     let store = reactive({ loggedIn: false, user: null });
-
+    
     // ---- API ----
     let csrfToken = null;
 
@@ -211,6 +211,14 @@
     expose('refreshCsrf', refreshCsrf);
     expose('refreshCsrfOnce', refreshCsrfOnce);
     expose('csrfToken', () => csrfToken); // getter for current token
+
+    // Write back to ctx for subsequent modules
+    ctx.api = api;
+    ctx.store = store;
+    ctx.isValidIpLiteral = isValidIpLiteral;
+    ctx.refreshCsrf = refreshCsrf;
+    ctx.refreshCsrfOnce = refreshCsrfOnce;
+    ctx.csrfToken = () => csrfToken;
 
         
         // Module initialization (if any)
