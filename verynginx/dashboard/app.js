@@ -78,11 +78,4 @@
 
     app.mount('#app');
 
-    // Global unhandled rejection handler for session_expired
-    window.addEventListener('unhandledrejection', (ev) => {
-        const reason = ev && ev.reason;
-        if (reason && reason.message === 'session_expired') {
-            ev.preventDefault();
-        }
-    });
 })();
