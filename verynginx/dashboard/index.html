@@ -4,14 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VeryNginx v2 管理面板</title>
-<!-- Vue 3: local copy with SRI, CDN fallback for air-gapped/offline safety -->
+<!-- Vue 3: vendored local copy with SRI (no CDN fallback - would be blocked by the
+     page CSP script-src 'self' and is an unnecessary supply-chain surface) -->
 <script src="/verynginx/static/vue.global.prod.js" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
-<script>
-  // Fallback: if local Vue failed to load (e.g. wrong path), try CDN
-  if (typeof Vue === 'undefined') {
-    document.write('<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"><\/script>');
-  }
-</script>
   <link rel="stylesheet" href="/verynginx/static/style.css">
 </head>
 <body>

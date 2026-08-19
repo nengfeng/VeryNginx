@@ -391,7 +391,7 @@ auto_whitelist = { type = "table", default = {
 - `dashboard/vn-geoip.js` — GeoIP 查询/配置/自动更新
 - `dashboard/vn-advanced.js` — 指纹/插件/审计
 - `dashboard/vn-kb.js` — 内核封禁（entries/candidates/timeline/bucket/diff/promote/reconcile/趋势）
-- Vue 3 通过 CDN (`https://unpkg.com/vue@3/dist/vue.global.prod.js`) 加载，本地 fallback `/verynginx/static/vue.global.prod.js`
+- Vue 3 仅加载本地 vendored 副本 `/verynginx/static/vue.global.prod.js`（带 SRI `sha384-...` + `crossorigin`），**无 CDN 兜底**——页面 CSP `script-src 'self'` 会拦截外部脚本，且 CDN 兜底属冗余供应链攻击面（曾有 `document.write(unpkg)` 兜底，已移除）
 - 无构建步骤，纯 `<script src>` / `<link>` 顺序加载
 - 模板为 **in-DOM 模板**（Vue 挂载 `#app` 时读 DOM 内容）
 
