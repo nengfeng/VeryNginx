@@ -381,6 +381,7 @@ auto_whitelist = { type = "table", default = {
 
 - `dashboard/index.html` — HTML 模板（含 `#app` in-DOM 模板）
 - `dashboard/style.css` — 样式（通过 `/verynginx/static/style.css` 加载）
+- `dashboard/theme-init.js` — `<head>` 首屏主题引导（FOUC 修复，见下）
 - `dashboard/app.js` — 入口，组装各域模块并 mount Vue
 - `dashboard/vn-common.js` — 核心基础设施（store、api、认证、基础状态、shared 注册表）
 - `dashboard/vn-dashboard.js` — 概览/状态/统计/连接趋势/登录登出/格式化 helpers
@@ -394,6 +395,8 @@ auto_whitelist = { type = "table", default = {
 - Vue 3 仅加载本地 vendored 副本 `/verynginx/static/vue.global.prod.js`（带 SRI `sha384-...` + `crossorigin`），**无 CDN 兜底**——页面 CSP `script-src 'self'` 会拦截外部脚本，且 CDN 兜底属冗余供应链攻击面（曾有 `document.write(unpkg)` 兜底，已移除）
 - 无构建步骤，纯 `<script src>` / `<link>` 顺序加载
 - 模板为 **in-DOM 模板**（Vue 挂载 `#app` 时读 DOM 内容）
+
+**主题 FOUC 修复必须是 CSP 安全的 head 脚本**：`style.css` 用 `[data-theme="dark"]` 选色，首帧前必须在 `<head>` 把 `localStorage.vn_theme` 写回 `<html data-theme>`，否则深色用户每次刷新先闪浅色（且 vn-common 工厂期读到的 `data-theme` 为缺省 → 深色偏好直接丢失）。实现为**外部** `theme-init.js`（渲染阻塞，先于 stylesheet `<link>`），**不是内联脚本**——页面 CSP `script-src 'self'`（无 `'unsafe-inline'`）会静默拦截内联脚本。若未来给根路径 `/` 也加 CSP，内联写法会悄然失效，外部脚本不受影响。
 
 ### 8.2 模块架构与 ctx()/view() 注册机制
 

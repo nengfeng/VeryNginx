@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VeryNginx v2 管理面板</title>
+<!-- Theme bootstrap: sets data-theme from localStorage before first paint so
+     dark-theme users don't get a light FOUC. Must precede the stylesheet. -->
+<script src="/verynginx/static/theme-init.js"></script>
 <!-- Vue 3: vendored local copy with SRI (no CDN fallback - would be blocked by the
      page CSP script-src 'self' and is an unnecessary supply-chain surface) -->
 <script src="/verynginx/static/vue.global.prod.js" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
