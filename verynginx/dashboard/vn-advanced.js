@@ -16,14 +16,8 @@
         expose('auditEntries', auditEntries);
     const auditError = ref('');
         expose('auditError', auditError);
-    const auditFilterUser = ref('');
-        expose('auditFilterUser', auditFilterUser);
-    const auditFilterAction = ref('');
-        expose('auditFilterAction', auditFilterAction);
-    const auditFilterSince = ref('');
-        expose('auditFilterSince', auditFilterSince);
-    const auditFilterUntil = ref('');
-        expose('auditFilterUntil', auditFilterUntil);
+    // auditFilterUser/Action/Since/Until moved to vn-common.js (shared state)
+    const { auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil } = ctx;
 
     const plugins = ref([]);
         expose('plugins', plugins);

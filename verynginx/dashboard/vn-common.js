@@ -171,6 +171,21 @@
         expose('overview', overview);
     const dictUsage = ref([]);
         expose('dictUsage', dictUsage);
+    // Shared audit filter state (used by vn-waf.js and vn-advanced.js)
+    const auditFilterUser = ref('');
+        expose('auditFilterUser', auditFilterUser);
+    const auditFilterAction = ref('');
+        expose('auditFilterAction', auditFilterAction);
+    const auditFilterSince = ref('');
+        expose('auditFilterSince', auditFilterSince);
+    const auditFilterUntil = ref('');
+        expose('auditFilterUntil', auditFilterUntil);
+
+    ctx.auditFilterUser = auditFilterUser;
+    ctx.auditFilterAction = auditFilterAction;
+    ctx.auditFilterSince = auditFilterSince;
+    ctx.auditFilterUntil = auditFilterUntil;
+
      const cfgTab = ref('system');
          expose('cfgTab', cfgTab);
      const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
