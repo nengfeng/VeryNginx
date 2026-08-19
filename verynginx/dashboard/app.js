@@ -54,14 +54,14 @@
 
     // 2. Domain modules (all depend on ctx from common)
     const domainModules = [
-        'vnDashboard',
-        'vnConfig',
-        'vnWaf',
-        'vnFrequency',
-        'vnGeoip',
-        'vnReputation',
-        'vnAdvanced',
-        'vnKb',
+        'vndashboard',
+        'vnconfig',
+        'vnwaf',
+        'vnfrequency',
+        'vngeoip',
+        'vnreputation',
+        'vnadvanced',
+        'vnkb',
     ];
     for (const name of domainModules) {
         if (window.VN.modules[name]) {
