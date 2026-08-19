@@ -1,0 +1,802 @@
+// vn-kb.js - Domain module for VeryNginx Dashboard
+// Factory function pattern: receives ctx with shared dependencies
+
+export function createvnkbModule(ctx) {
+    const { 
+        expose, api, store, showToast, showConfirm, navigateTo,
+        isValidIpLiteral, refreshCsrf, loadStatus, loadConfig
+    } = ctx;
+    
+    // ---- Kernel Blocking State ----
+    const kbStatus = ref({
+      configured: { enabled: false, mode: 'observe', emergency_pause: false, topology: 'unknown', protected_addresses: [], protected_ports: [] },
+      effective: { global_mode: 'disabled', global_install_reachable: false, scanner: { mode: 'disabled', reason_codes: [] }, cc: { mode: 'disabled', reason_codes: [] }, reason_codes: [] },
+      health: { state: 'unknown' },
+      counters: { installed: 0, candidates: 0, rejected: 0, degraded: 0, rate_limited: 0, paused: 0, installed_scanner: 0, installed_cc: 0, installed_manual: 0, desired: 0, drift: 0 },
+      promotion_bucket: { tokens_available: 0, rate_limited_recent: 0 },
+      migration: { status: 'unknown' },
+      counter_namespace: 'v1',
+      cc_rules: [],
+      lifecycle: {},
+      whitelist_generation: {},
+      last_reconcile: null,
+    });
+        expose('kbStatus', kbStatus);
+    const kbEntries = ref([]);
+        expose('kbEntries', kbEntries);
+    const kbCandidates = ref([]);
+        expose('kbCandidates', kbCandidates);
+    const kbTimeline = ref([]);
+        expose('kbTimeline', kbTimeline);
+    const kbTimelineFilter = ref('');
+        expose('kbTimelineFilter', kbTimelineFilter);
+    const kbEntriesNext = ref(null);
+        expose('kbEntriesNext', kbEntriesNext);
+    const kbCandidatesNext = ref(null);
+        expose('kbCandidatesNext', kbCandidatesNext);
+    const kbEntriesPrev = ref([]);
+        expose('kbEntriesPrev', kbEntriesPrev);
+    const kbCandidatesPrev = ref([]);
+        expose('kbCandidatesPrev', kbCandidatesPrev);
+    const kbEntriesCurrentCursor = ref(null);
+    const kbCandidatesCurrentCursor = ref(null);
+    const kbBucketHistory = ref([]);
+        expose('kbBucketHistory', kbBucketHistory);
+    const kbBucketHistoryLoading = ref(false);
+        expose('kbBucketHistoryLoading', kbBucketHistoryLoading);
+    const kbBucketHistoryError = ref('');
+        expose('kbBucketHistoryError', kbBucketHistoryError);
+    const kbDiff = ref({ missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 });
+        expose('kbDiff', kbDiff);
+    const kbTab = ref('entries');
+        expose('kbTab', kbTab);
+    const kbNewIP = ref('');
+        expose('kbNewIP', kbNewIP);
+    const kbNewPolicy = ref('scanner');
+        expose('kbNewPolicy', kbNewPolicy);
+    const kbNewTTL = ref(300);
+        expose('kbNewTTL', kbNewTTL);
+    const kbError = ref('');
+        expose('kbError', kbError);
+    const kbBusy = ref(false);
+        expose('kbBusy', kbBusy);
+    const kbFilterPolicy = ref('');
+        expose('kbFilterPolicy', kbFilterPolicy);
+    const kbFilterState = ref('');
+        expose('kbFilterState', kbFilterState);
+    const kbFilterIP = ref('');
+        expose('kbFilterIP', kbFilterIP);
+    const kbForm = reactive({
+      enabled: false,
+      mode: 'observe',
+      topology: 'direct',
+      protected_addresses_str: '',
+      protected_ports_str: '',
+      cc_enforce_ready: false,
+      scanner_enabled: true,
+      cc_enabled: true,
+    });
+        expose('kbForm', kbForm);
+    const kbDetail = reactive({ show: false, entry: null });
+        expose('kbDetail', kbDetail);
+    const kbDetailJson = computed(() => kbDetail.entry ? JSON.stringify(kbDetail.entry, null, 2) : '');
+        expose('kbDetailJson', kbDetailJson);
+    const kbFormDirty = ref(false);
+    function kbMarkFormDirty() { kbFormDirty.value = true; }
+        expose('kbMarkFormDirty', kbMarkFormDirty);
+
+    // Navigation guard for KB dirty form
+    async function navigateTo(newPage) {
+        expose('navigateTo', navigateTo);
+      if (page.value === 'kb' && kbFormDirty.value) {
+        if (!await showConfirm({
+          title: '未保存的更改',
+          message: 'KB 表单有未保存的更改，确定离开？',
+          type: 'warning',
+        })) return;
+      }
+      page.value = newPage;
+      // Load data based on page
+      if (newPage === 'waf') await loadWafData();
+      else if (newPage === 'frequency') await loadFrequencyData();
+      else if (newPage === 'reputation') await loadRepData();
+      else if (newPage === 'geoip') { await loadGeoIP(); await loadGeoIPStatus(); }
+      else if (newPage === 'kb') await loadKbData();
+    }
+
+    const KB_REASON_HELP = {
+      global_disabled: { title: '内核封禁已禁用', advice: '启用全局开关，然后从观察模式开始。' },
+      global_observe: { title: '全局模式为观察', advice: '观察模式仅收集候选。检查清单变绿后切换到执行模式。' },
+      helper_unavailable: { title: '防火墙 Helper 不可达', advice: '启动 firewall-helper.socket 并检查 /run/verynginx/firewall-helper.sock。' },
+      topology: { title: '拓扑阻止执行安装', advice: '设置 topology=direct 并在配置中配置受保护地址/端口。' },
+      emergency_pause: { title: '紧急暂停已开启', advice: '点击恢复晋升以允许新的自动安装。' },
+      family_disabled: { title: '地址族已禁用', advice: '在内核封禁下启用 ipv4 和/或 ipv6。' },
+      disabled_with_active_entries: { title: '已禁用但内核条目仍存在', advice: '条目按 TTL 过期，或在确认后使用刷新自动集合。' },
+      scanner_disabled: { title: '扫描器策略已禁用', advice: '如果需要扫描器晋升，请启用扫描器策略。' },
+      cc_disabled: { title: 'CC 策略已禁用', advice: '启用 CC 策略并配置规则 ID。' },
+      no_rule_ids: { title: '未配置 CC 规则 ID', advice: '在内核封禁 CC 下添加频率规则 ID。' },
+      cc_not_enforce_ready: { title: 'CC 未就绪执行', advice: '完成迁移/切换/校准，然后设置 cc.enforce_ready=true。' },
+      counter_namespace_not_v2: { title: '频率计数器命名空间不是 v2', advice: '运行频率规则 ID 迁移并完成 v2 切换。' },
+      invalid_rule_ref: { title: 'CC 规则引用无效', advice: '修复或移除无效的规则 ID 以使所有引用可解析。' },
+      helper_unreachable: { title: 'Helper 不可达', advice: '恢复 Helper 进程/套接字。' },
+    };
+
+    function kbCollectReasonCodes() {
+      const codes = [];
+      const eff = kbStatus.value.effective || {};
+      (eff.reason_codes || []).forEach(c => codes.push(c));
+      if (eff.scanner && eff.scanner.reason_codes) eff.scanner.reason_codes.forEach(c => codes.push(c));
+      if (eff.cc && eff.cc.reason_codes) eff.cc.reason_codes.forEach(c => codes.push(c));
+      const uniq = [];
+      codes.forEach(c => { if (c && !uniq.includes(c)) uniq.push(c); });
+      return uniq;
+    }
+
+    const kbReasonItems = computed(() => kbCollectReasonCodes().map(code => {
+      const help = KB_REASON_HELP[code] || { title: code, advice: '参见设计文档 / 日志了解详情。' };
+      return { code, title: help.title, advice: help.advice };
+    }));
+        expose('kbReasonItems', kbReasonItems);
+
+    function kbEffMode(policy) {
+        expose('kbEffMode', kbEffMode);
+      const eff = kbStatus.value.effective || {};
+      if (policy === 'scanner') return (eff.scanner && eff.scanner.mode) || '-';
+      if (policy === 'cc') return (eff.cc && eff.cc.mode) || '-';
+      return eff.global_mode || '-';
+    }
+    function kbEffReachable(policy) {
+        expose('kbEffReachable', kbEffReachable);
+      const eff = kbStatus.value.effective || {};
+      if (policy === 'scanner') return !!(eff.scanner && eff.scanner.install_reachable);
+      if (policy === 'cc') return !!(eff.cc && eff.cc.install_reachable);
+      return !!eff.global_install_reachable;
+    }
+
+    const ccAutoReady = computed(() => {
+      const e = kbStatus.value.effective || {};
+      return !!(e.cc && e.cc.auto_ready);
+    });
+        expose('ccAutoReady', ccAutoReady);
+
+    const kbChecklist = computed(() => {
+      const c = kbStatus.value.configured || {};
+      const m = kbStatus.value.migration || {};
+      const ns = kbStatus.value.counter_namespace;
+      const healthOk = kbStatus.value.health && kbStatus.value.health.state === 'ok';
+      const hasRules = (c.cc_rule_ids && c.cc_rule_ids.length) || (kbStatus.value.cc_rules && kbStatus.value.cc_rules.length);
+      return [
+        { id: 'enabled', label: '全局已启用', ok: !!c.enabled },
+        { id: 'observe_first', label: '功能已启用（建议先使用观察模式）', ok: !!c.enabled },
+        { id: 'topology', label: 'topology=direct 已配置（enforce 安装必需）', ok: c.topology === 'direct' },
+        { id: 'scope', label: '已配置受保护地址和端口', ok: (c.protected_addresses||[]).length > 0 && (c.protected_ports||[]).length > 0 },
+        { id: 'helper', label: 'Helper 健康', ok: !!healthOk },
+        { id: 'cc_rules', label: 'CC 规则 ID 已配置（如使用 CC）', ok: !!hasRules || c.cc_enabled === false },
+        { id: 'migration', label: '频率 ID 迁移已完成', ok: m.status === 'completed' || m.status === 'no_rules' },
+        { id: 'v2', label: 'v2 counter namespace 已切换', ok: ns === 'v2' || m.status === 'no_rules' },
+        { id: 'cc_ready', label: 'CC enforce_ready 已确认（如需 CC 执行）', ok: !!c.cc_enforce_ready || c.cc_enabled === false, auto_ready: kbStatus.value.effective && kbStatus.value.effective.cc && kbStatus.value.effective.cc.auto_ready },
+      ];
+    });
+        expose('kbChecklist', kbChecklist);
+
+    function formatKbTime(ts) {
+        expose('formatKbTime', formatKbTime);
+      if (!ts) return '-';
+      const d = new Date(ts * 1000);
+      if (isNaN(d.getTime())) return String(ts);
+      return d.toLocaleString();
+    }
+    function formatKbExpiry(ts) {
+        expose('formatKbExpiry', formatKbExpiry);
+      if (!ts) return '-';
+      const now = Math.floor(Date.now() / 1000);
+      const left = ts - now;
+      if (left <= 0) return 'expired';
+      if (left < 60) return left + 's left';
+      if (left < 3600) return Math.floor(left / 60) + 'm left';
+      if (left < 86400) return Math.floor(left / 3600) + 'h left';
+      return Math.floor(left / 86400) + 'd left';
+    }
+    function kbEvidenceSummary(c) {
+        expose('kbEvidenceSummary', kbEvidenceSummary);
+      const e = (c && c.evidence) || {};
+      const parts = [];
+      if (e.block_hits != null) parts.push('blocks=' + e.block_hits);
+      if (e.violation_count != null) parts.push('violations=' + e.violation_count);
+      if (e.flagged != null) parts.push('flagged=' + String(e.flagged));
+      if (e.strict != null) parts.push('strict=' + String(e.strict));
+      if (e.reason) parts.push(e.reason);
+      return parts.join(' ') || '-';
+    }
+    function kbSyncFormFromStatus() {
+      if (kbFormDirty.value) return;
+      const c = kbStatus.value.configured || {};
+      kbForm.enabled = !!c.enabled;
+      kbForm.mode = c.mode || 'observe';
+      kbForm.topology = c.topology || 'unknown';
+      kbForm.protected_addresses_str = (c.protected_addresses || []).join(', ');
+      kbForm.protected_ports_str = (c.protected_ports || []).join(', ');
+      kbForm.cc_enforce_ready = !!c.cc_enforce_ready;
+      kbForm.scanner_enabled = c.scanner_enabled !== false;
+      kbForm.cc_enabled = c.cc_enabled !== false;
+    }
+    function kbOpenDetail(entry) {
+        expose('kbOpenDetail', kbOpenDetail);
+      kbDetail.entry = entry;
+      kbDetail.show = true;
+    }
+    function kbReloadList() {
+        expose('kbReloadList', kbReloadList);
+      if (kbTab.value === 'entries') loadKbEntries();
+      else if (kbTab.value === 'candidates') loadKbCandidates();
+    }
+
+
+    const s = computed(() => status.value);
+        expose('s', s);
+
+
+    // ---- Bucket trend chart data (Design §12.2) ----
+    const kbTrendPoints = computed(() => {
+      const samples = kbBucketHistory.value;
+      if (samples.length < 2) return { enforce: '', observe: '', max: 1, labels: [] };
+      const max = Math.max(
+        ...samples.map(s => Math.max(s.enforce_tokens || 0, s.observe_tokens || 0)),
+        1
+      );
+      const w = 100 / (samples.length - 1);
+      const toPts = (key) => samples.map((s, i) => {
+        const v = s[key] || 0;
+        return `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`;
+      }).join(' ');
+      const labels = samples.map(s => {
+        const d = new Date(s.t * 1000);
+        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      });
+      return { enforce: toPts('enforce_tokens'), observe: toPts('observe_tokens'), max, labels };
+    });
+        expose('kbTrendPoints', kbTrendPoints);
+
+    const kbTrendFillEnforce = computed(() => {
+      const p = kbTrendPoints.value;
+      if (!p.enforce) return '';
+      return `0,100 ${p.enforce} 100,100`;
+    });
+        expose('kbTrendFillEnforce', kbTrendFillEnforce);
+    const kbTrendFillObserve = computed(() => {
+      const p = kbTrendPoints.value;
+      if (!p.observe) return '';
+      return `0,100 ${p.observe} 100,100`;
+    });
+        expose('kbTrendFillObserve', kbTrendFillObserve);
+
+    const connLinePoints = computed(() => {
+      const pts = connHistory.value;
+      if (pts.length < 2) return '';
+      const max = Math.max(...pts, 1);
+      const w = 100 / (pts.length - 1);
+      return pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
+    });
+        expose('connLinePoints', connLinePoints);
+
+    const connFillPoints = computed(() => {
+      const pts = connHistory.value;
+      if (pts.length < 2) return '';
+      const max = Math.max(...pts, 1);
+      const w = 100 / (pts.length - 1);
+      const line = pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
+      return `0,100 ` + line + ` 100,100`;
+    });
+        expose('connFillPoints', connFillPoints);
+
+
+    // ---- Kernel Blocking ----
+    async function loadKbData() {
+        expose('loadKbData', loadKbData);
+      kbError.value = '';
+      const statusRequest = (async () => {
+        try {
+          const d = await api('GET', '/verynginx/kernel-blocking/status');
+          if (d.ret === 'success') {
+            kbStatus.value = Object.assign({}, kbStatus.value, d.data || {});
+            kbSyncFormFromStatus();
+          } else {
+            kbError.value = d.message || 'Failed to load status';
+          }
+        } catch (e) {
+          kbError.value = e.message;
+        }
+      })();
+      let tabRequest;
+      if (kbTab.value === 'candidates') tabRequest = loadKbCandidates();
+      else if (kbTab.value === 'timeline') tabRequest = loadKbTimeline();
+      else if (kbTab.value === 'dashboard') tabRequest = loadKbDashboard();
+      else tabRequest = loadKbEntries();
+      await Promise.all([statusRequest, tabRequest]);
+    }
+
+    async function loadKbEntries(cursor) {
+        expose('loadKbEntries', loadKbEntries);
+      try {
+        let url = '/verynginx/kernel-blocking/entries?page_size=50';
+        if (cursor) url += '&cursor=' + cursor;
+        if (kbFilterPolicy.value) url += '&policy=' + encodeURIComponent(kbFilterPolicy.value);
+        if (kbFilterIP.value) url += '&ip=' + encodeURIComponent(kbFilterIP.value);
+        const d = await api('GET', url);
+        if (d.ret === 'success') {
+          kbEntriesCurrentCursor.value = cursor || null;
+          if (!cursor) kbEntriesPrev.value = [];
+          kbEntries.value = d.data.entries || [];
+          kbEntriesNext.value = d.data.next_cursor;
+        } else {
+          kbError.value = d.message || 'Failed to load entries';
+        }
+      } catch (e) { kbError.value = e.message; }
+    }
+
+    function kbEntriesPageNext() {
+        expose('kbEntriesPageNext', kbEntriesPageNext);
+      if (!kbEntriesNext.value) return;
+      kbEntriesPrev.value.push(kbEntriesCurrentCursor.value);
+      loadKbEntries(kbEntriesNext.value);
+    }
+
+    function kbEntriesPagePrev() {
+        expose('kbEntriesPagePrev', kbEntriesPagePrev);
+      const prev = kbEntriesPrev.value.pop();
+      if (prev != null) loadKbEntries(prev);
+    }
+
+    async function loadKbCandidates(cursor) {
+        expose('loadKbCandidates', loadKbCandidates);
+      try {
+        let url = '/verynginx/kernel-blocking/candidates?page_size=50';
+        if (cursor) url += '&cursor=' + cursor;
+        if (kbFilterState.value) url += '&state=' + encodeURIComponent(kbFilterState.value);
+        if (kbFilterIP.value) url += '&ip=' + encodeURIComponent(kbFilterIP.value);
+        const d = await api('GET', url);
+        if (d.ret === 'success') {
+          kbCandidatesCurrentCursor.value = cursor || null;
+          if (!cursor) kbCandidatesPrev.value = [];
+          kbCandidates.value = d.data.entries || [];
+          kbCandidatesNext.value = d.data.next_cursor;
+        } else {
+          kbError.value = d.message || 'Failed to load candidates';
+        }
+      } catch (e) { kbError.value = e.message; }
+    }
+
+    function kbCandidatesPageNext() {
+        expose('kbCandidatesPageNext', kbCandidatesPageNext);
+      if (!kbCandidatesNext.value) return;
+      kbCandidatesPrev.value.push(kbCandidatesCurrentCursor.value);
+      loadKbCandidates(kbCandidatesNext.value);
+    }
+
+    function kbCandidatesPagePrev() {
+        expose('kbCandidatesPagePrev', kbCandidatesPagePrev);
+      const prev = kbCandidatesPrev.value.pop();
+      if (prev != null) loadKbCandidates(prev);
+    }
+
+    async function loadKbTimeline() {
+        expose('loadKbTimeline', loadKbTimeline);
+      try {
+        let url = '/verynginx/audit?limit=300';
+        if (kbTimelineFilter.value) {
+          // Specific action filter - exact match on server (full ring scan)
+          url += '&action=kernel_blocking.' + encodeURIComponent(kbTimelineFilter.value);
+        } else {
+          // No filter: prefix match to get ALL kernel_blocking events from full ring (1000)
+          url += '&action_prefix=kernel_blocking';
+        }
+        const d = await api('GET', url);
+        if (d.ret === 'success') {
+          const all = d.data || [];
+          kbTimeline.value = all;
+        } else {
+          kbError.value = d.message || 'Failed to load timeline';
+        }
+      } catch (e) { kbError.value = e.message; }
+    }
+
+    function kbTimelineActionLabel(action) {
+        expose('kbTimelineActionLabel', kbTimelineActionLabel);
+      const map = {
+        'kernel_blocking.promote': '封禁',
+        'kernel_blocking.clear': '解除',
+        'kernel_blocking.reconcile': '协调',
+        'kernel_blocking.lifecycle': '生命周期',
+      };
+      return map[action] || action || '-';
+    }
+
+    function kbTimelineActionClass(action) {
+        expose('kbTimelineActionClass', kbTimelineActionClass);
+      if (action === 'kernel_blocking.promote') return 'tag-err';
+      if (action === 'kernel_blocking.clear') return 'tag-ok';
+      if (action === 'kernel_blocking.reconcile') return 'tag-info';
+      return 'tag-warn';
+    }
+
+    async function loadKbBucketHistory() {
+        expose('loadKbBucketHistory', loadKbBucketHistory);
+      kbBucketHistoryLoading.value = true;
+      kbBucketHistoryError.value = '';
+      try {
+        const d = await api('GET', '/verynginx/kernel-blocking/bucket-history');
+        if (d.ret === 'success') {
+          kbBucketHistory.value = d.data.samples || [];
+        } else {
+          kbBucketHistoryError.value = d.message || 'Failed to load bucket history';
+          kbBucketHistory.value = [];
+        }
+      } catch (e) {
+        if (e.message !== 'session_expired') kbBucketHistoryError.value = e.message;
+        kbBucketHistory.value = [];
+      } finally {
+        kbBucketHistoryLoading.value = false;
+      }
+    }
+
+    async function loadKbDiff() {
+      try {
+        const d = await api('GET', '/verynginx/kernel-blocking/diff');
+        if (d.ret === 'success') kbDiff.value = d.data || kbDiff.value;
+      } catch (e) { /* non-critical */ }
+    }
+
+    async function loadKbDashboard() {
+        expose('loadKbDashboard', loadKbDashboard);
+      await Promise.all([loadKbBucketHistory(), loadKbDiff()]);
+    }
+
+    async function enableCcEnforceReady() {
+        expose('enableCcEnforceReady', enableCcEnforceReady);
+      if (!await showConfirm({
+        title: '启用 CC enforce_ready',
+        message: '启用 CC enforce_ready? 这将为符合条件的 IP 激活自动 CC 内核封禁。',
+        type: 'danger',
+        requireInput: true,
+        inputLabel: '请输入 "ENABLE" 确认',
+        inputExpected: 'ENABLE',
+      })) return;
+      kbBusy.value = true;
+      try {
+        const full = await api('GET', '/verynginx/config');
+        if (!full || typeof full !== 'object') throw new Error('config load failed');
+        const kb = Object.assign({}, full.kernel_ip_blocking || {});
+        kb.cc = Object.assign({}, kb.cc || {}, { enforce_ready: true });
+        full.kernel_ip_blocking = kb;
+        const d = await api('POST', '/verynginx/config', full);
+        if (d.ret === 'success') {
+          showToast('CC enforce_ready enabled — CC auto-promotion active', 'success');
+          cfg.value = full;
+          await loadKbData();
+        } else {
+          showToast(d.message || '保存失败', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
+    async function kbSaveSettings() {
+        expose('kbSaveSettings', kbSaveSettings);
+      if (kbForm.mode === 'enforce' && !kbForm.enabled) {
+        showToast('启用执行模式前必须先启用全局开关', 'error'); return;
+      }
+      if (kbForm.mode === 'enforce' && !await showConfirm({
+        title: '保存执行模式设置',
+        message: '切换/保存执行相关设置? 请确保 Helper、拓扑和检查清单已就绪。',
+        type: 'warning',
+      })) return;
+      if (kbForm.cc_enforce_ready && !await showConfirm({
+        title: '启用 CC enforce_ready',
+        message: '确认迁移/切换/校准完成后启用 CC enforce_ready=true？',
+        type: 'danger',
+      })) return;
+      kbBusy.value = true;
+      try {
+        const full = await api('GET', '/verynginx/config');
+        if (!full || typeof full !== 'object') throw new Error('config load failed');
+        const kb = Object.assign({}, full.kernel_ip_blocking || {});
+        kb.enabled = !!kbForm.enabled;
+        kb.mode = kbForm.mode;
+        kb.topology = kbForm.topology || 'unknown';
+        kb.protected_addresses = kbForm.protected_addresses_str.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+        kb.protected_ports = kbForm.protected_ports_str.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+        kb.scanner = Object.assign({}, kb.scanner || {}, { enabled: !!kbForm.scanner_enabled });
+        kb.cc = Object.assign({}, kb.cc || {}, {
+          enabled: !!kbForm.cc_enabled,
+          enforce_ready: !!kbForm.cc_enforce_ready,
+        });
+        full.kernel_ip_blocking = kb;
+        const d = await api('POST', '/verynginx/config', full);
+        if (d.ret === 'success') {
+          showToast('内核锁阻设置已保存', 'success');
+          cfg.value = full;
+          kbFormDirty.value = false;
+          await loadKbData();
+        } else {
+          showToast(d.message || '保存失败', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
+    async function kbPromote() {
+        expose('kbPromote', kbPromote);
+      if (!kbNewIP.value) { showToast('请输入 IP', 'error'); return; }
+      // Client-side IP format validation (IPv4/IPv6 literal)
+      const ip = kbNewIP.value.trim();
+      if (!isValidIpLiteral(ip, false)) { showToast('IP 格式无效: ' + ip, 'error'); return; }
+      if (!await showConfirm({ title: '手动封禁 IP', message: `手动封禁 ${ip} 策略 ${kbNewPolicy.value} TTL ${kbNewTTL.value}秒?`, type: 'danger' })) return;
+      kbBusy.value = true;
+      try {
+        const d = await api('POST', '/verynginx/kernel-blocking/promote', {
+          ip: kbNewIP.value, policy: kbNewPolicy.value, ttl: kbNewTTL.value
+        });
+        if (d.ret === 'success') {
+          showToast('IP ' + kbNewIP.value + ' blocked', 'success');
+          kbNewIP.value = '';
+          await loadKbData();
+        } else {
+          showToast(d.message || 'Promote failed', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
+    async function kbPromoteIp(ip, policy) {
+        expose('kbPromoteIp', kbPromoteIp);
+      if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
+      if (!await showConfirm({ title: '晋升 IP', message: `晋升 ${ip} 为 ${policy} (TTL 300秒)?`, type: 'danger' })) return;
+      kbBusy.value = true;
+      try {
+        const d = await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy, ttl: 300 });
+        if (d.ret === 'success') {
+          showToast('IP ' + ip + ' 已晋升', 'success');
+          await loadKbData();
+        } else {
+          showToast(d.message || '晋升失败', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
+    async function kbReconcile() {
+        expose('kbReconcile', kbReconcile);
+      if (!await showConfirm({ title: '触发协调', message: '立即触发协调?', type: 'primary' })) return;
+      kbBusy.value = true;
+      try {
+        const d = await api('POST', '/verynginx/kernel-blocking/reconcile', {});
+        if (d.ret === 'success') {
+          const r = d.data || {};
+          showToast('协调完成: 添加=' + ((r.to_add&&r.to_add.length)||r.applied_add||0) + ' 移除=' + ((r.to_remove&&r.to_remove.length)||r.applied_remove||0), 'success');
+          await loadKbData();
+        } else {
+          showToast(d.message || '协调失败', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
+    async function kbClear(ip) {
+        expose('kbClear', kbClear);
+      if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
+      if (!await showConfirm({ title: '清除封禁条目', message: `清除 ${ip} 的所有内核封禁条目?`, type: 'danger' })) return;
+      kbBusy.value = true;
+      try {
+        const d = await api('POST', '/verynginx/kernel-blocking/clear', { ip });
+        if (d.ret === 'success') {
+          showToast('IP ' + ip + ' cleared', 'success');
+          await loadKbData();
+        } else {
+          showToast(d.message || 'Clear failed', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
+    async function kbPause(paused) {
+        expose('kbPause', kbPause);
+      if (!await showConfirm({ title: paused ? '暂停自动晋升' : '恢复自动晋升', message: paused ? '暂停自动晋升?' : '恢复自动晋升?', type: 'warning' })) return;
+      kbBusy.value = true;
+      try {
+        const d = await api('POST', '/verynginx/kernel-blocking/pause', { paused });
+        if (d.ret === 'success') {
+          showToast(paused ? '晋升已暂停' : '晋升已恢复', 'success');
+          await loadKbData();
+        } else {
+          showToast(d.message || '暂停失败', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
+    async function kbFlushAuto() {
+        expose('kbFlushAuto', kbFlushAuto);
+      if (!await showConfirm({
+        title: '刷新自动条目',
+        message: '刷新所有自动扫描器/cc 内核条目? 此操作不可撤销。',
+        type: 'danger',
+      })) return;
+      if (!await showConfirm({
+        title: '最终确认',
+        message: '最终确认: 立即刷新自动集合?',
+        type: 'danger',
+        requireInput: true,
+        inputLabel: '请输入 "FLUSH" 确认',
+        inputExpected: 'FLUSH',
+      })) return;
+      kbBusy.value = true;
+      try {
+        const d = await api('POST', '/verynginx/kernel-blocking/flush-auto');
+        if (d.ret === 'success') {
+          showToast('Auto entries flushed (' + ((d.data && d.data.removed) || 0) + ')', 'success');
+          await loadKbData();
+        } else {
+          showToast(d.message || 'Flush failed', 'error');
+        }
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { kbBusy.value = false; }
+    }
+
+
+    function openFreqRuleCreate() {
+        expose('openFreqRuleCreate', openFreqRuleCreate);
+      freqRuleModal.mode = 'create';
+      freqRuleModal._matcherRef = null;
+      freqRuleModal.id = 'freq_' + Date.now();
+      freqRuleModal.key = 'ip';
+      freqRuleModal.limit = 60;
+      freqRuleModal.window = 60;
+      freqRuleModal.code = 429;
+      freqRuleModal.enable = true;
+      freqRuleModal.matcherJson = '{}';
+      freqRuleModal.show = true;
+    }
+
+    function openFreqRuleEdit(rule) {
+        expose('openFreqRuleEdit', openFreqRuleEdit);
+      freqRuleModal.mode = 'edit';
+      freqRuleModal.id = rule.id;
+      freqRuleModal.key = rule.key || 'ip';
+      freqRuleModal.limit = rule.limit;
+      freqRuleModal.window = rule.window;
+      freqRuleModal.code = rule.code || 429;
+      freqRuleModal.enable = rule.enable !== false;
+      if (typeof rule.matcher === 'string') {
+        freqRuleModal._matcherRef = rule.matcher;
+        freqRuleModal.matcherJson = '{}';
+      } else {
+        freqRuleModal._matcherRef = null;
+        freqRuleModal.matcherJson = (rule.matcher && typeof rule.matcher === 'object')
+          ? JSON.stringify(rule.matcher, null, 2) : '{}';
+      }
+      freqRuleModal.show = true;
+    }
+
+    async function saveFreqRule() {
+        expose('saveFreqRule', saveFreqRule);
+      try {
+        // Client-side validation
+        if (!freqRuleModal.key || freqRuleModal.key.trim() === '') {
+          showToast('限速键 (key) 不能为空', 'error'); return;
+        }
+        const limit = Number(freqRuleModal.limit);
+        const window = Number(freqRuleModal.window);
+        const code = Number(freqRuleModal.code);
+        if (!limit || limit < 1) { showToast('limit 必须 >= 1', 'error'); return; }
+        if (!window || window < 1) { showToast('window 必须 >= 1 秒', 'error'); return; }
+        if (!code || code < 100 || code > 599) { showToast('响应码必须是 100-599 之间的合法状态码', 'error'); return; }
+
+        let matcher = {};
+        try {
+          if (freqRuleModal._matcherRef) {
+            matcher = null;
+          } else if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
+            matcher = JSON.parse(freqRuleModal.matcherJson);
+          }
+        } catch (e) {
+          showToast('匹配器 JSON 格式无效: ' + e.message, 'error');
+          return;
+        }
+        const rule = {
+          id: freqRuleModal.id,
+          key: freqRuleModal.key,
+          limit,
+          window,
+          code,
+          enable: freqRuleModal.enable,
+        };
+        if (freqRuleModal._matcherRef) {
+          rule.matcher = freqRuleModal._matcherRef;
+        } else if (Object.keys(matcher).length > 0) {
+          rule.matcher = matcher;
+        }
+        const d = await api('POST', '/verynginx/frequency/rules', rule);
+        if (d.ret === 'success') {
+          freqRuleModal.show = false;
+          showToast('规则已保存', 'success');
+          await loadFrequencyData();
+        } else {
+          showToast(d.message || '保存失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function deleteFreqRule(rule) {
+        expose('deleteFreqRule', deleteFreqRule);
+      if (!await showConfirm({ title: '删除频率规则', message: `删除频率规则 "${rule.id}"?`, type: 'danger' })) return;
+      try {
+        const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
+        if (d.ret === 'success') {
+          showToast('规则已删除', 'success');
+          await loadFrequencyData();
+        } else {
+          showToast(d.message || '删除失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function wafDeleteRule(rule) {
+        expose('wafDeleteRule', wafDeleteRule);
+      if (!await showConfirm({ title: '删除 WAF 规则', message: `删除规则 "${rule.name}"? 此操作不可撤销。`, type: 'danger' })) return;
+      wafDeleteBusy.value = true;
+      try {
+        const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
+        if (d.ret === 'success') {
+          await loadWafRules();
+        } else {
+          wafError.value = d.message || 'Delete failed';
+        }
+      } catch (e) {
+        wafError.value = e.message;
+      } finally {
+        wafDeleteBusy.value = false;
+      }
+    }
+
+    async function wafToggleRule(rule) {
+        expose('wafToggleRule', wafToggleRule);
+      const enable = rule.enable === false;
+      if (!await showConfirm({ title: enable ? '启用规则' : '停用规则', message: enable ? `启用规则 ${rule.name}？将立即生效。` : `停用规则 ${rule.name}？将立即停止拦截。`, type: enable ? 'primary' : 'warning' })) return;
+      wafToggleBusy.value = true;
+      try {
+        const endpoint = enable ? 'enable' : 'disable';
+        const d = await api('POST', '/verynginx/waf/rules/' + rule.id + '/' + endpoint);
+        if (d.ret === 'success') {
+          rule.enable = enable;
+        }
+      } catch (e) {
+        wafError.value = e.message;
+      } finally {
+        wafToggleBusy.value = false;
+      }
+    }
+
+    function wafPage(p) {
+        expose('wafPage', wafPage);
+      wafPagination.page = p;
+      loadWafRules();
+    }
+
+    function wafFilterChange() {
+        expose('wafFilterChange', wafFilterChange);
+      wafPagination.page = 1;
+      loadWafRules();
+    }
+
+    async function wafRefreshAll() {
+        expose('wafRefreshAll', wafRefreshAll);
+      await loadWafData();
+    }
+    
+    // Module initialization (if any)
+    // return {}; // No additional exports needed; expose() calls register everything
+}

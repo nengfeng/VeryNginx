@@ -5,13 +5,32 @@ const path = require('path');
 const file = path.join(__dirname, '../../verynginx/dashboard/index.html');
 const content = fs.readFileSync(file, 'utf8');
 
-// Read app.js for the Vue app script
-const appJsFile = path.join(__dirname, '../../verynginx/dashboard/app.js');
-if (!fs.existsSync(appJsFile)) {
-  console.error('ERROR: app.js not found at', appJsFile);
-  process.exit(1);
+// Read all module files for expose() calls
+const moduleFiles = [
+    'vn-common.js',
+    'vn-dashboard.js',
+    'vn-config.js',
+    'vn-waf.js',
+    'vn-frequency.js',
+    'vn-geoip.js',
+    'vn-reputation.js',
+    'vn-advanced.js',
+    'vn-kb.js',
+    'app.js',
+];
+let script = '';
+for (const fname of moduleFiles) {
+    const fpath = path.join(__dirname, '../../verynginx/dashboard', fname);
+    if (fs.existsSync(fpath)) {
+        script += fs.readFileSync(fpath, 'utf8') + '\n';
+    } else {
+        console.warn('WARN: Module file not found:', fname);
+    }
 }
-const script = fs.readFileSync(appJsFile, 'utf8');
+if (!script.trim()) {
+    console.error('ERROR: No module scripts found');
+    process.exit(1);
+}
 
 // Extract template from #app div
 const lines = content.split('\n');

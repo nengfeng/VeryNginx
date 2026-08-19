@@ -377,14 +377,44 @@ auto_whitelist = { type = "table", default = {
 
 ## 8. 前端 Dashboard
 
-### 8.1 Vue 3 SPA (CDN, 无构建)
+### 8.1 Vue 3 SPA (CDN, 无构建，物理分文件)
 
-- 单文件 `dashboard/index.html`，包含 HTML 模板 + `<script setup>` + CSS
-- Vue 3 通过 CDN (`https://unpkg.com/vue@3/dist/vue.global.prod.js`) 加载，无构建步骤
-- 使用 Vue 3 Composition API（`ref`/`reactive`/`computed`）
-- API 调用通过 `api(method, path, body?)` 函数
+- `dashboard/index.html` — HTML 模板（含 `#app` in-DOM 模板）
+- `dashboard/style.css` — 样式（通过 `/verynginx/static/style.css` 加载）
+- `dashboard/app.js` — 入口，组装各域模块并 mount Vue
+- `dashboard/vn-common.js` — 核心基础设施（store、api、认证、基础状态、expose 注册表）
+- `dashboard/vn-dashboard.js` — 概览/状态/统计/连接趋势/登录登出/格式化 helpers
+- `dashboard/vn-config.js` — 配置规则/匹配器/导入导出/字典用量/版本/Top Paths
+- `dashboard/vn-waf.js` — WAF 规则/统计/历史/时间线/命中详情/推荐/测试
+- `dashboard/vn-frequency.js` — 频率限制/模板库/规则 CRUD
+- `dashboard/vn-reputation.js` — IP 声誉/白名单
+- `dashboard/vn-geoip.js` — GeoIP 查询/配置/自动更新
+- `dashboard/vn-advanced.js` — 指纹/插件/审计
+- `dashboard/vn-kb.js` — 内核封禁（entries/candidates/timeline/bucket/diff/promote/reconcile/趋势）
+- Vue 3 通过 CDN (`https://unpkg.com/vue@3/dist/vue.global.prod.js`) 加载，本地 fallback `/verynginx/static/vue.global.prod.js`
+- 无构建步骤，纯 `<script src>` / `<link>` 顺序加载
+- 模板为 **in-DOM 模板**（Vue 挂载 `#app` 时读 DOM 内容）
 
-### 8.2 mount API
+### 8.2 模块架构与 expose 机制
+
+各模块导出 `createXxxModule(ctx)` 工厂函数，接收共享 `ctx`（含 `expose`、`api`、`store`、`showToast`、`showConfirm`、`navigateTo` 等），模块内部通过 `expose('name', value)` 注册导出。
+
+主入口 `app.js` 顺序初始化：
+```javascript
+createCommonModule(ctx)      // 提供 api/store/isValidIpLiteral/refreshCsrf 等核心
+createVnDashboardModule(ctx)
+createVnConfigModule(ctx)
+createVnWafModule(ctx)
+createVnFrequencyModule(ctx)
+createVnGeoipModule(ctx)
+createVnReputationModule(ctx)
+createVnAdvancedModule(ctx)
+createVnKbModule(ctx)
+```
+
+所有导出经 `expose()` 汇总到 `exports` Map，最终 `return Object.fromEntries(exports)` 供模板使用。
+
+### 8.3 mount API
 
 Dashboard 挂载方式：
 ```javascript
@@ -393,7 +423,7 @@ const app = Vue.createApp({
 }).mount('#app');
 ```
 
-### 8.3 路由与 WAF Tab
+### 8.4 路由与 WAF Tab
 
 WAF 面板的子页签切换通过 `wafTab` ref 控制。新增 tab 时：
 1. 添加 tab 链接 `<a @click="wafTab='xxx'">`
