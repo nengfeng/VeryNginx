@@ -8,6 +8,8 @@
     
     window.VN.modules['vnconfig'] = function createvnconfigModule(ctx) {
         const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken } = ctx;
+        // Vue Composition API
+        const { reactive, ref, computed, watch } = Vue;
         
     // ---- Config Rule Editor State ----
     const ruleEditModal = reactive({

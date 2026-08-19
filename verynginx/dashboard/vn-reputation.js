@@ -8,6 +8,8 @@
     
     window.VN.modules['vnreputation'] = function createvnreputationModule(ctx) {
         const { expose, api, store, page, dashTab, advTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, cfgTab, theme, rawJson, jsonError, jsonSaving, statsData, statsType, statsError, expandedUri, editMatcherModal, isValidIpLiteral, refreshCsrf, refreshCsrfOnce, csrfToken } = ctx;
+        // Vue Composition API
+        const { reactive, ref, computed, watch } = Vue;
         
     // ---- Reputation State ----
     const repStats = ref(null);

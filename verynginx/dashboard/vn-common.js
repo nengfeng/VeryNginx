@@ -8,6 +8,8 @@
     
     window.VN.modules['vncommon'] = function createvncommonModule(ctx) {
         const { expose } = ctx;
+        // Vue Composition API
+        const { reactive, ref, computed, watch } = Vue;
         
     // Module-level store so api() can access it for session expiration handling
     let store = reactive({ loggedIn: false, user: null });
