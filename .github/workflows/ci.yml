@@ -27,6 +27,9 @@ jobs:
       - name: Check dashboard bindings (template vs export)
         run: |
           node test/v2/check_bindings.js
+      - name: Check dashboard runtime init (factories + setup bindings)
+        run: |
+          node test/v2/dashboard_init_check.js
 
   unit-tests:
     runs-on: ubuntu-latest
