@@ -6,8 +6,8 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vnconfig'] = function createvnconfigModule(ctx) {
-        const { expose, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showConfirm } = ctx;
+    window.VN.modules['vnconfig'] = function createvnconfigModule(shared) {
+        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showConfirm } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -20,14 +20,14 @@
     });
     const ruleSaving = ref(false);
     const upstreamKeys = computed(() => Object.keys(cfg.value.backend_upstream || {}).sort());
-    expose('upstreamKeys', upstreamKeys);
+    view('upstreamKeys', upstreamKeys);
 
 
     // ---- Matchers ----
     const matcherKeys = computed(() => Object.keys(cfg.value.matcher || {}).sort());
-    expose('matcherKeys', matcherKeys);
+    view('matcherKeys', matcherKeys);
     const respKeys = computed(() => Object.keys(cfg.value.response || {}).sort());
-    expose('respKeys', respKeys);
+    view('respKeys', respKeys);
 
     function editMatcher(name) {
       if (name) {
@@ -240,11 +240,11 @@
 
     // ---- Import / Export ----
     const importFileInput = ref(null);
-    expose('importFileInput', importFileInput);
+    view('importFileInput', importFileInput);
     const configImportError = ref('');
-    expose('configImportError', configImportError);
+    view('configImportError', configImportError);
     const configImportOk = ref('');
-    expose('configImportOk', configImportOk);
+    view('configImportOk', configImportOk);
 
     function exportConfig() {
       const blob = new Blob([JSON.stringify(cfg.value, null, 2)], { type: 'application/json' });
@@ -285,30 +285,30 @@
 
     // Refresh config data when entering the config page
     watch(page, (p) => {
-      if (p === 'config') { if (ctx.refreshConfig) ctx.refreshConfig(true); }
+      if (p === 'config') { if (shared.refreshConfig) shared.refreshConfig(true); }
     });
 
     // ---- Exports ----
-    expose('ruleEditModal', ruleEditModal);
-    expose('ruleSaving', ruleSaving);
-    expose('editMatcher', editMatcher);
-    expose('saveMatcher', saveMatcher);
-    expose('deleteMatcher', deleteMatcher);
-    expose('ruleEditReset', ruleEditReset);
-    expose('ruleOpenCreate', ruleOpenCreate);
-    expose('ruleOpenEdit', ruleOpenEdit);
-    expose('ruleEditModalChanged', ruleEditModalChanged);
-    expose('ruleBuildRule', ruleBuildRule);
-    expose('ruleSave', ruleSave);
-    expose('ruleDelete', ruleDelete);
-    expose('ruleToggle', ruleToggle);
-    expose('commitConfig', commitConfig);
-    expose('saveRawConfig', saveRawConfig);
-    expose('exportConfig', exportConfig);
-    expose('importConfig', importConfig);
-    expose('onImportFile', onImportFile);
+    view('ruleEditModal', ruleEditModal);
+    view('ruleSaving', ruleSaving);
+    view('editMatcher', editMatcher);
+    view('saveMatcher', saveMatcher);
+    view('deleteMatcher', deleteMatcher);
+    ctx('ruleEditReset', ruleEditReset);
+    view('ruleOpenCreate', ruleOpenCreate);
+    view('ruleOpenEdit', ruleOpenEdit);
+    view('ruleEditModalChanged', ruleEditModalChanged);
+    ctx('ruleBuildRule', ruleBuildRule);
+    view('ruleSave', ruleSave);
+    view('ruleDelete', ruleDelete);
+    view('ruleToggle', ruleToggle);
+    ctx('commitConfig', commitConfig);
+    view('saveRawConfig', saveRawConfig);
+    view('exportConfig', exportConfig);
+    view('importConfig', importConfig);
+    view('onImportFile', onImportFile);
 
         // Module initialization (if any)
-        // No return needed; expose() calls register everything
+        // No return needed; ctx()/view() calls register everything
     };
 })();

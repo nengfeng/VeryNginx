@@ -6,8 +6,8 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vnfrequency'] = function createvnfrequencyModule(ctx) {
-        const { expose, api, showToast, showConfirm } = ctx;
+    window.VN.modules['vnfrequency'] = function createvnfrequencyModule(shared) {
+        const { ctx, view, api, showToast, showConfirm } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -222,23 +222,23 @@
     }
 
     // ---- Exports ----
-    expose('freqStats', freqStats);
-    expose('freqRules', freqRules);
-    expose('freqTemplates', freqTemplates);
-    expose('freqTemplatesLoaded', freqTemplatesLoaded);
-    expose('freqError', freqError);
-    expose('freqRuleModal', freqRuleModal);
-    expose('freqTemplateModal', freqTemplateModal);
-    expose('loadFrequencyData', loadFrequencyData);
-    expose('previewFreqTemplate', previewFreqTemplate);
-    expose('freqMatcherSummary', freqMatcherSummary);
-    expose('applyFreqTemplate', applyFreqTemplate);
-    expose('openFreqRuleCreate', openFreqRuleCreate);
-    expose('openFreqRuleEdit', openFreqRuleEdit);
-    expose('saveFreqRule', saveFreqRule);
-    expose('deleteFreqRule', deleteFreqRule);
+    view('freqStats', freqStats);
+    view('freqRules', freqRules);
+    view('freqTemplates', freqTemplates);
+    view('freqTemplatesLoaded', freqTemplatesLoaded);
+    view('freqError', freqError);
+    view('freqRuleModal', freqRuleModal);
+    view('freqTemplateModal', freqTemplateModal);
+    view('loadFrequencyData', loadFrequencyData);
+    view('previewFreqTemplate', previewFreqTemplate);
+    ctx('freqMatcherSummary', freqMatcherSummary);
+    view('applyFreqTemplate', applyFreqTemplate);
+    view('openFreqRuleCreate', openFreqRuleCreate);
+    view('openFreqRuleEdit', openFreqRuleEdit);
+    view('saveFreqRule', saveFreqRule);
+    view('deleteFreqRule', deleteFreqRule);
 
         // Module initialization (if any)
-        // No return needed; expose() calls register everything
+        // No return needed; ctx()/view() calls register everything
     };
 })();

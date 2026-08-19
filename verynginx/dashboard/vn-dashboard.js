@@ -6,8 +6,8 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vndashboard'] = function createvndashboardModule(ctx) {
-        const { expose, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast } = ctx;
+    window.VN.modules['vndashboard'] = function createvndashboardModule(shared) {
+        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -221,8 +221,8 @@
     // Advanced tab load (fingerprints / audit) - late-bound via ctx
     watch([page, advTab], ([p, d]) => {
       if (p === 'advanced') {
-        if (d === 'fingerprints') { if (ctx.loadFingerprints) ctx.loadFingerprints(); }
-        else { if (ctx.loadAudit) ctx.loadAudit(); }
+        if (d === 'fingerprints') { if (shared.loadFingerprints) shared.loadFingerprints(); }
+        else { if (shared.loadAudit) shared.loadAudit(); }
       }
     });
 
@@ -341,7 +341,7 @@
 
     async function refreshConfig(silent) {
       await Promise.allSettled([loadConfig(), loadHealth()]);
-      if (cfgTab.value === 'plugins') { if (ctx.loadPlugins) await ctx.loadPlugins(); }
+      if (cfgTab.value === 'plugins') { if (shared.loadPlugins) await shared.loadPlugins(); }
       if (!silent) showToast('配置已刷新', 'success');
     }
 
@@ -443,29 +443,29 @@
     }
 
     // ---- Exports ----
-    expose('parsePrometheus', parsePrometheus);
-    expose('loadVersion', loadVersion);
-    expose('loadOverview', loadOverview);
-    expose('loadStats', loadStats);
-    expose('loadData', loadData);
-    expose('loadStatus', loadStatus);
-    expose('loadConfig', loadConfig);
-    expose('refreshConfig', refreshConfig);
-    expose('loadHealth', loadHealth);
-    expose('loadDictUsage', loadDictUsage);
-    expose('loadTopPaths', loadTopPaths);
-    expose('startStatusRefresh', startStatusRefresh);
-    expose('startHealthRefresh', startHealthRefresh);
-    expose('doLogin', doLogin);
-    expose('doLogout', doLogout);
-    expose('formatTime', formatTime);
-    expose('formatBytes', formatBytes);
-    expose('calcSuccess', calcSuccess);
-    expose('successClass', successClass);
-    expose('summarizeRule', summarizeRule);
-    expose('actionClass', actionClass);
+    ctx('parsePrometheus', parsePrometheus);
+    ctx('loadVersion', loadVersion);
+    ctx('loadOverview', loadOverview);
+    view('loadStats', loadStats);
+    ctx('loadData', loadData);
+    view('loadStatus', loadStatus);
+    view('loadConfig', loadConfig);
+    view('refreshConfig', refreshConfig);
+    ctx('loadHealth', loadHealth);
+    view('loadDictUsage', loadDictUsage);
+    view('loadTopPaths', loadTopPaths);
+    ctx('startStatusRefresh', startStatusRefresh);
+    ctx('startHealthRefresh', startHealthRefresh);
+    view('doLogin', doLogin);
+    view('doLogout', doLogout);
+    view('formatTime', formatTime);
+    view('formatBytes', formatBytes);
+    view('calcSuccess', calcSuccess);
+    view('successClass', successClass);
+    view('summarizeRule', summarizeRule);
+    view('actionClass', actionClass);
 
         // Module initialization (if any)
-        // No return needed; expose() calls register everything
+        // No return needed; ctx()/view() calls register everything
     };
 })();

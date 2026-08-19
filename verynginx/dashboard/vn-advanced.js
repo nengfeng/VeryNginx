@@ -6,8 +6,8 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vnadvanced'] = function createvnadvancedModule(ctx) {
-        const { expose, api, showToast, showConfirm, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil } = ctx;
+    window.VN.modules['vnadvanced'] = function createvnadvancedModule(shared) {
+        const { ctx, view, api, showToast, showConfirm, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -193,28 +193,28 @@
     }
 
     // ---- Exports ----
-    expose('auditEntries', auditEntries);
-    expose('auditError', auditError);
-    expose('loadAudit', loadAudit);
-    expose('clearAuditFilters', clearAuditFilters);
-    expose('setAuditSincePreset', setAuditSincePreset);
-    expose('auditActionClass', auditActionClass);
-    expose('fingerprints', fingerprints);
-    expose('fpCategories', fpCategories);
-    expose('fpError', fpError);
-    expose('fpToggleBusy', fpToggleBusy);
-    expose('fpEditModal', fpEditModal);
-    expose('loadFingerprints', loadFingerprints);
-    expose('openFpAdd', openFpAdd);
-    expose('toggleFp', toggleFp);
-    expose('saveFp', saveFp);
-    expose('deleteFp', deleteFp);
-    expose('plugins', plugins);
-    expose('pluginsError', pluginsError);
-    expose('loadPlugins', loadPlugins);
-    expose('togglePlugin', togglePlugin);
+    view('auditEntries', auditEntries);
+    view('auditError', auditError);
+    view('loadAudit', loadAudit);
+    view('clearAuditFilters', clearAuditFilters);
+    view('setAuditSincePreset', setAuditSincePreset);
+    view('auditActionClass', auditActionClass);
+    view('fingerprints', fingerprints);
+    view('fpCategories', fpCategories);
+    view('fpError', fpError);
+    view('fpToggleBusy', fpToggleBusy);
+    ctx('fpEditModal', fpEditModal);
+    view('loadFingerprints', loadFingerprints);
+    view('openFpAdd', openFpAdd);
+    view('toggleFp', toggleFp);
+    ctx('saveFp', saveFp);
+    view('deleteFp', deleteFp);
+    view('plugins', plugins);
+    view('pluginsError', pluginsError);
+    view('loadPlugins', loadPlugins);
+    view('togglePlugin', togglePlugin);
 
         // Module initialization (if any)
-        // No return needed; expose() calls register everything
+        // No return needed; ctx()/view() calls register everything
     };
 })();

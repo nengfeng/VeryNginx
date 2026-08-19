@@ -6,8 +6,8 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vnkb'] = function createvnkbModule(ctx) {
-        const { expose, api, store, page, status, connHistory, isValidIpLiteral, showToast, showConfirm } = ctx;
+    window.VN.modules['vnkb'] = function createvnkbModule(shared) {
+        const { ctx, view, api, store, page, status, connHistory, isValidIpLiteral, showToast, showConfirm } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -63,7 +63,7 @@
     const kbFormDirty = ref(false);
     function kbMarkFormDirty() { kbFormDirty.value = true; }
 
-    // Navigation guard for KB dirty form. Cross-page loads are late-bound via ctx.
+    // Navigation guard for KB dirty form. Cross-page loads are late-bound via shared (view()/ctx() registered).
     async function navigateTo(newPage) {
       if (page.value === 'kb' && kbFormDirty.value) {
         if (!await showConfirm({
@@ -74,10 +74,10 @@
       }
       page.value = newPage;
       // Load data based on page
-      if (newPage === 'waf') { if (ctx.loadWafData) await ctx.loadWafData(); }
-      else if (newPage === 'frequency') { if (ctx.loadFrequencyData) await ctx.loadFrequencyData(); }
-      else if (newPage === 'reputation') { if (ctx.loadRepData) await ctx.loadRepData(); }
-      else if (newPage === 'geoip') { if (ctx.loadGeoIP) await ctx.loadGeoIP(); if (ctx.loadGeoIPStatus) await ctx.loadGeoIPStatus(); }
+      if (newPage === 'waf') { if (shared.loadWafData) await shared.loadWafData(); }
+      else if (newPage === 'frequency') { if (shared.loadFrequencyData) await shared.loadFrequencyData(); }
+      else if (newPage === 'reputation') { if (shared.loadRepData) await shared.loadRepData(); }
+      else if (newPage === 'geoip') { if (shared.loadGeoIP) await shared.loadGeoIP(); if (shared.loadGeoIPStatus) await shared.loadGeoIPStatus(); }
       else if (newPage === 'kb') await loadKbData();
     }
 
@@ -429,7 +429,7 @@
         const d = await api('POST', '/verynginx/config', full);
         if (d.ret === 'success') {
           showToast('CC enforce_ready enabled — CC auto-promotion active', 'success');
-          if (ctx.cfg) ctx.cfg.value = full;
+          if (shared.cfg) shared.cfg.value = full;
           await loadKbData();
         } else {
           showToast(d.message || '保存失败', 'error');
@@ -471,7 +471,7 @@
         const d = await api('POST', '/verynginx/config', full);
         if (d.ret === 'success') {
           showToast('内核锁阻设置已保存', 'success');
-          if (ctx.cfg) ctx.cfg.value = full;
+          if (shared.cfg) shared.cfg.value = full;
           kbFormDirty.value = false;
           await loadKbData();
         } else {
@@ -594,72 +594,72 @@
     }
 
     // ---- Exports ----
-    expose('kbStatus', kbStatus);
-    expose('kbEntries', kbEntries);
-    expose('kbCandidates', kbCandidates);
-    expose('kbTimeline', kbTimeline);
-    expose('kbTimelineFilter', kbTimelineFilter);
-    expose('kbEntriesNext', kbEntriesNext);
-    expose('kbCandidatesNext', kbCandidatesNext);
-    expose('kbEntriesPrev', kbEntriesPrev);
-    expose('kbCandidatesPrev', kbCandidatesPrev);
-    expose('kbBucketHistory', kbBucketHistory);
-    expose('kbBucketHistoryLoading', kbBucketHistoryLoading);
-    expose('kbBucketHistoryError', kbBucketHistoryError);
-    expose('kbDiff', kbDiff);
-    expose('kbTab', kbTab);
-    expose('kbNewIP', kbNewIP);
-    expose('kbNewPolicy', kbNewPolicy);
-    expose('kbNewTTL', kbNewTTL);
-    expose('kbError', kbError);
-    expose('kbBusy', kbBusy);
-    expose('kbFilterPolicy', kbFilterPolicy);
-    expose('kbFilterState', kbFilterState);
-    expose('kbFilterIP', kbFilterIP);
-    expose('kbForm', kbForm);
-    expose('kbDetail', kbDetail);
-    expose('kbDetailJson', kbDetailJson);
-    expose('kbFormDirty', kbFormDirty);
-    expose('kbMarkFormDirty', kbMarkFormDirty);
-    expose('navigateTo', navigateTo);
-    expose('kbReasonItems', kbReasonItems);
-    expose('kbEffMode', kbEffMode);
-    expose('kbEffReachable', kbEffReachable);
-    expose('ccAutoReady', ccAutoReady);
-    expose('kbChecklist', kbChecklist);
-    expose('formatKbTime', formatKbTime);
-    expose('formatKbExpiry', formatKbExpiry);
-    expose('kbEvidenceSummary', kbEvidenceSummary);
-    expose('kbOpenDetail', kbOpenDetail);
-    expose('kbReloadList', kbReloadList);
-    expose('s', s);
-    expose('kbTrendPoints', kbTrendPoints);
-    expose('kbTrendFillEnforce', kbTrendFillEnforce);
-    expose('kbTrendFillObserve', kbTrendFillObserve);
-    expose('connLinePoints', connLinePoints);
-    expose('connFillPoints', connFillPoints);
-    expose('loadKbData', loadKbData);
-    expose('loadKbEntries', loadKbEntries);
-    expose('kbEntriesPageNext', kbEntriesPageNext);
-    expose('kbEntriesPagePrev', kbEntriesPagePrev);
-    expose('loadKbCandidates', loadKbCandidates);
-    expose('kbCandidatesPageNext', kbCandidatesPageNext);
-    expose('kbCandidatesPagePrev', kbCandidatesPagePrev);
-    expose('loadKbTimeline', loadKbTimeline);
-    expose('kbTimelineActionLabel', kbTimelineActionLabel);
-    expose('kbTimelineActionClass', kbTimelineActionClass);
-    expose('loadKbBucketHistory', loadKbBucketHistory);
-    expose('loadKbDashboard', loadKbDashboard);
-    expose('enableCcEnforceReady', enableCcEnforceReady);
-    expose('kbSaveSettings', kbSaveSettings);
-    expose('kbPromote', kbPromote);
-    expose('kbPromoteIp', kbPromoteIp);
-    expose('kbReconcile', kbReconcile);
-    expose('kbClear', kbClear);
-    expose('kbPause', kbPause);
-    expose('kbFlushAuto', kbFlushAuto);
+    view('kbStatus', kbStatus);
+    view('kbEntries', kbEntries);
+    view('kbCandidates', kbCandidates);
+    view('kbTimeline', kbTimeline);
+    view('kbTimelineFilter', kbTimelineFilter);
+    view('kbEntriesNext', kbEntriesNext);
+    view('kbCandidatesNext', kbCandidatesNext);
+    view('kbEntriesPrev', kbEntriesPrev);
+    view('kbCandidatesPrev', kbCandidatesPrev);
+    ctx('kbBucketHistory', kbBucketHistory);
+    view('kbBucketHistoryLoading', kbBucketHistoryLoading);
+    view('kbBucketHistoryError', kbBucketHistoryError);
+    view('kbDiff', kbDiff);
+    view('kbTab', kbTab);
+    view('kbNewIP', kbNewIP);
+    view('kbNewPolicy', kbNewPolicy);
+    view('kbNewTTL', kbNewTTL);
+    view('kbError', kbError);
+    view('kbBusy', kbBusy);
+    view('kbFilterPolicy', kbFilterPolicy);
+    view('kbFilterState', kbFilterState);
+    view('kbFilterIP', kbFilterIP);
+    view('kbForm', kbForm);
+    view('kbDetail', kbDetail);
+    view('kbDetailJson', kbDetailJson);
+    ctx('kbFormDirty', kbFormDirty);
+    view('kbMarkFormDirty', kbMarkFormDirty);
+    view('navigateTo', navigateTo);
+    view('kbReasonItems', kbReasonItems);
+    view('kbEffMode', kbEffMode);
+    view('kbEffReachable', kbEffReachable);
+    view('ccAutoReady', ccAutoReady);
+    view('kbChecklist', kbChecklist);
+    view('formatKbTime', formatKbTime);
+    view('formatKbExpiry', formatKbExpiry);
+    view('kbEvidenceSummary', kbEvidenceSummary);
+    view('kbOpenDetail', kbOpenDetail);
+    view('kbReloadList', kbReloadList);
+    view('s', s);
+    view('kbTrendPoints', kbTrendPoints);
+    view('kbTrendFillEnforce', kbTrendFillEnforce);
+    view('kbTrendFillObserve', kbTrendFillObserve);
+    view('connLinePoints', connLinePoints);
+    view('connFillPoints', connFillPoints);
+    view('loadKbData', loadKbData);
+    view('loadKbEntries', loadKbEntries);
+    view('kbEntriesPageNext', kbEntriesPageNext);
+    view('kbEntriesPagePrev', kbEntriesPagePrev);
+    view('loadKbCandidates', loadKbCandidates);
+    view('kbCandidatesPageNext', kbCandidatesPageNext);
+    view('kbCandidatesPagePrev', kbCandidatesPagePrev);
+    view('loadKbTimeline', loadKbTimeline);
+    view('kbTimelineActionLabel', kbTimelineActionLabel);
+    view('kbTimelineActionClass', kbTimelineActionClass);
+    view('loadKbBucketHistory', loadKbBucketHistory);
+    view('loadKbDashboard', loadKbDashboard);
+    view('enableCcEnforceReady', enableCcEnforceReady);
+    view('kbSaveSettings', kbSaveSettings);
+    view('kbPromote', kbPromote);
+    view('kbPromoteIp', kbPromoteIp);
+    view('kbReconcile', kbReconcile);
+    view('kbClear', kbClear);
+    view('kbPause', kbPause);
+    view('kbFlushAuto', kbFlushAuto);
 
         // Module initialization (if any)
-        // No return needed; expose() calls register everything
+        // No return needed; ctx()/view() calls register everything
     };
 })();

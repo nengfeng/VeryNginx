@@ -6,14 +6,14 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vncommon'] = function createvncommonModule(ctx) {
-        const { expose } = ctx;
+    window.VN.modules['vncommon'] = function createvncommonModule(shared) {
+        const { ctx, view } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
     // Module-level store so api() can access it for session expiration handling
     let store = reactive({ loggedIn: false, user: null });
-    expose('store', store);
+    view('store', store);
 
     // ---- API ----
     let csrfToken = null;
@@ -153,10 +153,10 @@
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(() => { toastVisible.value = false; }, 2500);
     }
-    expose('showToast', showToast);
-    expose('toastMsg', toastMsg);
-    expose('toastType', toastType);
-    expose('toastVisible', toastVisible);
+    ctx('showToast', showToast);
+    view('toastMsg', toastMsg);
+    view('toastType', toastType);
+    view('toastVisible', toastVisible);
 
     const confirmModal = reactive({
       show: false,
@@ -170,7 +170,7 @@
       resolve: null,
       reject: null
     });
-    expose('confirmModal', confirmModal);
+    view('confirmModal', confirmModal);
 
     function showConfirm({ title, message, type = 'danger', requireInput = false, inputLabel = '', inputExpected = '' }) {
       return new Promise((resolve, reject) => {
@@ -186,7 +186,7 @@
         confirmModal.reject = reject;
       });
     }
-    expose('showConfirm', showConfirm);
+    ctx('showConfirm', showConfirm);
 
     function confirmModalOk() {
       if (confirmModal.requireInput) {
@@ -198,13 +198,13 @@
       confirmModal.show = false;
       confirmModal.resolve(true);
     }
-    expose('confirmModalOk', confirmModalOk);
+    view('confirmModalOk', confirmModalOk);
 
     function confirmModalCancel() {
       confirmModal.show = false;
       confirmModal.resolve(false);
     }
-    expose('confirmModalCancel', confirmModalCancel);
+    view('confirmModalCancel', confirmModalCancel);
 
     // Watch for modal close - always resolve the pending Promise
     watch(() => confirmModal.show, (show) => {
@@ -215,15 +215,15 @@
 
     // ===== Shared navigation state =====
     const page = ref('dashboard');
-    expose('page', page);
+    view('page', page);
     const dashTab = ref('overview');
-    expose('dashTab', dashTab);
+    view('dashTab', dashTab);
     const advTab = ref('fingerprints');
-    expose('advTab', advTab);
+    view('advTab', advTab);
     const cfgTab = ref('system');
-    expose('cfgTab', cfgTab);
+    view('cfgTab', cfgTab);
     const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
-    expose('theme', theme);
+    view('theme', theme);
 
     function toggleTheme() {
       const newTheme = theme.value === 'dark' ? 'light' : 'dark';
@@ -231,76 +231,76 @@
       document.documentElement.setAttribute('data-theme', newTheme);
       try { localStorage.setItem('vn_theme', newTheme); } catch(e) {}
     }
-    expose('toggleTheme', toggleTheme);
+    view('toggleTheme', toggleTheme);
 
     // ===== Shared data state (populated by domain modules) =====
     const loading = ref(false);
-    expose('loading', loading);
+    view('loading', loading);
     const loginUser = ref('');
-    expose('loginUser', loginUser);
+    view('loginUser', loginUser);
     const loginPass = ref('');
-    expose('loginPass', loginPass);
+    view('loginPass', loginPass);
     const loginError = ref('');
-    expose('loginError', loginError);
+    view('loginError', loginError);
     const status = ref({});
-    expose('status', status);
+    ctx('status', status);
     const connHistory = ref([]);
-    expose('connHistory', connHistory);
+    view('connHistory', connHistory);
     const cfg = ref({});
-    expose('cfg', cfg);
+    view('cfg', cfg);
     const healthData = ref({});
-    expose('healthData', healthData);
+    view('healthData', healthData);
     const overview = ref({});
-    expose('overview', overview);
+    view('overview', overview);
     const dictUsage = ref([]);
-    expose('dictUsage', dictUsage);
+    view('dictUsage', dictUsage);
     const rawJson = ref('');
-    expose('rawJson', rawJson);
+    view('rawJson', rawJson);
     const jsonError = ref('');
-    expose('jsonError', jsonError);
+    view('jsonError', jsonError);
     watch(rawJson, (val) => {
       jsonError.value = '';
       if (!val) return;
       try { JSON.parse(val); } catch (e) { jsonError.value = 'JSON: ' + e.message; }
     });
     const jsonSaving = ref(false);
-    expose('jsonSaving', jsonSaving);
+    view('jsonSaving', jsonSaving);
     const statsData = ref(null);
-    expose('statsData', statsData);
+    view('statsData', statsData);
     const statsType = ref('long');
-    expose('statsType', statsType);
+    view('statsType', statsType);
     const statsError = ref('');
-    expose('statsError', statsError);
+    view('statsError', statsError);
     const expandedUri = ref(null);
-    expose('expandedUri', expandedUri);
+    view('expandedUri', expandedUri);
     const editMatcherModal = reactive({ show: false, name: '', conditions: '' });
-    expose('editMatcherModal', editMatcherModal);
+    view('editMatcherModal', editMatcherModal);
 
     // versionInfo / topPaths are shared between dashboard (loader) and other
     // modules (advanced/about). Owned here to avoid load-order coupling.
     const versionInfo = ref({ version: '', commit: '' });
-    expose('versionInfo', versionInfo);
+    view('versionInfo', versionInfo);
     const topPaths = ref([]);
-    expose('topPaths', topPaths);
+    view('topPaths', topPaths);
 
     // Shared audit filter state (used by advanced/audit module)
     const auditFilterUser = ref('');
-    expose('auditFilterUser', auditFilterUser);
+    view('auditFilterUser', auditFilterUser);
     const auditFilterAction = ref('');
-    expose('auditFilterAction', auditFilterAction);
+    view('auditFilterAction', auditFilterAction);
     const auditFilterSince = ref('');
-    expose('auditFilterSince', auditFilterSince);
+    view('auditFilterSince', auditFilterSince);
     const auditFilterUntil = ref('');
-    expose('auditFilterUntil', auditFilterUntil);
+    view('auditFilterUntil', auditFilterUntil);
 
     // Expose core utilities
-    expose('api', api);
-    expose('isValidIpLiteral', isValidIpLiteral);
-    expose('refreshCsrf', refreshCsrf);
-    expose('refreshCsrfOnce', refreshCsrfOnce);
-    expose('csrfToken', () => csrfToken); // getter for current token
+    ctx('api', api);
+    ctx('isValidIpLiteral', isValidIpLiteral);
+    ctx('refreshCsrf', refreshCsrf);
+    ctx('refreshCsrfOnce', refreshCsrfOnce);
+    ctx('csrfToken', () => csrfToken); // getter for current token
 
         // Module initialization (if any)
-        // No return needed; expose() calls register everything
+        // No return needed; ctx()/view() calls register everything
     };
 })();

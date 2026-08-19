@@ -382,7 +382,7 @@ auto_whitelist = { type = "table", default = {
 - `dashboard/index.html` — HTML 模板（含 `#app` in-DOM 模板）
 - `dashboard/style.css` — 样式（通过 `/verynginx/static/style.css` 加载）
 - `dashboard/app.js` — 入口，组装各域模块并 mount Vue
-- `dashboard/vn-common.js` — 核心基础设施（store、api、认证、基础状态、expose 注册表）
+- `dashboard/vn-common.js` — 核心基础设施（store、api、认证、基础状态、shared 注册表）
 - `dashboard/vn-dashboard.js` — 概览/状态/统计/连接趋势/登录登出/格式化 helpers
 - `dashboard/vn-config.js` — 配置规则/匹配器/导入导出/字典用量/版本/Top Paths
 - `dashboard/vn-waf.js` — WAF 规则/统计/历史/时间线/命中详情/推荐/测试
@@ -395,24 +395,47 @@ auto_whitelist = { type = "table", default = {
 - 无构建步骤，纯 `<script src>` / `<link>` 顺序加载
 - 模板为 **in-DOM 模板**（Vue 挂载 `#app` 时读 DOM 内容）
 
-### 8.2 模块架构与 expose 机制
+### 8.2 模块架构与 ctx()/view() 注册机制
 
-各模块导出 `createXxxModule(ctx)` 工厂函数，接收共享 `ctx`（含 `expose`、`api`、`store`、`showToast`、`showConfirm`、`navigateTo` 等），模块内部通过 `expose('name', value)` 注册导出。
+各模块导出 `createXxxModule(shared)` 工厂函数，接收共享注册表 `shared`。工厂内**解构**所需依赖：
 
-主入口 `app.js` 顺序初始化：
 ```javascript
-createCommonModule(ctx)      // 提供 api/store/isValidIpLiteral/refreshCsrf 等核心
-createVnDashboardModule(ctx)
-createVnConfigModule(ctx)
-createVnWafModule(ctx)
-createVnFrequencyModule(ctx)
-createVnGeoipModule(ctx)
-createVnReputationModule(ctx)
-createVnAdvancedModule(ctx)
-createVnKbModule(ctx)
+window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
+    const { ctx, view, api, store, page, showToast, showConfirm } = shared;
+    // ...
+};
 ```
 
-所有导出经 `expose()` 汇总到 `exports` Map，最终 `return Object.fromEntries(exports)` 供模板使用。
+模块产出**两种**注册动作（由 `app.js` 注入 `shared.ctx` / `shared.view` 函数）：
+
+| 动作 | 作用域 | 用途 |
+|------|--------|------|
+| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（仅 273 个） |
+| `ctx('name', value)` | 仅 shared 注册表 | 跨模块内部共享，不进 render scope（如 `loadWafData`、`kbBucketHistory`） |
+
+**为什么分两种**：曾经 302 个导出全堆进 `setup()` 返回的 render scope，模板只需 273 个，其余 29 个纯内部值造成全局命名污染与未来碰撞隐患。现在 view 集合与模板绑定**严格相等**，由 `test/v2/dashboard_bindings.js`（静态提取模板绑定，零依赖）驱动两个 CI gate 校验：
+- `check_bindings.js`：模板引用了但未 `view()` → 报错；`view()` 了但模板未引用 → 报错（死导出）。
+- `dashboard_init_check.js`：真实执行 app.js 接线，断言 `setup()` 返回集合 == 模板绑定集合、工厂初始化不抛错、watch 源不为 undefined、无重复 `view()/ctx()`。
+
+**重复 view() 检测**：`view()` 对同名重复注册会记录到 `window.VN._dups` 并 `console.error`，由 gate 断言为空。这样未来两个模块若意外导出同名模板绑定，会在初始化时立刻暴露而非静默覆盖。
+
+**跨模块调用期引用必须走 `shared.X`（late-bound）**：依赖的工厂可能尚未运行（如 `vn-kb` 里调用 `vn-waf` 的 `loadWafData`），**不能**把 `loadWafData` 解构为本地 const（那是初始化时的值，之后工厂覆盖不生效）。统一用 `if (shared.loadWafData) await shared.loadWafData();`。
+
+主入口 `app.js` 顺序初始化（`shared` 含 `ctx`/`view` 函数）：
+
+```javascript
+window.VN.modules['vncommon'](shared)      // 提供 api/store/isValidIpLiteral/refreshCsrf 等核心
+window.VN.modules['vndashboard'](shared)
+window.VN.modules['vnconfig'](shared)
+window.VN.modules['vnwaf'](shared)
+window.VN.modules['vnfrequency'](shared)
+window.VN.modules['vngeoip'](shared)
+window.VN.modules['vnreputation'](shared)
+window.VN.modules['vnadvanced'](shared)
+window.VN.modules['vnkb'](shared)
+```
+
+最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 273 个绑定）。
 
 ### 8.3 mount API
 

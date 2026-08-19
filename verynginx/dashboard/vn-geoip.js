@@ -6,8 +6,8 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vngeoip'] = function createvngeoipModule(ctx) {
-        const { expose, api, isValidIpLiteral, showToast, showConfirm } = ctx;
+    window.VN.modules['vngeoip'] = function createvngeoipModule(shared) {
+        const { ctx, view, api, isValidIpLiteral, showToast, showConfirm } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -149,21 +149,21 @@
     }
 
     // ---- Exports ----
-    expose('geoipLookupIP', geoipLookupIP);
-    expose('geoipLookupResult', geoipLookupResult);
-    expose('geoipStats', geoipStats);
-    expose('geoipMaxCount', geoipMaxCount);
-    expose('geoipConfig', geoipConfig);
-    expose('geoipStatus', geoipStatus);
-    expose('geoipLoading', geoipLoading);
-    expose('geoipError', geoipError);
-    expose('loadGeoIPStatus', loadGeoIPStatus);
-    expose('loadGeoIP', loadGeoIP);
-    expose('lookupGeoIP', lookupGeoIP);
-    expose('saveGeoIPConfig', saveGeoIPConfig);
-    expose('triggerGeoIPUpdate', triggerGeoIPUpdate);
+    view('geoipLookupIP', geoipLookupIP);
+    view('geoipLookupResult', geoipLookupResult);
+    view('geoipStats', geoipStats);
+    view('geoipMaxCount', geoipMaxCount);
+    view('geoipConfig', geoipConfig);
+    view('geoipStatus', geoipStatus);
+    view('geoipLoading', geoipLoading);
+    view('geoipError', geoipError);
+    ctx('loadGeoIPStatus', loadGeoIPStatus);
+    view('loadGeoIP', loadGeoIP);
+    view('lookupGeoIP', lookupGeoIP);
+    view('saveGeoIPConfig', saveGeoIPConfig);
+    view('triggerGeoIPUpdate', triggerGeoIPUpdate);
 
         // Module initialization (if any)
-        // No return needed; expose() calls register everything
+        // No return needed; ctx()/view() calls register everything
     };
 })();

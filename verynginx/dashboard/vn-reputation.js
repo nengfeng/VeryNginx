@@ -6,8 +6,8 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vnreputation'] = function createvnreputationModule(ctx) {
-        const { expose, api, isValidIpLiteral, showConfirm, showToast } = ctx;
+    window.VN.modules['vnreputation'] = function createvnreputationModule(shared) {
+        const { ctx, view, api, isValidIpLiteral, showConfirm, showToast } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -106,22 +106,22 @@
     }
 
     // ---- Exports ----
-    expose('repStats', repStats);
-    expose('repFlagged', repFlagged);
-    expose('repWhitelist', repWhitelist);
-    expose('repError', repError);
-    expose('repNewWhitelist', repNewWhitelist);
-    expose('repLookupIP', repLookupIP);
-    expose('repLookupResult', repLookupResult);
-    expose('repClearBusy', repClearBusy);
-    expose('loadRepData', loadRepData);
-    expose('repClear', repClear);
-    expose('repAddWhitelist', repAddWhitelist);
-    expose('repRemoveWhitelist', repRemoveWhitelist);
-    expose('repPersist', repPersist);
-    expose('repLookup', repLookup);
+    view('repStats', repStats);
+    view('repFlagged', repFlagged);
+    view('repWhitelist', repWhitelist);
+    view('repError', repError);
+    view('repNewWhitelist', repNewWhitelist);
+    view('repLookupIP', repLookupIP);
+    view('repLookupResult', repLookupResult);
+    view('repClearBusy', repClearBusy);
+    view('loadRepData', loadRepData);
+    view('repClear', repClear);
+    view('repAddWhitelist', repAddWhitelist);
+    view('repRemoveWhitelist', repRemoveWhitelist);
+    view('repPersist', repPersist);
+    view('repLookup', repLookup);
 
         // Module initialization (if any)
-        // No return needed; expose() calls register everything
+        // No return needed; ctx()/view() calls register everything
     };
 })();
