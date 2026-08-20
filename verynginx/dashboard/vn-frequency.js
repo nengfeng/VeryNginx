@@ -175,6 +175,10 @@
             matcher = null;
           } else if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
             matcher = JSON.parse(freqRuleModal.matcherJson);
+            if (typeof matcher !== 'object' || matcher === null || Array.isArray(matcher)) {
+              showToast('匹配器必须是 JSON 对象, 如 {"IP": {"value": "1.2.3.4"}}', 'error');
+              return;
+            }
           }
         } catch (e) {
           showToast('匹配器 JSON 格式无效: ' + e.message, 'error');
