@@ -412,7 +412,7 @@
               <tbody>
                 <template v-for="(v,key) in statsData || {}" :key="key">
                   <tr @click="expandedUri = expandedUri === key ? null : key" style="cursor:pointer">
-                    <td style="color:var(--muted);font-size:11px">{{ expandedUri === key ? '&#9660;' : '&#9654;' }}</td>
+                    <td style="color:var(--muted);font-size:11px">{{ expandedUri === key ? '▼' : '▶' }}</td>
                     <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="key">{{ key }}</td>
                     <td>{{ v.count }}</td>
                     <td>{{ formatBytes(v.bytes) }}</td>
