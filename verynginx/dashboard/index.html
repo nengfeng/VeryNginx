@@ -1615,10 +1615,9 @@
           <!-- Diff visualization: desired vs actual -->
           <div class="card mb-16">
              <h3 style="font-size:14px;margin-bottom:8px">期望 vs 实际漂移</h3>
-              <span style="font-weight:normal;font-size:12px;color:var(--muted)">
+               <span style="font-weight:normal;font-size:12px;color:var(--muted)">
                 ({{ kbDiff.desired_count }} desired / {{ kbDiff.actual_count }} in kernel)
               </span>
-            </h3>
              <div v-if="!kbDiff.missing_in_kernel.length && !kbDiff.orphan_in_kernel.length" class="empty" style="color:var(--ok)">
                已同步 — 无漂移。
              </div>
