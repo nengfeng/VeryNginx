@@ -1222,7 +1222,7 @@
           <table>
             <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th></tr></thead>
             <tbody>
-              <tr v-for="e in auditEntries" :key="e.time + e.action">
+              <tr v-for="(e, i) in auditEntries" :key="i">
                 <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
                 <td><code>{{ e.user }}</code></td>
                 <td><span class="tag" :class="auditActionClass(e.action)">{{ e.action }}</span></td>
