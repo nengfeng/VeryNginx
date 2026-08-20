@@ -360,6 +360,31 @@
     ctx('syncPolls', syncPolls);
     ctx('stopAllPolls', stopAllPolls);
 
+    // ---- Global navigation ----
+    // Central navigation handler — all topnav links use this.
+    // Data loading is explicit per-page; pages not listed rely on watches
+    // (dashboard → syncPolls/stats, config → vn-config watch, advanced → vn-dashboard watch).
+    // Cross-module functions are late-bound via shared to avoid load-order coupling.
+    async function navigateTo(newPage) {
+      // KB dirty-form guard (late-bound — vn-kb registers kbFormDirty via ctx)
+      const kbFormDirty = shared.kbFormDirty;
+      if (page.value === 'kb' && kbFormDirty && kbFormDirty.value) {
+        if (!await showConfirm({
+          title: '未保存的更改',
+          message: 'KB 表单有未保存的更改，确定离开？',
+          type: 'warning',
+        })) return;
+      }
+      page.value = newPage;
+      // Per-page data loading
+      if (newPage === 'waf') { if (shared.loadWafData) await shared.loadWafData(); }
+      else if (newPage === 'frequency') { if (shared.loadFrequencyData) await shared.loadFrequencyData(); }
+      else if (newPage === 'reputation') { if (shared.loadRepData) await shared.loadRepData(); }
+      else if (newPage === 'geoip') { if (shared.loadGeoIP) await shared.loadGeoIP(); if (shared.loadGeoIPStatus) await shared.loadGeoIPStatus(); }
+      else if (newPage === 'kb') { if (shared.loadKbData) await shared.loadKbData(); }
+    }
+    view('navigateTo', navigateTo);
+
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything
     };

@@ -473,7 +473,7 @@
 
         <!-- WAF Tabs -->
         <div class="config-tabs">
-          <a :class="{active:wafTab==='rules'}" @click="wafTab='rules'">规则</a>
+          <a :class="{active:wafTab==='rules'}" @click="wafTab='rules';wafRefreshAll()">规则</a>
           <a :class="{active:wafTab==='attacks'}" @click="wafTab='attacks';loadWafAttackData()">攻击</a>
           <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">历史</a>
           <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">测试</a>

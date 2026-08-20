@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnkb'] = function createvnkbModule(shared) {
-        const { ctx, view, api, store, page, status, connHistory, isValidIpLiteral, showToast, showConfirm } = shared;
+        const { ctx, view, api, page, status, connHistory, isValidIpLiteral, showToast, showConfirm } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -62,24 +62,6 @@
     const kbDetailJson = computed(() => kbDetail.entry ? JSON.stringify(kbDetail.entry, null, 2) : '');
     const kbFormDirty = ref(false);
     function kbMarkFormDirty() { kbFormDirty.value = true; }
-
-    // Navigation guard for KB dirty form. Cross-page loads are late-bound via shared (view()/ctx() registered).
-    async function navigateTo(newPage) {
-      if (page.value === 'kb' && kbFormDirty.value) {
-        if (!await showConfirm({
-          title: '未保存的更改',
-          message: 'KB 表单有未保存的更改，确定离开？',
-          type: 'warning',
-        })) return;
-      }
-      page.value = newPage;
-      // Load data based on page
-      if (newPage === 'waf') { if (shared.loadWafData) await shared.loadWafData(); }
-      else if (newPage === 'frequency') { if (shared.loadFrequencyData) await shared.loadFrequencyData(); }
-      else if (newPage === 'reputation') { if (shared.loadRepData) await shared.loadRepData(); }
-      else if (newPage === 'geoip') { if (shared.loadGeoIP) await shared.loadGeoIP(); if (shared.loadGeoIPStatus) await shared.loadGeoIPStatus(); }
-      else if (newPage === 'kb') await loadKbData();
-    }
 
     const KB_REASON_HELP = {
       global_disabled: { title: '内核封禁已禁用', advice: '启用全局开关，然后从观察模式开始。' },
@@ -621,7 +603,6 @@
     view('kbDetailJson', kbDetailJson);
     ctx('kbFormDirty', kbFormDirty);
     view('kbMarkFormDirty', kbMarkFormDirty);
-    view('navigateTo', navigateTo);
     view('kbReasonItems', kbReasonItems);
     view('kbEffMode', kbEffMode);
     view('kbEffReachable', kbEffReachable);
