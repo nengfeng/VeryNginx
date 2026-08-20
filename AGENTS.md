@@ -413,7 +413,7 @@ window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
 
 | 动作 | 作用域 | 用途 |
 |------|--------|------|
-| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（275 个） |
+| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（277 个） |
 | `ctx('name', value)` | 仅 shared 注册表 | 跨模块内部共享，不进 render scope（如 `loadWafData`、`kbBucketHistory`） |
 
 **为什么分两种**：曾经 302 个导出全堆进 `setup()` 返回的 render scope，模板只需 275 个，其余 27 个纯内部值造成全局命名污染与未来碰撞隐患。现在 view 集合与模板绑定**严格相等**，由 `test/v2/dashboard_bindings.js`（静态提取模板绑定，零依赖）驱动两个 CI gate 校验：
@@ -438,7 +438,7 @@ window.VN.modules['vnadvanced'](shared)
 window.VN.modules['vnkb'](shared)
 ```
 
-最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 275 个绑定）。
+最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 277 个绑定）。
 
 ### 8.3 mount API
 

@@ -1605,10 +1605,10 @@
                 <span v-if="r.reason_codes && r.reason_codes.length" class="kb-rule-reasons">{{ r.reason_codes.join(', ') }}</span>
               </div>
               <!-- Expandable detail -->
-              <div class="kb-rule-detail" v-if="r._expanded">
+              <div class="kb-rule-detail" v-if="expandedCcRules.has(r.rule_id)">
                 <pre style="font-size:11px;max-height:120px;overflow:auto">{{ JSON.stringify({reference_valid:r.reference_valid, counter_namespace:r.counter_namespace, cutover_epoch:r.cutover_epoch, warmup_until:r.warmup_until, effective_mode:r.effective_mode, install_reachable:r.install_reachable, reason_codes:r.reason_codes}, null, 2) }}</pre>
               </div>
-              <button class="kb-rule-toggle" @click="r._expanded = !r._expanded">{{ r._expanded ? '▲' : '▼' }}</button>
+              <button class="kb-rule-toggle" @click="toggleCcRule(r.rule_id)">{{ expandedCcRules.has(r.rule_id) ? '▲' : '▼' }}</button>
             </div>
           </div>
 

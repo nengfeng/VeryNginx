@@ -63,6 +63,15 @@
     const kbFormDirty = ref(false);
     function kbMarkFormDirty() { kbFormDirty.value = true; }
 
+    // Expansion state for CC rule rows. Kept in a Set keyed by rule_id so it
+    // survives status reloads (the API returns fresh cc_rules objects each time,
+    // so storing _expanded on the API object would reset on every refresh).
+    const expandedCcRules = reactive(new Set());
+    function toggleCcRule(id) {
+      if (expandedCcRules.has(id)) expandedCcRules.delete(id);
+      else expandedCcRules.add(id);
+    }
+
     const KB_REASON_HELP = {
       global_disabled: { title: '内核封禁已禁用', advice: '启用全局开关，然后从观察模式开始。' },
       global_observe: { title: '全局模式为观察', advice: '观察模式仅收集候选。检查清单变绿后切换到执行模式。' },
@@ -639,6 +648,8 @@
     view('kbClear', kbClear);
     view('kbPause', kbPause);
     view('kbFlushAuto', kbFlushAuto);
+    view('expandedCcRules', expandedCcRules);
+    view('toggleCcRule', toggleCcRule);
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything
