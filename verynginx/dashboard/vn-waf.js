@@ -805,6 +805,59 @@
     view('wafRules', wafRules);
     const wafRulesTbl = shared.createTableTools(wafRules);
     view('wafRulesTbl', wafRulesTbl);
+
+    // ---- Bulk enable/disable ----
+    // Server exposes single-rule POST /waf/rules/:id/enable|disable; bulk mode
+    // loops it sequentially and reports a success/fail tally. Selection uses a
+    // plain checkbox-array v-model over rule ids.
+    const wafSelectedIds = ref([]);
+    const wafBulkBusy = ref(false);
+    const wafAllSelected = computed(() =>
+      wafRulesTbl.rows.value.length > 0 &&
+      wafRulesTbl.rows.value.every(r => wafSelectedIds.value.includes(r.id))
+    );
+    function wafToggleSelectAll() {
+      if (wafAllSelected.value) {
+        const visible = new Set(wafRulesTbl.rows.value.map(r => r.id));
+        wafSelectedIds.value = wafSelectedIds.value.filter(id => !visible.has(id));
+      } else {
+        for (const r of wafRulesTbl.rows.value) {
+          if (!wafSelectedIds.value.includes(r.id)) wafSelectedIds.value.push(r.id);
+        }
+      }
+    }
+    async function wafBulkSetEnable(enable) {
+      const ids = [...wafSelectedIds.value];
+      if (!ids.length || wafBulkBusy.value) return;
+      if (!await showConfirm({
+        title: enable ? '批量启用规则' : '批量禁用规则',
+        message: `${enable ? '启用' : '禁用'}选中的 ${ids.length} 条规则？${enable ? '启用后立即影响流量。' : ''}`,
+        type: enable ? 'warning' : 'danger',
+      })) return;
+      wafBulkBusy.value = true;
+      let ok = 0, fail = 0;
+      try {
+        for (const id of ids) {
+          try {
+            const d = await api('POST', '/verynginx/waf/rules/' + encodeURIComponent(id) + (enable ? '/enable' : '/disable'));
+            if (d.ret === 'success') ok++; else fail++;
+          } catch (e) { fail++; }
+        }
+        showToast(`批量操作完成：成功 ${ok} 条` + (fail ? `，失败 ${fail} 条` : ''), fail ? 'warning' : 'success');
+        wafSelectedIds.value = [];
+        await loadWafRules();
+      } finally {
+        wafBulkBusy.value = false;
+      }
+    }
+    const wafBulkEnable = () => wafBulkSetEnable(true);
+    const wafBulkDisable = () => wafBulkSetEnable(false);
+    view('wafSelectedIds', wafSelectedIds);
+    view('wafBulkBusy', wafBulkBusy);
+    view('wafAllSelected', wafAllSelected);
+    view('wafToggleSelectAll', wafToggleSelectAll);
+    view('wafBulkEnable', wafBulkEnable);
+    view('wafBulkDisable', wafBulkDisable);
     view('wafCategories', wafCategories);
     view('wafPagination', wafPagination);
     view('wafFilterCat', wafFilterCat);

@@ -56,6 +56,10 @@
         <a :class="{active:page==='about'}" @click="navigateTo('about')">关于</a>
       </nav>
       <div class="user-area">
+        <span v-if="lastRefreshLabel" class="refresh-badge" :title="autoRefreshPaused ? '自动刷新已暂停' : '自动刷新运行中'">
+          {{ autoRefreshPaused ? '⏸ 刷新已暂停' : lastRefreshLabel }}
+          <a style="cursor:pointer;margin-left:6px" @click="toggleAutoRefresh">{{ autoRefreshPaused ? '恢复' : '暂停' }}</a>
+        </span>
         <button class="outline small" @click="toggleTheme" :title="theme==='dark'?'切换到浅色模式':'切换到深色模式'" style="padding:4px 8px">
           {{ theme === 'dark' ? '☀' : '🌙' }}
         </button>
@@ -558,10 +562,17 @@
                <option value="low">低</option>
              </select>
           </div>
+          <div v-if="wafSelectedIds.length" class="flex mb-8" style="gap:8px;align-items:center">
+            <span style="font-size:13px">已选 {{ wafSelectedIds.length }} 条</span>
+            <button class="primary small" :disabled="wafBulkBusy" @click="wafBulkEnable"><span v-if="wafBulkBusy" class="spinner"></span>批量启用</button>
+            <button class="danger small" :disabled="wafBulkBusy" @click="wafBulkDisable"><span v-if="wafBulkBusy" class="spinner"></span>批量禁用</button>
+            <button class="outline small" @click="wafSelectedIds = []">清除选择</button>
+          </div>
           <input v-model="wafRulesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页规则（名称/分类/标签…）">
           <div style="overflow-x:auto">
             <table>
                <thead><tr>
+                 <th style="width:32px"><input type="checkbox" :checked="wafAllSelected" title="全选当前页" @change="wafToggleSelectAll"></th>
                  <th style="width:40px" class="sortable" @click="wafRulesTbl.sortBy('enable')">启用 <span v-if="wafRulesTbl.state.sortKey==='enable'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th class="sortable" @click="wafRulesTbl.sortBy('name')">名称 <span v-if="wafRulesTbl.state.sortKey==='name'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th style="width:80px" class="sortable" @click="wafRulesTbl.sortBy('category')">分类 <span v-if="wafRulesTbl.state.sortKey==='category'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
@@ -571,8 +582,9 @@
                  <th style="width:140px">操作</th>
                </tr></thead>
  <tbody>
-                 <tr v-if="!wafRulesTbl.rows.length"><td colspan="7" class="empty">{{ wafRules.length ? '无匹配当前过滤' : '无 WAF 规则' }}</td></tr>
+                 <tr v-if="!wafRulesTbl.rows.length"><td colspan="8" class="empty">{{ wafRules.length ? '无匹配当前过滤' : '无 WAF 规则' }}</td></tr>
                  <tr v-for="r in wafRulesTbl.rows" :key="r.id">
+                  <td style="text-align:center"><input type="checkbox" :value="r.id" v-model="wafSelectedIds"></td>
                   <td style="text-align:center">
                     <span class="tag" :class="r.enable !== false ? 'tag-ok' : 'tag-warn'"
                           :style="{cursor: 'pointer'}"
@@ -744,7 +756,7 @@
                     <span class="tag" style="background:#fef3c7;color:#92400e">{{ p.proposed.action || 'edit' }}</span>
                   </td>
                   <td>
-                    <button class="primary small" :disabled="pendingActionLoading" @click="confirmPendingChange(p.rule_id)">发布</button>
+                    <button class="primary small" :disabled="pendingActionLoading" @click="confirmPendingChange(p.rule_id)"><span v-if="pendingActionLoading" class="spinner"></span>发布</button>
                     <button class="outline small" style="margin-left:4px" @click="discardPendingChange(p.rule_id)">丢弃</button>
                   </td>
                 </tr>
@@ -790,7 +802,7 @@
                 <td>{{ r.hit_count }}</td>
                 <td>{{ r.status }}</td>
                 <td>
-                  <button v-if="r.status === 'pending'" class="primary small" :disabled="recActionLoading" @click="applyRec(r.id)" style="margin-right:4px">应用</button>
+                  <button v-if="r.status === 'pending'" class="primary small" :disabled="recActionLoading" @click="applyRec(r.id)" style="margin-right:4px"><span v-if="recActionLoading" class="spinner"></span>应用</button>
                   <button v-if="r.status === 'pending'" class="outline small" :disabled="recActionLoading" @click="dismissRec(r.id)">忽略</button>
                 </td>
               </tr>
@@ -979,7 +991,7 @@
              </div>
             <div class="modal-actions">
              <button class="outline" @click="freqRuleModal.show=false">取消</button>
-             <button class="primary" :disabled="freqRuleSaving" @click="saveFreqRule">保存</button>
+             <button class="primary" :disabled="freqRuleSaving" @click="saveFreqRule"><span v-if="freqRuleSaving" class="spinner"></span>保存</button>
             </div>
           </div>
         </div>
@@ -1157,7 +1169,7 @@
              <tr><td>上次检查</td><td>{{ geoipStatus.last_check ? new Date(geoipStatus.last_check * 1000).toLocaleString() : '从未' }}</td></tr>
              <tr><td>上次更新</td><td>{{ geoipStatus.last_update ? new Date(geoipStatus.last_update * 1000).toLocaleString() : '从未' }}</td></tr>
           </table>
-             <div style="margin-top:8px"><button class="primary small" :disabled="geoipUpdating" @click="triggerGeoIPUpdate">立即检查更新</button></div>
+             <div style="margin-top:8px"><button class="primary small" :disabled="geoipUpdating" @click="triggerGeoIPUpdate"><span v-if="geoipUpdating" class="spinner"></span>立即检查更新</button></div>
         </div>
       </div>
 
@@ -1191,7 +1203,7 @@
              <thead><tr><th>JA3 哈希</th><th>名称</th><th>分类</th><th>动作</th><th>启用</th><th></th></tr></thead>
             <tbody>
 <tr v-for="fp in fingerprints" :key="fp.hash">
-                <td><code style="font-size:10px">{{ fp.hash }}</code></td>
+                <td><code style="font-size:10px">{{ fp.hash }}</code> <button class="outline small" @click="copyText(fp.hash)" title="复制 hash">复制</button></td>
                 <td>{{ fp.name }}</td>
                 <td><span class="tag">{{ fp.category }}</span></td>
                 <td><span class="tag" :style="{background:fp.action==='block'?'#fee2e2':'#fef3c7'}">{{ fp.action }}</span></td>
@@ -1427,7 +1439,7 @@
               <option value="manual">手动</option>
             </select>
             <input v-model.number="kbNewTTL" placeholder="TTL (秒)" type="number" min="60" style="width:100px">
-            <button class="small primary" :disabled="kbBusy" @click="kbPromote">封禁 IP</button>
+            <button class="small primary" :disabled="kbBusy" @click="kbPromote"><span v-if="kbBusy" class="spinner"></span>封禁 IP</button>
           </div>
         </div>
 
@@ -1716,6 +1728,7 @@
           <div class="modal" style="max-width:640px">
              <h3>IP 详情: {{ kbDetail.entry && kbDetail.entry.ip }}</h3>
             <pre style="max-height:50vh;white-space:pre-wrap">{{ kbDetailJson }}</pre>
+            <button class="outline small" @click="copyText(kbDetailJson)">复制 JSON</button>
             <div class="flex" style="gap:8px;justify-content:flex-end;margin-top:12px">
                <button class="outline small" @click="kbDetail.show=false">关闭</button>
                <button class="outline small" v-if="kbDetail.entry && kbDetail.entry.ip" @click="kbClear(kbDetail.entry.ip);kbDetail.show=false">清除</button>
@@ -1846,7 +1859,7 @@
       </div>
       <div class="modal-actions">
         <button class="outline" @click="fpEditModal.show=false">取消</button>
-        <button class="primary" :disabled="fpSaving" @click="saveFpAdd">保存</button>
+        <button class="primary" :disabled="fpSaving" @click="saveFpAdd"><span v-if="fpSaving" class="spinner"></span>保存</button>
       </div>
     </div>
   </div>
@@ -1865,7 +1878,7 @@
       </div>
        <div class="modal-actions">
          <button class="outline" @click="editMatcherModal.show=false">取消</button>
-         <button class="primary" :disabled="matcherSaving" @click="saveMatcher">保存</button>
+         <button class="primary" :disabled="matcherSaving" @click="saveMatcher"><span v-if="matcherSaving" class="spinner"></span>保存</button>
        </div>
     </div>
   </div>
@@ -1890,6 +1903,7 @@
            <label>来源 IP</label>
            <div>
              <code>{{ wafHitDetailModal.data.ip }}</code>
+             <button class="outline small" style="margin-left:4px" @click="copyText(wafHitDetailModal.data.ip)" title="复制 IP">复制</button>
              <span v-if="wafHitDetailModal.data.ip_whitelisted" class="tag" style="background:#d1fae5;color:#065f46;margin-left:4px">白名单</span>
              <span v-else-if="wafHitDetailModal.data.ip_flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px">已标记</span>
              <span class="tag" style="margin-left:4px">分数: {{ wafHitDetailModal.data.ip_score || 0 }}</span>

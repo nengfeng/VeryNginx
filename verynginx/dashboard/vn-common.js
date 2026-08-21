@@ -393,6 +393,28 @@
     ctx('clearCsrf', () => { csrfToken = null; });
 
     // ---- Polling registry ----
+    // Refresh transparency: pause switch + per-poll last-run timestamps. The
+    // badge computes "最后更新 N 秒前" from the newest stamp; a 1s ticker
+    // re-renders the label without touching any data ref.
+    const autoRefreshPaused = ref(false);
+    view('autoRefreshPaused', autoRefreshPaused);
+    const lastUpdated = {};
+    const nowTick = ref(Date.now());
+    setInterval(() => { nowTick.value = Date.now(); }, 1000);
+    const lastRefreshLabel = computed(() => {
+        let newest = 0;
+        for (const t of Object.values(lastUpdated)) { if (t > newest) newest = t; }
+        if (!newest || !store.loggedIn) return '';
+        const sec = Math.max(0, Math.floor((nowTick.value - newest) / 1000));
+        return sec < 5 ? '刚刚更新' : '最后更新 ' + sec + ' 秒前';
+    });
+    view('lastRefreshLabel', lastRefreshLabel);
+    function toggleAutoRefresh() {
+        autoRefreshPaused.value = !autoRefreshPaused.value;
+        syncPolls();
+    }
+    view('toggleAutoRefresh', toggleAutoRefresh);
+
     // Central lifecycle for every auto-refresh poller. Each poller declares an
     // `active()` predicate; syncPolls() reconciles start/stop on navigation.
     // Pollers MUST register here instead of wiring ad-hoc per-page watches -
@@ -407,6 +429,7 @@
             return;
         }
         polls.set(name, {
+            name,
             active: spec.active,
             interval: spec.interval,
             load: spec.load,
@@ -416,6 +439,8 @@
 
     function syncPolls() {
         if (!store.loggedIn) { stopAllPolls(); return; }
+        // User pause switch (demo/troubleshooting): no poller may run while set.
+        if (autoRefreshPaused.value) { stopAllPolls(); return; }
         for (const poll of polls.values()) {
             const shouldRun = poll.active();
             if (shouldRun && poll.timer === null) {
@@ -432,6 +457,11 @@
         try {
             Promise.resolve(poll.load()).catch((e) => {
                 console.error('[VeryNginx] poll load failed: ' + e.message);
+            }).finally(() => {
+                // Record freshness regardless of success — the badge shows how
+                // long ago the backend was last ASKED, which is what "how
+                // stale is this view" means during an outage.
+                lastUpdated[poll.name] = Date.now();
             });
         } catch (e) {
             console.error('[VeryNginx] poll load failed: ' + e.message);
@@ -542,6 +572,36 @@
     }
     ctx('createTableTools', createTableTools);
 
+    // ---- Clipboard ----
+    // Clipboard API requires a secure context; fall back to a temporary
+    // textarea + execCommand for plain-http deployments.
+    async function copyText(text) {
+      const s = String(text == null ? '' : text);
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(s);
+          showToast('已复制到剪贴板', 'success');
+          return true;
+        }
+      } catch (e) { /* fall through to legacy path */ }
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = s;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(ok ? '已复制到剪贴板' : '复制失败', ok ? 'success' : 'error');
+        return ok;
+      } catch (e) {
+        showToast('复制失败', 'error');
+        return false;
+      }
+    }
+    view('copyText', copyText);
+
     // vn-common owns the shared dashboard/config state — clear it on logout.
     onLogout(() => {
       status.value = {};
@@ -564,6 +624,9 @@
       // login page of the next one.
       for (const t of toasts.value) { if (t.timer) clearTimeout(t.timer); }
       toasts.value = [];
+      // Freshness stamps from the previous session would render a bogus
+      // "最后更新" right after re-login.
+      for (const k of Object.keys(lastUpdated)) delete lastUpdated[k];
     });
 
         // Module initialization (if any)
