@@ -105,7 +105,6 @@
       })) return;
       try {
         const overrides = {
-          id: freqTemplateModal.id,
           key: freqTemplateModal.key,
           limit: freqTemplateModal.limit,
           window: freqTemplateModal.window,
