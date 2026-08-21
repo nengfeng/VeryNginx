@@ -233,7 +233,10 @@
               </tr>
             </tbody>
           </table>
-          <div v-else class="empty">未定义匹配器。</div>
+          <div v-else class="empty">
+            <div>未定义匹配器。</div>
+            <button class="primary small" style="margin-top:8px" @click="editMatcher()">+ 创建第一个匹配器</button>
+          </div>
         </div>
 
         <!-- Rules -->
@@ -589,7 +592,14 @@
                  <th style="width:140px">操作</th>
                </tr></thead>
  <tbody>
-                 <tr v-if="!wafRulesTbl.rows.length"><td colspan="8" class="empty">{{ wafRules.length ? '无匹配当前过滤' : '无 WAF 规则' }}</td></tr>
+                 <tr v-if="!wafRulesTbl.rows.length"><td colspan="8" class="empty">
+                   <template v-if="wafRules.length">无匹配当前过滤</template>
+                   <template v-else>
+                     <div>还没有任何 WAF 规则。</div>
+                     <button class="primary small" style="margin-top:8px" @click="wafOpenCreate()">+ 添加第一条规则</button>
+                     <div style="font-size:12px;color:var(--muted);margin-top:6px">也可以在「分析」页运行推荐引擎，从被拦截流量自动生成规则建议</div>
+                   </template>
+                 </td></tr>
                  <tr v-for="r in wafRulesTbl.rows" :key="r.id">
                   <td style="text-align:center"><input type="checkbox" :value="r.id" v-model="wafSelectedIds"></td>
                   <td style="text-align:center">
@@ -939,7 +949,13 @@
               </tbody>
             </table>
           </div>
-          <div v-else class="empty">未配置频率限制规则。</div>
+          <div v-else class="empty">
+            <div>未配置频率限制规则。</div>
+            <div style="margin-top:8px">
+              <button class="primary small" @click="openFreqRuleCreate()">+ 手动新建</button>
+              <span style="font-size:12px;color:var(--muted);margin-left:8px">或使用上方模板库一键套用登录防爆破 / API 限流等场景</span>
+            </div>
+          </div>
         </div>
 
         <!-- Template Preview/Apply Modal -->
@@ -1218,7 +1234,10 @@
                  <td><button class="outline small" @click="deleteFp(fp)">删除</button></td>
                </tr>
               <tr v-if="!fingerprints.length">
-                <td colspan="6" class="empty">未配置指纹。</td>
+                <td colspan="6" class="empty">
+                  <div>未配置指纹（内置默认库未加载或已被清空）。</div>
+                  <button class="primary small" style="margin-top:8px" @click="openFpAdd()">+ 添加指纹</button>
+                </td>
               </tr>
             </tbody>
           </table>
