@@ -415,11 +415,15 @@
     async function doLogout() {
       // Stop all polling; session revocation below clears the loggedIn watcher
       stopAllPolls();
-      // Drop the CSRF token so a re-login can't reuse the stale one
-      if (shared.clearCsrf) shared.clearCsrf();
-      // Revoke session server-side (best-effort)
+      // Revoke the session server-side FIRST, while the CSRF token is still
+      // valid — the /logout POST needs the X-CSRF-Token header. Clearing the
+      // token before the request would make the server reject it (401) and
+      // leave the session un-revoked. The session cookie is HttpOnly
+      // (api/auth.lua:172), so a JS document.cookie wipe can't remove it; only
+      // the server-side revoke makes a page refresh stay logged out.
       try { await api('POST', '/verynginx/logout'); } catch (_) {}
-      document.cookie = 'verynginx_session=; Path=/; Max-Age=0';
+      // Now drop the client CSRF token so a re-login can't reuse the stale one
+      if (shared.clearCsrf) shared.clearCsrf();
       store.loggedIn = false;
       store.user = null;
     }
