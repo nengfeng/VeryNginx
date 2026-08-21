@@ -278,7 +278,7 @@
     // Wipe per-session data on logout so a re-login as another account
     // doesn't flash the previous session's audit/fingerprint records.
     // Keyboard: Esc close + focus management for all dialogs.
-    shared.bindModal(fpEditModal);
+    shared.bindModal(fpEditModal, { label: '指纹编辑器' });
 
     shared.onLogout(() => {
       auditEntries.value = [];

@@ -261,8 +261,8 @@
 
     // Wipe per-session frequency data on logout.
     // Keyboard: Esc close + focus management for all dialogs.
-    shared.bindModal(freqRuleModal);
-    shared.bindModal(freqTemplateModal);
+    shared.bindModal(freqRuleModal, { label: '频率规则编辑器' });
+    shared.bindModal(freqTemplateModal, { label: '模板应用对话框' });
 
     shared.onLogout(() => {
       freqStats.value = [];

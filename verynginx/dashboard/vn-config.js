@@ -366,8 +366,8 @@
 
     // Wipe edit-modal state on logout (cfg/rawJson are cleared by vn-common).
     // Keyboard: Esc close + focus management for all dialogs.
-    shared.bindModal(ruleEditModal);
-    shared.bindModal(editMatcherModal);
+    shared.bindModal(ruleEditModal, { label: '规则编辑器' });
+    shared.bindModal(editMatcherModal, { label: '匹配器编辑器' });
 
     shared.onLogout(() => {
       ruleEditModal.show = false;

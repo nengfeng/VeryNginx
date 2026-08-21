@@ -332,6 +332,8 @@
         const d = await api('GET', '/verynginx/config');
         cfg.value = d;
         rawJson.value = JSON.stringify(d, null, 2);
+        // Textarea re-synced from saved state — any dirty marker is stale.
+        if (shared.jsonDirty) shared.jsonDirty.value = false;
       } catch (e) {
         showToast('配置加载失败: ' + e.message, 'error');
       }

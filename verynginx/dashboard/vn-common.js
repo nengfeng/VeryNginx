@@ -299,8 +299,9 @@
       if (!show && confirmQueue.length) closeConfirm(false);
     });
 
-    // Escape closes the topmost queued confirm as "false".
-    bindModal(confirmModal, { onClose: () => closeConfirm(false) });
+    // Escape closes the topmost queued confirm as "false". Its typed input is
+    // a confirmation phrase, not editor content — exclude from dirty tracking.
+    bindModal(confirmModal, { onClose: () => closeConfirm(false), trackInput: false });
 
     // ===== Shared navigation state =====
     const page = ref('dashboard');
@@ -350,6 +351,10 @@
     view('dictUsage', dictUsage);
     const rawJson = ref('');
     view('rawJson', rawJson);
+    // Set by the JSON editor textarea's @input; cleared whenever loadConfig()
+    // re-syncs the textarea from saved state (load/save/import paths).
+    const jsonDirty = ref(false);
+    view('jsonDirty', jsonDirty);
     const jsonError = ref('');
     view('jsonError', jsonError);
     watch(rawJson, (val) => {
@@ -490,14 +495,16 @@
     // (dashboard → syncPolls/stats, config → vn-config watch, advanced → vn-dashboard watch).
     // Cross-module functions are late-bound via shared to avoid load-order coupling.
     async function navigateTo(newPage) {
-      // KB dirty-form guard (late-bound — vn-kb registers kbFormDirty via ctx)
-      const kbFormDirty = shared.kbFormDirty;
-      if (page.value === 'kb' && kbFormDirty && kbFormDirty.value) {
+      // Unsaved-change guard across every editor (KB form, rule/matcher/WAF
+      // editors via modal input tracking, JSON editor). Confirm -> discard.
+      const unsaved = collectUnsaved();
+      if (unsaved.length) {
         if (!await showConfirm({
           title: '未保存的更改',
-          message: 'KB 表单有未保存的更改，确定离开？',
+          message: `${unsaved.join('、')}有未保存的更改，离开将丢失。确定放弃并离开？`,
           type: 'warning',
         })) return;
+        discardUnsaved();
       }
       page.value = newPage;
       // Per-page data loading
@@ -508,6 +515,52 @@
       else if (newPage === 'kb') { if (shared.loadKbData) await shared.loadKbData(); }
     }
     view('navigateTo', navigateTo);
+
+    // ---- Unsaved-change guard registry ----
+    // Non-modal editors (KB settings form, config JSON textarea) register a
+    // {label, isDirty, discard} triple; modal editors are tracked automatically
+    // by bindModal() via delegated input listeners. collectUnsaved() feeds both
+    // the in-app navigation guard and the beforeunload safety net.
+    const dirtyGuards = [];
+    function registerDirtyGuard(label, isDirty, discard) {
+      dirtyGuards.push({ label, isDirty, discard });
+    }
+    ctx('registerDirtyGuard', registerDirtyGuard);
+
+    function collectUnsaved() {
+      const labels = [];
+      for (const g of dirtyGuards) {
+        let d = false;
+        try { d = !!g.isDirty(); } catch (_) { /* treat as clean */ }
+        if (d) labels.push(g.label);
+      }
+      for (const en of modalStack) {
+        if (en.dirty && en.label) labels.push(en.label);
+      }
+      return labels;
+    }
+    ctx('collectUnsaved', collectUnsaved);
+
+    function discardUnsaved() {
+      for (const g of dirtyGuards) {
+        let d = false;
+        try { d = !!g.isDirty(); } catch (_) { /* already clean */ }
+        if (d) { try { g.discard(); } catch (_) { /* keep going */ } }
+      }
+      for (const en of modalStack) {
+        if (en.dirty) en.modal.show = false;
+      }
+    }
+
+    window.addEventListener('beforeunload', (e) => {
+      if (!collectUnsaved().length) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
+
+    registerDirtyGuard('配置 JSON 编辑器',
+      () => jsonDirty.value,
+      () => { rawJson.value = JSON.stringify(cfg.value || {}, null, 2); jsonDirty.value = false; });
 
     // ---- Logout hooks ----
     // Modules register a callback here so that logging out can wipe their
@@ -655,10 +708,23 @@
       opts = opts || {};
       watch(() => modal.show, (show) => {
         if (show) {
-          modalStack.push({ modal, onClose: opts.onClose, prevFocus: document.activeElement });
+          const entry = { modal, onClose: opts.onClose, prevFocus: document.activeElement, dirty: false, label: opts.label || '', handlers: null };
+          modalStack.push(entry);
           Vue.nextTick(() => {
             const overlay = topModalOverlay();
-            if (!overlay || overlay.contains(document.activeElement)) return;
+            if (!overlay) return;
+            // Track user edits inside this dialog so the navigation guard can
+            // warn before discarding half-filled forms. Confirm dialogs opt
+            // out (their input is a typed confirmation, not content).
+            if (opts.trackInput !== false) {
+              entry.handlers = {
+                input: () => { entry.dirty = true; },
+                change: () => { entry.dirty = true; },
+              };
+              overlay.addEventListener('input', entry.handlers.input);
+              overlay.addEventListener('change', entry.handlers.change);
+            }
+            if (overlay.contains(document.activeElement)) return;
             const target = overlay.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
             if (target) target.focus();
           });
@@ -666,6 +732,13 @@
           const idx = modalStack.findIndex(en => en.modal === modal);
           if (idx >= 0) {
             const entry = modalStack.splice(idx, 1)[0];
+            if (entry.handlers) {
+              const overlay = topModalOverlay();
+              if (overlay) {
+                overlay.removeEventListener('input', entry.handlers.input);
+                overlay.removeEventListener('change', entry.handlers.change);
+              }
+            }
             try {
               if (entry.prevFocus && document.body.contains(entry.prevFocus)) entry.prevFocus.focus();
             } catch (_) { /* detached element */ }

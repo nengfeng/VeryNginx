@@ -950,8 +950,8 @@
 
     // Wipe per-session WAF data on logout.
     // Keyboard: Esc close + focus management for all dialogs.
-    shared.bindModal(wafEditModal);
-    shared.bindModal(wafHitDetailModal);
+    shared.bindModal(wafEditModal, { label: 'WAF 规则编辑器' });
+    shared.bindModal(wafHitDetailModal, { label: '命中详情' });
 
     shared.onLogout(() => {
       wafRules.value = [];

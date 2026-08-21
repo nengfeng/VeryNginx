@@ -702,7 +702,11 @@
     // Wipe per-session kernel-blocking data on logout. kbStatus (global
     // policy/config) is intentionally left for the next load to refresh.
     // Keyboard: Esc close + focus management for all dialogs.
-    shared.bindModal(kbDetail);
+    shared.bindModal(kbDetail, { label: '内核封禁详情' });
+
+    // Unsaved-settings guard: the centralized navigateTo/beforeunload checks
+    // consult this alongside modal-dirty tracking.
+    shared.registerDirtyGuard('内核封禁设置', () => kbFormDirty.value, () => { kbFormDirty.value = false; });
 
     shared.onLogout(() => {
       kbEntries.value = [];
