@@ -124,7 +124,22 @@
     function ruleBuildRule() {
       const rule = { enable: ruleEditModal.enable };
       if (ruleEditModal.matcherType === 'inline') {
-        try { rule.matcher = JSON.parse(ruleEditModal.matcherJson); } catch { rule.matcher = {}; }
+        let matcher;
+        try {
+          matcher = JSON.parse(ruleEditModal.matcherJson);
+        } catch (e) {
+          throw new Error('匹配器 JSON 格式无效: ' + e.message);
+        }
+        if (typeof matcher !== 'object' || matcher === null || Array.isArray(matcher)) {
+          throw new Error('匹配器必须是 JSON 对象 (如 {"URI": {"value": "/"}})');
+        }
+        // An empty matcher matches EVERY request (matcher/init.lua:48-51). A
+        // typo'd JSON that we silently downgraded to {} would, with a block
+        // action, take down the whole site with no warning — so reject it.
+        if (Object.keys(matcher).length === 0) {
+          throw new Error('匹配器不能为空: 空匹配器会匹配全部请求 (block 动作将导致全站阻断)');
+        }
+        rule.matcher = matcher;
       } else {
         rule.matcher = ruleEditModal.matcherType;
       }
