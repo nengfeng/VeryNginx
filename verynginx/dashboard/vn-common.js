@@ -201,19 +201,25 @@
     const TOAST_DURATION = { success: 2500, info: 3000, warning: 6000, error: 0 }; // 0 = sticky
     const TOAST_MAX = 5;
 
-    function showToast(msg, type) {
+    function showToast(msg, type, opts) {
+      opts = opts || {};
       const t = type || 'info';
       // Dedup consecutive identical messages — a poller erroring every 3s
       // must not fill the sticky stack with copies of one failure.
       const last = toasts.value[toasts.value.length - 1];
-      if (last && last.type === t && last.msg === String(msg)) return;
-      const item = { id: ++toastSeq, msg: String(msg), type: t, timer: null };
+      if (!opts.actionLabel && last && last.type === t && last.msg === String(msg)) return;
+      const item = {
+        id: ++toastSeq, msg: String(msg), type: t, timer: null,
+        actionLabel: String(opts.actionLabel || ''),
+        onAction: typeof opts.onAction === 'function' ? opts.onAction : null,
+      };
       toasts.value.push(item);
       while (toasts.value.length > TOAST_MAX) {
         const dropped = toasts.value.shift();
         if (dropped.timer) clearTimeout(dropped.timer);
       }
-      const dur = TOAST_DURATION[t] === undefined ? 3000 : TOAST_DURATION[t];
+      let dur = TOAST_DURATION[t] === undefined ? 3000 : TOAST_DURATION[t];
+      if (opts.duration != null) dur = opts.duration;
       if (dur > 0) item.timer = setTimeout(() => dismissToast(item.id), dur);
     }
     ctx('showToast', showToast);

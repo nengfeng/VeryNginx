@@ -98,6 +98,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .toast-msg{word-break:break-word}
 .toast-close{background:transparent;color:#fff;border:none;font-size:16px;line-height:1.2;padding:0 2px;cursor:pointer;opacity:.85;flex-shrink:0}
 .toast-close:hover{opacity:1}
+.toast-action{background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;margin-left:auto;flex-shrink:0}
+.toast-action:hover{background:rgba(255,255,255,.32)}
 .toastfx-enter-active,.toastfx-leave-active,.toastfx-move{transition:all .3s ease}
 .toastfx-enter-from{opacity:0;transform:translateY(-10px)}
 .toastfx-leave-to{opacity:0;transform:translateX(24px)}

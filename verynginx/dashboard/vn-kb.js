@@ -509,6 +509,19 @@
       finally { kbBusy.value = false; }
     }
 
+    // Undoable-action toast: 10s window with a 撤销 button that auto-runs the
+    // reverse API. Undo failures surface as their own error toast.
+    function kbUndoToast(msg, undoFn) {
+      showToast(msg, 'success', {
+        actionLabel: '撤销',
+        duration: 10000,
+        onAction: async () => {
+          try { await undoFn(); }
+          catch (e) { showToast('撤销失败: ' + e.message, 'error'); }
+        },
+      });
+    }
+
     async function kbPromote() {
       if (!kbNewIP.value) { showToast('请输入 IP', 'error'); return; }
       // Client-side IP format validation (IPv4/IPv6 literal)
@@ -518,18 +531,23 @@
       // to a safe short TTL instead of silently amplifying the block window.
       const ttlNum = Number(kbNewTTL.value);
       const ttl = (ttlNum && ttlNum > 0) ? ttlNum : 300;
-      if (!await showConfirm({ title: '手动封禁 IP', message: `手动封禁 ${ip} 策略 ${kbNewPolicy.value} TTL ${ttl}秒?`, type: 'danger' })) return;
+      const policy = kbNewPolicy.value;
+      if (!await showConfirm({ title: '手动封禁 IP', message: `手动封禁 ${ip} 策略 ${policy} TTL ${ttl}秒?`, type: 'danger' })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', {
-          ip, policy: kbNewPolicy.value, ttl: ttl
+          ip, policy, ttl: ttl
         });
         if (d.ret === 'success') {
-          showToast('IP ' + ip + ' blocked', 'success');
+          kbUndoToast(`IP ${ip} 已封禁 (${policy}, TTL ${ttl}s)`, async () => {
+            await api('POST', '/verynginx/kernel-blocking/clear', { ip });
+            showToast('已撤销：解除 ' + ip + ' 的封禁', 'success');
+            await loadKbData();
+          });
           kbNewIP.value = '';
           await loadKbData();
         } else {
-          showToast(d.message || 'Promote failed', 'error');
+          showToast(d.message || '封禁失败', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
       finally { kbBusy.value = false; }
@@ -542,7 +560,11 @@
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy, ttl: 300 });
         if (d.ret === 'success') {
-          showToast('IP ' + ip + ' 已晋升', 'success');
+          kbUndoToast('IP ' + ip + ' 已晋升 (' + policy + ', TTL 300s)', async () => {
+            await api('POST', '/verynginx/kernel-blocking/clear', { ip });
+            showToast('已撤销：解除 ' + ip + ' 的封禁', 'success');
+            await loadKbData();
+          });
           await loadKbData();
         } else {
           showToast(d.message || '晋升失败', 'error');
@@ -570,14 +592,36 @@
     async function kbClear(ip) {
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
       if (!await showConfirm({ title: '清除封禁条目', message: `清除 ${ip} 的所有内核封禁条目?`, type: 'danger' })) return;
+      // Snapshot the visible entries for this IP so 撤销 can re-promote them
+      // with their remaining TTL. Entries on unloaded pages can't be restored —
+      // in that case the toast carries no undo button.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const prior = [];
+      for (const e of (kbEntries.value || [])) {
+        if (!e || e.ip !== ip) continue;
+        const policy = e.list || e.policy;
+        if (!policy) continue;
+        const left = e.expires_at ? Math.floor(e.expires_at - nowSec) : 300;
+        prior.push({ policy, ttl: Math.min(Math.max(left, 30), 86400) });
+      }
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/clear', { ip });
         if (d.ret === 'success') {
-          showToast('IP ' + ip + ' cleared', 'success');
+          if (prior.length) {
+            kbUndoToast('已清除 ' + ip + ' 的封禁 (' + prior.length + ' 条)', async () => {
+              for (const p of prior) {
+                await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy: p.policy, ttl: p.ttl });
+              }
+              showToast('已撤销：恢复 ' + ip + ' 的 ' + prior.length + ' 条封禁', 'success');
+              await loadKbData();
+            });
+          } else {
+            showToast('已清除 ' + ip + ' 的封禁', 'success');
+          }
           await loadKbData();
         } else {
-          showToast(d.message || 'Clear failed', 'error');
+          showToast(d.message || '清除失败', 'error');
         }
       } catch (e) { showToast(e.message, 'error'); }
       finally { kbBusy.value = false; }

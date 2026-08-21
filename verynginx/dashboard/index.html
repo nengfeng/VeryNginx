@@ -18,6 +18,7 @@
   <transition-group name="toastfx" tag="div" class="toast-stack">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
       <span class="toast-msg">{{ t.msg }}</span>
+      <button v-if="t.actionLabel" class="toast-action" @click="t.onAction && t.onAction(); dismissToast(t.id)">{{ t.actionLabel }}</button>
       <button class="toast-close" @click="dismissToast(t.id)" title="关闭">×</button>
     </div>
   </transition-group>
