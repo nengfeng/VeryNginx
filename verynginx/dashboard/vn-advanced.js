@@ -277,6 +277,9 @@
 
     // Wipe per-session data on logout so a re-login as another account
     // doesn't flash the previous session's audit/fingerprint records.
+    // Keyboard: Esc close + focus management for all dialogs.
+    shared.bindModal(fpEditModal);
+
     shared.onLogout(() => {
       auditEntries.value = [];
       auditError.value = '';

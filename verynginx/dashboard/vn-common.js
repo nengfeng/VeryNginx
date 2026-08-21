@@ -299,6 +299,9 @@
       if (!show && confirmQueue.length) closeConfirm(false);
     });
 
+    // Escape closes the topmost queued confirm as "false".
+    bindModal(confirmModal, { onClose: () => closeConfirm(false) });
+
     // ===== Shared navigation state =====
     const page = ref('dashboard');
     view('page', page);
@@ -601,6 +604,76 @@
       }
     }
     view('copyText', copyText);
+
+    // ---- Modal keyboard accessibility ----
+    // One composable for every dialog: Escape closes the topmost modal, focus
+    // moves to its first field on open and returns to the opener on close,
+    // and Tab is trapped inside the dialog so it can't wander to the page
+    // behind it. Modals register via bindModal(modal[, {onClose}]); the stack
+    // handles confirm-over-modal nesting.
+    const modalStack = [];
+
+    function modalFocusable(el) {
+      return Array.from(el.querySelectorAll(
+        'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter(x => x.offsetWidth > 0 || x.offsetHeight > 0);
+    }
+
+    function topModalOverlay() {
+      const overlays = document.querySelectorAll('.modal-overlay');
+      return overlays.length ? overlays[overlays.length - 1] : null;
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (!modalStack.length) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        const top = modalStack[modalStack.length - 1];
+        if (top.onClose) top.onClose();
+        else top.modal.show = false;
+      } else if (e.key === 'Tab') {
+        const overlay = topModalOverlay();
+        if (!overlay) return;
+        const items = modalFocusable(overlay);
+        if (!items.length) { e.preventDefault(); return; }
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (!overlay.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+        } else if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    });
+
+    function bindModal(modal, opts) {
+      opts = opts || {};
+      watch(() => modal.show, (show) => {
+        if (show) {
+          modalStack.push({ modal, onClose: opts.onClose, prevFocus: document.activeElement });
+          Vue.nextTick(() => {
+            const overlay = topModalOverlay();
+            if (!overlay || overlay.contains(document.activeElement)) return;
+            const target = overlay.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
+            if (target) target.focus();
+          });
+        } else {
+          const idx = modalStack.findIndex(en => en.modal === modal);
+          if (idx >= 0) {
+            const entry = modalStack.splice(idx, 1)[0];
+            try {
+              if (entry.prevFocus && document.body.contains(entry.prevFocus)) entry.prevFocus.focus();
+            } catch (_) { /* detached element */ }
+          }
+        }
+      });
+    }
+    ctx('bindModal', bindModal);
 
     // vn-common owns the shared dashboard/config state — clear it on logout.
     onLogout(() => {

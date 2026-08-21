@@ -260,6 +260,10 @@
     view('deleteFreqRule', deleteFreqRule);
 
     // Wipe per-session frequency data on logout.
+    // Keyboard: Esc close + focus management for all dialogs.
+    shared.bindModal(freqRuleModal);
+    shared.bindModal(freqTemplateModal);
+
     shared.onLogout(() => {
       freqStats.value = [];
       freqRules.value = [];

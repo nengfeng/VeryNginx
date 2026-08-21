@@ -949,6 +949,10 @@
     view('wafRefreshAll', wafRefreshAll);
 
     // Wipe per-session WAF data on logout.
+    // Keyboard: Esc close + focus management for all dialogs.
+    shared.bindModal(wafEditModal);
+    shared.bindModal(wafHitDetailModal);
+
     shared.onLogout(() => {
       wafRules.value = [];
       wafCategories.value = {};

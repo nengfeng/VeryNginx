@@ -365,6 +365,10 @@
     view('onImportFile', onImportFile);
 
     // Wipe edit-modal state on logout (cfg/rawJson are cleared by vn-common).
+    // Keyboard: Esc close + focus management for all dialogs.
+    shared.bindModal(ruleEditModal);
+    shared.bindModal(editMatcherModal);
+
     shared.onLogout(() => {
       ruleEditModal.show = false;
       editMatcherModal.show = false;

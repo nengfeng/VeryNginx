@@ -701,6 +701,9 @@
 
     // Wipe per-session kernel-blocking data on logout. kbStatus (global
     // policy/config) is intentionally left for the next load to refresh.
+    // Keyboard: Esc close + focus management for all dialogs.
+    shared.bindModal(kbDetail);
+
     shared.onLogout(() => {
       kbEntries.value = [];
       kbCandidates.value = [];
