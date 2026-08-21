@@ -112,13 +112,15 @@
     }
 
     function ruleEditModalChanged() {
-      // Clear stale fields when action changes
-      if (ruleEditModal.action !== 'block') { ruleEditModal.response = ''; }
-      if (ruleEditModal.action !== 'redirect' && ruleEditModal.action !== 'block') { ruleEditModal.code = 403; }
-      if (ruleEditModal.action !== 'redirect' && ruleEditModal.action !== 'rewrite') { ruleEditModal.to_uri = ''; }
-      if (ruleEditModal.action !== 'proxy') { ruleEditModal.upstream = ''; }
-      if (ruleEditModal.action !== 'static') { ruleEditModal.root = ''; ruleEditModal.path = ''; ruleEditModal.expires = ''; }
-      if (ruleEditModal.action !== 'response') { ruleEditModal.response = ''; }
+      // Clear fields that the newly selected action does not use. `response`
+      // is used by both `block` and `response`; `code` by `block`, `response`
+      // and `redirect` — so neither must be wiped when switching to those.
+      const a = ruleEditModal.action;
+      if (a !== 'block' && a !== 'response') { ruleEditModal.response = ''; }
+      if (a !== 'block' && a !== 'response' && a !== 'redirect') { ruleEditModal.code = 403; }
+      if (a !== 'redirect' && a !== 'rewrite') { ruleEditModal.to_uri = ''; }
+      if (a !== 'proxy') { ruleEditModal.upstream = ''; }
+      if (a !== 'static') { ruleEditModal.root = ''; ruleEditModal.path = ''; ruleEditModal.expires = ''; }
     }
 
     function ruleBuildRule() {
@@ -322,6 +324,14 @@
     view('exportConfig', exportConfig);
     view('importConfig', importConfig);
     view('onImportFile', onImportFile);
+
+    // Wipe edit-modal state on logout (cfg/rawJson are cleared by vn-common).
+    shared.onLogout(() => {
+      ruleEditModal.show = false;
+      editMatcherModal.show = false;
+      configImportError.value = '';
+      configImportOk.value = '';
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything

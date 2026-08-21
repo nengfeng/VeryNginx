@@ -54,6 +54,7 @@
     }
 
     async function loadOverview() {
+      const tok = gOverview.mark();
       const o = { conn_active: 0, req_rate: 0, up_healthy: 0, up_total: 0, waf_hits: 0, dicts: [], top_uris: [], plugin_errors: [] };
       try {
         // Status: connection counts
@@ -167,6 +168,7 @@
       delete o._plugin_dur_count;
       delete o._plugin_dur_sum;
       o.dicts = (o.dicts || []).sort((a, b) => b.pct - a.pct).slice(0, 6);
+      if (!gOverview.isCurrent(tok)) return;
       overview.value = o;
     }
 
@@ -236,12 +238,17 @@
 
 
     // ---- Stats ----
+    const gStats = shared.createStaleGuard();
+    const gOverview = shared.createStaleGuard();
     async function loadStats() {
+      const tok = gStats.mark();
       statsError.value = '';
       try {
         statsData.value = await api('GET', `/verynginx/summary?type=${statsType.value}`);
+        if (!gStats.isCurrent(tok)) return;
       } catch (e) {
-        statsError.value = e.message;
+        if (gStats.isCurrent(tok)) statsError.value = e.message;
+        return;
       }
       loadTopPaths();
     }
@@ -271,7 +278,9 @@
     }
 
     function successClass(v) {
-      const p = parseFloat(calcSuccess(v));
+      // Accepts either a stats object (with .status) or an already-computed
+      // numeric success rate (e.g. overview.top_uris[].success_rate).
+      const p = (typeof v === 'number') ? v : parseFloat(calcSuccess(v));
       if (p >= 99) return 'tag-ok';
       if (p >= 90) return 'tag-warn';
       return 'tag-err';
@@ -426,6 +435,9 @@
       if (shared.clearCsrf) shared.clearCsrf();
       store.loggedIn = false;
       store.user = null;
+      // Wipe per-session module data so a re-login as a different account
+      // doesn't flash the previous session's records.
+      if (shared.onLogout) shared.onLogout();
     }
 
     // ---- Exports ----

@@ -20,14 +20,19 @@
     const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
     const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
 
+    // Stale-response guard for the frequency data loader.
+    const gFreqData = shared.createStaleGuard();
+
     // ---- Load ----
     async function loadFrequencyData() {
+      const tok = gFreqData.mark();
       try {
         const results = await Promise.allSettled([
           api('GET', '/verynginx/frequency/stats'),
           api('GET', '/verynginx/frequency/rules'),
           api('GET', '/verynginx/frequency/templates'),
         ]);
+        if (!gFreqData.isCurrent(tok)) return;
         const [statsRes, rulesRes, tmplRes] = results.map(r => (r.status === 'fulfilled' ? r.value : null));
         if (statsRes && statsRes.ret === 'success') freqStats.value = statsRes.data || [];
         if (rulesRes && rulesRes.ret === 'success') freqRules.value = rulesRes.data || [];
@@ -41,6 +46,7 @@
           freqError.value = '';
         }
       } catch (e) {
+        if (!gFreqData.isCurrent(tok)) return;
         console.warn('loadFrequencyData failed:', e.message);
         freqTemplatesLoaded.value = true;
         if (e.message !== 'session_expired') freqError.value = '加载频率限制数据失败: ' + e.message;
@@ -168,13 +174,19 @@
         if (!window || window < 1) { showToast('window 必须 >= 1 秒', 'error'); return; }
         if (!code || code < 100 || code > 599) { showToast('响应码必须是 100-599 之间的合法状态码', 'error'); return; }
 
-        let matcher = {};
+        // A rule may reference a named matcher (_matcherRef) OR carry an inline
+        // matcher (matcherJson). When editing a ref rule, the matcherJson box is
+        // shown as a '{}' placeholder; if the user actually types a matcher
+        // there, the inline value must win — otherwise the edit is silently
+        // discarded and the limit scope won't match what they see.
+        const mj = (freqRuleModal.matcherJson || '').trim();
+        let finalMatcher;
         try {
-          if (freqRuleModal._matcherRef) {
-            matcher = null;
-          } else if (freqRuleModal.matcherJson && freqRuleModal.matcherJson !== '{}') {
-            matcher = JSON.parse(freqRuleModal.matcherJson);
-            if (typeof matcher !== 'object' || matcher === null || Array.isArray(matcher)) {
+          if (freqRuleModal._matcherRef && mj === '{}') {
+            finalMatcher = freqRuleModal._matcherRef;
+          } else if (mj && mj !== '{}') {
+            finalMatcher = JSON.parse(mj);
+            if (typeof finalMatcher !== 'object' || finalMatcher === null || Array.isArray(finalMatcher)) {
               showToast('匹配器必须是 JSON 对象, 如 {"IP": {"value": "1.2.3.4"}}', 'error');
               return;
             }
@@ -191,10 +203,8 @@
           code,
           enable: freqRuleModal.enable,
         };
-        if (freqRuleModal._matcherRef) {
-          rule.matcher = freqRuleModal._matcherRef;
-        } else if (Object.keys(matcher).length > 0) {
-          rule.matcher = matcher;
+        if (finalMatcher !== undefined) {
+          rule.matcher = finalMatcher;
         }
         const d = await api('POST', '/verynginx/frequency/rules', rule);
         if (d.ret === 'success') {
@@ -240,6 +250,15 @@
     view('openFreqRuleEdit', openFreqRuleEdit);
     view('saveFreqRule', saveFreqRule);
     view('deleteFreqRule', deleteFreqRule);
+
+    // Wipe per-session frequency data on logout.
+    shared.onLogout(() => {
+      freqStats.value = [];
+      freqRules.value = [];
+      freqTemplates.value = [];
+      freqTemplatesLoaded.value = false;
+      freqError.value = '';
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything

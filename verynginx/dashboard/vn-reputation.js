@@ -21,8 +21,12 @@
     const repLookupResult = ref(null);
     const repClearBusy = ref({});
 
+    // Stale-response guard for the reputation data loader.
+    const gRepData = shared.createStaleGuard();
+
     // ---- Load ----
     async function loadRepData() {
+      const tok = gRepData.mark();
       repError.value = '';
       try {
         const [sd, fd, wd] = await Promise.all([
@@ -30,11 +34,12 @@
           api('GET', '/verynginx/reputation/flagged'),
           api('GET', '/verynginx/reputation/whitelist'),
         ]);
+        if (!gRepData.isCurrent(tok)) return;
         repStats.value = sd.data;
         repFlagged.value = fd.data || [];
         repWhitelist.value = wd.data || [];
       } catch (e) {
-        repError.value = e.message;
+        if (gRepData.isCurrent(tok)) repError.value = e.message;
       }
     }
 
@@ -120,6 +125,17 @@
     view('repRemoveWhitelist', repRemoveWhitelist);
     view('repPersist', repPersist);
     view('repLookup', repLookup);
+
+    // Wipe per-session reputation data on logout.
+    shared.onLogout(() => {
+      repStats.value = null;
+      repFlagged.value = [];
+      repWhitelist.value = [];
+      repError.value = '';
+      repLookupResult.value = null;
+      repNewWhitelist.value = '';
+      repLookupIP.value = '';
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything

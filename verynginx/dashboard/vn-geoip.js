@@ -21,6 +21,9 @@
     const geoipLoading = ref(false);
     const geoipError = ref('');
 
+    // Stale-response guard for the geoip data loader.
+    const gGeoip = shared.createStaleGuard();
+
     // ---- Load ----
     async function loadGeoIPStatus() {
       try {
@@ -32,6 +35,7 @@
     }
 
     async function loadGeoIP() {
+      const tok = gGeoip.mark();
       geoipLoading.value = true;
       geoipError.value = '';
       try {
@@ -39,6 +43,7 @@
           api('GET', '/verynginx/geoip/config'),
           api('GET', '/verynginx/geoip/stats'),
         ]);
+        if (!gGeoip.isCurrent(tok)) return;
         if (cfgRes.ret === 'success') {
           const cfg = cfgRes.data || {};
           // Determine mirror source from config
@@ -162,6 +167,15 @@
     view('lookupGeoIP', lookupGeoIP);
     view('saveGeoIPConfig', saveGeoIPConfig);
     view('triggerGeoIPUpdate', triggerGeoIPUpdate);
+
+    // Wipe per-session GeoIP data on logout.
+    shared.onLogout(() => {
+      geoipLookupResult.value = null;
+      geoipLookupIP.value = '';
+      geoipStats.value = [];
+      geoipStatus.value = { available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' };
+      geoipError.value = '';
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything

@@ -64,6 +64,17 @@
     const recError = ref('');
     const recLoading = ref(false);
 
+    // Stale-response guards for list/timeline/stats loaders.
+    const gWafRules = shared.createStaleGuard();
+    const gWafStats = shared.createStaleGuard();
+    const gWafHistory = shared.createStaleGuard();
+    const gWafAttack = shared.createStaleGuard();
+    const gWafTimeline = shared.createStaleGuard();
+    const gWafHits = shared.createStaleGuard();
+    const gWafAnalytics = shared.createStaleGuard();
+    const gRecs = shared.createStaleGuard();
+    const gViewIpHits = shared.createStaleGuard();
+
 
     // ---- WAF Methods ----
     function sevClass(s) {
@@ -79,6 +90,7 @@
     }
 
     async function loadWafRules() {
+      const tok = gWafRules.mark();
       wafError.value = '';
       try {
         const params = new URLSearchParams();
@@ -87,6 +99,7 @@
         if (wafFilterCat.value) params.append('category', wafFilterCat.value);
         if (wafFilterSev.value) params.append('severity', wafFilterSev.value);
         const d = await api('GET', '/verynginx/waf/rules?' + params.toString());
+        if (!gWafRules.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafRules.value = d.data.rules;
           wafCategories.value = d.data.categories || {};
@@ -97,9 +110,7 @@
         } else {
           wafError.value = d.message || 'Failed to load rules';
         }
-      } catch (e) {
-        wafError.value = e.message;
-      }
+      } catch (e) { if (gWafRules.isCurrent(tok)) wafError.value = e.message; }
     }
 
     function formatNumber(n) {
@@ -115,31 +126,31 @@
     }
 
     async function loadWafStats() {
+      const tok = gWafStats.mark();
       wafStatsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/stats');
+        if (!gWafStats.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafStatsData.value = d.data;
         } else {
           wafStatsError.value = d.message || 'Failed to load stats';
         }
-      } catch (e) {
-        wafStatsError.value = e.message;
-      }
+      } catch (e) { if (gWafStats.isCurrent(tok)) wafStatsError.value = e.message; }
     }
 
     async function loadWafHistory() {
+      const tok = gWafHistory.mark();
       wafHistError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/rules/history');
+        if (!gWafHistory.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafHistory.value = d.data;
         } else {
           wafHistError.value = d.message || 'Failed to load history';
         }
-      } catch (e) {
-        wafHistError.value = e.message;
-      }
+      } catch (e) { if (gWafHistory.isCurrent(tok)) wafHistError.value = e.message; }
     }
 
     function remaining(expiresAt) {
@@ -364,10 +375,12 @@
 
     // ---- WAF Timeline ----
     async function loadWafTimeline() {
+      const tok = gWafTimeline.mark();
       wafTimelineLoading.value = true;
       wafTimelineError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/timeline?hours=' + wafTimelineHours.value + '&bucket=' + wafTimelineBucket.value);
+        if (!gWafTimeline.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafTimeline.value = d.data || { buckets: [], categories: [] };
         } else {
@@ -375,8 +388,8 @@
           wafTimeline.value = { buckets: [], categories: [] };
         }
       } catch (e) {
-        if (e.message !== 'session_expired') wafTimelineError.value = e.message;
-        wafTimeline.value = { buckets: [], categories: [] };
+        if (e.message !== 'session_expired' && gWafTimeline.isCurrent(tok)) wafTimelineError.value = e.message;
+        if (gWafTimeline.isCurrent(tok)) wafTimeline.value = { buckets: [], categories: [] };
       } finally {
         wafTimelineLoading.value = false;
       }
@@ -471,6 +484,10 @@
 
     // ---- Hit Detail Drill-down ----
     async function openHitDetail(hit) {
+      // Drop any per-IP hits from a previously opened detail so the modal
+      // can't show one IP's hits under another IP's detail.
+      wafIpHits.value = []
+      wafIpHitsIp.value = ''
       wafHitDetailModal.show = true
       wafHitDetailModal.loading = true
       wafHitDetailModal.data = null
@@ -502,14 +519,16 @@
     }
 
     async function viewIpHits(ip) {
+      const tok = gViewIpHits.mark();
       try {
         const d = await api('GET', '/verynginx/waf/hits/by-ip?ip=' + encodeURIComponent(ip))
+        if (!gViewIpHits.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafIpHits.value = d.data || []
           wafIpHitsIp.value = ip
         }
       } catch (e) {
-        wafIpHits.value = []
+        if (gViewIpHits.isCurrent(tok)) wafIpHits.value = []
       }
     }
 
@@ -541,18 +560,18 @@
 
     // ---- WAF Hits ----
     async function loadWafHits() {
+      const tok = gWafHits.mark();
       wafHitsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/hits?limit=' + wafHitsLimit.value);
+        if (!gWafHits.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafHits.value = d.data || [];
           wafHitsTime.value = wafHits.value.length ? new Date().toLocaleTimeString() : '';
         } else {
           wafHitsError.value = d.message || 'Failed to load hits';
         }
-      } catch (e) {
-        wafHitsError.value = e.message;
-      }
+      } catch (e) { if (gWafHits.isCurrent(tok)) wafHitsError.value = e.message; }
     }
 
     function wafLoadMoreHits() {
@@ -563,10 +582,12 @@
 
     // ---- WAF Analytics ----
     async function loadWafAnalytics() {
+      const tok = gWafAnalytics.mark();
       wafAnalyticsLoading.value = true;
       wafAnalyticsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/analytics');
+        if (!gWafAnalytics.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafAnalytics.value = d.data || { rules: [], dead_rules: [] };
         } else {
@@ -574,8 +595,8 @@
           wafAnalytics.value = { rules: [], dead_rules: [] };
         }
       } catch (e) {
-        if (e.message !== 'session_expired') wafAnalyticsError.value = e.message;
-        wafAnalytics.value = { rules: [], dead_rules: [] };
+        if (e.message !== 'session_expired' && gWafAnalytics.isCurrent(tok)) wafAnalyticsError.value = e.message;
+        if (gWafAnalytics.isCurrent(tok)) wafAnalytics.value = { rules: [], dead_rules: [] };
       } finally {
         wafAnalyticsLoading.value = false;
       }
@@ -589,17 +610,17 @@
 
     // ---- WAF Recommender ----
     async function loadRecs() {
+      const tok = gRecs.mark();
       recError.value = '';
       try {
         const [d, s] = await Promise.all([
           api('GET', '/verynginx/waf/recommendations'),
           api('GET', '/verynginx/waf/recommendations/stats')
         ]);
+        if (!gRecs.isCurrent(tok)) return;
         if (d.ret === 'success') recs.value = d.data || [];
         if (s.ret === 'success') recStats.value = s.data;
-      } catch (e) {
-        recError.value = e.message;
-      }
+      } catch (e) { if (gRecs.isCurrent(tok)) recError.value = e.message; }
     }
 
     async function runRecAnalysis() {
@@ -801,6 +822,31 @@
     view('wafPage', wafPage);
     view('wafFilterChange', wafFilterChange);
     view('wafRefreshAll', wafRefreshAll);
+
+    // Wipe per-session WAF data on logout.
+    shared.onLogout(() => {
+      wafRules.value = [];
+      wafCategories.value = {};
+      wafStatsData.value = null;
+      wafStatsError.value = '';
+      wafHistory.value = [];
+      wafHistError.value = '';
+      wafAnalytics.value = { rules: [], dead_rules: [] };
+      wafPendingChanges.value = [];
+      wafTimeline.value = { buckets: [], categories: [], bucket_minutes: 5, hours: 1 };
+      wafTestHistory.value = [];
+      wafHits.value = [];
+      wafHitsError.value = '';
+      wafHitDetailModal.show = false;
+      wafHitDetailModal.data = null;
+      wafHitDetailModal.error = '';
+      wafHitDetailModal.loading = false;
+      wafIpHits.value = [];
+      wafIpHitsIp.value = '';
+      recs.value = [];
+      recStats.value = null;
+      recError.value = '';
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything

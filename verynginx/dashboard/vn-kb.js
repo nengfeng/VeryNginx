@@ -72,6 +72,15 @@
       else expandedCcRules.add(id);
     }
 
+    // Stale-response guards for list/timeline loaders (rapid filter/page
+    // switches must not let a slow old response overwrite fresh state).
+    const gKbEntries = shared.createStaleGuard();
+    const gKbCandidates = shared.createStaleGuard();
+    const gKbTimeline = shared.createStaleGuard();
+    const gKbDashboard = shared.createStaleGuard();
+    const gKbBucket = shared.createStaleGuard();
+    const gViewIpHits = shared.createStaleGuard();
+
     const KB_REASON_HELP = {
       global_disabled: { title: '内核封禁已禁用', advice: '启用全局开关，然后从观察模式开始。' },
       global_observe: { title: '全局模式为观察', advice: '观察模式仅收集候选。检查清单变绿后切换到执行模式。' },
@@ -267,12 +276,14 @@
     }
 
     async function loadKbEntries(cursor) {
+      const tok = gKbEntries.mark();
       try {
         let url = '/verynginx/kernel-blocking/entries?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
         if (kbFilterPolicy.value) url += '&policy=' + encodeURIComponent(kbFilterPolicy.value);
         if (kbFilterIP.value) url += '&ip=' + encodeURIComponent(kbFilterIP.value);
         const d = await api('GET', url);
+        if (!gKbEntries.isCurrent(tok)) return;
         if (d.ret === 'success') {
           kbEntriesCurrentCursor.value = cursor || null;
           if (!cursor) kbEntriesPrev.value = [];
@@ -281,7 +292,7 @@
         } else {
           kbError.value = d.message || 'Failed to load entries';
         }
-      } catch (e) { kbError.value = e.message; }
+      } catch (e) { if (gKbEntries.isCurrent(tok)) kbError.value = e.message; }
     }
 
     function kbEntriesPageNext() {
@@ -296,12 +307,14 @@
     }
 
     async function loadKbCandidates(cursor) {
+      const tok = gKbCandidates.mark();
       try {
         let url = '/verynginx/kernel-blocking/candidates?page_size=50';
         if (cursor) url += '&cursor=' + cursor;
         if (kbFilterState.value) url += '&state=' + encodeURIComponent(kbFilterState.value);
         if (kbFilterIP.value) url += '&ip=' + encodeURIComponent(kbFilterIP.value);
         const d = await api('GET', url);
+        if (!gKbCandidates.isCurrent(tok)) return;
         if (d.ret === 'success') {
           kbCandidatesCurrentCursor.value = cursor || null;
           if (!cursor) kbCandidatesPrev.value = [];
@@ -310,7 +323,7 @@
         } else {
           kbError.value = d.message || 'Failed to load candidates';
         }
-      } catch (e) { kbError.value = e.message; }
+      } catch (e) { if (gKbCandidates.isCurrent(tok)) kbError.value = e.message; }
     }
 
     function kbCandidatesPageNext() {
@@ -325,6 +338,7 @@
     }
 
     async function loadKbTimeline() {
+      const tok = gKbTimeline.mark();
       try {
         let url = '/verynginx/audit?limit=300';
         if (kbTimelineFilter.value) {
@@ -335,13 +349,14 @@
           url += '&action_prefix=kernel_blocking';
         }
         const d = await api('GET', url);
+        if (!gKbTimeline.isCurrent(tok)) return;
         if (d.ret === 'success') {
           const all = d.data || [];
           kbTimeline.value = all;
         } else {
           kbError.value = d.message || 'Failed to load timeline';
         }
-      } catch (e) { kbError.value = e.message; }
+      } catch (e) { if (gKbTimeline.isCurrent(tok)) kbError.value = e.message; }
     }
 
     // Reload timeline when the filter changes while on the timeline tab
@@ -372,10 +387,12 @@
     }
 
     async function loadKbBucketHistory() {
+      const tok = gKbBucket.mark();
       kbBucketHistoryLoading.value = true;
       kbBucketHistoryError.value = '';
       try {
         const d = await api('GET', '/verynginx/kernel-blocking/bucket-history');
+        if (!gKbBucket.isCurrent(tok)) return;
         if (d.ret === 'success') {
           kbBucketHistory.value = d.data.samples || [];
         } else {
@@ -383,8 +400,8 @@
           kbBucketHistory.value = [];
         }
       } catch (e) {
-        if (e.message !== 'session_expired') kbBucketHistoryError.value = e.message;
-        kbBucketHistory.value = [];
+        if (e.message !== 'session_expired' && gKbBucket.isCurrent(tok)) kbBucketHistoryError.value = e.message;
+        if (gKbBucket.isCurrent(tok)) kbBucketHistory.value = [];
       } finally {
         kbBucketHistoryLoading.value = false;
       }
@@ -477,11 +494,15 @@
       // Client-side IP format validation (IPv4/IPv6 literal)
       const ip = kbNewIP.value.trim();
       if (!isValidIpLiteral(ip, false)) { showToast('IP 格式无效: ' + ip, 'error'); return; }
-      if (!await showConfirm({ title: '手动封禁 IP', message: `手动封禁 ${ip} 策略 ${kbNewPolicy.value} TTL ${kbNewTTL.value}秒?`, type: 'danger' })) return;
+      // An empty/zero TTL would be coerced server-side to 86400s (24h). Default
+      // to a safe short TTL instead of silently amplifying the block window.
+      const ttlNum = Number(kbNewTTL.value);
+      const ttl = (ttlNum && ttlNum > 0) ? ttlNum : 300;
+      if (!await showConfirm({ title: '手动封禁 IP', message: `手动封禁 ${ip} 策略 ${kbNewPolicy.value} TTL ${ttl}秒?`, type: 'danger' })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', {
-          ip: kbNewIP.value, policy: kbNewPolicy.value, ttl: kbNewTTL.value
+          ip: kbNewIP.value, policy: kbNewPolicy.value, ttl: ttl
         });
         if (d.ret === 'success') {
           showToast('IP ' + kbNewIP.value + ' blocked', 'success');
@@ -650,6 +671,25 @@
     view('kbFlushAuto', kbFlushAuto);
     view('expandedCcRules', expandedCcRules);
     view('toggleCcRule', toggleCcRule);
+
+    // Wipe per-session kernel-blocking data on logout. kbStatus (global
+    // policy/config) is intentionally left for the next load to refresh.
+    shared.onLogout(() => {
+      kbEntries.value = [];
+      kbCandidates.value = [];
+      kbTimeline.value = [];
+      kbDiff.value = { missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 };
+      kbBucketHistory.value = [];
+      kbEntriesNext.value = null;
+      kbCandidatesNext.value = null;
+      kbEntriesPrev.value = [];
+      kbCandidatesPrev.value = [];
+      kbEntriesCurrentCursor.value = null;
+      kbCandidatesCurrentCursor.value = null;
+      kbDetail.show = false;
+      kbDetail.entry = null;
+      expandedCcRules.clear();
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything

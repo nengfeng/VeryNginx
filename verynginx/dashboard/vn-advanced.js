@@ -16,6 +16,7 @@
     const auditError = ref('');
 
     async function loadAudit() {
+      const tok = gAudit.mark();
       auditError.value = '';
       try {
         let url = '/verynginx/audit?limit=500';
@@ -30,14 +31,13 @@
           url += '&until=' + untilTs;
         }
         const d = await api('GET', url);
+        if (!gAudit.isCurrent(tok)) return;
         if (d.ret === 'success') {
           auditEntries.value = d.data || [];
         } else {
           auditError.value = d.message || 'Failed to load audit';
         }
-      } catch (e) {
-        auditError.value = e.message;
-      }
+      } catch (e) { if (gAudit.isCurrent(tok)) auditError.value = e.message; }
     }
 
     let auditClearGuard = false;
@@ -94,9 +94,15 @@
     const fpToggleBusy = ref(false);
     const fpEditModal = reactive({ show: false, hash: '', name: '', category: 'scanner', action: 'block' });
 
+    // Stale-response guards for the audit / fingerprint list loaders.
+    const gAudit = shared.createStaleGuard();
+    const gFingerprints = shared.createStaleGuard();
+
     async function loadFingerprints() {
+      const tok = gFingerprints.mark();
       try {
         const d = await api('GET', '/verynginx/fingerprints');
+        if (!gFingerprints.isCurrent(tok)) return;
         if (d.ret === 'success') {
           fingerprints.value = d.data || [];
           const cats = {};
@@ -107,7 +113,7 @@
         }
       } catch (e) {
         console.warn('loadFingerprints failed:', e.message);
-        if (e.message !== 'session_expired') fpError.value = '加载指纹失败: ' + e.message;
+        if (gFingerprints.isCurrent(tok) && e.message !== 'session_expired') fpError.value = '加载指纹失败: ' + e.message;
       }
     }
 
@@ -240,6 +246,18 @@
     view('pluginsError', pluginsError);
     view('loadPlugins', loadPlugins);
     view('togglePlugin', togglePlugin);
+
+    // Wipe per-session data on logout so a re-login as another account
+    // doesn't flash the previous session's audit/fingerprint records.
+    shared.onLogout(() => {
+      auditEntries.value = [];
+      auditError.value = '';
+      fingerprints.value = [];
+      fpCategories.value = {};
+      fpError.value = '';
+      plugins.value = [];
+      pluginsError.value = '';
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything

@@ -17,7 +17,6 @@
 
     // ---- API ----
     let csrfToken = null;
-    let csrfBroken = false;
 
     // Strict IP literal validation (IPv4 0-255 per octet, IPv6 with optional /prefix).
     // Mirrors api/helpers.lua is_valid_ip semantics on the client side.
@@ -64,56 +63,67 @@
     });
 
     async function api(method, path, body, opts2) {
-      const opts = { method, credentials: 'same-origin' };
-      if (body) {
-        if (body instanceof URLSearchParams) {
-          opts.body = body;
-        } else if (typeof body === 'object' && !(body instanceof FormData)) {
-          opts.headers = { 'Content-Type': 'application/json' };
-          opts.body = JSON.stringify(body);
-        } else {
-          opts.body = body;
-        }
-      }
-      if (method !== 'GET') {
-        if (csrfBroken) {
-          try {
-            const d = await fetch('/verynginx/csrf', { method: 'GET', credentials: 'same-origin' });
-            if (d.ok) {
-              const j = await d.json();
-              csrfToken = j.csrf_token;
-              csrfBroken = false;
-            } else if (d.status === 401 || d.status === 403) {
-              csrfToken = null;
-              csrfBroken = false;
-              store.loggedIn = false;
-              store.user = null;
-              throw new Error('session_expired');
-            }
-          } catch (e) {
-            if (e.message === 'session_expired') throw e;
+      async function doFetch() {
+        const opts = { method, credentials: 'same-origin' };
+        if (body) {
+          if (body instanceof URLSearchParams) {
+            opts.body = body;
+          } else if (typeof body === 'object' && !(body instanceof FormData)) {
+            opts.headers = { 'Content-Type': 'application/json' };
+            opts.body = JSON.stringify(body);
+          } else {
+            opts.body = body;
           }
         }
-        if (csrfBroken) {
-          throw new Error('CSRF 令牌刷新失败，请刷新页面后重试');
-        }
-        if (csrfToken) {
+        if (method !== 'GET' && csrfToken) {
           opts.headers = opts.headers || {};
           opts.headers['X-CSRF-Token'] = csrfToken;
         }
+        return await fetch(path, opts);
       }
-      const res = await fetch(path, opts);
-      if (!res.ok) {
-        if ((res.status === 401 || res.status === 403) && path !== '/verynginx/login') {
+
+      function parseError(res) {
+        return res.text().catch(() => '').then((text) => {
+          let msg;
+          try { const j = JSON.parse(text); msg = j.message || j.err || text; } catch { msg = text || `HTTP ${res.status}`; }
+          return msg;
+        });
+      }
+
+      let res = await doFetch();
+
+      // 401 = authentication problem. This can be a genuinely expired session,
+      // OR a stale CSRF token (e.g. after a server restart dropped the
+      // server-side CSRF state while the stateless HMAC session is still
+      // valid). Self-heal once: refresh the CSRF token and retry. If the
+      // refresh itself fails (401), the session is truly gone.
+      if (res.status === 401 && path !== '/verynginx/login' && path !== '/verynginx/csrf') {
+        const refreshed = await refreshCsrf();
+        if (refreshed) {
+          res = await doFetch();
+        } else {
           csrfToken = null;
           store.loggedIn = false;
           store.user = null;
           throw new Error('session_expired');
         }
-        const text = await res.text().catch(() => '');
-        let msg;
-        try { const j = JSON.parse(text); msg = j.message || j.err || text; } catch { msg = text || `HTTP ${res.status}`; }
-        throw new Error(msg);
+      }
+
+      if (res.status === 401 && path !== '/verynginx/login') {
+        csrfToken = null;
+        store.loggedIn = false;
+        store.user = null;
+        throw new Error('session_expired');
+      }
+
+      // 403 = operation forbidden (e.g. whitelisted IP). This is NOT an auth
+      // failure — keep the session alive and surface the server's message.
+      if (res.status === 403 && path !== '/verynginx/login') {
+        throw new Error(await parseError(res));
+      }
+
+      if (!res.ok) {
+        throw new Error(await parseError(res));
       }
       if (opts2 && opts2.text) return res.text();
       return res.json();
@@ -299,7 +309,7 @@
     ctx('refreshCsrf', refreshCsrf);
     ctx('refreshCsrfOnce', refreshCsrfOnce);
     ctx('csrfToken', () => csrfToken); // getter for current token
-    ctx('clearCsrf', () => { csrfToken = null; csrfBroken = false; });
+    ctx('clearCsrf', () => { csrfToken = null; });
 
     // ---- Polling registry ----
     // Central lifecycle for every auto-refresh poller. Each poller declares an
@@ -384,6 +394,42 @@
       else if (newPage === 'kb') { if (shared.loadKbData) await shared.loadKbData(); }
     }
     view('navigateTo', navigateTo);
+
+    // ---- Logout hooks ----
+    // Modules register a callback here so that logging out can wipe their
+    // per-session data (otherwise a re-login as a different account flashes
+    // the previous session's records). doLogout() fires every hook.
+    const logoutHooks = [];
+    function onLogout(cb) { if (typeof cb === 'function') logoutHooks.push(cb); }
+    ctx('onLogout', onLogout);
+
+    // ---- Stale-response guard ----
+    // Returns a guard for one resource. Call mark() before an async fetch and
+    // isCurrent(token) after it; if a newer request started in the meantime the
+    // older response is ignored (prevents slow out-of-order responses from
+    // overwriting fresh state when the user switches filters/pages quickly).
+    function createStaleGuard() {
+      let n = 0;
+      return {
+        mark: () => ++n,
+        isCurrent: (t) => t === n,
+      };
+    }
+    ctx('createStaleGuard', createStaleGuard);
+
+    // vn-common owns the shared dashboard/config state — clear it on logout.
+    onLogout(() => {
+      status.value = {};
+      connHistory.value = [];
+      cfg.value = {};
+      rawJson.value = '';
+      healthData.value = {};
+      overview.value = {};
+      dictUsage.value = [];
+      statsData.value = null;
+      versionInfo.value = { version: '', commit: '' };
+      topPaths.value = [];
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything
