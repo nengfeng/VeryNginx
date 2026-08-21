@@ -24,11 +24,11 @@
         if (auditFilterAction.value) url += '&action=' + encodeURIComponent(auditFilterAction.value);
         if (auditFilterSince.value) {
           const sinceTs = Math.floor(new Date(auditFilterSince.value).getTime() / 1000);
-          url += '&since=' + sinceTs;
+          if (!Number.isNaN(sinceTs)) url += '&since=' + sinceTs;
         }
         if (auditFilterUntil.value) {
           const untilTs = Math.floor(new Date(auditFilterUntil.value).getTime() / 1000);
-          url += '&until=' + untilTs;
+          if (!Number.isNaN(untilTs)) url += '&until=' + untilTs;
         }
         const d = await api('GET', url);
         if (!gAudit.isCurrent(tok)) return;
@@ -92,6 +92,7 @@
     const fpCategories = ref({});
     const fpError = ref('');
     const fpToggleBusy = ref(false);
+    const fpSaving = ref(false);
     const fpEditModal = reactive({ show: false, hash: '', name: '', category: 'scanner', action: 'block' });
 
     // Stale-response guards for the audit / fingerprint list loaders.
@@ -126,9 +127,11 @@
     }
 
     async function saveFpAdd() {
+      if (fpSaving.value) return;
       const hash = (fpEditModal.hash || '').trim();
       const name = (fpEditModal.name || '').trim();
       if (!hash || !name) { showToast('哈希和名称必填', 'error'); return; }
+      fpSaving.value = true;
       try {
         const d = await api('POST', '/verynginx/fingerprints', {
           hash, name, category: fpEditModal.category, action: fpEditModal.action
@@ -142,6 +145,8 @@
         }
       } catch (e) {
         showToast(e.message || '添加失败', 'error');
+      } finally {
+        fpSaving.value = false;
       }
     }
 
@@ -175,7 +180,7 @@
     async function deleteFp(fp) {
       if (!await showConfirm({ title: '删除指纹', message: `删除指纹 "${fp.hash}"?`, type: 'danger' })) return;
       try {
-        const d = await api('DELETE', '/verynginx/fingerprints/' + fp.hash);
+        const d = await api('DELETE', '/verynginx/fingerprints/' + encodeURIComponent(fp.hash));
         if (d.ret === 'success') {
           showToast('指纹已删除', 'success');
           await loadFingerprints();
@@ -204,12 +209,15 @@
       }
     }
 
+    const pluginBusy = reactive(new Set());
     async function togglePlugin(p) {
+      if (pluginBusy.has(p.name)) return;
+      pluginBusy.add(p.name);
       pluginsError.value = '';
       const old = p.enable;
       p.enable = !p.enable;
       try {
-        const d = await api('POST', '/verynginx/plugins/' + p.name + '/toggle');
+        const d = await api('POST', '/verynginx/plugins/' + encodeURIComponent(p.name) + '/toggle');
         if (d.ret === 'success') {
           p.enable = d.data.enable;
           if (p.enable !== !old) loadPlugins();
@@ -221,6 +229,8 @@
       } catch (e) {
         p.enable = old;
         pluginsError.value = e.message;
+      } finally {
+        pluginBusy.delete(p.name);
       }
     }
 
@@ -236,6 +246,7 @@
     view('fpError', fpError);
     view('fpToggleBusy', fpToggleBusy);
     view('fpEditModal', fpEditModal);
+    view('fpSaving', fpSaving);
     view('loadFingerprints', loadFingerprints);
     view('openFpAdd', openFpAdd);
     view('saveFpAdd', saveFpAdd);
@@ -244,6 +255,7 @@
     view('deleteFp', deleteFp);
     view('plugins', plugins);
     view('pluginsError', pluginsError);
+    view('pluginBusy', pluginBusy);
     view('loadPlugins', loadPlugins);
     view('togglePlugin', togglePlugin);
 

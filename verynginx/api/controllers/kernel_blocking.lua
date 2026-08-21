@@ -102,9 +102,10 @@ local function handle_candidates()
     page_size = math.max(math.min(page_size, 200), 1)
     local state_filter = ngx.var.arg_state
     local ip_filter = ngx.var.arg_ip
+    local policy_filter = ngx.var.arg_policy
 
     local sm = require "core.kernel_blocking.state_machine"
-    local page = sm.list(cursor, page_size, state_filter, nil, ip_filter)
+    local page = sm.list(cursor, page_size, state_filter, policy_filter, ip_filter)
 
     return json.encode({
         ret = "success",

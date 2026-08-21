@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
-        const { ctx, view, api, store, page, showToast, showConfirm } = shared;
+        const { ctx, view, api, store, page, showToast, showConfirm, isValidIpLiteral } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -50,17 +50,22 @@
     const wafAnalyticsLoading = ref(false);
     const wafAnalyticsError = ref('');
     const wafPendingChanges = ref([]);
+    const wafPendingError = ref('');
     const wafTimeline = ref({ buckets: [], categories: [], bucket_minutes: 5, hours: 1 });
     const wafTimelineHours = ref(1);
     const wafTimelineBucket = ref(5);
     const wafTimelineLoading = ref(false);
     const wafTimelineError = ref('');
     const wafTestHistory = ref([]);
+    const wafTestHistoryError = ref('');
     const wafHitDetailModal = reactive({ show: false, loading: false, data: null, error: '' });
     const wafIpHits = ref([]);
     const wafIpHitsIp = ref('');
+    const wafIpHitsError = ref('');
     const recs = ref([]);
     const recStats = ref(null);
+    const recActionLoading = ref(false);
+    const pendingActionLoading = ref(false);
     const recError = ref('');
     const recLoading = ref(false);
 
@@ -263,6 +268,36 @@
     const VALID_SEVERITIES = ['critical', 'high', 'medium', 'low'];
     const VALID_ACTIONS = ['block', 'accept', 'log', 'challenge'];
 
+    // Recursively validate any matcher IP value. Match conditions that carry
+    // an "IP" key (string value, or {value: "..."}) are checked against the
+    // shared IP literal validator (CIDR allowed). Returns an error string or
+    // null. Traverses arrays and nested objects.
+    function validateMatcherIps(node, trail) {
+      trail = trail || '';
+      if (node == null || typeof node !== 'object') return null;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) {
+          const e = validateMatcherIps(node[i], trail + '[' + i + ']');
+          if (e) return e;
+        }
+        return null;
+      }
+      for (const k in node) {
+        const v = node[k];
+        if (k === 'IP') {
+          const val = (typeof v === 'string') ? v : (v && typeof v.value === 'string' ? v.value : null);
+          if (val != null && !isValidIpLiteral(val, true)) {
+            return '匹配器 IP 值无效: ' + val + '（位于 ' + (trail ? trail + '.' : '') + 'IP）';
+          }
+        } else if (typeof v === 'object') {
+          const e = validateMatcherIps(v, trail ? trail + '.' + k : k);
+          if (e) return e;
+        }
+      }
+      return null;
+    }
+
+
     async function wafSaveRule() {
       wafEditError.value = '';
       const m = wafEditModal;
@@ -281,6 +316,34 @@
         wafEditError.value = 'Invalid matcher JSON: ' + e.message;
         return;
       }
+
+      // Validate numeric fields before sending. A bad code/limit would be
+      // silently accepted by the server and yield an invalid rule.
+      if (m.code !== '' && m.code != null) {
+        const code = Number(m.code);
+        if (!Number.isInteger(code) || code < 100 || code > 599) {
+          wafEditError.value = '响应码必须是 100-599 之间的整数: ' + m.code;
+          return;
+        }
+      }
+      if (m.rateLimitEnabled) {
+        const max = Number(m.rateLimitMax);
+        const win = Number(m.rateLimitWindow);
+        if (!Number.isInteger(max) || max < 1) {
+          wafEditError.value = '速率限制最大命中必须是 >= 1 的整数';
+          return;
+        }
+        if (!Number.isInteger(win) || win < 1) {
+          wafEditError.value = '速率限制窗口必须是 >= 1 的整数（秒）';
+          return;
+        }
+      }
+
+      // Pre-check any inline matcher IP values so an obviously invalid address
+      // is rejected client-side instead of silently matching nothing (or
+      // everything) server-side.
+      const ipErr = validateMatcherIps(matcherObj);
+      if (ipErr) { wafEditError.value = ipErr; return; }
 
       const tags = m.tagsStr.split(',').map(t => t.trim()).filter(t => t);
 
@@ -332,19 +395,24 @@
 
     // ---- Pending Rule Changes ----
     async function loadPendingRules() {
+      wafPendingError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/rules/pending');
         if (d.ret === 'success') {
           wafPendingChanges.value = d.data || [];
+        } else {
+          wafPendingError.value = d.message || 'Failed to load pending changes';
         }
       } catch (e) {
-        wafPendingChanges.value = [];
+        if (e.message !== 'session_expired') wafPendingError.value = e.message;
       }
     }
 
     async function confirmPendingChange(ruleId) {
-      if (!await showConfirm({ title: '发布暂存变更', message: `发布规则 ${ruleId} 的暂存变更？将立即生效，影响所有请求。`, type: 'danger' })) return;
+      if (pendingActionLoading.value) return;
+      pendingActionLoading.value = true;
       try {
+        if (!await showConfirm({ title: '发布暂存变更', message: `发布规则 ${ruleId} 的暂存变更？将立即生效，影响所有请求。`, type: 'danger' })) return;
         const d = await api('POST', '/verynginx/waf/rules/' + ruleId + '/confirm');
         if (d.ret === 'success') {
           showToast('规则变更已发布', 'success');
@@ -354,6 +422,8 @@
         }
       } catch (e) {
         showToast(e.message, 'error');
+      } finally {
+        pendingActionLoading.value = false;
       }
     }
 
@@ -424,13 +494,16 @@
 
     // ---- Test History ----
     async function loadTestHistory() {
+      wafTestHistoryError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/test-history');
         if (d.ret === 'success') {
           wafTestHistory.value = d.data || [];
+        } else {
+          wafTestHistoryError.value = d.message || 'Failed to load test history';
         }
       } catch (e) {
-        wafTestHistory.value = [];
+        if (e.message !== 'session_expired') wafTestHistoryError.value = e.message;
       }
     }
 
@@ -520,15 +593,22 @@
 
     async function viewIpHits(ip) {
       const tok = gViewIpHits.mark();
+      wafIpHitsError.value = '';
       try {
         const d = await api('GET', '/verynginx/waf/hits/by-ip?ip=' + encodeURIComponent(ip))
         if (!gViewIpHits.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafIpHits.value = d.data || []
           wafIpHitsIp.value = ip
+        } else {
+          wafIpHitsError.value = d.message || 'Failed to load IP hits';
+          wafIpHits.value = [];
         }
       } catch (e) {
-        if (gViewIpHits.isCurrent(tok)) wafIpHits.value = []
+        if (gViewIpHits.isCurrent(tok)) {
+          if (e.message !== 'session_expired') wafIpHitsError.value = e.message;
+          wafIpHits.value = [];
+        }
       }
     }
 
@@ -539,16 +619,17 @@
           wafTab.value = 'rules';
           wafOpenEdit(rule);
           showToast('已定位到规则编辑器: ' + rule.name, 'info');
+          return;
+        }
+        // Not on the current page — fetch the single rule directly instead of
+        // reloading the current page (which would never find an out-of-range id).
+        const d = await api('GET', '/verynginx/waf/rules/' + encodeURIComponent(ruleId));
+        if (d.ret === 'success' && d.data) {
+          wafTab.value = 'rules';
+          wafOpenEdit(d.data);
+          showToast('已定位到规则编辑器: ' + (d.data.name || ruleId), 'info');
         } else {
-          await loadWafRules();
-          const r = wafRules.value.find(x => x.id === ruleId);
-          if (r) {
-            wafTab.value = 'rules';
-            wafOpenEdit(r);
-            showToast('已定位到规则编辑器: ' + r.name, 'info');
-          } else {
-            showToast('未找到规则: ' + ruleId, 'error');
-          }
+          showToast('未找到规则: ' + ruleId, 'error');
         }
       } catch (e) {
         if (e.message !== 'session_expired') showToast(e.message, 'error');
@@ -640,23 +721,33 @@
     }
 
     async function applyRec(id) {
+      if (recActionLoading.value) return;
+      recActionLoading.value = true;
       try {
         const d = await api('POST', '/verynginx/waf/recommendations/' + id + '/apply');
         if (d.ret === 'success') {
           showToast('Rule applied successfully', 'success');
           await loadRecs();
+        } else {
+          recError.value = d.message || 'Apply failed';
         }
       } catch (e) {
         recError.value = e.message;
+      } finally {
+        recActionLoading.value = false;
       }
     }
 
     async function dismissRec(id) {
+      if (recActionLoading.value) return;
+      recActionLoading.value = true;
       try {
         await api('POST', '/verynginx/waf/recommendations/' + id + '/dismiss');
         await loadRecs();
       } catch (e) {
         recError.value = e.message;
+      } finally {
+        recActionLoading.value = false;
       }
     }
 
@@ -767,17 +858,22 @@
     view('wafAnalyticsLoading', wafAnalyticsLoading);
     view('wafAnalyticsError', wafAnalyticsError);
     view('wafPendingChanges', wafPendingChanges);
+    view('wafPendingError', wafPendingError);
     view('wafTimeline', wafTimeline);
     view('wafTimelineHours', wafTimelineHours);
     view('wafTimelineBucket', wafTimelineBucket);
     view('wafTimelineLoading', wafTimelineLoading);
     view('wafTimelineError', wafTimelineError);
     view('wafTestHistory', wafTestHistory);
+    view('wafTestHistoryError', wafTestHistoryError);
     view('wafHitDetailModal', wafHitDetailModal);
     view('wafIpHits', wafIpHits);
     view('wafIpHitsIp', wafIpHitsIp);
+    view('wafIpHitsError', wafIpHitsError);
     view('recs', recs);
     view('recStats', recStats);
+    view('recActionLoading', recActionLoading);
+    view('pendingActionLoading', pendingActionLoading);
     view('recError', recError);
     view('recLoading', recLoading);
     view('sevClass', sevClass);

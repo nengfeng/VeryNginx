@@ -105,3 +105,6 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .kb-controls .field select,.kb-controls .field input{margin-top:4px}
 .kb-controls .field>label.kb-check{display:flex;align-items:center;gap:6px;min-height:34px}
 .kb-controls .field>label.kb-check>input[type=checkbox]{width:auto;margin:0}
+
+/* Hide the raw {{ }} template bindings until Vue mounts */
+[v-cloak]{display:none !important;}

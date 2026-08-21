@@ -14,7 +14,7 @@
 </head>
 <body>
 
-<div id="app">
+<div id="app" v-cloak>
   <div class="toast" :class="[toastType, { show: toastVisible }]">{{ toastMsg }}</div>
   <!-- Login -->
   <div id="login-page" v-if="!store.loggedIn">
@@ -28,7 +28,7 @@
       </div>
       <div class="field">
         <label>密码</label>
-        <input v-model.trim="loginPass" type="password" placeholder="输入密码" @keyup.enter="doLogin">
+        <input v-model="loginPass" type="password" placeholder="输入密码" @keyup.enter="doLogin">
       </div>
       <button class="primary" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
     </div>
@@ -317,7 +317,7 @@
             <tbody>
               <tr v-for="p in plugins" :key="p.name">
                 <td><strong>{{ p.name }}</strong></td>
-                <td><input type="checkbox" :checked="p.enable" @change="togglePlugin(p)"></td>
+                <td><input type="checkbox" :checked="p.enable" :disabled="pluginBusy.has(p.name)" @change="togglePlugin(p)"></td>
                 <td>{{ p.priority }}</td>
                 <td>{{ p.critical ? '✓' : '✗' }}</td>
                 <td style="font-size:12px;color:var(--muted)">{{ p.description }}</td>
@@ -563,8 +563,9 @@
                  <th style="width:100px">最后触发</th>
                  <th style="width:140px">操作</th>
                </tr></thead>
-<tbody>
-                <tr v-for="r in wafRules" :key="r.id">
+ <tbody>
+                 <tr v-if="!wafRules.length"><td colspan="7" class="empty">无 WAF 规则</td></tr>
+                 <tr v-for="r in wafRules" :key="r.id">
                   <td style="text-align:center">
                     <span class="tag" :class="r.enable !== false ? 'tag-ok' : 'tag-warn'"
                           :style="{cursor: 'pointer'}"
@@ -598,6 +599,7 @@
         <!-- Stats -->
         <div v-if="wafTab==='attacks' && wafAttackView==='stats'">
           <div v-if="wafStatsError" class="error" style="margin-bottom:8px">{{ wafStatsError }}</div>
+          <div v-if="!wafStatsData && !wafStatsError" class="empty">无统计数据</div>
           <div v-if="wafStatsData" class="grid grid-4 mb-16">
              <div class="stat-card"><div class="stat-label">规则总数</div><div class="stat-value">{{ wafStatsData.total_rules }}</div></div>
              <div class="stat-card"><div class="stat-label">已启用</div><div class="stat-value">{{ wafStatsData.enabled_rules }}</div></div>
@@ -697,7 +699,7 @@
             <table>
                <thead><tr><th>时间</th><th>规则 ID</th><th>方法</th><th>URI</th><th>来源 IP</th></tr></thead>
               <tbody>
-                <tr v-for="h in wafHits" :key="h.time + h.rule_id + h.uri + (h.ring_idx || '')" @click="openHitDetail(h)" style="cursor:pointer">
+                <tr v-for="(h, hi) in wafHits" :key="(h.ring_idx || 0) + '|' + h.time + '|' + (h.rule_id || '') + '|' + (h.uri || '') + '|' + hi" @click="openHitDetail(h)" style="cursor:pointer">
                   <td style="white-space:nowrap">{{ fmtTime(h.time) }}</td>
                   <td><code style="font-size:11px">{{ h.rule_id }}</code></td>
                   <td><span class="tag">{{ h.method }}</span></td>
@@ -713,6 +715,7 @@
         <!-- History -->
         <div v-if="wafTab==='history'">
           <div v-if="wafHistError" class="error" style="margin-bottom:8px">{{ wafHistError }}</div>
+          <div v-if="wafPendingError" class="error" style="margin-bottom:8px">{{ wafPendingError }}</div>
           <!-- Pending Changes -->
           <div v-if="wafPendingChanges.length" class="card" style="padding:16px;margin-bottom:16px;border-color:#f59e0b">
              <h4 style="font-size:14px;margin-bottom:8px;color:#92400e">⏳ 待确认变更 ({{ wafPendingChanges.length }})</h4>
@@ -726,7 +729,7 @@
                     <span class="tag" style="background:#fef3c7;color:#92400e">{{ p.proposed.action || 'edit' }}</span>
                   </td>
                   <td>
-                    <button class="primary small" @click="confirmPendingChange(p.rule_id)">发布</button>
+                    <button class="primary small" :disabled="pendingActionLoading" @click="confirmPendingChange(p.rule_id)">发布</button>
                     <button class="outline small" style="margin-left:4px" @click="discardPendingChange(p.rule_id)">丢弃</button>
                   </td>
                 </tr>
@@ -772,8 +775,8 @@
                 <td>{{ r.hit_count }}</td>
                 <td>{{ r.status }}</td>
                 <td>
-                  <button v-if="r.status === 'pending'" class="primary small" @click="applyRec(r.id)" style="margin-right:4px">应用</button>
-                  <button v-if="r.status === 'pending'" class="outline small" @click="dismissRec(r.id)">忽略</button>
+                  <button v-if="r.status === 'pending'" class="primary small" :disabled="recActionLoading" @click="applyRec(r.id)" style="margin-right:4px">应用</button>
+                  <button v-if="r.status === 'pending'" class="outline small" :disabled="recActionLoading" @click="dismissRec(r.id)">忽略</button>
                 </td>
               </tr>
             </tbody>
@@ -798,7 +801,7 @@
              <table>
                <thead><tr><th>名称</th><th>URI</th><th>匹配</th><th>通过</th></tr></thead>
               <tbody>
-                <tr v-for="res in wafTestResults.results" :key="res.name" :style="{color:res.passed?'var(--green)':'var(--red)'}">
+                <tr v-for="(res, ri) in wafTestResults.results" :key="ri" :style="{color:res.passed?'var(--green)':'var(--red)'}">
                   <td>{{ res.name }}</td>
                   <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis">{{ res.uri }}</td>
                   <td>{{ res.matched ? '✓' : '✗' }}</td>
@@ -807,8 +810,9 @@
               </tbody>
             </table>
           </div>
-          <!-- Test History -->
-          <div v-if="wafTestHistory.length" class="card mt-16">
+           <!-- Test History -->
+           <div v-if="wafTestHistoryError" class="error" style="margin-bottom:8px">{{ wafTestHistoryError }}</div>
+           <div v-if="wafTestHistory.length" class="card mt-16">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
               <h3 style="font-size:14px">测试历史 ({{ wafTestHistory.length }})</h3>
               <button class="outline small" @click="clearTestHistory">清除</button>
@@ -960,7 +964,7 @@
              </div>
             <div class="modal-actions">
              <button class="outline" @click="freqRuleModal.show=false">取消</button>
-             <button class="primary" @click="saveFreqRule">保存</button>
+             <button class="primary" :disabled="freqRuleSaving" @click="saveFreqRule">保存</button>
             </div>
           </div>
         </div>
@@ -1116,6 +1120,7 @@
         <!-- Auto-Update -->
         <div class="card" style="padding:16px">
           <h3 style="font-size:14px;margin-bottom:8px">自动更新</h3>
+          <div v-if="geoipStatusError" class="error" style="margin-bottom:8px">{{ geoipStatusError }}</div>
           <table>
             <tr><td>启用自动更新</td><td><input type="checkbox" v-model="geoipConfig.auto_update" @change="saveGeoIPConfig"></td></tr>
             <tr><td>更新间隔 (小时)</td><td><input v-model.number="geoipConfig.update_interval_hours" type="number" min="1" max="720" style="width:100px" @change="saveGeoIPConfig"></td></tr>
@@ -1135,7 +1140,7 @@
              <tr><td>上次检查</td><td>{{ geoipStatus.last_check ? new Date(geoipStatus.last_check * 1000).toLocaleString() : '从未' }}</td></tr>
              <tr><td>上次更新</td><td>{{ geoipStatus.last_update ? new Date(geoipStatus.last_update * 1000).toLocaleString() : '从未' }}</td></tr>
           </table>
-          <div style="margin-top:8px"><button class="primary small" @click="triggerGeoIPUpdate">立即检查更新</button></div>
+             <div style="margin-top:8px"><button class="primary small" :disabled="geoipUpdating" @click="triggerGeoIPUpdate">立即检查更新</button></div>
         </div>
       </div>
 
@@ -1222,7 +1227,7 @@
           <table>
             <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th></tr></thead>
             <tbody>
-              <tr v-for="(e, i) in auditEntries" :key="i">
+              <tr v-for="(e, i) in auditEntries" :key="(e.time||'') + '|' + (e.action||'') + '|' + (e.user||'') + '|' + (e.ip||'') + '|' + i">
                 <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
                 <td><code>{{ e.user }}</code></td>
                 <td><span class="tag" :class="auditActionClass(e.action)">{{ e.action }}</span></td>
@@ -1511,7 +1516,7 @@
                 <td style="font-size:12px">{{ (c.evidence && c.evidence.result) || '-' }}</td>
                  <td @click.stop>
                    <button class="outline small" @click="kbOpenDetail(c)">详情</button>
-                   <button class="outline small" @click="kbPromoteIp(c.ip,c.policy)">晋升</button>
+                   <button class="outline small" :disabled="kbBusy" @click="kbPromoteIp(c.ip,c.policy)">晋升</button>
                  </td>
               </tr>
             </tbody>
@@ -1539,7 +1544,7 @@
            <table v-else class="data-table">
              <thead><tr><th>时间</th><th>用户</th><th>动作</th><th>详情</th></tr></thead>
             <tbody>
-              <tr v-for="(a,i) in kbTimeline" :key="i">
+              <tr v-for="(a,i) in kbTimeline" :key="(a.time||'') + '|' + (a.action||'') + '|' + (a.user||'') + '|' + (a.detail||'') + '|' + i">
                 <td>{{ formatKbTime(a.time) }}</td>
                 <td>{{ a.user }}</td>
                 <td><span class="tag" :class="kbTimelineActionClass(a.action)">{{ kbTimelineActionLabel(a.action) }}</span></td>
@@ -1613,6 +1618,7 @@
           </div>
 
           <!-- Diff visualization: desired vs actual -->
+          <div v-if="kbDiffError" class="error" style="margin-bottom:8px">{{ kbDiffError }}</div>
           <div class="card mb-16">
              <h3 style="font-size:14px;margin-bottom:8px">期望 vs 实际漂移</h3>
                <span style="font-weight:normal;font-size:12px;color:var(--muted)">
@@ -1666,7 +1672,7 @@
             <div class="flex" style="gap:8px;justify-content:flex-end;margin-top:12px">
                <button class="outline small" @click="kbDetail.show=false">关闭</button>
                <button class="outline small" v-if="kbDetail.entry && kbDetail.entry.ip" @click="kbClear(kbDetail.entry.ip);kbDetail.show=false">清除</button>
-               <button class="small primary" v-if="kbDetail.entry && kbDetail.entry.ip && kbDetail.entry.policy && kbDetail.entry.state!=='installed'" @click="kbPromoteIp(kbDetail.entry.ip, kbDetail.entry.policy);kbDetail.show=false">晋升</button>
+               <button class="small primary" v-if="kbDetail.entry && kbDetail.entry.ip && kbDetail.entry.policy && kbDetail.entry.state!=='installed'" :disabled="kbBusy" @click="kbPromoteIp(kbDetail.entry.ip, kbDetail.entry.policy);kbDetail.show=false">晋升</button>
             </div>
           </div>
         </div>
@@ -1793,7 +1799,7 @@
       </div>
       <div class="modal-actions">
         <button class="outline" @click="fpEditModal.show=false">取消</button>
-        <button class="primary" @click="saveFpAdd">保存</button>
+        <button class="primary" :disabled="fpSaving" @click="saveFpAdd">保存</button>
       </div>
     </div>
   </div>
@@ -1812,7 +1818,7 @@
       </div>
        <div class="modal-actions">
          <button class="outline" @click="editMatcherModal.show=false">取消</button>
-         <button class="primary" @click="saveMatcher">保存</button>
+         <button class="primary" :disabled="matcherSaving" @click="saveMatcher">保存</button>
        </div>
     </div>
   </div>
@@ -1866,6 +1872,7 @@
           <button class="primary" @click="editRuleById(wafHitDetailModal.data.rule_id)">调整此规则</button>
         </div>
         <!-- IP Hits List (shown after clicking view) -->
+        <div v-if="wafIpHitsError" class="error" style="margin-bottom:8px">{{ wafIpHitsError }}</div>
         <div v-if="wafIpHits.length" style="margin-top:16px;border-top:1px solid #e0e3eb;padding-top:12px">
           <h4 style="font-size:13px;margin-bottom:8px">IP {{ wafIpHitsIp }} 的最近命中 ({{ wafIpHits.length }})</h4>
           <table style="font-size:12px">

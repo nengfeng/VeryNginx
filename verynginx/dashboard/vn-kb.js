@@ -39,6 +39,7 @@
     const kbBucketHistoryLoading = ref(false);
     const kbBucketHistoryError = ref('');
     const kbDiff = ref({ missing_in_kernel: [], orphan_in_kernel: [], desired_count: 0, actual_count: 0 });
+    const kbDiffError = ref('');
     const kbTab = ref('entries');
     const kbNewIP = ref('');
     const kbNewPolicy = ref('scanner');
@@ -408,10 +409,14 @@
     }
 
     async function loadKbDiff() {
+      kbDiffError.value = '';
       try {
         const d = await api('GET', '/verynginx/kernel-blocking/diff');
         if (d.ret === 'success') kbDiff.value = d.data || kbDiff.value;
-      } catch (e) { /* non-critical */ }
+        else kbDiffError.value = d.message || 'Failed to load diff';
+      } catch (e) {
+        if (e.message !== 'session_expired') kbDiffError.value = e.message;
+      }
     }
 
     async function loadKbDashboard() {
@@ -447,6 +452,22 @@
     }
 
     async function kbSaveSettings() {
+      // Validate protected ports/addresses client-side. The schema only WARNs,
+      // and a bad port reaches the firewall helper and explodes there. Catch it
+      // here with a clear message instead.
+      const ports = kbForm.protected_ports_str.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+      for (const p of ports) {
+        const n = Number(p);
+        if (!Number.isInteger(n) || n < 1 || n > 65535) {
+          showToast('受保护端口无效 (1-65535): ' + p, 'error'); return;
+        }
+      }
+      const addrs = kbForm.protected_addresses_str.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+      for (const a of addrs) {
+        if (!isValidIpLiteral(a, true)) {
+          showToast('受保护地址无效 (IP/CIDR): ' + a, 'error'); return;
+        }
+      }
       if (kbForm.mode === 'enforce' && !kbForm.enabled) {
         showToast('启用执行模式前必须先启用全局开关', 'error'); return;
       }
@@ -502,10 +523,10 @@
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', {
-          ip: kbNewIP.value, policy: kbNewPolicy.value, ttl: ttl
+          ip, policy: kbNewPolicy.value, ttl: ttl
         });
         if (d.ret === 'success') {
-          showToast('IP ' + kbNewIP.value + ' blocked', 'success');
+          showToast('IP ' + ip + ' blocked', 'success');
           kbNewIP.value = '';
           await loadKbData();
         } else {
@@ -619,6 +640,7 @@
     view('kbBucketHistoryLoading', kbBucketHistoryLoading);
     view('kbBucketHistoryError', kbBucketHistoryError);
     view('kbDiff', kbDiff);
+    view('kbDiffError', kbDiffError);
     view('kbTab', kbTab);
     view('kbNewIP', kbNewIP);
     view('kbNewPolicy', kbNewPolicy);

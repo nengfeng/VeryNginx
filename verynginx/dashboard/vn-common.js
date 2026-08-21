@@ -177,23 +177,42 @@
       inputLabel: '',
       inputValue: '',
       inputExpected: '',
-      resolve: null,
-      reject: null
     });
     view('confirmModal', confirmModal);
 
-    function showConfirm({ title, message, type = 'danger', requireInput = false, inputLabel = '', inputExpected = '' }) {
-      return new Promise((resolve, reject) => {
-        confirmModal.show = true;
-        confirmModal.title = title;
-        confirmModal.message = message;
-        confirmModal.type = type;
-        confirmModal.requireInput = requireInput;
-        confirmModal.inputLabel = inputLabel;
-        confirmModal.inputValue = '';
-        confirmModal.inputExpected = inputExpected;
-        confirmModal.resolve = resolve;
-        confirmModal.reject = reject;
+    // A queue so overlapping showConfirm() calls don't clobber each other's
+    // pending Promise (the old single-resolve design let a second confirm
+    // overwrite the first's resolver, orphaning it).
+    let confirmQueue = [];
+    let confirmSuppressWatch = false;
+
+    function renderConfirm() {
+      const top = confirmQueue[0];
+      if (!top) { confirmModal.show = false; return; }
+      const o = top.opts;
+      confirmModal.title = o.title || '';
+      confirmModal.message = o.message || '';
+      confirmModal.type = o.type || 'danger';
+      confirmModal.requireInput = !!o.requireInput;
+      confirmModal.inputLabel = o.inputLabel || '';
+      confirmModal.inputExpected = o.inputExpected || '';
+      confirmModal.inputValue = '';
+      confirmModal.show = true;
+    }
+
+    function closeConfirm(res) {
+      const top = confirmQueue.shift();
+      confirmSuppressWatch = true;
+      confirmModal.show = false;
+      if (top) top.resolve(res);
+      confirmSuppressWatch = false;
+      if (confirmQueue.length) renderConfirm();
+    }
+
+    function showConfirm(opts) {
+      return new Promise((resolve) => {
+        confirmQueue.push({ opts, resolve });
+        if (confirmQueue.length === 1) renderConfirm();
       });
     }
     ctx('showConfirm', showConfirm);
@@ -205,22 +224,19 @@
           return;
         }
       }
-      confirmModal.show = false;
-      confirmModal.resolve(true);
+      closeConfirm(true);
     }
     view('confirmModalOk', confirmModalOk);
 
     function confirmModalCancel() {
-      confirmModal.show = false;
-      confirmModal.resolve(false);
+      closeConfirm(false);
     }
     view('confirmModalCancel', confirmModalCancel);
 
-    // Watch for modal close - always resolve the pending Promise
+    // Resolve any confirm closed externally (backdrop / X) as "false".
     watch(() => confirmModal.show, (show) => {
-      if (!show && confirmModal.resolve) {
-        confirmModal.resolve(false);
-      }
+      if (confirmSuppressWatch) return;
+      if (!show && confirmQueue.length) closeConfirm(false);
     });
 
     // ===== Shared navigation state =====

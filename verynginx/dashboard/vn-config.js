@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnconfig'] = function createvnconfigModule(shared) {
-        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showConfirm } = shared;
+        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showConfirm, isValidIpLiteral } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -42,18 +42,64 @@
       editMatcherModal.show = true;
     }
 
-    async function saveMatcher() {
-      try {
-        const updated = JSON.parse(editMatcherModal.conditions);
-        const newCfg = JSON.parse(JSON.stringify(cfg.value));
-        if (editMatcherModal._origName && editMatcherModal._origName !== editMatcherModal.name) {
-          delete newCfg.matcher[editMatcherModal._origName];
+    // Recursively validate any matcher IP value (shared with WAF rule editor).
+    function validateMatcherIps(node, trail) {
+      trail = trail || '';
+      if (node == null || typeof node !== 'object') return null;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) {
+          const e = validateMatcherIps(node[i], trail + '[' + i + ']');
+          if (e) return e;
         }
-        newCfg.matcher[editMatcherModal.name] = updated;
+        return null;
+      }
+      for (const k in node) {
+        const v = node[k];
+        if (k === 'IP') {
+          const val = (typeof v === 'string') ? v : (v && typeof v.value === 'string' ? v.value : null);
+          if (val != null && !isValidIpLiteral(val, true)) {
+            return '匹配器 IP 值无效: ' + val + '（位于 ' + (trail ? trail + '.' : '') + 'IP）';
+          }
+        } else if (typeof v === 'object') {
+          const e = validateMatcherIps(v, trail ? trail + '.' + k : k);
+          if (e) return e;
+        }
+      }
+      return null;
+    }
+
+    const matcherSaving = ref(false);
+    async function saveMatcher() {
+      const name = (editMatcherModal.name || '').trim();
+      if (!name) { showToast('匹配器名称不能为空', 'error'); return; }
+      let updated;
+      try {
+        updated = JSON.parse(editMatcherModal.conditions);
+      } catch (e) {
+        showToast('Invalid JSON: ' + e.message, 'error');
+        return;
+      }
+      // Reject empty / duplicate names instead of silently overwriting.
+      const isRename = editMatcherModal._origName && editMatcherModal._origName !== name;
+      if (!isRename && cfg.value.matcher && cfg.value.matcher[name]) {
+        showToast('匹配器名称已存在: ' + name, 'error');
+        return;
+      }
+      const ipErr = validateMatcherIps(updated);
+      if (ipErr) { showToast(ipErr, 'error'); return; }
+
+      if (matcherSaving.value) return;
+      matcherSaving.value = true;
+      try {
+        const newCfg = JSON.parse(JSON.stringify(cfg.value));
+        if (isRename) delete newCfg.matcher[editMatcherModal._origName];
+        newCfg.matcher[name] = updated;
         const ok = await commitConfig(newCfg);
         if (ok) editMatcherModal.show = false;
       } catch (e) {
         showToast('Invalid JSON: ' + e.message, 'error');
+      } finally {
+        matcherSaving.value = false;
       }
     }
 
@@ -211,7 +257,12 @@
 
 
     // ---- Save ----
-    async function commitConfig(newCfg) {
+    // Serialize config writes within a tab so two quick saves can't race and
+    // lose each other's changes (read-modify-write on the full config). This
+    // does not cover concurrent edits across separate browser tabs — that
+    // needs server-side optimistic concurrency.
+    let configSaveChain = Promise.resolve();
+    async function _commitConfig(newCfg) {
       try {
         const d = await api('POST', '/verynginx/config', newCfg);
         if (d.ret === 'success') {
@@ -226,6 +277,11 @@
         showToast('保存失败: ' + e.message, 'error');
         return false;
       }
+    }
+    function commitConfig(newCfg) {
+      const run = configSaveChain.then(() => _commitConfig(newCfg));
+      configSaveChain = run.catch(() => {});
+      return run;
     }
 
     async function saveRawConfig() {
@@ -285,6 +341,14 @@
       try {
         const text = await file.text();
         const parsed = JSON.parse(text);
+        if (!await showConfirm({
+          title: '导入全量配置',
+          message: '这将用文件中的配置全量覆盖当前配置并立即生效。建议先导出备份。',
+          type: 'danger',
+          requireInput: true,
+          inputLabel: '请输入 "IMPORT" 确认',
+          inputExpected: 'IMPORT',
+        })) return;
         const d = await api('POST', '/verynginx/config', parsed);
         if (d.ret === 'success') {
           await loadConfig();
@@ -310,6 +374,7 @@
     view('ruleSaving', ruleSaving);
     view('editMatcher', editMatcher);
     view('saveMatcher', saveMatcher);
+    view('matcherSaving', matcherSaving);
     view('deleteMatcher', deleteMatcher);
     ctx('ruleEditReset', ruleEditReset);
     view('ruleOpenCreate', ruleOpenCreate);

@@ -25,12 +25,15 @@
     const gGeoip = shared.createStaleGuard();
 
     // ---- Load ----
+    const geoipStatusError = ref('');
     async function loadGeoIPStatus() {
+      geoipStatusError.value = '';
       try {
         const d = await api('GET', '/verynginx/geoip/status');
         if (d.ret === 'success') geoipStatus.value = d.data;
+        else geoipStatusError.value = d.message || 'Failed to load geoip status';
       } catch (e) {
-        // silent - status is non-critical
+        if (e.message !== 'session_expired') geoipStatusError.value = e.message;
       }
     }
 
@@ -128,7 +131,9 @@
       }
     }
 
+    const geoipUpdating = ref(false);
     async function triggerGeoIPUpdate() {
+      if (geoipUpdating.value) return;
       if (!await showConfirm({
         title: '更新 GeoIP 数据库',
         message: '立即从数据源下载并替换 GeoIP 数据库？现有 .mmdb 将被覆盖。',
@@ -137,6 +142,7 @@
         inputLabel: '请输入 "UPDATE" 确认',
         inputExpected: 'UPDATE',
       })) return;
+      geoipUpdating.value = true;
       try {
         const d = await api('POST', '/verynginx/geoip/update');
         if (d.ret === 'success') {
@@ -150,6 +156,8 @@
         }
       } catch (e) {
         showToast(e.message || 'Update failed', 'error');
+      } finally {
+        geoipUpdating.value = false;
       }
     }
 
@@ -160,7 +168,9 @@
     view('geoipMaxCount', geoipMaxCount);
     view('geoipConfig', geoipConfig);
     view('geoipStatus', geoipStatus);
+    view('geoipStatusError', geoipStatusError);
     view('geoipLoading', geoipLoading);
+    view('geoipUpdating', geoipUpdating);
     view('geoipError', geoipError);
     ctx('loadGeoIPStatus', loadGeoIPStatus);
     view('loadGeoIP', loadGeoIP);

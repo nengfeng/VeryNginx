@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnfrequency'] = function createvnfrequencyModule(shared) {
-        const { ctx, view, api, showToast, showConfirm } = shared;
+        const { ctx, view, api, showToast, showConfirm, isValidIpLiteral } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -22,6 +22,31 @@
 
     // Stale-response guard for the frequency data loader.
     const gFreqData = shared.createStaleGuard();
+
+    function validateMatcherIps(node, trail) {
+      trail = trail || '';
+      if (node == null || typeof node !== 'object') return null;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) {
+          const e = validateMatcherIps(node[i], trail + '[' + i + ']');
+          if (e) return e;
+        }
+        return null;
+      }
+      for (const k in node) {
+        const v = node[k];
+        if (k === 'IP') {
+          const val = (typeof v === 'string') ? v : (v && typeof v.value === 'string' ? v.value : null);
+          if (val != null && !isValidIpLiteral(val, true)) {
+            return '匹配器 IP 值无效: ' + val + '（位于 ' + (trail ? trail + '.' : '') + 'IP）';
+          }
+        } else if (typeof v === 'object') {
+          const e = validateMatcherIps(v, trail ? trail + '.' + k : k);
+          if (e) return e;
+        }
+      }
+      return null;
+    }
 
     // ---- Load ----
     async function loadFrequencyData() {
@@ -161,7 +186,10 @@
       freqRuleModal.show = true;
     }
 
+    const freqRuleSaving = ref(false);
     async function saveFreqRule() {
+      if (freqRuleSaving.value) return;
+      freqRuleSaving.value = true;
       try {
         // Client-side validation
         if (!freqRuleModal.key || freqRuleModal.key.trim() === '') {
@@ -190,6 +218,8 @@
               showToast('匹配器必须是 JSON 对象, 如 {"IP": {"value": "1.2.3.4"}}', 'error');
               return;
             }
+            const ipErr = validateMatcherIps(finalMatcher);
+            if (ipErr) { showToast(ipErr, 'error'); return; }
           }
         } catch (e) {
           showToast('匹配器 JSON 格式无效: ' + e.message, 'error');
@@ -216,6 +246,8 @@
         }
       } catch (e) {
         showToast(e.message, 'error');
+      } finally {
+        freqRuleSaving.value = false;
       }
     }
 
@@ -249,6 +281,7 @@
     view('openFreqRuleCreate', openFreqRuleCreate);
     view('openFreqRuleEdit', openFreqRuleEdit);
     view('saveFreqRule', saveFreqRule);
+    view('freqRuleSaving', freqRuleSaving);
     view('deleteFreqRule', deleteFreqRule);
 
     // Wipe per-session frequency data on logout.
