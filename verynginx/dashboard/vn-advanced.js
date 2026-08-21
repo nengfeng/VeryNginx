@@ -250,6 +250,8 @@
 
     // ---- Exports ----
     view('auditEntries', auditEntries);
+    const auditTbl = shared.createTableTools(auditEntries);
+    view('auditTbl', auditTbl);
     view('auditError', auditError);
     view('loadAudit', loadAudit);
     view('clearAuditFilters', clearAuditFilters);

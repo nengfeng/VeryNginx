@@ -504,6 +504,44 @@
     }
     ctx('createStaleGuard', createStaleGuard);
 
+    // ---- Table sort/filter toolkit ----
+    // Client-side instant filter + click-to-sort over the rows already loaded
+    // (server-paginated tables therefore sort/filter within the current page).
+    // Expose one instance per table as a single view() binding and use it from
+    // the template as: v-model="t.state.filter", v-for="r in t.rows",
+    // th @click="t.sortBy('col')". A third click on the same column clears
+    // sorting; nulls always sort last.
+    function createTableTools(sourceRef) {
+      const state = reactive({ sortKey: '', sortDir: 1, filter: '' });
+      const rows = computed(() => {
+        let list = (sourceRef && sourceRef.value) || [];
+        const q = state.filter.trim().toLowerCase();
+        if (q) list = list.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+        if (!state.sortKey) return list;
+        const k = state.sortKey;
+        const dir = state.sortDir;
+        return [...list].sort((a, b) => {
+          const va = a ? a[k] : undefined;
+          const vb = b ? b[k] : undefined;
+          if (va == null && vb == null) return 0;
+          if (va == null || vb == null) return va == null ? 1 : -1;
+          if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+          return String(va).localeCompare(String(vb)) * dir;
+        });
+      });
+      function sortBy(key) {
+        if (state.sortKey === key) {
+          if (state.sortDir === 1) { state.sortDir = -1; }
+          else { state.sortKey = ''; state.sortDir = 1; }
+        } else {
+          state.sortKey = key;
+          state.sortDir = 1;
+        }
+      }
+      return { state, rows, sortBy };
+    }
+    ctx('createTableTools', createTableTools);
+
     // vn-common owns the shared dashboard/config state — clear it on logout.
     onLogout(() => {
       status.value = {};

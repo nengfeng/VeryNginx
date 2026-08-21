@@ -15,6 +15,10 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--primary);outline
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
 th{font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--text)}
+.sort-ind{font-size:10px}
+.tbl-filter{max-width:240px;margin-bottom:8px}
 tr:hover{background:var(--bg)}
 pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:auto;font-size:13px;line-height:1.5;max-height:60vh}
 textarea.code-editor{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;border:none;width:100%;font:13px/1.5 monospace;resize:vertical;min-height:200px;box-sizing:border-box}

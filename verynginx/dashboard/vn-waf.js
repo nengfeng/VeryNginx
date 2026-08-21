@@ -803,6 +803,8 @@
     view('wafAttackView', wafAttackView);
     view('wafError', wafError);
     view('wafRules', wafRules);
+    const wafRulesTbl = shared.createTableTools(wafRules);
+    view('wafRulesTbl', wafRulesTbl);
     view('wafCategories', wafCategories);
     view('wafPagination', wafPagination);
     view('wafFilterCat', wafFilterCat);
@@ -823,6 +825,8 @@
     view('wafTesting', wafTesting);
     view('wafTestResults', wafTestResults);
     view('wafHits', wafHits);
+    const wafHitsTbl = shared.createTableTools(wafHits);
+    view('wafHitsTbl', wafHitsTbl);
     view('wafHitsError', wafHitsError);
     view('wafHitsTime', wafHitsTime);
     view('wafHitsLimit', wafHitsLimit);

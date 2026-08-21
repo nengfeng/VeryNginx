@@ -558,20 +558,21 @@
                <option value="low">低</option>
              </select>
           </div>
+          <input v-model="wafRulesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页规则（名称/分类/标签…）">
           <div style="overflow-x:auto">
             <table>
                <thead><tr>
-                 <th style="width:40px">启用</th>
-                 <th>名称</th>
-                 <th style="width:80px">分类</th>
-                 <th style="width:70px">严重级别</th>
-                 <th style="width:70px">命中</th>
+                 <th style="width:40px" class="sortable" @click="wafRulesTbl.sortBy('enable')">启用 <span v-if="wafRulesTbl.state.sortKey==='enable'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" @click="wafRulesTbl.sortBy('name')">名称 <span v-if="wafRulesTbl.state.sortKey==='name'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th style="width:80px" class="sortable" @click="wafRulesTbl.sortBy('category')">分类 <span v-if="wafRulesTbl.state.sortKey==='category'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th style="width:70px" class="sortable" @click="wafRulesTbl.sortBy('severity')">严重级别 <span v-if="wafRulesTbl.state.sortKey==='severity'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th style="width:70px" class="sortable" @click="wafRulesTbl.sortBy('hit_count')">命中 <span v-if="wafRulesTbl.state.sortKey==='hit_count'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th style="width:100px">最后触发</th>
                  <th style="width:140px">操作</th>
                </tr></thead>
  <tbody>
-                 <tr v-if="!wafRules.length"><td colspan="7" class="empty">无 WAF 规则</td></tr>
-                 <tr v-for="r in wafRules" :key="r.id">
+                 <tr v-if="!wafRulesTbl.rows.length"><td colspan="7" class="empty">{{ wafRules.length ? '无匹配当前过滤' : '无 WAF 规则' }}</td></tr>
+                 <tr v-for="r in wafRulesTbl.rows" :key="r.id">
                   <td style="text-align:center">
                     <span class="tag" :class="r.enable !== false ? 'tag-ok' : 'tag-warn'"
                           :style="{cursor: 'pointer'}"
@@ -701,11 +702,18 @@
                <button class="outline small" @click="loadWafHits">刷新</button>
              </div>
           </div>
+          <input v-model="wafHitsTbl.state.filter" class="tbl-filter" placeholder="过滤当前页命中（规则/URI/IP…）">
           <div style="overflow-x:auto">
             <table>
-               <thead><tr><th>时间</th><th>规则 ID</th><th>方法</th><th>URI</th><th>来源 IP</th></tr></thead>
+               <thead><tr>
+                 <th class="sortable" @click="wafHitsTbl.sortBy('time')">时间 <span v-if="wafHitsTbl.state.sortKey==='time'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" @click="wafHitsTbl.sortBy('rule_id')">规则 ID <span v-if="wafHitsTbl.state.sortKey==='rule_id'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" @click="wafHitsTbl.sortBy('method')">方法 <span v-if="wafHitsTbl.state.sortKey==='method'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" @click="wafHitsTbl.sortBy('uri')">URI <span v-if="wafHitsTbl.state.sortKey==='uri'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" @click="wafHitsTbl.sortBy('ip')">来源 IP <span v-if="wafHitsTbl.state.sortKey==='ip'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               </tr></thead>
               <tbody>
-                <tr v-for="(h, hi) in wafHits" :key="(h.ring_idx || 0) + '|' + h.time + '|' + (h.rule_id || '') + '|' + (h.uri || '') + '|' + hi" @click="openHitDetail(h)" style="cursor:pointer">
+                <tr v-for="(h, hi) in wafHitsTbl.rows" :key="(h.ring_idx || 0) + '|' + h.time + '|' + (h.rule_id || '') + '|' + (h.uri || '') + '|' + hi" @click="openHitDetail(h)" style="cursor:pointer">
                   <td style="white-space:nowrap">{{ fmtTime(h.time) }}</td>
                   <td><code style="font-size:11px">{{ h.rule_id }}</code></td>
                   <td><span class="tag">{{ h.method }}</span></td>
@@ -716,6 +724,7 @@
             </table>
           </div>
           <div v-if="!wafHits.length" class="empty">无最近命中</div>
+          <div v-else-if="!wafHitsTbl.rows.length" class="empty">无匹配当前过滤</div>
         </div>
 
         <!-- History -->
@@ -1231,11 +1240,17 @@
            </div>
         <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
         <div style="font-size:13px;color:#6b7280;margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
+        <input v-model="auditTbl.state.filter" class="tbl-filter" placeholder="过滤当前页记录（用户/操作/IP/详情…）">
         <div style="overflow-x:auto">
           <table>
-            <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th></tr></thead>
+            <thead><tr>
+              <th class="sortable" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th class="sortable" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th class="sortable" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th>详情</th>
+            </tr></thead>
             <tbody>
-              <tr v-for="(e, i) in auditEntries" :key="(e.time||'') + '|' + (e.action||'') + '|' + (e.user||'') + '|' + (e.ip||'') + '|' + i">
+              <tr v-for="(e, i) in auditTbl.rows" :key="(e.time||'') + '|' + (e.action||'') + '|' + (e.user||'') + '|' + (e.ip||'') + '|' + i">
                 <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
                 <td><code>{{ e.user }}</code></td>
                 <td><span class="tag" :class="auditActionClass(e.action)">{{ e.action }}</span></td>
@@ -1244,6 +1259,7 @@
             </tbody>
           </table>
            <div v-if="!auditEntries.length" class="empty">无审计记录。</div>
+           <div v-else-if="!auditTbl.rows.length" class="empty">无匹配当前过滤。</div>
         </div>
       </div>
 
@@ -1477,14 +1493,23 @@
 
         <!-- Entries -->
         <div v-if="kbTab==='entries'">
+          <input v-model="kbEntriesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页条目（IP/来源/模式…）">
           <div v-if="!kbEntries.length" class="empty">
             <span v-if="kbFilterPolicy || kbFilterIP">无匹配当前过滤 (策略: {{ kbFilterPolicy || '全部' }}, IP: {{ kbFilterIP || '全部' }})</span>
             <span v-else>无已安装条目。</span>
           </div>
+          <div v-else-if="!kbEntriesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
-             <thead><tr><th>IP</th><th>集合</th><th>协议族</th><th>来源</th><th>模式</th><th>已安装</th><th>过期</th><th>内核</th><th>操作</th></tr></thead>
+             <thead><tr>
+               <th class="sortable" @click="kbEntriesTbl.sortBy('ip')">IP <span v-if="kbEntriesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" @click="kbEntriesTbl.sortBy('list')">集合 <span v-if="kbEntriesTbl.state.sortKey==='list'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th>协议族</th><th>来源</th><th>模式</th>
+               <th class="sortable" @click="kbEntriesTbl.sortBy('installed_at')">已安装 <span v-if="kbEntriesTbl.state.sortKey==='installed_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" @click="kbEntriesTbl.sortBy('expires_at')">过期 <span v-if="kbEntriesTbl.state.sortKey==='expires_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th>内核</th><th>操作</th>
+             </tr></thead>
             <tbody>
-              <tr v-for="e in kbEntries" :key="e.ip+'-'+(e.list||e.policy)" style="cursor:pointer" @click="kbOpenDetail(e)">
+              <tr v-for="e in kbEntriesTbl.rows" :key="e.ip+'-'+(e.list||e.policy)" style="cursor:pointer" @click="kbOpenDetail(e)">
                 <td>{{ e.ip }}</td>
                 <td>{{ e.list || e.policy }}</td>
                 <td>{{ e.family || 'ipv4' }}</td>
@@ -1509,14 +1534,21 @@
 
         <!-- Candidates -->
         <div v-if="kbTab==='candidates'">
+          <input v-model="kbCandidatesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页候选（IP/策略/状态…）">
           <div v-if="!kbCandidates.length" class="empty">
             <span v-if="kbFilterState || kbFilterIP">无匹配当前过滤 (状态: {{ kbFilterState || '全部' }}, IP: {{ kbFilterIP || '全部' }})</span>
             <span v-else>无候选。</span>
           </div>
+          <div v-else-if="!kbCandidatesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
-             <thead><tr><th>IP</th><th>策略</th><th>状态</th><th>证据</th><th>结果</th><th>操作</th></tr></thead>
+             <thead><tr>
+               <th class="sortable" @click="kbCandidatesTbl.sortBy('ip')">IP <span v-if="kbCandidatesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" @click="kbCandidatesTbl.sortBy('policy')">策略 <span v-if="kbCandidatesTbl.state.sortKey==='policy'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" @click="kbCandidatesTbl.sortBy('state')">状态 <span v-if="kbCandidatesTbl.state.sortKey==='state'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th>证据</th><th>结果</th><th>操作</th>
+             </tr></thead>
             <tbody>
-              <tr v-for="c in kbCandidates" :key="c.ip+'-'+c.policy+'-'+c.state" style="cursor:pointer" @click="kbOpenDetail(c)">
+              <tr v-for="c in kbCandidatesTbl.rows" :key="c.ip+'-'+c.policy+'-'+c.state" style="cursor:pointer" @click="kbOpenDetail(c)">
                 <td>{{ c.ip }}</td>
                 <td>{{ c.policy }}</td>
                 <td>{{ c.state }}</td>
@@ -1548,11 +1580,18 @@
             </select>
             <span style="font-size:12px;color:var(--muted)">{{ kbTimeline.length }} 条事件<span v-if="kbTimelineFilter">（按动作筛选，最多返回 300 条匹配）</span><span v-else>（全类型内核封禁事件，最多 300 条）</span></span>
           </div>
+          <input v-model="kbTimelineTbl.state.filter" class="tbl-filter" placeholder="过滤当前页事件（用户/动作/详情…）">
           <div v-if="!kbTimeline.length" class="empty">无最近内核封禁审计事件。</div>
+          <div v-else-if="!kbTimelineTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
-             <thead><tr><th>时间</th><th>用户</th><th>动作</th><th>详情</th></tr></thead>
+             <thead><tr>
+               <th class="sortable" @click="kbTimelineTbl.sortBy('time')">时间 <span v-if="kbTimelineTbl.state.sortKey==='time'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" @click="kbTimelineTbl.sortBy('user')">用户 <span v-if="kbTimelineTbl.state.sortKey==='user'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" @click="kbTimelineTbl.sortBy('action')">动作 <span v-if="kbTimelineTbl.state.sortKey==='action'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th>详情</th>
+             </tr></thead>
             <tbody>
-              <tr v-for="(a,i) in kbTimeline" :key="(a.time||'') + '|' + (a.action||'') + '|' + (a.user||'') + '|' + (a.detail||'') + '|' + i">
+              <tr v-for="(a,i) in kbTimelineTbl.rows" :key="(a.time||'') + '|' + (a.action||'') + '|' + (a.user||'') + '|' + (a.detail||'') + '|' + i">
                 <td>{{ formatKbTime(a.time) }}</td>
                 <td>{{ a.user }}</td>
                 <td><span class="tag" :class="kbTimelineActionClass(a.action)">{{ kbTimelineActionLabel(a.action) }}</span></td>

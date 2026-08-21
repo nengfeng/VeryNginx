@@ -628,8 +628,14 @@
     // ---- Exports ----
     view('kbStatus', kbStatus);
     view('kbEntries', kbEntries);
+    const kbEntriesTbl = shared.createTableTools(kbEntries);
+    view('kbEntriesTbl', kbEntriesTbl);
     view('kbCandidates', kbCandidates);
+    const kbCandidatesTbl = shared.createTableTools(kbCandidates);
+    view('kbCandidatesTbl', kbCandidatesTbl);
     view('kbTimeline', kbTimeline);
+    const kbTimelineTbl = shared.createTableTools(kbTimeline);
+    view('kbTimelineTbl', kbTimelineTbl);
     view('kbTimelineFilter', kbTimelineFilter);
     view('kbEntriesNext', kbEntriesNext);
     view('kbCandidatesNext', kbCandidatesNext);
