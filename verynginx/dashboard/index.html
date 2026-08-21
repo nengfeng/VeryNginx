@@ -21,6 +21,7 @@
     <div class="login-box">
       <h1>VeryNginx</h1>
       <p class="sub">v2.0 — WAF 与反向代理管理</p>
+      <div class="error" v-if="sessionExpiredNotice">登录已过期，请重新登录</div>
       <div class="error" v-if="loginError">{{ loginError }}</div>
       <div class="field">
         <label>用户名</label>

@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vndashboard'] = function createvndashboardModule(shared) {
-        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls } = shared;
+        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, sessionExpiredNotice, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -413,6 +413,7 @@
           store.loggedIn = true;
           store.user = loginUser.value;
           loginUser.value = '';
+          sessionExpiredNotice.value = false; // one-shot kick notice consumed
           await refreshCsrf();
           loadVersion();
           loadConfig();

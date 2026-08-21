@@ -143,6 +143,7 @@
           csrfToken = null;
           store.loggedIn = false;
           store.user = null;
+          sessionExpiredNotice.value = true;
           throw new Error('session_expired');
         }
       }
@@ -151,6 +152,7 @@
         csrfToken = null;
         store.loggedIn = false;
         store.user = null;
+        sessionExpiredNotice.value = true;
         throw new Error('session_expired');
       }
 
@@ -305,6 +307,11 @@
     view('loginPass', loginPass);
     const loginError = ref('');
     view('loginError', loginError);
+    // One-shot flag: set when api() force-ends the session (401 self-heal
+    // failed), shown as a notice on the login page so an involuntary kick
+    // isn't silent. Cleared on the next successful login.
+    const sessionExpiredNotice = ref(false);
+    view('sessionExpiredNotice', sessionExpiredNotice);
     const status = ref({});
     ctx('status', status);
     const connHistory = ref([]);
