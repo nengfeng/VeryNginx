@@ -173,8 +173,8 @@
         const limit = Number(freqRuleModal.limit);
         const window = Number(freqRuleModal.window);
         const code = Number(freqRuleModal.code);
-        if (!limit || limit < 1) { showToast('limit 必须 >= 1', 'error'); return; }
-        if (!window || window < 1) { showToast('window 必须 >= 1 秒', 'error'); return; }
+        if (!limit || limit < 1) { showToast('限流阈值必须 >= 1', 'error'); return; }
+        if (!window || window < 1) { showToast('时间窗口必须 >= 1 秒', 'error'); return; }
         if (!code || code < 100 || code > 599) { showToast('响应码必须是 100-599 之间的合法状态码', 'error'); return; }
 
         // A rule may reference a named matcher (_matcherRef) OR carry an inline

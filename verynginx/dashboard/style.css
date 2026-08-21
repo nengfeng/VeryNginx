@@ -80,8 +80,15 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 /* Inline JSON */
 .json-inline{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}#topnav{padding:0 12px;flex-wrap:wrap;height:auto;padding:8px 12px}#topnav nav{gap:2px}#topnav nav a{padding:6px 10px;font-size:12px}#main{padding:12px;overflow-x:auto}#main table th,#main table td{white-space:nowrap}.stat-card .stat-value{font-size:24px}}
-.toast{position:fixed;top:20px;right:20px;z-index:9999;padding:12px 20px;border-radius:8px;color:#fff;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.2);opacity:0;transform:translateY(-10px);transition:all .3s ease;pointer-events:none;max-width:360px}
-.toast.show{opacity:1;transform:translateY(0)}.toast.success{background:var(--success)}.toast.error{background:var(--danger)}.toast.info{background:var(--primary)}
+.toast-stack{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:360px}
+.toast{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:8px;color:#fff;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.2);max-width:360px}
+.toast.success{background:var(--success)}.toast.error{background:var(--danger)}.toast.info{background:var(--primary)}.toast.warning{background:var(--warning)}
+.toast-msg{word-break:break-word}
+.toast-close{background:transparent;color:#fff;border:none;font-size:16px;line-height:1.2;padding:0 2px;cursor:pointer;opacity:.85;flex-shrink:0}
+.toast-close:hover{opacity:1}
+.toastfx-enter-active,.toastfx-leave-active,.toastfx-move{transition:all .3s ease}
+.toastfx-enter-from{opacity:0;transform:translateY(-10px)}
+.toastfx-leave-to{opacity:0;transform:translateX(24px)}
 /* KB Dashboard: per-rule reachability rows (Design §12.2) */
 .kb-rule-row{border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;position:relative}
 .kb-rule-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}

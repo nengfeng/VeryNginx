@@ -35,7 +35,7 @@
         if (d.ret === 'success') {
           auditEntries.value = d.data || [];
         } else {
-          auditError.value = d.message || 'Failed to load audit';
+          auditError.value = d.message || '审计日志加载失败';
         }
       } catch (e) { if (gAudit.isCurrent(tok)) auditError.value = e.message; }
     }
@@ -216,7 +216,7 @@
         if (d.ret === 'success') {
           plugins.value = d.data || [];
         } else {
-          pluginsError.value = d.message || 'Failed to load plugins';
+          pluginsError.value = d.message || '插件列表加载失败';
         }
       } catch (e) {
         pluginsError.value = e.message;
@@ -238,7 +238,7 @@
           showToast(p.enable ? '已启用 ' + p.name : '已停用 ' + p.name, p.enable ? 'success' : 'info');
         } else {
           p.enable = old;
-          pluginsError.value = d.message || 'Toggle failed';
+          pluginsError.value = d.message || '切换失败';
         }
       } catch (e) {
         p.enable = old;

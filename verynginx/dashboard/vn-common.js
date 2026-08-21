@@ -191,22 +191,43 @@
 
     // ===== Shared UI utilities (toast, confirm modal) =====
 
-    const toastMsg = ref('');
-    const toastType = ref('info');
-    const toastVisible = ref(false);
-    let toastTimer = null;
+    // Toast queue. Tiered auto-dismiss: success/info stay short, warnings a
+    // bit longer, errors are sticky (manual close only) so a save failure
+    // can't be displaced by the next poller's success toast before it's read.
+    // The list is capped — a flapping poller erroring every 3s must not grow
+    // the stack without bound.
+    const toasts = ref([]);
+    let toastSeq = 0;
+    const TOAST_DURATION = { success: 2500, info: 3000, warning: 6000, error: 0 }; // 0 = sticky
+    const TOAST_MAX = 5;
 
     function showToast(msg, type) {
-      toastMsg.value = msg;
-      toastType.value = type || 'info';
-      toastVisible.value = true;
-      if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toastVisible.value = false; }, 2500);
+      const t = type || 'info';
+      // Dedup consecutive identical messages — a poller erroring every 3s
+      // must not fill the sticky stack with copies of one failure.
+      const last = toasts.value[toasts.value.length - 1];
+      if (last && last.type === t && last.msg === String(msg)) return;
+      const item = { id: ++toastSeq, msg: String(msg), type: t, timer: null };
+      toasts.value.push(item);
+      while (toasts.value.length > TOAST_MAX) {
+        const dropped = toasts.value.shift();
+        if (dropped.timer) clearTimeout(dropped.timer);
+      }
+      const dur = TOAST_DURATION[t] === undefined ? 3000 : TOAST_DURATION[t];
+      if (dur > 0) item.timer = setTimeout(() => dismissToast(item.id), dur);
     }
     ctx('showToast', showToast);
-    view('toastMsg', toastMsg);
-    view('toastType', toastType);
-    view('toastVisible', toastVisible);
+
+    function dismissToast(id) {
+      const i = toasts.value.findIndex(t => t.id === id);
+      if (i >= 0) {
+        const t = toasts.value[i];
+        if (t.timer) clearTimeout(t.timer);
+        toasts.value.splice(i, 1);
+      }
+    }
+    view('toasts', toasts);
+    view('dismissToast', dismissToast);
 
     const confirmModal = reactive({
       show: false,
@@ -501,6 +522,10 @@
       auditFilterAction.value = '';
       auditFilterSince.value = '';
       auditFilterUntil.value = '';
+      // Sticky error toasts from the old session must not linger on the
+      // login page of the next one.
+      for (const t of toasts.value) { if (t.timer) clearTimeout(t.timer); }
+      toasts.value = [];
     });
 
         // Module initialization (if any)

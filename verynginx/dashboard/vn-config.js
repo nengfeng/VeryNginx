@@ -205,7 +205,7 @@
         const ok = await commitConfig(newCfg);
         if (ok) ruleEditModal.show = false;
       } catch (e) {
-        showToast('Error: ' + e.message, 'error');
+        showToast('保存失败: ' + e.message, 'error');
       } finally {
         ruleSaving.value = false;
       }

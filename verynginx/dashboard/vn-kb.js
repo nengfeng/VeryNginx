@@ -161,7 +161,7 @@
       if (!ts) return '-';
       const now = Math.floor(Date.now() / 1000);
       const left = ts - now;
-      if (left <= 0) return 'expired';
+      if (left <= 0) return '已过期';
       if (left < 60) return left + 's left';
       if (left < 3600) return Math.floor(left / 60) + 'm left';
       if (left < 86400) return Math.floor(left / 3600) + 'h left';
@@ -261,7 +261,7 @@
             kbStatus.value = Object.assign({}, kbStatus.value, d.data || {});
             kbSyncFormFromStatus();
           } else {
-            kbError.value = d.message || 'Failed to load status';
+            kbError.value = d.message || '状态加载失败';
           }
         } catch (e) {
           kbError.value = e.message;
@@ -290,7 +290,7 @@
           kbEntries.value = d.data.entries || [];
           kbEntriesNext.value = d.data.next_cursor;
         } else {
-          kbError.value = d.message || 'Failed to load entries';
+          kbError.value = d.message || '条目加载失败';
         }
       } catch (e) { if (gKbEntries.isCurrent(tok)) kbError.value = e.message; }
     }
@@ -321,7 +321,7 @@
           kbCandidates.value = d.data.entries || [];
           kbCandidatesNext.value = d.data.next_cursor;
         } else {
-          kbError.value = d.message || 'Failed to load candidates';
+          kbError.value = d.message || '候选加载失败';
         }
       } catch (e) { if (gKbCandidates.isCurrent(tok)) kbError.value = e.message; }
     }
@@ -354,7 +354,7 @@
           const all = d.data || [];
           kbTimeline.value = all;
         } else {
-          kbError.value = d.message || 'Failed to load timeline';
+          kbError.value = d.message || '时间线加载失败';
         }
       } catch (e) { if (gKbTimeline.isCurrent(tok)) kbError.value = e.message; }
     }
@@ -396,7 +396,7 @@
         if (d.ret === 'success') {
           kbBucketHistory.value = d.data.samples || [];
         } else {
-          kbBucketHistoryError.value = d.message || 'Failed to load bucket history';
+          kbBucketHistoryError.value = d.message || '桶历史加载失败';
           kbBucketHistory.value = [];
         }
       } catch (e) {
@@ -412,7 +412,7 @@
       try {
         const d = await api('GET', '/verynginx/kernel-blocking/diff');
         if (d.ret === 'success') kbDiff.value = d.data || kbDiff.value;
-        else kbDiffError.value = d.message || 'Failed to load diff';
+        else kbDiffError.value = d.message || '差异加载失败';
       } catch (e) {
         if (e.message !== 'session_expired') kbDiffError.value = e.message;
       }
@@ -616,7 +616,7 @@
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/flush-auto');
         if (d.ret === 'success') {
-          showToast('Auto entries flushed (' + ((d.data && d.data.removed) || 0) + ')', 'success');
+          showToast('已清理自动条目 (' + ((d.data && d.data.removed) || 0) + ')', 'success');
           await loadKbData();
         } else {
           showToast(d.message || 'Flush failed', 'error');

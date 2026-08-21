@@ -15,7 +15,12 @@
 <body>
 
 <div id="app" v-cloak>
-  <div class="toast" :class="[toastType, { show: toastVisible }]">{{ toastMsg }}</div>
+  <transition-group name="toastfx" tag="div" class="toast-stack">
+    <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
+      <span class="toast-msg">{{ t.msg }}</span>
+      <button class="toast-close" @click="dismissToast(t.id)" title="关闭">×</button>
+    </div>
+  </transition-group>
   <!-- Login -->
   <div id="login-page" v-if="!store.loggedIn">
     <div class="login-box">

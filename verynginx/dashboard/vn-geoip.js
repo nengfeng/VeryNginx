@@ -38,7 +38,7 @@
       try {
         const d = await api('GET', '/verynginx/geoip/status');
         if (d.ret === 'success') geoipStatus.value = d.data;
-        else geoipStatusError.value = d.message || 'Failed to load geoip status';
+        else geoipStatusError.value = d.message || 'GeoIP 状态加载失败';
       } catch (e) {
         if (e.message !== 'session_expired') geoipStatusError.value = e.message;
       }
@@ -78,7 +78,7 @@
             license_key: cfg.license_key || '',
           };
         } else {
-          geoipError.value = cfgRes.message || 'Failed to load geoip config';
+          geoipError.value = cfgRes.message || 'GeoIP 配置加载失败';
         }
         if (statsRes.ret === 'success') {
           geoipStats.value = Object.entries(statsRes.data || {}).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count).slice(0, 20);
@@ -99,7 +99,7 @@
         const d = await api('GET', '/verynginx/geoip/lookup?ip=' + encodeURIComponent(ip));
         geoipLookupResult.value = d;
       } catch (e) {
-        showToast(e.message || 'Lookup failed', 'error');
+        showToast(e.message || '查询失败', 'error');
       }
     }
 
@@ -165,16 +165,16 @@
       try {
         const d = await api('POST', '/verynginx/geoip/update');
         if (d.ret === 'success') {
-          showToast(d.message || 'Update successful', 'success');
+          showToast(d.message || '更新成功', 'success');
           await loadGeoIP();
           // Fetch fresh status (includes DB info)
           const s = await api('GET', '/verynginx/geoip/status');
           if (s.ret === 'success') geoipStatus.value = s.data;
         } else {
-          showToast(d.message || 'Update failed', 'error');
+          showToast(d.message || '更新失败', 'error');
         }
       } catch (e) {
-        showToast(e.message || 'Update failed', 'error');
+        showToast(e.message || '更新失败', 'error');
       } finally {
         geoipUpdating.value = false;
       }

@@ -113,7 +113,7 @@
           wafPagination.total = d.data.pagination.total;
           wafPagination.total_pages = d.data.pagination.total_pages;
         } else {
-          wafError.value = d.message || 'Failed to load rules';
+          wafError.value = d.message || '规则加载失败';
         }
       } catch (e) { if (gWafRules.isCurrent(tok)) wafError.value = e.message; }
     }
@@ -124,10 +124,10 @@
     }
 
     function formatAgo(seconds) {
-      if (seconds < 60) return seconds + 's ago';
-      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
-      if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
-      return Math.floor(seconds / 86400) + 'd ago';
+      if (seconds < 60) return seconds + ' 秒前';
+      if (seconds < 3600) return Math.floor(seconds / 60) + ' 分钟前';
+      if (seconds < 86400) return Math.floor(seconds / 3600) + ' 小时前';
+      return Math.floor(seconds / 86400) + ' 天前';
     }
 
     async function loadWafStats() {
@@ -139,7 +139,7 @@
         if (d.ret === 'success') {
           wafStatsData.value = d.data;
         } else {
-          wafStatsError.value = d.message || 'Failed to load stats';
+          wafStatsError.value = d.message || '统计加载失败';
         }
       } catch (e) { if (gWafStats.isCurrent(tok)) wafStatsError.value = e.message; }
     }
@@ -153,7 +153,7 @@
         if (d.ret === 'success') {
           wafHistory.value = d.data;
         } else {
-          wafHistError.value = d.message || 'Failed to load history';
+          wafHistError.value = d.message || '历史加载失败';
         }
       } catch (e) { if (gWafHistory.isCurrent(tok)) wafHistError.value = e.message; }
     }
@@ -161,7 +161,7 @@
     function remaining(expiresAt) {
       if (!expiresAt) return '-';
       const sec = Math.max(0, Math.floor((expiresAt * 1000 - Date.now()) / 1000));
-      if (sec === 0) return 'expired';
+      if (sec === 0) return '已过期';
       return `${sec}s`;
     }
 
@@ -272,13 +272,13 @@
     async function wafSaveRule() {
       wafEditError.value = '';
       const m = wafEditModal;
-      if (!m.name) { wafEditError.value = 'Name is required'; return; }
-      if (!m.category) { wafEditError.value = 'Category is required'; return; }
-      if (VALID_CATEGORIES.indexOf(m.category) === -1) { wafEditError.value = 'Invalid category: ' + m.category; return; }
-      if (!m.severity) { wafEditError.value = 'Severity is required'; return; }
-      if (VALID_SEVERITIES.indexOf(m.severity) === -1) { wafEditError.value = 'Invalid severity: ' + m.severity; return; }
-      if (!m.action) { wafEditError.value = 'Action is required'; return; }
-      if (VALID_ACTIONS.indexOf(m.action) === -1) { wafEditError.value = 'Invalid action: ' + m.action; return; }
+      if (!m.name) { wafEditError.value = '请输入规则名称'; return; }
+      if (!m.category) { wafEditError.value = '请选择分类'; return; }
+      if (VALID_CATEGORIES.indexOf(m.category) === -1) { wafEditError.value = '无效分类: ' + m.category; return; }
+      if (!m.severity) { wafEditError.value = '请选择严重级别'; return; }
+      if (VALID_SEVERITIES.indexOf(m.severity) === -1) { wafEditError.value = '无效严重级别: ' + m.severity; return; }
+      if (!m.action) { wafEditError.value = '请选择动作'; return; }
+      if (VALID_ACTIONS.indexOf(m.action) === -1) { wafEditError.value = '无效动作: ' + m.action; return; }
 
       let matcherObj;
       try {
@@ -372,7 +372,7 @@
         if (d.ret === 'success') {
           wafPendingChanges.value = d.data || [];
         } else {
-          wafPendingError.value = d.message || 'Failed to load pending changes';
+          wafPendingError.value = d.message || '暂存变更加载失败';
         }
       } catch (e) {
         if (e.message !== 'session_expired') wafPendingError.value = e.message;
@@ -425,7 +425,7 @@
         if (d.ret === 'success') {
           wafTimeline.value = d.data || { buckets: [], categories: [] };
         } else {
-          wafTimelineError.value = d.message || 'Failed to load timeline';
+          wafTimelineError.value = d.message || '时间线加载失败';
           wafTimeline.value = { buckets: [], categories: [] };
         }
       } catch (e) {
@@ -472,7 +472,7 @@
         if (d.ret === 'success') {
           wafTestHistory.value = d.data || [];
         } else {
-          wafTestHistoryError.value = d.message || 'Failed to load test history';
+          wafTestHistoryError.value = d.message || '测试历史加载失败';
         }
       } catch (e) {
         if (e.message !== 'session_expired') wafTestHistoryError.value = e.message;
@@ -573,7 +573,7 @@
           wafIpHits.value = d.data || []
           wafIpHitsIp.value = ip
         } else {
-          wafIpHitsError.value = d.message || 'Failed to load IP hits';
+          wafIpHitsError.value = d.message || 'IP 命中记录加载失败';
           wafIpHits.value = [];
         }
       } catch (e) {
@@ -622,7 +622,7 @@
           wafHits.value = d.data || [];
           wafHitsTime.value = wafHits.value.length ? new Date().toLocaleTimeString() : '';
         } else {
-          wafHitsError.value = d.message || 'Failed to load hits';
+          wafHitsError.value = d.message || '命中记录加载失败';
         }
       } catch (e) { if (gWafHits.isCurrent(tok)) wafHitsError.value = e.message; }
     }
@@ -644,7 +644,7 @@
         if (d.ret === 'success') {
           wafAnalytics.value = d.data || { rules: [], dead_rules: [] };
         } else {
-          wafAnalyticsError.value = d.message || 'Failed to load analytics';
+          wafAnalyticsError.value = d.message || '分析数据加载失败';
           wafAnalytics.value = { rules: [], dead_rules: [] };
         }
       } catch (e) {
@@ -682,7 +682,7 @@
       try {
         const d = await api('POST', '/verynginx/waf/recommendations/analyze');
         if (d.ret === 'success') {
-          showToast('Analysis complete: ' + (d.data.new_recommendations || 0) + ' new recommendations', 'success');
+          showToast('分析完成：新增 ' + (d.data.new_recommendations || 0) + ' 条建议', 'success');
           await loadRecs();
         }
       } catch (e) {
@@ -698,7 +698,7 @@
       try {
         const d = await api('POST', '/verynginx/waf/recommendations/' + id + '/apply');
         if (d.ret === 'success') {
-          showToast('Rule applied successfully', 'success');
+          showToast('规则已应用', 'success');
           await loadRecs();
         } else {
           recError.value = d.message || 'Apply failed';

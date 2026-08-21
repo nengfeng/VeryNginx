@@ -333,7 +333,7 @@
         cfg.value = d;
         rawJson.value = JSON.stringify(d, null, 2);
       } catch (e) {
-        showToast('Failed to load config: ' + e.message, 'error');
+        showToast('配置加载失败: ' + e.message, 'error');
       }
     }
 
@@ -401,6 +401,13 @@
 
 
     // ---- Login ----
+    // Server returns bare failure codes (api/auth.lua); map them to actionable
+    // Chinese text instead of showing raw identifiers.
+    const LOGIN_ERROR_MAP = {
+      invalid_credentials: '用户名或密码错误',
+      account_locked: '账户已锁定，请 15 分钟后再试',
+      too_many_attempts: '尝试次数过多，请几分钟后再试',
+    };
     async function doLogin() {
       if (loading.value) return; // Enter key on either input can double-submit
       loginError.value = '';
@@ -424,7 +431,7 @@
           // Same as the restore path: land on the hash-restored view with data.
           if (shared.navigateTo) await shared.navigateTo(shared.page.value);
         } else {
-          loginError.value = d.message || '登录失败';
+          loginError.value = LOGIN_ERROR_MAP[d.message] || d.message || '登录失败';
         }
       } catch (e) {
         loginError.value = e.message;
