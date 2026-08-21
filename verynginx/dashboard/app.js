@@ -57,6 +57,71 @@
         }
     }
 
+    // ---- Hash router (#/page/tab/subtab) ----
+    // Serializes the view state into the URL so refresh/back/bookmark/share
+    // keep the user's position (e.g. #/waf/attacks/hits). Pure frontend: the
+    // writer is a single watcher over every navigation ref, so inline template
+    // tab switches and navigateTo() are both captured; the reader applies the
+    // parsed segments back onto those same refs, and existing per-page/tab
+    // watchers then handle data loading.
+    // Skipped when location is unavailable (e.g. the Node-based init gate).
+    if (typeof window !== 'undefined' && window.location) {
+      const routeRefs = {
+        page: shared.page, dashTab: shared.dashTab, cfgTab: shared.cfgTab,
+        advTab: shared.advTab, wafTab: shared.wafTab, wafRuleView: shared.wafRuleView,
+        wafAttackView: shared.wafAttackView, kbTab: shared.kbTab,
+      };
+      const KNOWN_PAGES = ['dashboard', 'config', 'waf', 'frequency', 'reputation', 'geoip', 'advanced', 'kb', 'about'];
+
+      const buildHash = () => {
+        const p = routeRefs.page.value;
+        const segs = [p];
+        if (p === 'dashboard') segs.push(routeRefs.dashTab.value);
+        else if (p === 'config') segs.push(routeRefs.cfgTab.value);
+        else if (p === 'advanced') segs.push(routeRefs.advTab.value);
+        else if (p === 'waf') {
+          segs.push(routeRefs.wafTab.value);
+          if (routeRefs.wafTab.value === 'rules') segs.push(routeRefs.wafRuleView.value);
+          if (routeRefs.wafTab.value === 'attacks') segs.push(routeRefs.wafAttackView.value);
+        } else if (p === 'kb') segs.push(routeRefs.kbTab.value);
+        return '#/' + segs.map(s => encodeURIComponent(s)).join('/');
+      };
+
+      const applyHash = () => {
+        const raw = window.location.hash.replace(/^#\/?/, '');
+        if (!raw) return;
+        const segs = raw.split('/').map(s => decodeURIComponent(s));
+        if (!KNOWN_PAGES.includes(segs[0])) return;
+        const set = (ref, v) => { if (ref && v && ref.value !== v) ref.value = v; };
+        set(routeRefs.page, segs[0]);
+        if (segs[0] === 'dashboard') set(routeRefs.dashTab, segs[1]);
+        else if (segs[0] === 'config') set(routeRefs.cfgTab, segs[1]);
+        else if (segs[0] === 'advanced') set(routeRefs.advTab, segs[1]);
+        else if (segs[0] === 'waf') {
+          set(routeRefs.wafTab, segs[1]);
+          if (segs[1] === 'rules') set(routeRefs.wafRuleView, segs[2]);
+          if (segs[1] === 'attacks') set(routeRefs.wafAttackView, segs[2]);
+        } else if (segs[0] === 'kb') set(routeRefs.kbTab, segs[1]);
+      };
+
+      // Writer: any navigation change updates the URL (a history entry per
+      // switch, so Back/Forward step through views). Our own write echoes back
+      // as a hashchange, but applyHash() finds the refs already equal -> no-op,
+      // which breaks the write/read loop without any flags.
+      Vue.watch(
+        [routeRefs.page, routeRefs.dashTab, routeRefs.cfgTab, routeRefs.advTab,
+         routeRefs.wafTab, routeRefs.wafRuleView, routeRefs.wafAttackView, routeRefs.kbTab],
+        () => {
+          const h = buildHash();
+          if (window.location.hash !== h) window.location.hash = h;
+        }
+      );
+      window.addEventListener('hashchange', applyHash);
+      // Restore position before mount so the first render already shows the
+      // bookmarked view instead of flashing the overview page.
+      applyHash();
+    }
+
     // Mount Vue app
     const app = Vue.createApp({
         setup() {
