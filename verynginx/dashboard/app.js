@@ -92,6 +92,29 @@
         if (!raw) return;
         const segs = raw.split('/').map(s => decodeURIComponent(s));
         if (!KNOWN_PAGES.includes(segs[0])) return;
+        // A PAGE segment change unmounts any open editor modal (they live in
+        // per-page v-if blocks). History navigation and address-bar edits
+        // arrive here without passing navigateTo's unsaved-changes guard, so
+        // run the same check: confirm first; on reject snap the URL back to
+        // the current view — that echo re-enters applyHash with refs already
+        // equal and stops (no loop).
+        if (segs[0] !== routeRefs.page.value && shared.collectUnsaved && shared.collectUnsaved().length) {
+          const labels = shared.collectUnsaved().join('、');
+          const restore = buildHash();
+          shared.showConfirm({
+            title: '未保存的更改',
+            message: `${labels}有未保存的更改，离开将丢失。确定放弃并离开？`,
+            type: 'warning',
+          }).then((ok) => {
+            if (ok) {
+              if (shared.discardUnsaved) shared.discardUnsaved();
+              applyHash(); // URL still points at the target — now proceed.
+            } else if (window.location.hash !== restore) {
+              window.location.hash = restore;
+            }
+          });
+          return;
+        }
         const set = (ref, v) => { if (ref && v && ref.value !== v) ref.value = v; };
         set(routeRefs.page, segs[0]);
         if (segs[0] === 'dashboard') set(routeRefs.dashTab, segs[1]);
