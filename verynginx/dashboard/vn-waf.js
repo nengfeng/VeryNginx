@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
-        const { ctx, view, api, store, page, showToast, showConfirm, isValidIpLiteral } = shared;
+        const { ctx, view, api, store, page, showToast, showConfirm, validateMatcherIps } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -268,36 +268,6 @@
     const VALID_SEVERITIES = ['critical', 'high', 'medium', 'low'];
     const VALID_ACTIONS = ['block', 'accept', 'log', 'challenge'];
 
-    // Recursively validate any matcher IP value. Match conditions that carry
-    // an "IP" key (string value, or {value: "..."}) are checked against the
-    // shared IP literal validator (bare IP only — the matcher engine has no
-    // CIDR semantics, so a CIDR would silently never match). Returns an error string or
-    // null. Traverses arrays and nested objects.
-    function validateMatcherIps(node, trail) {
-      trail = trail || '';
-      if (node == null || typeof node !== 'object') return null;
-      if (Array.isArray(node)) {
-        for (let i = 0; i < node.length; i++) {
-          const e = validateMatcherIps(node[i], trail + '[' + i + ']');
-          if (e) return e;
-        }
-        return null;
-      }
-      for (const k in node) {
-        const v = node[k];
-        if (k === 'IP') {
-          const val = (typeof v === 'string') ? v : (v && typeof v.value === 'string' ? v.value : null);
-          if (val != null && !isValidIpLiteral(val, false)) {
-            return '匹配器 IP 值无效: ' + val + '（位于 ' + (trail ? trail + '.' : '') + 'IP）';
-          }
-        } else if (typeof v === 'object') {
-          const e = validateMatcherIps(v, trail ? trail + '.' + k : k);
-          if (e) return e;
-        }
-      }
-      return null;
-    }
-
 
     async function wafSaveRule() {
       wafEditError.value = '';
@@ -462,7 +432,8 @@
         if (e.message !== 'session_expired' && gWafTimeline.isCurrent(tok)) wafTimelineError.value = e.message;
         if (gWafTimeline.isCurrent(tok)) wafTimeline.value = { buckets: [], categories: [] };
       } finally {
-        wafTimelineLoading.value = false;
+        // A late stale response must not extinguish a newer request's spinner.
+        if (gWafTimeline.isCurrent(tok)) wafTimelineLoading.value = false;
       }
     }
 
@@ -680,7 +651,7 @@
         if (e.message !== 'session_expired' && gWafAnalytics.isCurrent(tok)) wafAnalyticsError.value = e.message;
         if (gWafAnalytics.isCurrent(tok)) wafAnalytics.value = { rules: [], dead_rules: [] };
       } finally {
-        wafAnalyticsLoading.value = false;
+        if (gWafAnalytics.isCurrent(tok)) wafAnalyticsLoading.value = false;
       }
     }
 

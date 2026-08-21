@@ -80,7 +80,6 @@
     const gKbTimeline = shared.createStaleGuard();
     const gKbDashboard = shared.createStaleGuard();
     const gKbBucket = shared.createStaleGuard();
-    const gViewIpHits = shared.createStaleGuard();
 
     const KB_REASON_HELP = {
       global_disabled: { title: '内核封禁已禁用', advice: '启用全局开关，然后从观察模式开始。' },
@@ -404,7 +403,7 @@
         if (e.message !== 'session_expired' && gKbBucket.isCurrent(tok)) kbBucketHistoryError.value = e.message;
         if (gKbBucket.isCurrent(tok)) kbBucketHistory.value = [];
       } finally {
-        kbBucketHistoryLoading.value = false;
+        if (gKbBucket.isCurrent(tok)) kbBucketHistoryLoading.value = false;
       }
     }
 

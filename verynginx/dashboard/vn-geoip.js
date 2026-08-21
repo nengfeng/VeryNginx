@@ -86,7 +86,7 @@
       } catch (e) {
         if (e.message !== 'session_expired') geoipError.value = e.message;
       } finally {
-        geoipLoading.value = false;
+        if (gGeoip.isCurrent(tok)) geoipLoading.value = false;
       }
     }
 

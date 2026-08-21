@@ -58,6 +58,37 @@
       return true;
     }
 
+    // Recursively validate any matcher IP value. Match conditions that carry
+    // an "IP" key (string value, or {value: "..."}) are checked against
+    // isValidIpLiteral — bare IPs only: the matcher engine compares strings
+    // and has no CIDR semantics, so a CIDR would silently never match.
+    // Returns an error string or null. Traverses arrays and nested objects.
+    function validateMatcherIps(node, trail) {
+      trail = trail || '';
+      if (node == null || typeof node !== 'object') return null;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) {
+          const e = validateMatcherIps(node[i], trail + '[' + i + ']');
+          if (e) return e;
+        }
+        return null;
+      }
+      for (const k in node) {
+        const v = node[k];
+        if (k === 'IP') {
+          const val = (typeof v === 'string') ? v : (v && typeof v.value === 'string' ? v.value : null);
+          if (val != null && !isValidIpLiteral(val, false)) {
+            return '匹配器 IP 值无效: ' + val + '（位于 ' + (trail ? trail + '.' : '') + 'IP）';
+          }
+        } else if (typeof v === 'object') {
+          const e = validateMatcherIps(v, trail ? trail + '.' + k : k);
+          if (e) return e;
+        }
+      }
+      return null;
+    }
+    ctx('validateMatcherIps', validateMatcherIps);
+
     // Session-expired errors are raised by api() on 401/403 and already
     // handled centrally (store.loggedIn=false -> login page). Swallow them at
     // the global level so timer-driven refreshes (loadStatus every 3s, etc.)
@@ -191,7 +222,6 @@
     // pending Promise (the old single-resolve design let a second confirm
     // overwrite the first's resolver, orphaning it).
     let confirmQueue = [];
-    let confirmSuppressWatch = false;
 
     function renderConfirm() {
       const top = confirmQueue[0];
@@ -209,10 +239,8 @@
 
     function closeConfirm(res) {
       const top = confirmQueue.shift();
-      confirmSuppressWatch = true;
       confirmModal.show = false;
       if (top) top.resolve(res);
-      confirmSuppressWatch = false;
       if (confirmQueue.length) renderConfirm();
     }
 
@@ -240,9 +268,11 @@
     }
     view('confirmModalCancel', confirmModalCancel);
 
-    // Resolve any confirm closed externally (backdrop / X) as "false".
+    // Safety net: resolve any confirm closed without going through
+    // confirmModalOk/Cancel (e.g. a future direct `show = false`) as "false".
+    // Normal closes are already shifted+resolved by closeConfirm, leaving the
+    // queue empty so this watcher is a no-op for them.
     watch(() => confirmModal.show, (show) => {
-      if (confirmSuppressWatch) return;
       if (!show && confirmQueue.length) closeConfirm(false);
     });
 

@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnfrequency'] = function createvnfrequencyModule(shared) {
-        const { ctx, view, api, showToast, showConfirm, isValidIpLiteral } = shared;
+        const { ctx, view, api, showToast, showConfirm, validateMatcherIps } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -22,31 +22,6 @@
 
     // Stale-response guard for the frequency data loader.
     const gFreqData = shared.createStaleGuard();
-
-    function validateMatcherIps(node, trail) {
-      trail = trail || '';
-      if (node == null || typeof node !== 'object') return null;
-      if (Array.isArray(node)) {
-        for (let i = 0; i < node.length; i++) {
-          const e = validateMatcherIps(node[i], trail + '[' + i + ']');
-          if (e) return e;
-        }
-        return null;
-      }
-      for (const k in node) {
-        const v = node[k];
-        if (k === 'IP') {
-          const val = (typeof v === 'string') ? v : (v && typeof v.value === 'string' ? v.value : null);
-          if (val != null && !isValidIpLiteral(val, false)) {
-            return '匹配器 IP 值无效: ' + val + '（位于 ' + (trail ? trail + '.' : '') + 'IP）';
-          }
-        } else if (typeof v === 'object') {
-          const e = validateMatcherIps(v, trail ? trail + '.' + k : k);
-          if (e) return e;
-        }
-      }
-      return null;
-    }
 
     // ---- Load ----
     async function loadFrequencyData() {
