@@ -127,16 +127,19 @@
         } else if (segs[0] === 'kb') set(routeRefs.kbTab, segs[1]);
       };
 
-      // Writer: any navigation change updates the URL (a history entry per
-      // switch, so Back/Forward step through views). Our own write echoes back
-      // as a hashchange, but applyHash() finds the refs already equal -> no-op,
-      // which breaks the write/read loop without any flags.
+      // Writer: any navigation change updates the URL. PAGE switches push a
+      // history entry (Back steps between pages); TAB switches only replace
+      // the current entry so rapid tab-hopping doesn't bury the history
+      // stack. replaceState doesn't fire hashchange — fine here, the refs
+      // already hold the state the URL now describes.
       Vue.watch(
         [routeRefs.page, routeRefs.dashTab, routeRefs.cfgTab, routeRefs.advTab,
          routeRefs.wafTab, routeRefs.wafRuleView, routeRefs.wafAttackView, routeRefs.kbTab],
-        () => {
+        (vals, olds) => {
           const h = buildHash();
-          if (window.location.hash !== h) window.location.hash = h;
+          if (window.location.hash === h) return;
+          if (vals[0] !== olds[0]) window.location.hash = h;
+          else window.history.replaceState(null, '', h);
         }
       );
       window.addEventListener('hashchange', applyHash);
