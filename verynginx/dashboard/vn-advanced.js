@@ -42,7 +42,12 @@
 
     let auditClearGuard = false;
     function clearAuditFilters() {
-      auditClearGuard = true;
+      // Arm the guard only when a value will actually change — if the filters
+      // are already empty the watcher never fires and an armed guard would
+      // swallow the user's next legitimate edit.
+      if (auditFilterUser.value || auditFilterAction.value || auditFilterSince.value || auditFilterUntil.value) {
+        auditClearGuard = true;
+      }
       if (auditFilterTimer) { clearTimeout(auditFilterTimer); auditFilterTimer = null; }
       auditFilterUser.value = '';
       auditFilterAction.value = '';
@@ -60,7 +65,7 @@
       else if (preset === 'today') since.setHours(0, 0, 0, 0);
       const pad = n => String(n).padStart(2, '0');
       const val = `${since.getFullYear()}-${pad(since.getMonth()+1)}-${pad(since.getDate())}T${pad(since.getHours())}:${pad(since.getMinutes())}`;
-      auditClearGuard = true;
+      if (auditFilterSince.value !== val) auditClearGuard = true;
       auditFilterSince.value = val;
       loadAudit();
     }
@@ -164,7 +169,12 @@
 
     async function saveFp(fp) {
       try {
-        const d = await api('PUT', '/verynginx/fingerprints', fp);
+        // The list items carry `enabled`; the server's fp.add() reads `enable`
+        // (fingerprint_db.lua). Send the server's key or a disable is stored
+        // as enabled=true and the checkbox snaps back on reload.
+        const body = Object.assign({}, fp, { enable: fp.enabled !== false });
+        delete body.enabled;
+        const d = await api('PUT', '/verynginx/fingerprints', body);
         if (d.ret === 'success') {
           await loadFingerprints();
           return true;
@@ -182,7 +192,11 @@
       try {
         const d = await api('DELETE', '/verynginx/fingerprints/' + encodeURIComponent(fp.hash));
         if (d.ret === 'success') {
-          showToast('指纹已删除', 'success');
+          if (d.removed === false) {
+            showToast('指纹不存在（可能已被删除）: ' + fp.hash, 'error');
+          } else {
+            showToast('指纹已删除', 'success');
+          }
           await loadFingerprints();
         }
       } catch (e) {

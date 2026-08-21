@@ -43,6 +43,7 @@
     }
 
     // Recursively validate any matcher IP value (shared with WAF rule editor).
+    // Bare IPs only — matchers have no CIDR semantics server-side.
     function validateMatcherIps(node, trail) {
       trail = trail || '';
       if (node == null || typeof node !== 'object') return null;
@@ -57,7 +58,7 @@
         const v = node[k];
         if (k === 'IP') {
           const val = (typeof v === 'string') ? v : (v && typeof v.value === 'string' ? v.value : null);
-          if (val != null && !isValidIpLiteral(val, true)) {
+          if (val != null && !isValidIpLiteral(val, false)) {
             return '匹配器 IP 值无效: ' + val + '（位于 ' + (trail ? trail + '.' : '') + 'IP）';
           }
         } else if (typeof v === 'object') {

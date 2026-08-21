@@ -19,7 +19,9 @@
     let csrfToken = null;
 
     // Strict IP literal validation (IPv4 0-255 per octet, IPv6 with optional /prefix).
-    // Mirrors api/helpers.lua is_valid_ip semantics on the client side.
+    // Mirrors core/ip_reputation.lua validate_whitelist_entry semantics on the
+    // client side: /0 rejected, IPv4 CIDR must not have host bits set
+    // (1.2.3.4/24 is ambiguous and the server rejects it).
     function isValidIpLiteral(ip, allowPrefix) {
       if (!ip || typeof ip !== 'string') return false;
       const s = ip.trim();
@@ -30,7 +32,7 @@
         if (!/^[0-9a-fA-F:]+$/.test(body) || !body.includes(':')) return false;
         if (allowPrefix && s.includes('/')) {
           const p = Number(s.split('/')[1]);
-          if (!Number.isInteger(p) || p < 0 || p > 128) return false;
+          if (!Number.isInteger(p) || p < 1 || p > 128) return false;
         }
         return true;
       }
@@ -38,15 +40,20 @@
       const body = allowPrefix ? s.split('/')[0] : s;
       const parts = body.split('.');
       if (parts.length !== 4) return false;
+      let num = 0;
       for (const p of parts) {
         if (!/^\d+$/.test(p)) return false;
         const n = Number(p);
         if (n < 0 || n > 255) return false;
         if (p.length > 1 && p[0] === '0') return false; // no leading zeros
+        num = num * 256 + n;
       }
       if (allowPrefix && s.includes('/')) {
         const p = Number(s.split('/')[1]);
-        if (!Number.isInteger(p) || p < 0 || p > 32) return false;
+        if (!Number.isInteger(p) || p < 1 || p > 32) return false;
+        // Host bits must be zero (network address form)
+        const mask = (2 ** (32 - p)) - 1;
+        if ((num & mask) !== 0) return false;
       }
       return true;
     }
@@ -445,6 +452,12 @@
       statsData.value = null;
       versionInfo.value = { version: '', commit: '' };
       topPaths.value = [];
+      // Audit filters shape the next session's audit view — reset them so a
+      // different account doesn't inherit the previous session's filter.
+      auditFilterUser.value = '';
+      auditFilterAction.value = '';
+      auditFilterSince.value = '';
+      auditFilterUntil.value = '';
     });
 
         // Module initialization (if any)

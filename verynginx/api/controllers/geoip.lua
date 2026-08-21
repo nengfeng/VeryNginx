@@ -48,7 +48,11 @@ local function handle_geoip_config_set()
     local cfg_data = c.report and json.decode(c.report()) or {}
     cfg_data.geoip = new_config
     local cfg_mod = require "core.config"
-    cfg_mod.save(cfg_data)
+    local saved, save_err = cfg_mod.save(cfg_data)
+    if not saved then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "config save failed: " .. tostring(save_err or "unknown") })
+    end
     -- Reload GeoIP DB with new config (path may have changed)
     pcall(function()
         local geoip_mod = require "core.geoip"

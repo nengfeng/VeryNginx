@@ -92,11 +92,14 @@ local function handle_reputation_whitelist_remove()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "ip parameter required" })
     end
-    if not helpers.is_valid_ip(ip) then
-        ngx.status = 400
-        return json.encode({ ret = "failed", message = "invalid IP address" })
-    end
+    -- Must mirror the ADD path's validation (validate_whitelist_entry accepts
+    -- CIDR). helpers.is_valid_ip rejects "/" so a CIDR entry could be added
+    -- but never removed through the API.
     local rep = require "core.ip_reputation"
+    if not rep.validate_whitelist_entry(ip) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid ip or cidr" })
+    end
     rep.remove_whitelist(ip)
     return json.encode({ ret = "success" })
 end

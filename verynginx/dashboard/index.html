@@ -1077,8 +1077,8 @@
                  <tr><td>国家</td><td><code>{{ geoipLookupResult.data.country_code }}</code> {{ geoipLookupResult.data.country_name }}</td></tr>
                  <tr><td>城市</td><td>{{ geoipLookupResult.data.city_name || '-' }}</td></tr>
                  <tr><td>大洲</td><td>{{ geoipLookupResult.data.continent || '-' }}</td></tr>
-                 <tr><td>位置</td><td>{{ geoipLookupResult.data.latitude }}, {{ geoipLookupResult.data.longitude }}</td></tr>
-                 <tr><td>ASN</td><td>{{ geoipLookupResult.data.asn || '-' }} {{ geoipLookupResult.data.asn_org }}</td></tr>
+                 <tr><td>位置</td><td>{{ geoipLookupResult.data.latitude ?? '-' }}, {{ geoipLookupResult.data.longitude ?? '-' }}</td></tr>
+                 <tr><td>ASN</td><td>{{ geoipLookupResult.data.asn || '-' }} {{ geoipLookupResult.data.asn_org || '' }}</td></tr>
               </table>
             </div>
             <div v-else style="color:#6b7280">{{ geoipLookupResult.message || '未找到' }}</div>
@@ -1115,6 +1115,8 @@
             <tr><td>数据库路径</td><td><input v-model="geoipConfig.geodb_path" placeholder="/opt/verynginx/geoip/GeoLite2-City.mmdb" style="width:350px" @change="saveGeoIPConfig"></td></tr>
             <tr><td>白名单</td><td><input v-model="geoipConfig.whitelistStr" placeholder="US,GB,DE (逗号分隔)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
             <tr><td>黑名单</td><td><input v-model="geoipConfig.blocklistStr" placeholder="CN,RU,KP (逗号分隔)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>封禁大洲</td><td><input v-model="geoipConfig.blockContinentsStr" placeholder="EU,AS (逗号分隔, ISO 大洲代码)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
+            <tr><td>CDN 模式</td><td><input type="checkbox" v-model="geoipConfig.use_cdn" @change="saveGeoIPConfig"> <span style="font-size:12px;color:var(--muted)">客户端经 CDN 访问时按真实 IP 判定</span></td></tr>
           </table>
         </div>
         <!-- Auto-Update -->

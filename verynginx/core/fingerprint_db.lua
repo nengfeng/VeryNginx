@@ -123,12 +123,17 @@ end
 
 --- Add or update a fingerprint entry.
 -- @param entry table: { hash, name, category, action, description, enable }
+--   `enable` is the canonical key; `enabled` (the key list() returns) is
+--   accepted as a fallback so echoing a list item back toggles correctly
+--   instead of always re-enabling.
 -- @return boolean: true if added/updated
 function _M.add(entry)
     ensure_loaded()
     if not entry or not entry.hash or not entry.name then
         return false
     end
+    local enable = entry.enable
+    if enable == nil then enable = entry.enabled end
     local hash = entry.hash:lower()
     -- Check if already exists
     for i, fp in ipairs(_fingerprints) do
@@ -139,7 +144,7 @@ function _M.add(entry)
                 category = entry.category or fp.category,
                 action = entry.action or fp.action,
                 description = entry.description or fp.description,
-                enabled = entry.enable ~= false,
+                enabled = enable ~= false,
             }
             return true
         end
@@ -151,7 +156,7 @@ function _M.add(entry)
         category = entry.category or "unknown",
         action = entry.action or "log",
         description = entry.description or "",
-        enabled = entry.enable ~= false,
+        enabled = enable ~= false,
     }
     return true
 end

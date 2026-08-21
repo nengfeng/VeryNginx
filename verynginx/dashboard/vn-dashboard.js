@@ -393,6 +393,7 @@
 
     // ---- Login ----
     async function doLogin() {
+      if (loading.value) return; // Enter key on either input can double-submit
       loginError.value = '';
       if (!loginUser.value || !loginPass.value) { loginError.value = '请输入用户名和密码。'; return; }
       loading.value = true;
