@@ -162,6 +162,13 @@
         throw new Error(await parseError(res));
       }
 
+      // 429 = API rate limited (api/init.lua middleware, e.g. hammering
+      // POST /config). Translate to one actionable line — the raw body tells
+      // the operator nothing about what to do differently.
+      if (res.status === 429) {
+        throw new Error('操作过于频繁，请稍候重试');
+      }
+
       if (!res.ok) {
         throw new Error(await parseError(res));
       }
