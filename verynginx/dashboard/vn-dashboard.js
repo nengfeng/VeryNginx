@@ -217,9 +217,15 @@
       if (p === 'config' && tab === 'system' && store.loggedIn) loadDictUsage();
     });
 
-    // Stop all polling when the session ends
+    // Stop all polling and wipe per-session module data whenever the session
+    // ends. Centralizing here covers BOTH end paths: explicit doLogout() and
+    // server-side expiry (api() flips store.loggedIn on a failed 401 self-heal)
+    // — the latter never goes through doLogout.
     watch(() => store.loggedIn, (loggedIn) => {
-      if (!loggedIn) stopAllPolls();
+      if (!loggedIn) {
+        stopAllPolls();
+        if (shared.runLogoutHooks) shared.runLogoutHooks();
+      }
     });
 
     // Kick off on first mount: restore an existing session cookie so a page
@@ -436,9 +442,8 @@
       if (shared.clearCsrf) shared.clearCsrf();
       store.loggedIn = false;
       store.user = null;
-      // Wipe per-session module data so a re-login as a different account
-      // doesn't flash the previous session's records.
-      if (shared.onLogout) shared.onLogout();
+      // Per-session data wipe happens in the store.loggedIn watcher
+      // (runLogoutHooks) so server-side expiry gets the same cleanup.
     }
 
     // ---- Exports ----

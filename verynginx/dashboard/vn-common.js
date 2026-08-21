@@ -421,10 +421,16 @@
     // ---- Logout hooks ----
     // Modules register a callback here so that logging out can wipe their
     // per-session data (otherwise a re-login as a different account flashes
-    // the previous session's records). doLogout() fires every hook.
+    // the previous session's records). doLogout() calls runLogoutHooks().
     const logoutHooks = [];
     function onLogout(cb) { if (typeof cb === 'function') logoutHooks.push(cb); }
     ctx('onLogout', onLogout);
+    function runLogoutHooks() {
+      for (const cb of logoutHooks) {
+        try { cb(); } catch (e) { console.error('[VeryNginx] logout hook failed', e); }
+      }
+    }
+    ctx('runLogoutHooks', runLogoutHooks);
 
     // ---- Stale-response guard ----
     // Returns a guard for one resource. Call mark() before an async fetch and
