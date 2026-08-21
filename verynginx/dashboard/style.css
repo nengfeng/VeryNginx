@@ -23,6 +23,10 @@ th.sortable:hover{color:var(--text)}
 .sort-ind{font-size:10px}
 .tbl-filter{max-width:240px;margin-bottom:8px}
 .refresh-badge{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;white-space:nowrap}
+.pass-wrap{display:flex;gap:8px}
+.pass-wrap input{flex:1}
+.pass-toggle{flex-shrink:0}
+.caps-warn{font-size:12px;color:var(--warning);margin-top:4px}
 tr:hover{background:var(--bg)}
 pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:auto;font-size:13px;line-height:1.5;max-height:60vh}
 textarea.code-editor{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;border:none;width:100%;font:13px/1.5 monospace;resize:vertical;min-height:200px;box-sizing:border-box}

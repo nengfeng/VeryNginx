@@ -332,6 +332,12 @@
     view('loginPass', loginPass);
     const loginError = ref('');
     view('loginError', loginError);
+    // Login field helpers: password visibility toggle + Caps Lock detection
+    // (the two most common causes of a mistyped admin password).
+    const loginPassVisible = ref(false);
+    view('loginPassVisible', loginPassVisible);
+    const loginCapsLock = ref(false);
+    view('loginCapsLock', loginCapsLock);
     // One-shot flag: set when api() force-ends the session (401 self-heal
     // failed), shown as a notice on the login page so an involuntary kick
     // isn't silent. Cleared on the next successful login.
