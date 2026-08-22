@@ -570,6 +570,7 @@
         if (en.dirty) en.modal.show = false;
       }
     }
+    ctx('discardUnsaved', discardUnsaved);
 
     window.addEventListener('beforeunload', (e) => {
       if (!collectUnsaved().length) return;
