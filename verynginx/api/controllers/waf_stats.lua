@@ -160,9 +160,13 @@ local function handle_waf_stats()
         by_category[r.category].hits = by_category[r.category].hits + hits
         by_severity[r.severity].hits = by_severity[r.severity].hits + hits
 
-        if last_ts >= today_start then
-            today_hits = today_hits + hits
-        end
+        -- Today's hits come from the dedicated daily counter (TTL 48h) that
+        -- record_hit increments per hit. Falling back to the rule's ALL-TIME
+        -- hit_count whenever last_triggered is inside today inflated the
+        -- number by tens of thousands on old busy rules.
+        local today_key = "waf_rule_stats:" .. r.id .. ":today:" .. os.date("!%Y%m%d", today_start)
+        local daily = tonumber(shared:get(today_key)) or 0
+        today_hits = today_hits + daily
 
         -- Build top rules list
         top_rules[#top_rules + 1] = { id = r.id, name = r.name, hits = hits }
@@ -384,6 +388,9 @@ end
 --- GET /waf/analytics - rule effectiveness scoring + dead rule detection
 local function handle_waf_analytics()
     local shared = ngx.shared.vn_config
+    if not shared then
+        return json.encode({ ret = "success", data = { rules = {}, dead_rules = {} } })
+    end
     local rules_obj = waf_manager.load_rules()
     local rules = {}
     if rules_obj and rules_obj.rules then

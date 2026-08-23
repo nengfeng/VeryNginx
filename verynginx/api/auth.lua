@@ -42,8 +42,10 @@ _M.strategies["session"] = {
         end
 
         local secret = config.security.session_secret
-        if not secret then
-            ngx.log(ngx.ERR, "auth: session_secret not configured")
+        -- Fail closed on empty/short secrets: HMAC with "" is forgeable
+        -- offline ("" is truthy in Lua, so `if not secret` passed it before).
+        if not secret or #secret < 16 then
+            ngx.log(ngx.ERR, "auth: session_secret missing or too short (<16); set security.session_secret")
             return false
         end
 
@@ -105,8 +107,8 @@ _M.strategies["session"] = {
                         nonce = require("core.random").bytes(16)
                     }
                     local secret = config.security.session_secret
-                    if not secret then
-                        return false, "session_secret not configured"
+                    if not secret or #secret < 16 then
+                        return false, "session_secret missing or too short (<16)"
                     end
                     local token = session.sign(payload, secret)
                     return true, token

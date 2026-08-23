@@ -72,7 +72,7 @@ local function with_whitelist(entries)
         body = {},
         proxy_pass = {},
         ssi = { enable = false },
-        security = { session_secret = "x" },
+        security = { session_secret = "x-secret-value-0123456789" },
         waf = { enable = false, rules = {} },
         request_filter = { enable = false, rules = {} },
         response_filter = { enable = false, rules = {} },

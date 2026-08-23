@@ -133,9 +133,10 @@ end
 function _M.on_access(ctx)
     local ip = ctx.request.remote_addr
 
-    -- 【前置-1】管理路径放行
+    -- 【前置-1】管理路径放行 (exact or "/"-bounded suffix; see api/init.lua)
     local base_uri = (config and config.base_uri) or "/verynginx"
-    if ctx.request.uri:find(base_uri, 1, true) == 1 then
+    local uri0 = ctx.request.uri
+    if uri0 == base_uri or (uri0:find(base_uri, 1, true) == 1 and uri0:sub(#base_uri + 1, #base_uri + 1) == "/") then
         return
     end
 

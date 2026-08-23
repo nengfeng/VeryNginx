@@ -180,7 +180,8 @@ local function handle_get_audit()
     -- Whitelist: only alphanumeric, underscore, dot allowed for prefix
     if action_prefix and action_prefix ~= "" then
         if not action_prefix:match("^[a-zA-Z0-9_%.]+$") then
-            return json.encode({ ret = "error", message = "invalid action_prefix" })
+            ngx.status = 400
+            return json.encode({ ret = "failed", message = "invalid action_prefix" })
         end
     end
     local since_ts = tonumber(ngx.var.arg_since)
@@ -198,7 +199,9 @@ function _M.register(api)
     api.register("GET", "/config", handle_get_config, true)
     api.register("POST", "/config", handle_set_config, true)
     api.register("GET", "/status", handle_get_status, true)
-    api.register("GET", "/metrics", handle_get_metrics, false)
+    -- auth ON: the payload carries per-IP reputation labels, rule hit rates
+    -- and capacity figures — recon material an unauthenticated peer can mine.
+    api.register("GET", "/metrics", handle_get_metrics, true)
     api.register("GET", "/summary", handle_get_summary, true)
     api.register("GET", "/csrf", handle_get_csrf, true)
     api.register("GET", "/audit", handle_get_audit, true)

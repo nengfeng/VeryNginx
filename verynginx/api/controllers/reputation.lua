@@ -106,8 +106,11 @@ end
 
 local function handle_reputation_persist()
     local rep = require "core.ip_reputation"
+    -- persist() is a no-op outside worker 0 (§1.4). Say so instead of a
+    -- blanket success that implies data hit the disk.
+    local wid = ngx.worker and ngx.worker.id and ngx.worker.id() or -1
     rep.persist()
-    return json.encode({ ret = "success" })
+    return json.encode({ ret = "success", persisted = (wid == 0), worker = wid })
 end
 
 function _M.register(api)

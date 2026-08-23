@@ -57,7 +57,8 @@ local function handle_list_waf_rules()
 
     local total = #rules
     local total_pages = math.ceil(total / limit)
-    if page > total_pages and total_pages > 0 then page = total_pages end
+    if total_pages < 1 then total_pages = 1 end
+    if page > total_pages then page = total_pages end
     local start_idx = (page - 1) * limit + 1
     local end_idx = math.min(start_idx + limit - 1, total)
     local page_rules = {}
@@ -337,7 +338,7 @@ local function handle_stage_waf_rule()
         staged_by = "-",
         proposed = args,
     }
-    shared:set(PENDING_PREFIX .. rule_id, json.encode(pending))
+    shared:set(PENDING_PREFIX .. rule_id, json.encode(pending), 86400)
     audit.log("rule_staged", rule_id, "-")
     return json.encode({ ret = "success", data = pending })
 end
@@ -401,8 +402,14 @@ local function handle_confirm_waf_rule()
         return json.encode({ ret = "failed", message = "rule not found" })
     end
 
-    -- Save the updated rules via config
-    waf_manager._save_rules_through_config(rules)
+    -- Save the updated rules via config. On failure KEEP the pending slot so
+    -- the operator can retry — deleting it here would silently destroy the
+    -- staged change while the live rule set never received it.
+    local sok, serr = waf_manager._save_rules_through_config(rules)
+    if not sok then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "rule change persist failed: " .. tostring(serr) })
+    end
     shared:delete(PENDING_PREFIX .. rule_id)
     audit.log("rule_change_confirmed", rule_id, "-")
     return json.encode({ ret = "success", message = "rule change applied" })
@@ -435,7 +442,7 @@ local function handle_list_pending_rules()
     local shared = ngx.shared.vn_config
     local result = {}
     if shared then
-        local keys = shared:get_keys(200)
+        local keys = shared:get_keys(200) -- NOTE: bounded scan; see audit F6 (index pending)
         for _, k in ipairs(keys) do
             if k:sub(1, #PENDING_PREFIX) == PENDING_PREFIX then
                 local data = shared:get(k)

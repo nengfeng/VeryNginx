@@ -132,7 +132,7 @@ describe("config webhook SSRF validation at save time", function()
             replace_url = {},
             cookie = { secret = "x" },
             admin = {},
-            security = { session_secret = "x" },
+            security = { session_secret = "x-secret-value-0123456789" },
             browser_verify = { enable = false },
             waf = { enable = false, rules = {} },
             cc_rules = {},

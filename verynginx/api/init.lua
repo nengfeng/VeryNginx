@@ -223,8 +223,10 @@ function _M.dispatch(ctx)
     local base_uri = (config and config.base_uri) or "/verynginx"
     local method = ngx.req.get_method()
 
-    -- Only handle requests under base_uri
-    if uri:find(base_uri, 1, true) ~= 1 then
+    -- Only handle requests under base_uri (exact match or "/"-prefixed suffix
+    -- — a bare prefix would let /verynginxconfig alias onto API routes while
+    -- dodging reverse-proxy ACLs keyed on ^/verynginx/)
+    if not (uri == base_uri or (uri:find(base_uri, 1, true) == 1 and uri:sub(#base_uri + 1, #base_uri + 1) == "/")) then
         return
     end
 

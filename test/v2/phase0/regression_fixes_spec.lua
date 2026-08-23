@@ -133,15 +133,17 @@ describe("ip_reputation.validate_whitelist_entry (#14)", function()
         assert.is_true(rep.validate_whitelist_entry("::1"))
         assert.is_true(rep.validate_whitelist_entry("fe80::1"))
     end)
-    it("accepts a clean IPv6 CIDR", function()
+    it("rejects IPv6 CIDR (matching unimplemented — silent dead entry)", function()
+        -- Contract changed with the persistence audit: is_whitelisted() does
+        -- numeric v4 math + exact string equality, so an accepted v6 CIDR
+        -- could never match. Validation must reject until v6 CIDR matching
+        -- ships; bare IPv6 (exact match) stays accepted.
         package.loaded["core.ip_reputation"] = nil
         local rep = require "core.ip_reputation"
-        local r1 = rep.validate_whitelist_entry("2001:db8::/32")
-        local r2 = rep.validate_whitelist_entry("::/0")
-        local r3 = rep.validate_whitelist_entry("fe80::/10")
-        assert.is_true(r1, "2001:db8::/32 failed, got " .. tostring(r1))
-        assert.is_true(r2, "::/0 failed, got " .. tostring(r2))
-        assert.is_true(r3, "fe80::/10 failed, got " .. tostring(r3))
+        assert.is_false(rep.validate_whitelist_entry("2001:db8::/32"))
+        assert.is_false(rep.validate_whitelist_entry("::/0"))
+        assert.is_false(rep.validate_whitelist_entry("fe80::/10"))
+        assert.is_false(rep.validate_whitelist_entry("::ffff:192.168.1.1/120"))
     end)
     it("rejects invalid IPv6", function()
         local rep = require "core.ip_reputation"
@@ -151,10 +153,10 @@ describe("ip_reputation.validate_whitelist_entry (#14)", function()
         assert.is_false(rep.validate_whitelist_entry(":1"))
         assert.is_false(rep.validate_whitelist_entry("1:"))
     end)
-    it("accepts IPv4-mapped IPv6", function()
+    it("accepts IPv4-mapped IPv6 (bare only; mapped CIDR rejected like all v6 CIDR)", function()
         local rep = require "core.ip_reputation"
         assert.is_true(rep.validate_whitelist_entry("::ffff:10.0.0.1"))
-        assert.is_true(rep.validate_whitelist_entry("::ffff:192.168.1.1/120"))
+        assert.is_false(rep.validate_whitelist_entry("::ffff:192.168.1.1/120"))
     end)
 end)
 

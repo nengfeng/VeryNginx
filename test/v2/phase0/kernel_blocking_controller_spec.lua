@@ -58,6 +58,12 @@ local config_module = {
     load_from_file = function() end,
     report = function() return require("dkjson").encode(mock_config) end,
     save = function(cfg) return true, nil end,
+    -- production pause path mutates under the save lock (TOCTOU fix)
+    atomic_mutate = function(mutator)
+        local modified, merr = mutator(mock_config)
+        if modified == nil then return false, tostring(merr) end
+        return true
+    end,
 }
 setmetatable(config_module, {
     __index = function(t, k) return mock_config[k] end,

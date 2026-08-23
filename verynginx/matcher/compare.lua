@@ -18,17 +18,27 @@ end
 
 function _M.match(value, op, pattern)
     if op == "=" then return value == pattern end
-    if op == "≈" then
+    if op == "≈" or op == "!≈" then
         if type(value) ~= "string" then return false end
+        local matched
         local re = get_compiled(pattern)
-        if re then return ngx.re.match(value, re) ~= nil end
-        return ngx.re.find(value, pattern, "isjo") ~= nil
-    end
-    if op == "!≈" then
-        if type(value) ~= "string" then return true end
-        local re = get_compiled(pattern)
-        if re then return ngx.re.match(value, re) == nil end
-        return ngx.re.find(value, pattern, "isjo") == nil
+        if re then
+            matched = ngx.re.match(value, re) ~= nil
+        elseif type(ngx.re) ~= "table" or type(ngx.re.compile) ~= "function" then
+            -- Minimal environments (unit-test rigs) without the compile API:
+            -- degrade to find(). Guarded so a bad pattern can't raise here.
+            local okf, _, ferr = pcall(ngx.re.find, value, pattern, "isjo")
+            if not okf then return false end
+            matched = ferr ~= nil
+        else
+            -- Compile API present but the PATTERN is invalid ⇒ fail-safe
+            -- "never matches". The old fallback re-ran the same bad pattern
+            -- through ngx.re.find, which raised and — via the critical-plugin
+            -- policy — 503'd every evaluated request until manual disable.
+            return false
+        end
+        if op == "≈" then return matched end
+        return not matched
     end
     if op == "*" then return true end
     return false

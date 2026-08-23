@@ -673,13 +673,10 @@ function _M.validate_whitelist_entry(entry)
 
     -- IPv6 CIDR (e.g., 2001:db8::/32) or IPv6 bare address
     if entry:find(":", 1, true) then
-        local pos = entry:find("/")
-        if pos then
-            local subnet = entry:sub(1, pos - 1)
-            local bits = tonumber(entry:sub(pos + 1))
-            if not subnet or not bits or bits < 0 or bits > 128 then return false end
-            return is_valid_ipv6(subnet)
-        end
+        -- IPv6 CIDR matching is NOT implemented (is_whitelisted does numeric
+        -- v4 math + exact string equality only). Accepting a v6 CIDR would
+        -- create a silent dead whitelist entry — reject until supported.
+        if entry:find("/") then return false end
         return is_valid_ipv6(entry)
     end
 

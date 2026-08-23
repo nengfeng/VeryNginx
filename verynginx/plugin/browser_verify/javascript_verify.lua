@@ -32,7 +32,10 @@ local _fallback_seed = _get_seed()
 --- Compute verification signature for JavaScript mark.
 local function sign(ctx, mark)
     local ua = ngx.var.http_user_agent or ""
-    local seed = (config.security.session_secret) or _fallback_seed
+    -- Empty string is truthy in Lua: without the length guard a blank
+    -- session_secret would silently replace the random fallback seed.
+    local secret = config.security.session_secret
+    local seed = (type(secret) == "string" and #secret > 0 and secret) or _fallback_seed
     return ngx.md5("VN" .. ctx.request.remote_addr .. ua .. mark .. seed)
 end
 

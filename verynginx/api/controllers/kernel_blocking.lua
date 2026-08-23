@@ -17,6 +17,7 @@ local function handle_status()
     local config = require "core.config"
     local kb_cfg = config and config.kernel_ip_blocking
     if not kb_cfg then
+        ngx.status = 500
         return json.encode({ ret = "failed", message = "kernel_ip_blocking not configured" })
     end
 
@@ -204,15 +205,20 @@ local function handle_promote()
         })
     end
 
+    -- Desired-state / state-machine writes can fail (dict full, index-lock
+    -- timeout) and roll themselves back per the §12.2 contract. If we ignore
+    -- that, the kernel drop exists WITHOUT desired/SM records: the next
+    -- reconcile treats it as drift and silently unbans the attacker. Compensate
+    -- by removing the kernel entry and report the failure.
     local desired = require "core.kernel_blocking.desired_state"
-    desired.set_desired(ip, family, set_name, { reason = "manual_promote" }, ttl, {
+    local d_ok = desired.set_desired(ip, family, set_name, { reason = "manual_promote" }, ttl, {
         source = "manual",
         policy = policy,
         reason = "manual_promote",
         reconciliation_mode = "manual",
     })
 
-    sm.upsert(ip, policy, "installed", {
+    local sm_ok = sm.upsert(ip, policy, "installed", {
         reason = "manual_promote",
     }, {
         list = set_name,
@@ -222,6 +228,16 @@ local function handle_promote()
         source = "manual",
         reconciliation_mode = "manual",
     })
+
+    if not d_ok or not sm_ok then
+        pcall(function() exec.delete(set_name, family, ip) end)
+        ngx.status = 500
+        return json.encode({
+            ret = "failed",
+            message = "promote bookkeeping failed (desired="
+                .. tostring(d_ok) .. " sm=" .. tostring(sm_ok) .. "); kernel entry rolled back",
+        })
+    end
 
     pcall(function()
         local audit = require "core.audit"
@@ -335,34 +351,19 @@ local function handle_pause()
     end
 
     -- Load full config (via report), mutate emergency_pause, save
-    -- NOTE: report() encodes config_data which may contain function refs
-    -- (module-level helpers). Use pcall to catch JSON errors and fall back
-    -- to a direct config_data accessor pattern.
+    -- Mutate under the config save lock (atomic_mutate): the previous
+    -- report→edit→save dance re-read a snapshot BEFORE locking, so any
+    -- concurrent POST /config / whitelist write between read and save was
+    -- silently reverted wholesale (TOCTOU lost update).
     local config_mod = require "core.config"
-    local cfg = nil
-    local report_ok, report_val = pcall(function() return config_mod.report() end)
-    if report_ok and report_val then
-        cfg = json.decode(report_val)
-    end
-    -- Fallback: load from file directly
-    if not cfg then
-        config_mod.load_from_file()
-        local report_ok2, report_val2 = pcall(function() return config_mod.report() end)
-        if report_ok2 and report_val2 then
-            cfg = json.decode(report_val2)
-        end
-    end
-    if not cfg then
+    local m_ok, m_err = config_mod.atomic_mutate(function(c)
+        c.kernel_ip_blocking = c.kernel_ip_blocking or {}
+        c.kernel_ip_blocking.emergency_pause = req.paused
+        return c
+    end)
+    if not m_ok then
         ngx.status = 500
-        return json.encode({ ret = "failed", message = "config load failed" })
-    end
-    cfg.kernel_ip_blocking = cfg.kernel_ip_blocking or {}
-    cfg.kernel_ip_blocking.emergency_pause = req.paused
-
-    local save_ok, save_err = config_mod.save(cfg)
-    if not save_ok then
-        ngx.status = 500
-        return json.encode({ ret = "failed", message = tostring(save_err) })
+        return json.encode({ ret = "failed", message = tostring(m_err) })
     end
 
     return json.encode({

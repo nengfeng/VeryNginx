@@ -672,12 +672,13 @@ local function validate_config(config)
         end
     end
 
-    -- session_secret: warn if explicitly set but too short (< 16 chars)
-    if config.security and config.security.session_secret then
+    -- session_secret: hard-reject explicitly-set short secrets (< 16 chars).
+    -- Empty string stays bootable (installer generates the real one) but auth
+    -- fails closed on it (api/auth.lua), so it can never sign sessions.
+    if config.security and config.security.session_secret ~= nil then
         local ss = config.security.session_secret
         if type(ss) == "string" and ss ~= "" and ss ~= "(redacted)" and #ss < 16 then
-            ngx.log(ngx.WARN, "config: security.session_secret is only ", #ss,
-                " chars; recommended >= 16 for HMAC security")
+            return false, "security.session_secret must be >= 16 chars (got " .. #ss .. ")"
         end
     end
 

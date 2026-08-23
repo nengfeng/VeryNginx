@@ -230,8 +230,47 @@ function _M.save_rules(rules, action)
         return false, "rules must be a table"
     end
 
+    -- Serialize the whole multi-step save (backup → file rename → chunk
+    -- writes → meta → version bump) across workers. Without this, two
+    -- interleaved saves could commit meta from one version over chunks of
+    -- another — load_rules then serves a hybrid rule set cached against the
+    -- newest version marker. Token-checked so an expired lock can't be
+    -- released by its previous owner.
+    local locks = ngx.shared.vn_locks
+    local lock_key = "waf_rules_save_lock"
+    local lock_token = require("core.random").hex(8)
+    local locked = false
+    if locks then
+        for _ = 1, 500 do
+            if locks:add(lock_key, lock_token, 30) then locked = true; break end
+            ngx.sleep(0.002)
+        end
+        if not locked then
+            return false, "waf rules save lock busy"
+        end
+    end
 
+    local ok, r1, r2 = pcall(_M._save_rules_unlocked, rules, action)
 
+    if locked and locks then
+        -- release only if we still own it (TTL may have expired and been
+        -- taken over — in that case the new owner is mid-save; our data is
+        -- already fully written by the pcall above either way)
+        if locks:get(lock_key) == lock_token then
+            locks:delete(lock_key)
+        end
+    end
+    -- pcall error OR the unlocked body's own (false, err) returns
+    if not ok then
+        return false, tostring(r1)
+    end
+    if r1 == false then
+        return false, tostring(r2 or "save failed")
+    end
+    return true
+end
+
+function _M._save_rules_unlocked(rules, action)
     local shared = ngx.shared.vn_config
     local current_version
     if shared then
@@ -461,6 +500,16 @@ function _M.validate_rule(rule)
     if type(rule) ~= "table" then
         return false, "rule must be a table"
     end
+    -- Client-supplied ids flow into dict keys, pipe-framed hit records and the
+    -- newline-delimited stats index: constrain to safe charset/length or a
+    -- "|" in an id corrupts stats attribution and "\n" forges index entries.
+    if rule.id ~= nil then
+        -- (Lua patterns have no {n,m} quantifier — check length separately)
+        if type(rule.id) ~= "string" or #rule.id == 0 or #rule.id > 64
+            or not rule.id:match("^[%w_-]+$") then
+            return false, "id must be 1-64 chars of [A-Za-z0-9_-]"
+        end
+    end
     if not rule.name or type(rule.name) ~= "string" or #rule.name == 0 then
         return false, "name is required"
     end
@@ -516,6 +565,23 @@ function _M.validate_rule(rule)
             local ip_ok, ip_err = check_ip_condition(matcher_def.IP)
             if not ip_ok then
                 return false, ip_err
+            end
+        end
+        -- Compile-check every regex matcher value ("≈"/"!≈"). An invalid
+        -- pattern stored here used to turn each evaluated request into a 503
+        -- (compare.match's compile failure path). Reject at save time instead.
+        -- Skipped where ngx.re.compile is absent (minimal unit-test rigs).
+        if type(matcher_def) == "table"
+            and type(ngx.re) == "table" and type(ngx.re.compile) == "function" then
+            for cond_key, cond in pairs(matcher_def) do
+                if type(cond) == "table" and type(cond.operator) == "string"
+                    and (cond.operator == "≈" or cond.operator == "!≈")
+                    and type(cond.value) == "string" and cond.value ~= "" then
+                    local cok, cres = pcall(ngx.re.compile, cond.value, "isjo")
+                    if not cok or not cres then
+                        return false, "invalid regex in matcher." .. tostring(cond_key) .. ": " .. tostring(cond.value)
+                    end
+                end
             end
         end
     end
@@ -801,7 +867,17 @@ function _M.record_hit(rule_id, ctx, action)
     }, "|")
 
     local idx = shared:incr(HIT_PREFIX .. "tail", 1, 0)
-    shared:set(HIT_PREFIX .. tostring(idx), hit_data)
+    -- TTL: a consumer racing this write can advance head past the slot,
+    -- leaving it unconsumed forever — let strays self-expire instead of
+    -- leaking vn_config under sustained load.
+    shared:set(HIT_PREFIX .. tostring(idx), hit_data, 600)
+    -- Independent per-day counter so "today's hits" can't be inflated by a
+    -- rule's all-time total (stats previously added hit_count when
+    -- last_triggered fell inside today).
+    pcall(function()
+        local day = os.date("!%Y%m%d")
+        shared:incr("waf_rule_stats:" .. tostring(rule_id) .. ":today:" .. day, 1, 0, 172800)
+    end)
 
     -- Ring buffer for recent hits display (keep last 100)
     local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1
