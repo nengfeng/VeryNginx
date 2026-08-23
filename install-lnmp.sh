@@ -999,7 +999,26 @@ install_firewall_helper() {
   fi
 
   # Install binary
-  cp "${helper_src}/firewall-helper" "$FIREWALL_HELPER_BIN"
+  # Re-install safety (ETXTBSY): an older firewall-helper may still be running
+  # from a previous installation — cp over a live executable fails with
+  # "Text file busy". Stop the units first, then replace via tmp+rename
+  # (rename(2) works even if something still holds the old inode open).
+  local _helper_was_active=0
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet firewall-helper.service 2>/dev/null; then
+      _helper_was_active=1
+      systemctl stop firewall-helper.socket 2>/dev/null || true
+      systemctl stop firewall-helper.service 2>/dev/null || true
+    fi
+  fi
+
+  if ! cp "${helper_src}/firewall-helper" "$FIREWALL_HELPER_BIN" 2>/dev/null; then
+    local _tmp_bin="${FIREWALL_HELPER_BIN}.install.$$"
+    cp "${helper_src}/firewall-helper" "$_tmp_bin" \
+      || { warn "Failed to stage $FIREWALL_HELPER_BIN — kernel IP blocking will be unavailable"; return 0; }
+    chmod 755 "$_tmp_bin"
+    mv -f "$_tmp_bin" "$FIREWALL_HELPER_BIN"
+  fi
   chmod 755 "$FIREWALL_HELPER_BIN"
   info "Installed: $FIREWALL_HELPER_BIN ✓"
 
@@ -1057,6 +1076,12 @@ SVCUNIT
     systemctl enable firewall-helper.socket
     systemctl enable firewall-helper.service
     systemctl start firewall-helper.socket 2>/dev/null || true
+    # Re-install path: we stopped a running helper before replacing the
+    # binary — restart it so the NEW build is what socket activation uses.
+    if [ "$_helper_was_active" = "1" ]; then
+      systemctl start firewall-helper.socket 2>/dev/null || true
+      systemctl restart firewall-helper.service 2>/dev/null || true
+    fi
     info "systemd units installed and started ✓"
     if systemctl is-active --quiet firewall-helper.socket 2>/dev/null; then
       info "firewall-helper.socket is active ✓"
