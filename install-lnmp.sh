@@ -593,21 +593,25 @@ show_summary() {
       echo "    Note: since this version the Lua router ALSO serves dashboard assets,"
       echo "    so a plain 'systemctl restart nginx' usually fixes 404s even without the snippet."
     fi
-    # Drift check: served Vue must byte-match the vendored copy pinned by
-    # index.html SRI. Mismatch = stale /opt tree from an older install
-    # (browser blocks the script with an integrity error).
-    if [ -f "${VN_DIR}/dashboard/vue.global.prod.js" ]; then
-      local vue_local vue_remote
-      vue_local=$(openssl dgst -sha384 -binary "${VN_DIR}/dashboard/vue.global.prod.js" 2>/dev/null | openssl base64 -A 2>/dev/null || true)
-      vue_remote=$(curl -s --max-time 5 -H 'Host: localhost' \
-        "http://127.0.0.1:${chk_port}/verynginx/static/vue.global.prod.js" 2>/dev/null \
-        | openssl dgst -sha384 -binary 2>/dev/null | openssl base64 -A 2>/dev/null || true)
-      if [ -n "$vue_local" ] && [ -n "$vue_remote" ] && [ "$vue_local" != "$vue_remote" ]; then
-        warn "Self-check: served vue.global.prod.js differs from installed copy (SRI will block it)"
-        echo "    Stale files under ${VN_DIR} — re-run this installer to refresh, then"
-        echo "    hard-refresh the browser (Ctrl+Shift+R) to bypass cached assets."
-      elif [ -n "$vue_remote" ]; then
-        info "Self-check: vue.global.prod.js matches vendored copy ✓"
+    # Drift check: the integrity pin inside index.html must equal the
+    # sha384 of the INSTALLED vue.global.prod.js. Comparing against the pin
+    # (not the vendored copy) catches the field failure mode where BOTH
+    # copies drifted identically (editor save / transfer appended a byte):
+    # browser then blocks the script with an integrity error.
+    local vue_file="${VN_DIR}/dashboard/vue.global.prod.js"
+    if [ -f "$vue_file" ] && [ -f "${VN_DIR}/dashboard/index.html" ]; then
+      local vue_pin vue_hash
+      vue_pin=$(grep -o 'vue\.global\.prod\.js" integrity="sha384-[^"]*' \
+        "${VN_DIR}/dashboard/index.html" 2>/dev/null | head -1 | sed 's/.*sha384-//')
+      vue_hash=$(openssl dgst -sha384 -binary "$vue_file" 2>/dev/null | openssl base64 -A 2>/dev/null || true)
+      if [ -n "$vue_pin" ] && [ -n "$vue_hash" ] && [ "$vue_pin" != "$vue_hash" ]; then
+        warn "Self-check: index.html SRI pin != installed vue.global.prod.js (${vue_file})"
+        echo "    The vendored Vue file differs from the pinned digest — likely edited/corrupted"
+        echo "    in the source tree (e.g. an appended trailing byte). Fix:"
+        echo "      cd <repo> && git checkout -- verynginx/dashboard/vue.global.prod.js"
+        echo "      ./install-lnmp.sh"
+      else
+        info "Self-check: vue.global.prod.js matches its SRI pin ✓"
       fi
     fi
   fi
