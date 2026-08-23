@@ -142,16 +142,14 @@ local function handle_waf_stats()
 
         -- Read runtime stats from shared dict
         local hits = 0
-        local last_ts = 0
         if shared then
             local stats_json = shared:get("waf_rule_stats:" .. r.id)
             if stats_json then
                 local ok, stats = pcall(json.decode, stats_json)
                 if ok and stats then
                     hits = stats.hit_count or 0
-                    last_ts = stats.last_triggered or 0
                     r.hit_count = hits
-                    r.last_triggered = last_ts
+                    r.last_triggered = stats.last_triggered or 0
                 end
             end
         end

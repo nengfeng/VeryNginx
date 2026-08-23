@@ -27,8 +27,8 @@ local function handle_fingerprint_add()
     end
     local fp = require "core.fingerprint_db"
     fp.reload()
-    local ok, err = fp.add(entry)
-    if not ok then
+    local added, err = fp.add(entry)
+    if not added then
         ngx.status = 500
         return json.encode({ ret = "failed", message = "fingerprint persist failed: " .. tostring(err or "unknown") })
     end
