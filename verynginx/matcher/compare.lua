@@ -1,7 +1,10 @@
 local _M = {}
 
 local MAX_COMPILED = 256
-local compiled_cache = {}
+-- __count MUST be initialized here: get_compiled reads it BEFORE the first
+-- insert, and a nil would raise "compare number with nil" on a fresh worker's
+-- very first regex evaluation.
+local compiled_cache = { __count = 0 }
 
 local function get_compiled(pattern)
     local re = compiled_cache[pattern]
