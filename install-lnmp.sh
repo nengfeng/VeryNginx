@@ -495,8 +495,8 @@ vn_new = (
     + INDENT + '    add_header X-Frame-Options "SAMEORIGIN" always;\n'
     + INDENT + '    add_header X-XSS-Protection "1; mode=block" always;\n'
     + INDENT + '    add_header Content-Security-Policy "default-src '
-    + "'self' 'unsafe-inline' https://unpkg.com; "
-    + "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+    + "'self'; "
+    + "script-src 'self'; "
     + "style-src 'self' 'unsafe-inline'; "
     + "img-src 'self' data:; "
     + "connect-src 'self'; "
@@ -570,6 +570,30 @@ svc_is_active() {
 # ----- info output ---------------------------------------------------------
 show_summary() {
   title "Installation complete"
+
+  # Post-install self-check: dashboard asset serving. Catches the classic
+  # reinstall failure where the injected location snippet landed in a server
+  # block other than the one actually serving traffic (LNMP vhost includes).
+  # Best-effort only — never fails the install.
+  if command -v curl >/dev/null 2>&1 && [ -n "$NGINX_CONF" ] && [ -f "$NGINX_CONF" ]; then
+    local chk_port chk_code
+    chk_port=$(grep -m1 -oP 'listen\s+\S*?:?\K[0-9]+' "$NGINX_CONF" 2>/dev/null || true)
+    chk_port="${chk_port:-80}"
+    sleep 1
+    chk_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+      -H 'Host: localhost' "http://127.0.0.1:${chk_port}/verynginx/static/style.css" 2>/dev/null || echo 000)
+    if [ "$chk_code" = "200" ]; then
+      info "Self-check: dashboard style.css served ✓ (port ${chk_port})"
+    else
+      warn "Self-check: GET /verynginx/static/style.css returned ${chk_code} (expected 200)"
+      echo "    The static snippet may be missing from the SERVER BLOCK THAT SERVES YOUR TRAFFIC."
+      echo "    Patched file : ${NGINX_CONF} (first server{} block)"
+      echo "    Check inside the vhost you actually browse:"
+      echo "      grep -n 'location /verynginx/static/' \$(nginx -T 2>/dev/null | grep -oE '/[^ ]+\.conf' | sort -u) 2>/dev/null"
+      echo "    Note: since this version the Lua router ALSO serves dashboard assets,"
+      echo "    so a plain 'systemctl restart nginx' usually fixes 404s even without the snippet."
+    fi
+  fi
 
   local host_ip
   host_ip=$(ip -4 route get 1 2>/dev/null | head -1 | awk '{print $7}') || host_ip="<your-server-ip>"

@@ -37,12 +37,28 @@ function _M.on_access(ctx)
 
     -- Sanitize: reject URL-encoded traversal sequences and ../
     static_path = ngx.unescape_uri(static_path)
-    if static_path:find("%.%.", 1, true) or static_path:find("\0") then
+    -- NOTE: plain-text find — the previous `find("%.%.", 1, true)` searched
+    -- for the LITERAL string "%.%." (plain=true disables pattern syntax) and
+    -- never matched an actual "..", silently disabling this guard.
+    if static_path:find("..", 1, true) or static_path:find("\0", 1, true) then
         ngx.status = 403
         return ngx.exit(403)
     end
 
     if static_path == "" or static_path == "/" then
+        static_path = "/index.html"
+    end
+
+    -- Asset URLs carry a /static/ segment (/verynginx/static/style.css) but
+    -- files live flat in <prefix>/dashboard/. The nginx alias location
+    -- (/verynginx/static/ -> dashboard/) normally strips it before Lua runs;
+    -- strip it HERE TOO so this Lua fallback serves the same mapping when
+    -- that location is absent from the active server block (reinstall
+    -- scenarios where the snippet didn't land in the serving vhost).
+    local STATIC_SEG = "/static/"
+    if static_path:sub(1, #STATIC_SEG) == STATIC_SEG then
+        static_path = static_path:sub(#STATIC_SEG + 1)
+    elseif static_path == "/static" then
         static_path = "/index.html"
     end
 
