@@ -27,13 +27,12 @@
       const s = ip.trim();
       if (!s) return false;
       if (s.includes(':')) {
-        // IPv6 literal (optionally with /<prefix>)
+        // IPv6 literal (optionally /<prefix> for whitelist use). NOTE: v6
+        // CIDR is rejected — server-side matching only does v4 math + exact
+        // string equality, so an accepted v6 CIDR would be a silent dead entry.
         const body = allowPrefix ? s.split('/')[0] : s;
         if (!/^[0-9a-fA-F:]+$/.test(body) || !body.includes(':')) return false;
-        if (allowPrefix && s.includes('/')) {
-          const p = Number(s.split('/')[1]);
-          if (!Number.isInteger(p) || p < 1 || p > 128) return false;
-        }
+        if (allowPrefix && s.includes('/')) return false;
         return true;
       }
       // IPv4 literal (optionally with /<prefix>)

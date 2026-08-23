@@ -375,6 +375,15 @@ auto_whitelist = { type = "table", default = {
 
 ---
 
+### 7.6 TLS 指纹持久化（fingerprint_db）
+
+- **存储形态**：条目以 JSON 字符串存入 `config.fingerprints.entries`（schema 保持 `items="string"` 不动）；`decode_entry` 同时兼容手编 config.json 的原生 table，坏数据跳过
+- **写入路径**：add/remove 一律走 `config.atomic_mutate`；失败返回 `false,err`，controller 上报 500——绝不允许"内存改了、持久化丢了"的静默半成功
+- **跨 worker 收敛**：`ensure_loaded` 比较 `config.local_hash`（纯 Lua 比较，零共享字典读）；另一 worker 保存后 on_rewrite→check_update 刷新本 worker config，哈希错位即自动 reload
+- **播种陷阱**：config.entries 为空时 reload 走内置 DEFAULT 分支——首次自定义添加必须把当前工作集（=默认库）连同新条目一起落盘，否则 reload 切到 config 分支后 11 条默认指纹集体蒸发
+- **remove 语义**：按解码后 hash 过滤；不可解析条目原样保留不销毁；删除不存在项 `removed=false`（前端据此提示"不存在"而非假成功）；清空后回落默认库
+- **enable/enabled 键**：list() 返回 `enabled`，add() 规范键是 `enable`（兼容读 enabled）——两端键名错一位，"停用指纹"就永远是 no-op
+
 ## 8. 前端 Dashboard
 
 ### 8.1 Vue 3 SPA (CDN, 无构建，物理分文件)
@@ -413,7 +422,7 @@ window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
 
 | 动作 | 作用域 | 用途 |
 |------|--------|------|
-| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（277 个） |
+| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（308 个） |
 | `ctx('name', value)` | 仅 shared 注册表 | 跨模块内部共享，不进 render scope（如 `loadWafData`、`kbBucketHistory`） |
 
 **为什么分两种**：曾经 302 个导出全堆进 `setup()` 返回的 render scope，模板只需 275 个，其余 27 个纯内部值造成全局命名污染与未来碰撞隐患。现在 view 集合与模板绑定**严格相等**，由 `test/v2/dashboard_bindings.js`（静态提取模板绑定，零依赖）驱动两个 CI gate 校验：
@@ -438,7 +447,7 @@ window.VN.modules['vnadvanced'](shared)
 window.VN.modules['vnkb'](shared)
 ```
 
-最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 277 个绑定）。
+最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 308 个绑定）。
 
 ### 8.3 mount API
 
@@ -465,6 +474,23 @@ registerPoll('health', {
 - 单一 `watch([page, dashTab, cfgTab], syncPolls)` 接管全部切换；登出走 `stopAllPolls()`；登录/首挂载走 `syncPolls()`（此时谓词已由当前 ref 状态决定）。
 - 新增轮询 = 加一行 `registerPoll`，无需再碰任何 watch；再也不会出现"新页面忘了清旧 timer"的分支遗漏。
 - `registerPoll` 对重名注册会 `console.error` + 记入 `window.VN._dups` 拒绝（由 dashboard_init_check 的 `_dups` 断言覆盖）。
+
+### 8.3c 共享基础设施（重构沉淀，全部 ctx/单一实现）
+
+| 设施 | 注册 | 用法 |
+|------|------|------|
+| `createStaleGuard()` | ctx | 快速切页时旧响应不得覆盖新状态：`const tok=g.mark(); …; if(!g.isCurrent(tok)) return;`。带 loading 标志的 loader 其 `finally` 也须受 isCurrent 保护（否则迟到旧响应提前熄灭新请求的 spinner） |
+| `createTableTools(ref)` | ctx | 客户端排序/过滤，每表一个 view 绑定 `t`：`v-model="t.state.filter"`、`v-for="r in t.rows"`、`th @click="t.sortBy('col')"`；仅作用于已加载行 |
+| `bindModal(modal,{label,onClose,trackInput})` | ctx | Esc 关栈顶 + 打开聚焦首字段 + 关闭还原焦点 + Tab 圈闭；自动跟踪弹窗内 input/change 作脏标记；confirm 类传 `trackInput:false` |
+| `showConfirm` | ctx | **队列化**（FIFO），重入不再覆盖未决 resolve；关闭统一走 `closeConfirm` |
+| `showToast(msg,type,opts)` | ctx | 分级队列（上限5）：success 2.5s/info 3s/warn 6s/error 常驻手动关；`opts={actionLabel,onAction,duration}` 支持"撤销"按钮；连续重复去重；登出清空 |
+| 未保存守卫 | ctx×3 | `registerDirtyGuard(label,isDirty,discard)`（非模态编辑器如 KB 表单/JSON 文本域）+ bindModal 自动跟踪的模态脏标记 → `collectUnsaved()/discardUnsaved()`；navigateTo 与 applyHash(page段变化) 双拦截 + beforeunload 兜底 |
+| hash 路由（app.js） | — | `#/page/tab/subtab`；**page 切换 push、tab 切换 replaceState**（防历史栈膨胀）；写回回声经 refs 等值 no-op 防循环；Node gate 无 location 整段跳过 |
+| `copyText(text)` | view+ctx | Clipboard API + execCommand 兜底 |
+| `runLogoutHooks()` | ctx | doLogout/会话过期(store.loggedIn watcher) 统一触发各模块清理钩子 |
+
+> **教训**：`onLogout(cb)` 是订阅函数——曾误用 `shared.onLogout()` 无参调用当触发器（恒 no-op）。触发必须走 `runLogoutHooks()`。
+> **教训**：Vue watch 异步 flush，同步置位/复位的 suppress 标志永远不被观察到（confirmSuppressWatch 死标志案例）；循环防护靠「写回后重入等值 no-op」结构保证。
 
 ### 8.4 路由与 WAF Tab
 
@@ -514,6 +540,8 @@ busted --lpath='./verynginx/?.lua;./verynginx/lua_script/?.lua;./verynginx/lua_s
 > `config.save`、`config.atomic_mutate` 等全部命中 stub，导致 config_cross_field、
 > config_password_redaction、config_whitelist_publish、frequency_rule_id_migration、
 > random 等多文件「集体误报失败」。这些失败是跑错的产物，不是 bug。
+> **phase0 spec 用 `package.preload["core.config"]` 注入 fake 后必须在 `after_each` 清理**（preload 与 package.loaded 都置 nil）——preload 是进程级的，不清会毒化后续所有需要真实 core.config 的 spec（webhook_ssrf/config_whitelist_validate 曾集体炸在无关断言上）。
+>
 > phase0 中真实存在的唯一历史 bug 曾在 `ipc_spec.lua`：mock socket 用了
 > `settimeouts`/`receiveany` 而 `ipc_client.lua` 用的是真实 API
 > `settimeout`（单数）/`receive(n)` —— 已修复，mock 现改为字节流 `receive(n)`。
@@ -544,6 +572,7 @@ busted --lpath='./verynginx/?.lua;./verynginx/lua_script/?.lua;./verynginx/lua_s
 | `whitelist_generation_spec.lua` | 白名单 epoch/sequence 缓存 |
 | `bucket_history_diff_spec.lua` | bucket-history / diff 端点 |
 | `shared_dict_alert_spec.lua` | shared dict 使用率告警 |
+| `fingerprint_persistence_spec.lua` | 指纹持久化（JSON 字符串存储/播种默认库/代际重同步/失败回滚） |
 
 ---
 
@@ -626,7 +655,26 @@ GeoIP 数据库目录**禁止 777**。`install-lnmp.sh` 已设置 755 + chown ng
 
 ### 10.13 WAF 规则的 IP matcher 校验
 
-`waf-rule-manager.validate_rule` 曾不检查 matcher 的 IP 条件值（只验证 matcher 是 string/table）。`POST /waf/rules` 可写入 `{"IP":{"value":"999.1.1.1"}}` 或 CIDR，规则静默不触发。现已对内联 matcher 和 string 引用 matcher（查 config.matcher）统一校验：拒绝非法 IP 和 CIDR（matcher 引擎仅做字符串相等/无比 CIDR 语义）。
+`waf-rule-manager.validate_rule` 曾不检查 matcher 的 IP 条件值（只验证 matcher 是 string/table）。`POST /waf/rules` 可写入 `{"IP":{"value":"999.1.1.1"}}` 或 CIDR，规则静默不触发。现已对内联 matcher 和 string 引用 matcher（查 config.matcher）统一校验：拒绝非法 IP 和 CIDR（matcher 引擎仅做字符串相等/无 CIDR 语义），并 **pcall 编译校验全部 ≈/!≈ 的 value**——无效正则曾使 compare.match 走 raise 回退，critical 插件把评估到的请求打成 503 风暴（现 compile 失败一律"不匹配"；最小测试桩无 compile API 时降级 pcall 保护的 find）。
+
+**规则 id 格式约束**：客户端提供的 id 会进入 dict key、管道帧命中记录与换行分隔统计索引，必须匹配 `^[%w_-]+$` 且 ≤64 字符（Lua 模式无 `{n,m}` 量词，长度需单独判断——`^[%w_-]{1,64}$` 会静默不匹配任何输入）。
+
+> **IPv6 CIDR 白名单拒收（契约变更）**：`is_whitelisted()` 只做数值化 v4 数学 + 精确字符串相等，v6 CIDR 从不可能匹配——validate_whitelist_entry 现拒绝一切含 `/` 的 IPv6 条目（裸 v6 / mapped 裸地址仍收）。旧测试"接受干净 v6 CIDR"已随契约更新为拒绝；前端 `isValidIpLiteral(ip,true)` 同步收紧。
+
+### 10.14 空 session_secret fail-closed
+
+Lua 中 `""` 为真值——`if not secret` 拦不住空串，HMAC("") 可离线伪造 admin 会话。现：
+- `api/auth.lua` 两处守卫改为 `not secret or #secret < 16` → 拒签/拒验（fail-closed，日志有明确指引）
+- `validate_config` 对显式设置的 <16 密钥返回硬错误（`""` 默认值仍可启动——installer 会生成真钥，但 auth 在其上永不通过）
+- `javascript_verify.sign` 种子选择加长度守卫，空串不再顶掉随机 `_fallback_seed`
+
+### 10.15 base_uri '/' 边界
+
+管理路径判定三处（api/init.lua 路由入口、filter.on_access 放行、plugin.classify_request）必须为**精确相等或后随 `/`**。裸前缀曾让 `/verynginxconfig` 同时获得：整个 WAF 免疫 + admin 插件豁免 + API 路由别名——外部按 `^/verynginx/` 配置的反代 ACL 全部漏风。
+
+### 10.16 `/metrics` 已收回鉴权
+
+payload 含 per-IP 声誉标签/规则命中率/容量指标，属侦察情报。现 `auth_required=true`；Prometheus 抓取需带会话凭证或经内部通道转发（readme 监控条目已同步注明）。
 
 ---
 
@@ -775,6 +823,8 @@ verynginx/core/kernel_blocking/
 - **mock `reconcile` expires_at→ttl 转换**：使用 `math.max(expires_at - now, 1)`，不允许负 TTL。
 - **dispatch_pending 也必须持久化**：promotion 在 `dispatch_pending` 时**尚未**写 desired（desired 在 executor.add 成功后写）。dispatch 窗口内崩溃，SM 条目既不持久化（persist 原本只滤 `installed`）、也不在 desired → 重启后丢失封禁意图，且 kernel 若已下发则成孤儿。修复：dispatch_pending upsert 带上 `expires_at = plan.expires_at`，persist 防御性扫描从单一 `installed` 状态扩展为 `{installed, dispatch_pending}` 两趟。
 - **错误消息串接要逐字段校验**：Go 端三级 Path 未取其值就拼 message 属于明显错误，但更广的教训是——在打印/校验前应先用 `strings.Contains` 等字段级检查，勿先拼字符串再误判“正常”。（被误报告为缺陷，实为历史遗留，#6/#11/#19 为真缺陷。）
+- **promote 记账失败必须补偿**：exec.add 成功后再写 desired/SM，两者任一失败（dict 满/索引锁超时，其自身按 §12.2 契约回滚记录）→ 若忽略即产生 actual-without-desired drift，下一轮 reconcile 会静默解封刚手工封禁的 IP。现补偿 exec.delete 并 500。
+- **pause 走 atomic_mutate**：report→edit→save 的读发生在拿锁之前，并发 POST /config 会被整份陈旧快照回滚（B4 同款 TOCTOU）。
 - **list 分页大小可配置，reconcile 用大页**：Go `List` 支持 payload 可选 `page_size`（默认 100，上限 4096，1 MiB 帧预算内 ~256KB JSON）；`executor_ipc.list` 透传该参数。`reconciliation.collect_actual` 用 `kb_cfg.reconcile_list_page_size`（默认 1000）——100k 条目从 1000+ 次 IPC 降到 ~100 次。mock 执行器默认 1000 与 Go 默认不一致，属预期（各自用各自默认）。schema 已声明 `reconcile_list_page_size`/`reconcile_chunk_size`（`kernel_ip_blocking` 是 `reject_unknown=true`，不声明会拒配）。
 
 ### 12.3 API 控制器端点

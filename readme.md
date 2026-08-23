@@ -61,7 +61,7 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **Dark mode** — built-in dark theme with system preference detection and localStorage persistence
 - **Hot-reload** — config changes take effect immediately (zero-I/O MD5 hash comparison)
 - **Atomic saves** — `tmp + rename` strategy with automatic backups (keeps last 10)
-- **Prometheus metrics** — `/verynginx/metrics` endpoint for monitoring (per-rule hits/blocks/challenges, plugin duration, IP reputation)
+- **Prometheus metrics** — `/verynginx/metrics` endpoint for monitoring (per-rule hits/blocks/challenges, plugin duration, IP reputation). **Auth required since the persistence audit** — scrape with a dashboard session cookie or forward via an internal channel.
 - **Request statistics** — per-URI tracking across 1m/5m/1h/all time windows
 - **Audit log** — ring buffer (1000 entries) with search by user, action type, and time range
 - **Alerting engine** — webhook notifications for hit rate spikes, false positive changes, unknown attack patterns, JA3 cross-IP correlation
