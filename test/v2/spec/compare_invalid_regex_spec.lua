@@ -10,6 +10,10 @@
 -- fake compile/match pair and RESTORE the original afterwards (ngx is
 -- process-global — same hygiene as package.preload cleanup).
 
+-- CI runs busted without --lpath; every spec prepends its own paths (this
+-- file sorts BEFORE config_spec.lua, so it cannot rely on others doing it).
+package.path = "verynginx/?.lua;verynginx/lua_script/?.lua;verynginx/lua_script/module/?.lua;" .. package.path
+
 local function install_fake_re(fail_patterns)
     local saved = ngx.re
     ngx.re = {
