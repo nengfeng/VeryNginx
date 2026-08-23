@@ -667,6 +667,7 @@ Lua 中 `""` 为真值——`if not secret` 拦不住空串，HMAC("") 可离线
 - `api/auth.lua` 两处守卫改为 `not secret or #secret < 16` → 拒签/拒验（fail-closed，日志有明确指引）
 - `validate_config` 对显式设置的 <16 密钥返回硬错误（`""` 默认值仍可启动——installer 会生成真钥，但 auth 在其上永不通过）
 - `javascript_verify.sign` 种子选择加长度守卫，空串不再顶掉随机 `_fallback_seed`
+- **所有 `config.security.*` 读取点必须 nil 安全**：load_from_file 校验失败时运行态可能是缺 `security` 键的回退表——cookie_verify/javascript_verify 的 `_get_seed()` 在 require 期执行，裸索引曾把校验失败升级成 init_by_lua 整体崩溃；auth 中间件同查 session_ttl
 
 ### 10.15 base_uri '/' 边界
 

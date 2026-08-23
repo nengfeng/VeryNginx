@@ -41,10 +41,11 @@ _M.strategies["session"] = {
             return false
         end
 
-        local secret = config.security.session_secret
-        -- Fail closed on empty/short secrets: HMAC with "" is forgeable
-        -- offline ("" is truthy in Lua, so `if not secret` passed it before).
-        if not secret or #secret < 16 then
+        local secret = config and config.security and config.security.session_secret or nil
+        -- Fail closed on missing/empty/short secrets: HMAC with "" is
+        -- forgeable offline ("" is truthy in Lua, so `if not secret` alone
+        -- passed it before), and a failed config load can leave .security nil.
+        if type(secret) ~= "string" or #secret < 16 then
             ngx.log(ngx.ERR, "auth: session_secret missing or too short (<16); set security.session_secret")
             return false
         end
@@ -103,11 +104,11 @@ _M.strategies["session"] = {
                     end
                     local payload = {
                         user = user,
-                        expire_at = ngx.time() + ((config.security.session_ttl) or 28800),
+                        expire_at = ngx.time() + (((config and config.security) and config.security.session_ttl) or 28800),
                         nonce = require("core.random").bytes(16)
                     }
-                    local secret = config.security.session_secret
-                    if not secret or #secret < 16 then
+                    local secret = config and config.security and config.security.session_secret or nil
+                    if type(secret) ~= "string" or #secret < 16 then
                         return false, "session_secret missing or too short (<16)"
                     end
                     local token = session.sign(payload, secret)

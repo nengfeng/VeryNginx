@@ -12,8 +12,12 @@ local util = require "util"
 local verify_html = nil
 
 local function _get_seed()
-    local s = config.security.session_secret
-    if s and s ~= "" then
+    -- config.security may be nil early (e.g. load_from_file failed and we
+    -- fell back to a bare defaults table) — never index it unguarded here:
+    -- this runs at require time via _fallback_seed, and a raise would abort
+    -- init_by_lua entirely.
+    local s = ((config and config.security) and config.security.session_secret) or nil
+    if type(s) == "string" and #s > 0 then
         return s
     end
     local shared = ngx.shared.vn_config
@@ -32,9 +36,9 @@ local _fallback_seed = _get_seed()
 --- Compute verification signature for JavaScript mark.
 local function sign(ctx, mark)
     local ua = ngx.var.http_user_agent or ""
-    -- Empty string is truthy in Lua: without the length guard a blank
-    -- session_secret would silently replace the random fallback seed.
-    local secret = config.security.session_secret
+    -- Nil-safe (config.security may be absent) + empty-string guard: a blank
+    -- session_secret is truthy in Lua and would replace the random fallback.
+    local secret = config and config.security and config.security.session_secret or nil
     local seed = (type(secret) == "string" and #secret > 0 and secret) or _fallback_seed
     return ngx.md5("VN" .. ctx.request.remote_addr .. ua .. mark .. seed)
 end

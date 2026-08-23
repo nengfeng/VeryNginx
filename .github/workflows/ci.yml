@@ -63,7 +63,7 @@ jobs:
           hash_val = "p1$12000$" + salt_b64 + "$" + hash_b64
           config = json.load(open('verynginx/configs/config.default.json'))
           config['admin'][0]['password_hash'] = hash_val
-          config['security']['session_secret'] = 'test-ci-secret'
+          config['security']['session_secret'] = 'test-ci-secret-0123456789abcdef'
           json.dump(config, open('verynginx/configs/config.json', 'w'), indent=2)
           PYEOF
           # Make configs writable by container nginx worker (runs as nobody)
@@ -106,7 +106,7 @@ jobs:
           hash_val = "p1$12000$" + salt_b64 + "$" + hash_b64
           config = json.load(open('verynginx/configs/config.default.json'))
           config['admin'][0]['password_hash'] = hash_val
-          config['security']['session_secret'] = 'test-ci-secret'
+          config['security']['session_secret'] = 'test-ci-secret-0123456789abcdef'
           json.dump(config, open('verynginx/configs/config.json', 'w'), indent=2)
           PYEOF
           # Make configs writable by container nginx worker (runs as nobody)
