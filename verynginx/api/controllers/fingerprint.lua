@@ -27,7 +27,11 @@ local function handle_fingerprint_add()
     end
     local fp = require "core.fingerprint_db"
     fp.reload()
-    fp.add(entry)
+    local ok, err = fp.add(entry)
+    if not ok then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "fingerprint persist failed: " .. tostring(err or "unknown") })
+    end
     return json.encode({ ret = "success", data = fp.get(entry.hash) })
 end
 
@@ -43,12 +47,18 @@ local function handle_fingerprint_update()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "invalid JSON" })
     end
+    if not entry.hash then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "hash is required for update" })
+    end
     local fp = require "core.fingerprint_db"
     fp.reload()
-    if entry.hash then
-        fp.add(entry)
+    local added, err = fp.add(entry)
+    if not added then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "fingerprint persist failed: " .. tostring(err or "unknown") })
     end
-    return json.encode({ ret = "success", data = entry.hash and fp.get(entry.hash) or fp.list() })
+    return json.encode({ ret = "success", data = fp.get(entry.hash) })
 end
 
 local function handle_fingerprint_delete()
@@ -59,7 +69,11 @@ local function handle_fingerprint_delete()
     end
     local fp = require "core.fingerprint_db"
     fp.reload()
-    local removed = fp.remove(hash)
+    local removed, err = fp.remove(hash)
+    if not removed and err then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "fingerprint persist failed: " .. tostring(err) })
+    end
     return json.encode({ ret = "success", removed = removed })
 end
 
