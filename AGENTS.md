@@ -398,7 +398,7 @@ auto_whitelist = { type = "table", default = {
 - `dashboard/vn-waf.js` — WAF 规则/统计/历史/时间线/命中详情/推荐/测试
 - `dashboard/vn-frequency.js` — 频率限制/模板库/规则 CRUD
 - `dashboard/vn-reputation.js` — IP 声誉/白名单
-- `dashboard/vn-geoip.js` — GeoIP 查询/配置/自动更新
+- `dashboard/vn-iploc.js` — GeoIP 查询/配置/自动更新（原 vn-geoip.js：uBlock 等过滤列表默认拦截 URL 含 "geoip" 的脚本，改名规避 ERR_BLOCKED_BY_CLIENT；模块注册键仍为 vngeoip）
 - `dashboard/vn-advanced.js` — 指纹/插件/审计
 - `dashboard/vn-kb.js` — 内核封禁（entries/candidates/timeline/bucket/diff/promote/reconcile/趋势）
 - Vue 3 仅加载本地 vendored 副本 `/verynginx/static/vue.global.prod.js`（带 SRI `sha384-...` + `crossorigin`），**无 CDN 兜底**——页面 CSP `script-src 'self'` 会拦截外部脚本，且 CDN 兜底属冗余供应链攻击面（曾有 `document.write(unpkg)` 兜底，已移除）

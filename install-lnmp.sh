@@ -593,6 +593,23 @@ show_summary() {
       echo "    Note: since this version the Lua router ALSO serves dashboard assets,"
       echo "    so a plain 'systemctl restart nginx' usually fixes 404s even without the snippet."
     fi
+    # Drift check: served Vue must byte-match the vendored copy pinned by
+    # index.html SRI. Mismatch = stale /opt tree from an older install
+    # (browser blocks the script with an integrity error).
+    if [ -f "${VN_DIR}/dashboard/vue.global.prod.js" ]; then
+      local vue_local vue_remote
+      vue_local=$(openssl dgst -sha384 -binary "${VN_DIR}/dashboard/vue.global.prod.js" 2>/dev/null | openssl base64 -A 2>/dev/null || true)
+      vue_remote=$(curl -s --max-time 5 -H 'Host: localhost' \
+        "http://127.0.0.1:${chk_port}/verynginx/static/vue.global.prod.js" 2>/dev/null \
+        | openssl dgst -sha384 -binary 2>/dev/null | openssl base64 -A 2>/dev/null || true)
+      if [ -n "$vue_local" ] && [ -n "$vue_remote" ] && [ "$vue_local" != "$vue_remote" ]; then
+        warn "Self-check: served vue.global.prod.js differs from installed copy (SRI will block it)"
+        echo "    Stale files under ${VN_DIR} — re-run this installer to refresh, then"
+        echo "    hard-refresh the browser (Ctrl+Shift+R) to bypass cached assets."
+      elif [ -n "$vue_remote" ]; then
+        info "Self-check: vue.global.prod.js matches vendored copy ✓"
+      fi
+    fi
   fi
 
   local host_ip

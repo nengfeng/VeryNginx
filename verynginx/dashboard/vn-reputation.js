@@ -1,5 +1,5 @@
 // vn-reputation.js - IP reputation module for VeryNginx Dashboard
-// IIFE pattern for classic script loading. Loaded after vn-geoip.
+// IIFE pattern for classic script loading. Loaded after vn-iploc.
 
 (function() {
     // Register factory on global namespace

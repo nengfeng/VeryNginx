@@ -1,4 +1,4 @@
-// vn-geoip.js - GeoIP module for VeryNginx Dashboard
+// vn-iploc.js - GeoIP module for VeryNginx Dashboard
 // IIFE pattern for classic script loading. Loaded after vn-frequency.
 
 (function() {
@@ -6,7 +6,7 @@
     window.VN = window.VN || {};
     window.VN.modules = window.VN.modules || {};
 
-    window.VN.modules['vngeoip'] = function createvngeoipModule(shared) {
+    window.VN.modules['vniploc'] = function createvniplocModule(shared) {
         const { ctx, view, api, isValidIpLiteral, showToast, showConfirm } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;

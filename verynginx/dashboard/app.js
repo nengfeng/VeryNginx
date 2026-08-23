@@ -46,7 +46,7 @@
         'vnconfig',
         'vnwaf',
         'vnfrequency',
-        'vngeoip',
+        'vniploc',
         'vnreputation',
         'vnadvanced',
         'vnkb',
