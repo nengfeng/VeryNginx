@@ -620,6 +620,7 @@
       const state = reactive({ sortKey: '', sortDir: 1, filter: '' });
       const rows = computed(() => {
         let list = (sourceRef && sourceRef.value) || [];
+        if (Array.isArray(list)) list = list.filter(r => r && typeof r === 'object');
         const q = state.filter.trim().toLowerCase();
         if (q) list = list.filter(r => JSON.stringify(r).toLowerCase().includes(q));
         if (!state.sortKey) return list;

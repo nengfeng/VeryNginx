@@ -71,6 +71,30 @@ local function unchunk_rules(chunks)
     return rules
 end
 
+--- Drop corrupt entries from a decoded rules array.
+-- A hand-edited/imported rules file can contain [null] holes; cjson decodes
+-- those to cjson.null (lightuserdata), which is NOT nil — ipairs keeps going
+-- and the sentinel flows into the API response ("r.id" crash on the dashboard)
+-- AND into per-request rule evaluation. Only real tables survive here.
+function _M.sanitize_rule_list(rules)
+    if type(rules) ~= "table" then return {} end
+    local out, dropped = {}, 0
+    for _, r in ipairs(rules) do
+        if type(r) == "table" then
+            out[#out + 1] = r
+        else
+            dropped = dropped + 1
+        end
+    end
+    if dropped > 0 then
+        pcall(function()
+            ngx.log(ngx.WARN, "waf-rule-manager: dropped ", dropped,
+                " corrupt (non-table) rule entries")
+        end)
+    end
+    return out
+end
+
 -- ---------------------------------------------------------------------------
 -- Utility: deep copy (recursive, depth limit = 100)
 -- ---------------------------------------------------------------------------
@@ -178,7 +202,7 @@ function _M.load_rules()
                     return {
                         version   = meta.version,
                         timestamp = meta.timestamp,
-                        rules     = unchunk_rules(chunks)
+                        rules     = _M.sanitize_rule_list(unchunk_rules(chunks))
                     }
                 end
                 if not complete then
@@ -212,7 +236,7 @@ function _M.load_from_file()
         return {
             version   = data.version or 1,
             timestamp = data.timestamp,
-            rules     = data.rules
+            rules     = _M.sanitize_rule_list(data.rules)
         }
     end
     -- Legacy bare array format
