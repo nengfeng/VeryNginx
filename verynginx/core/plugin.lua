@@ -86,7 +86,9 @@ local function classify_request(ctx)
     local base_uri = config.base_uri or "/verynginx"
     local uri = ctx.request.uri
     -- "/"-bounded so /verynginxconfig is NOT classified as admin (see api/init.lua)
-    ctx._is_admin = (uri == base_uri) or (uri:find(base_uri, 1, true) == 1 and uri:sub(#base_uri + 1, #base_uri + 1) == "/")
+    local bounded = uri:find(base_uri, 1, true) == 1
+        and uri:sub(#base_uri + 1, #base_uri + 1) == "/"
+    ctx._is_admin = (uri == base_uri) or bounded
 end
 
 -- Plugins that only apply to backend (non-admin) traffic.
