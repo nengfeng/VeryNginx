@@ -102,9 +102,10 @@ _M.strategies["session"] = {
                         shared:delete("account_lock:" .. tostring(user))
                         shared:delete("failed_login:" .. tostring(user))
                     end
+                    local sec = config and config.security or nil
                     local payload = {
                         user = user,
-                        expire_at = ngx.time() + (((config and config.security) and config.security.session_ttl) or 28800),
+                        expire_at = ngx.time() + ((sec and sec.session_ttl) or 28800),
                         nonce = require("core.random").bytes(16)
                     }
                     local secret = config and config.security and config.security.session_secret or nil
