@@ -18,7 +18,12 @@ set -euo pipefail
 # ----- constants -----------------------------------------------------------
 VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
 # Build fingerprint so field logs self-identify the exact code being run
-VN_BUILD="$(git -C "$(cd "$(dirname "$0")" && pwd)" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# Canonical script location — ALL source-tree references must use this, never
+# ${PWD}: running the script by absolute path from another directory (e.g.
+# `cd /root && /opt/src/VeryNginx/install-lnmp.sh`) silently skips the helper
+# build and misreports bundled modules if PWD-based paths are used.
+VN_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VN_BUILD="$(git -C "$VN_SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 VN_DIR="${VN_PREFIX}"
 BACKUP_DIR="${VN_DIR}/configs/backups"
 VN_ADMIN_PASSWORD=""
@@ -1038,7 +1043,7 @@ check_geoip_deps() {
   fi
 
   # 3. Check table.isarray / table.nkeys (bundled, should always be available)
-  if [ -f "${PWD}/verynginx/table/isarray.lua" ] && [ -f "${PWD}/verynginx/table/nkeys.lua" ]; then
+  if [ -f "${VN_SCRIPT_DIR}/verynginx/table/isarray.lua" ] && [ -f "${VN_SCRIPT_DIR}/verynginx/table/nkeys.lua" ]; then
     info "table.isarray & table.nkeys modules bundled ✓"
   else
     warn "table.isarray / table.nkeys not found in source tree"
@@ -1155,7 +1160,7 @@ install_firewall_helper() {
   info "Go version: $go_version"
 
   # Build the helper
-  local helper_src="${PWD}/helper"
+  local helper_src="${VN_SCRIPT_DIR}/helper"
   if [ ! -d "$helper_src" ]; then
     warn "helper/ source directory not found — skipping build"
     return 0
