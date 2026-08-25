@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnfrequency'] = function createvnfrequencyModule(shared) {
-        const { ctx, view, api, showToast, showConfirm, validateMatcherIps } = shared;
+        const { ctx, view, api, showToast, showConfirm, validateMatcherIps, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -34,9 +34,9 @@
         ]);
         if (!gFreqData.isCurrent(tok)) return;
         const [statsRes, rulesRes, tmplRes] = results.map(r => (r.status === 'fulfilled' ? r.value : null));
-        if (statsRes && statsRes.ret === 'success') freqStats.value = statsRes.data || [];
-        if (rulesRes && rulesRes.ret === 'success') freqRules.value = rulesRes.data || [];
-        if (tmplRes && tmplRes.ret === 'success') freqTemplates.value = tmplRes.data || [];
+        if (statsRes && statsRes.ret === 'success') freqStats.value = asList(statsRes.data);
+        if (rulesRes && rulesRes.ret === 'success') freqRules.value = asList(rulesRes.data);
+        if (tmplRes && tmplRes.ret === 'success') freqTemplates.value = asList(tmplRes.data);
         freqTemplatesLoaded.value = true;
         const failures = results.filter(r => r.status === 'rejected').map(r => r.reason.message);
         if (failures.length) {

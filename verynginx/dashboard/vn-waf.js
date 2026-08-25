@@ -424,6 +424,7 @@
         if (!gWafTimeline.isCurrent(tok)) return;
         if (d.ret === 'success') {
           wafTimeline.value = d.data || { buckets: [], categories: [] };
+          if (Array.isArray(wafTimeline.value.buckets)) wafTimeline.value.buckets = asList(wafTimeline.value.buckets);
         } else {
           wafTimelineError.value = d.message || '时间线加载失败';
           wafTimeline.value = { buckets: [], categories: [] };
@@ -516,6 +517,9 @@
         const d = await api('POST', '/verynginx/waf/rules/test', { rule, test_cases: cases });
         if (d.ret === 'success') {
           wafTestResults.value = d.data;
+          if (wafTestResults.value && Array.isArray(wafTestResults.value.results)) {
+            wafTestResults.value.results = asList(wafTestResults.value.results);
+          }
           await loadTestHistory();
         } else {
           wafTestError.value = d.message || 'Test failed';

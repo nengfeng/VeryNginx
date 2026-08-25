@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnadvanced'] = function createvnadvancedModule(shared) {
-        const { ctx, view, api, showToast, showConfirm, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil } = shared;
+        const { ctx, view, api, showToast, showConfirm, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -33,7 +33,7 @@
         const d = await api('GET', url);
         if (!gAudit.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          auditEntries.value = d.data || [];
+          auditEntries.value = asList(d.data);
         } else {
           auditError.value = d.message || '审计日志加载失败';
         }
@@ -110,7 +110,7 @@
         const d = await api('GET', '/verynginx/fingerprints');
         if (!gFingerprints.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          fingerprints.value = d.data || [];
+          fingerprints.value = asList(d.data);
           const cats = {};
           for (const fp of fingerprints.value) {
             if (fp.enabled) cats[fp.category] = (cats[fp.category] || 0) + 1;
@@ -214,7 +214,7 @@
       try {
         const d = await api('GET', '/verynginx/plugins');
         if (d.ret === 'success') {
-          plugins.value = d.data || [];
+          plugins.value = asList(d.data);
         } else {
           pluginsError.value = d.message || '插件列表加载失败';
         }

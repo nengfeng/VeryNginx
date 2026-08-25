@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vndashboard'] = function createvndashboardModule(shared) {
-        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, sessionExpiredNotice, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls } = shared;
+        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, sessionExpiredNotice, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -330,6 +330,13 @@
     async function loadConfig() {
       try {
         const d = await api('GET', '/verynginx/config');
+        // Sanitize rule-group arrays: config JSON can carry null holes that
+        // crash v-for renders reading r.enable etc.
+        if (d && d.rule) {
+          for (const g of Object.keys(d.rule)) {
+            if (Array.isArray(d.rule[g])) d.rule[g] = asList(d.rule[g]);
+          }
+        }
         cfg.value = d;
         rawJson.value = JSON.stringify(d, null, 2);
         // Textarea re-synced from saved state — any dirty marker is stale.
@@ -394,7 +401,7 @@
       try {
         const d = await api('GET', '/verynginx/stats/top-paths?limit=20');
         if (d.ret === 'success') {
-          topPaths.value = d.data || [];
+          topPaths.value = asList(d.data);
         }
       } catch (e) {
         console.warn('Top paths load failed:', e.message);

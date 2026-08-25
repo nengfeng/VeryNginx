@@ -174,6 +174,55 @@ if (dups.length > 0) {
     else pass('all ctx helpers destructured where used');
 }
 
+// 8. Every array-typed API assignment must pass through asList(). A single
+//    null hole from the backend crashes the v-for render subtree (field bug
+//    class: "Cannot read properties of null (reading 'id')"). Object-shaped
+//    payloads are allowed ONLY when their array sub-keys are sanitized in a
+//    nearby statement (within 400 chars after the assignment).
+{
+    // Tier 1 — non-array payloads (objects / scalars): no asList required.
+    const ALLOW_PLAIN = new Set([
+        'versionInfo',      // {version, commit}
+        'healthData',       // map name -> node-health (keyed lookups only)
+        'geoipStatus',      // status object
+        'geoipStats',       // rebuilt locally via Object.entries().map()
+        'kbStatus',         // status object
+        'kbEntriesNext',    // pagination cursor (string)
+        'kbCandidatesNext', // pagination cursor (string)
+        'repLookupResult',  // single lookup result object
+        'wafCategories',    // object map, no direct item v-for
+    ]);
+    // Tier 2 — object payloads whose ARRAY sub-keys must be sanitized within
+    // 8 lines after the assignment.
+    const ALLOW_WINDOW = new Set([
+        'cfg',             // rule groups normalized right below the assign
+        'wafTimeline',     // .buckets
+        'wafTestResults',  // .results
+        'kbDiff',          // missing_in_kernel / orphan_in_kernel
+    ]);
+    const bad = [];
+    for (const f of MODULE_FILES) {
+        const src = fs.readFileSync(path.join(DASH, f), 'utf8');
+        const lines = src.split('\n');
+        lines.forEach((line, i) => {
+            if (!/\.value\s*=\s*[^;\n]*\b(d\.data|[a-zA-Z]+Res\.data|d\.data\.[a-zA-Z]+)\b/.test(line)) return;
+            if (/asList\(/.test(line)) return;
+            const vm = line.match(/([a-zA-Z][\w]*)\.value\s*=/);
+            const varName = vm ? vm[1] : '';
+            if (ALLOW_PLAIN.has(varName)) return;
+            if (ALLOW_WINDOW.has(varName)) {
+                const window = lines.slice(i, i + 8).join('\n');
+                if (/asList\(/.test(window)) return;
+                bad.push(`${f}:${i + 1} ${varName}.value = ...data... but array sub-keys not asList-ed nearby`);
+                return;
+            }
+            bad.push(`${f}:${i + 1} ${varName}.value = ...data... without asList`);
+        });
+    }
+    if (bad.length > 0) fail(`unsanitized list assignments: ${bad.join('; ')}`);
+    else pass('all data assignments sanitized via asList');
+}
+
 console.log(failures === 0
     ? `\nOK: dashboard init gate passed (${setupBindings.size} view bindings, ${MODULE_FILES.length - 1} modules)`
     : `\n${failures} assertion(s) failed`);

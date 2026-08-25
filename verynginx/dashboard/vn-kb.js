@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnkb'] = function createvnkbModule(shared) {
-        const { ctx, view, api, page, status, connHistory, isValidIpLiteral, showToast, showConfirm } = shared;
+        const { ctx, view, api, page, status, connHistory, isValidIpLiteral, showToast, showConfirm, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -287,7 +287,7 @@
         if (d.ret === 'success') {
           kbEntriesCurrentCursor.value = cursor || null;
           if (!cursor) kbEntriesPrev.value = [];
-          kbEntries.value = d.data.entries || [];
+          kbEntries.value = asList(d.data.entries);
           kbEntriesNext.value = d.data.next_cursor;
         } else {
           kbError.value = d.message || '条目加载失败';
@@ -318,7 +318,7 @@
         if (d.ret === 'success') {
           kbCandidatesCurrentCursor.value = cursor || null;
           if (!cursor) kbCandidatesPrev.value = [];
-          kbCandidates.value = d.data.entries || [];
+          kbCandidates.value = asList(d.data.entries);
           kbCandidatesNext.value = d.data.next_cursor;
         } else {
           kbError.value = d.message || '候选加载失败';
@@ -394,7 +394,7 @@
         const d = await api('GET', '/verynginx/kernel-blocking/bucket-history');
         if (!gKbBucket.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          kbBucketHistory.value = d.data.samples || [];
+          kbBucketHistory.value = asList(d.data.samples);
         } else {
           kbBucketHistoryError.value = d.message || '桶历史加载失败';
           kbBucketHistory.value = [];
@@ -411,7 +411,14 @@
       kbDiffError.value = '';
       try {
         const d = await api('GET', '/verynginx/kernel-blocking/diff');
-        if (d.ret === 'success') kbDiff.value = d.data || kbDiff.value;
+        if (d.ret === 'success') {
+          kbDiff.value = d.data || kbDiff.value;
+          // diff lists render directly via v-for (.id/.ip) — no table tools
+          if (kbDiff.value) {
+            if (Array.isArray(kbDiff.value.missing_in_kernel)) kbDiff.value.missing_in_kernel = asList(kbDiff.value.missing_in_kernel);
+            if (Array.isArray(kbDiff.value.orphan_in_kernel)) kbDiff.value.orphan_in_kernel = asList(kbDiff.value.orphan_in_kernel);
+          }
+        }
         else kbDiffError.value = d.message || '差异加载失败';
       } catch (e) {
         if (e.message !== 'session_expired') kbDiffError.value = e.message;
