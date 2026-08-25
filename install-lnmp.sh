@@ -651,15 +651,35 @@ show_summary() {
   # Best-effort only — never fails the install.
   if command -v curl >/dev/null 2>&1 && [ -n "$NGINX_CONF" ] && [ -f "$NGINX_CONF" ]; then
     local chk_port chk_code
-    chk_port=$(grep -m1 -oP 'listen\s+\S*?:?\K[0-9]+' "$NGINX_CONF" 2>/dev/null || true)
-    chk_port="${chk_port:-80}"
+    # Probe EVERY listen port of the first server{} block (plain-HTTP only:
+    # an ssl-only listener answers a cleartext probe with a handshake reset,
+    # which curl reports as code 000 — not a real failure signal). First port
+    # that yields ANY HTTP status wins; fall back to global listen scan.
+    local ports p
+    ports=$(awk '/server[ \t]*\{/{f=1} f&&$1=="listen"&&$0!~/ssl/{print} f&&/^[ \t]*\}/{exit}' \
+      "$NGINX_CONF" 2>/dev/null | grep -oE '[0-9]{2,5}' | sort -un)
+    [ -z "$ports" ] && ports=$(grep -oP 'listen\s+\S*?:?\K[0-9]+' "$NGINX_CONF" 2>/dev/null | sort -un)
+    [ -z "$ports" ] && ports="80"
+    chk_port=""; chk_code="000"
     sleep 1
-    chk_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
-      -H 'Host: localhost' "http://127.0.0.1:${chk_port}/verynginx/static/style.css" 2>/dev/null || echo 000)
+    for p in $ports; do
+      local c
+      c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 \
+        -H 'Host: localhost' "http://127.0.0.1:${p}/verynginx/static/style.css" 2>/dev/null || echo 000)
+      if [ "$c" != "000" ]; then chk_port="$p"; chk_code="$c"; break; fi
+    done
     if [ "$chk_code" = "200" ]; then
       info "Self-check: dashboard style.css served ✓ (port ${chk_port})"
+    elif [ "$chk_port" = "" ]; then
+      # No port answered at all — connection-level problem, NOT a snippet one.
+      warn "Self-check: no HTTP response on probed ports ($(echo $ports | tr '\n' ' '))"
+      echo "    curl could not connect on loopback. Likely causes:"
+      echo "      - nginx not running/reloaded yet (systemctl status nginx)"
+      echo "      - server blocks bind to specific external IPs only"
+      echo "      - all listeners are ssl-only (probe speaks plain HTTP)"
+      echo "    The Lua router serves dashboard assets regardless once traffic flows."
     else
-      warn "Self-check: GET /verynginx/static/style.css returned ${chk_code} (expected 200)"
+      warn "Self-check: GET /verynginx/static/style.css returned ${chk_code} on port ${chk_port} (expected 200)"
       echo "    The static snippet may be missing from the SERVER BLOCK THAT SERVES YOUR TRAFFIC."
       echo "    Patched file : ${NGINX_CONF} (first server{} block)"
       echo "    Check inside the vhost you actually browse:"
