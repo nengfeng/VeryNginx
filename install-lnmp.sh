@@ -59,6 +59,54 @@ confirm() {
   done
 }
 
+# ---- Single source of truth for admin credential hashing -------------------
+# OWASP current guidance: PBKDF2-HMAC-SHA256 >= 600,000 iterations (was 12k,
+# ~50x below target). Overridable for very low-power boxes. Safe to change:
+# the Lua verifier reads the iteration count FROM the stored hash string
+# ("p1$iter$salt$hash"), so old and new hashes verify side by side.
+VN_PBKDF2_ITER="${VN_PBKDF2_ITER:-600000}"
+
+write_admin_hash() {
+  # Caller must export: VN_PASSWORD VN_CONFIG VN_USER
+  export VN_PBKDF2_ITER
+  local py_script out
+  py_script=$(mktemp /tmp/vn_hash.XXXXXX.py)
+  cat > "$py_script" << 'PYEOF'
+import os, hashlib, hmac, base64, json, secrets
+
+password = os.environ['VN_PASSWORD'].encode('utf-8')
+salt = os.urandom(16)
+iterations = int(os.environ.get('VN_PBKDF2_ITER', '600000'))
+
+init_msg = salt + b'\x00\x00\x00\x01'
+u = hmac.new(password, init_msg, 'sha256').digest()
+result = bytearray(u)
+for i in range(2, iterations + 1):
+    u = hmac.new(password, u, 'sha256').digest()
+    for j, b in enumerate(u):
+        result[j] ^= b
+result = bytes(result)
+b64 = lambda d: base64.b64encode(d).decode('ascii')
+hash_str = 'p1$%s$%s$%s' % (iterations, b64(salt), b64(result))
+
+config = json.load(open(os.environ['VN_CONFIG']))
+if 'admin' not in config or not config['admin']:
+    config['admin'] = [{'user': os.environ['VN_USER'], 'enable': True}]
+config['admin'][0]['password_hash'] = hash_str
+config['admin'][0]['password'] = None
+if not isinstance(config.get('security'), dict):
+    config['security'] = {}
+if not config['security'].get('session_secret'):
+    config['security']['session_secret'] = secrets.token_hex(32)
+json.dump(config, open(os.environ['VN_CONFIG'], 'w'), indent=4)
+print('OK')
+PYEOF
+  out=$(python3 "$py_script" 2>&1) || { rm -f "$py_script"; die "Failed to generate password hash (python3 required): $out"; }
+  rm -f "$py_script"
+  [ "$out" = "OK" ] || { warn "Password hash generation failed: $out"; return 1; }
+}
+
+
 require_root() {
   if [ "$(id -u)" != "0" ]; then
     die "must run as root"
@@ -267,52 +315,6 @@ setup_admin_password() {
   done
 
 
-# ---- Single source of truth for admin credential hashing -------------------
-# OWASP current guidance: PBKDF2-HMAC-SHA256 >= 600,000 iterations (was 12k,
-# ~50x below target). Overridable for very low-power boxes. Safe to change:
-# the Lua verifier reads the iteration count FROM the stored hash string
-# ("p1$iter$salt$hash"), so old and new hashes verify side by side.
-VN_PBKDF2_ITER="${VN_PBKDF2_ITER:-600000}"
-
-write_admin_hash() {
-  # Caller must export: VN_PASSWORD VN_CONFIG VN_USER
-  export VN_PBKDF2_ITER
-  local py_script out
-  py_script=$(mktemp /tmp/vn_hash.XXXXXX.py)
-  cat > "$py_script" << 'PYEOF'
-import os, hashlib, hmac, base64, json, secrets
-
-password = os.environ['VN_PASSWORD'].encode('utf-8')
-salt = os.urandom(16)
-iterations = int(os.environ.get('VN_PBKDF2_ITER', '600000'))
-
-init_msg = salt + b'\x00\x00\x00\x01'
-u = hmac.new(password, init_msg, 'sha256').digest()
-result = bytearray(u)
-for i in range(2, iterations + 1):
-    u = hmac.new(password, u, 'sha256').digest()
-    for j, b in enumerate(u):
-        result[j] ^= b
-result = bytes(result)
-b64 = lambda d: base64.b64encode(d).decode('ascii')
-hash_str = 'p1$%s$%s$%s' % (iterations, b64(salt), b64(result))
-
-config = json.load(open(os.environ['VN_CONFIG']))
-if 'admin' not in config or not config['admin']:
-    config['admin'] = [{'user': os.environ['VN_USER'], 'enable': True}]
-config['admin'][0]['password_hash'] = hash_str
-config['admin'][0]['password'] = None
-if not isinstance(config.get('security'), dict):
-    config['security'] = {}
-if not config['security'].get('session_secret'):
-    config['security']['session_secret'] = secrets.token_hex(32)
-json.dump(config, open(os.environ['VN_CONFIG'], 'w'), indent=4)
-print('OK')
-PYEOF
-  out=$(python3 "$py_script" 2>&1) || { rm -f "$py_script"; die "Failed to generate password hash (python3 required): $out"; }
-  rm -f "$py_script"
-  [ "$out" = "OK" ] || { warn "Password hash generation failed: $out"; return 1; }
-}
 
   export VN_PASSWORD="$password" VN_CONFIG="$config_file" VN_USER="$default_user"
 
