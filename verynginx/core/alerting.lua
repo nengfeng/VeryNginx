@@ -172,6 +172,18 @@ end
 -- @return boolean|nil, string: true=encloses private IP, false=all public,
 --   nil=resolver unavailable (caller falls back to fail-closed: deny).
 local function resolves_to_private(host)
+    -- Cosockets are FORBIDDEN outside request-ish contexts: init_by_lua has
+    -- no request, and resty.dns.resolver:new() raises "no request found"
+    -- there. A domain-shaped webhook in config.json therefore bricked the
+    -- entire nginx start (load_from_file -> validate_config runs at init).
+    -- Guard by phase AND wrap everything in pcall so any failure degrades to
+    -- "unavailable" instead of raising.
+    if ngx.get_phase then
+        local ph = ngx.get_phase()
+        if ph == "init" or ph == "init_worker" then
+            return nil, "phase:" .. tostring(ph)
+        end
+    end
     local ok_mod, dns_mod = pcall(require, "resty.dns.resolver")
     if not ok_mod or type(dns_mod) ~= "table" then return nil end
 
@@ -185,19 +197,24 @@ local function resolves_to_private(host)
         nameservers = { "8.8.8.8", "1.1.1.1" }
     end
 
-    local r, _ = dns_mod:new({ nameservers = nameservers, retrans = 1, timeout = 2000 })
-    if not r then return nil end
-    for _, qtype in ipairs({ "A", "AAAA" }) do
-        local answers = r:query(host, { qtype = qtype })
-        if type(answers) == "table" then
-            for _, ans in ipairs(answers) do
-                if ans and ans.address and is_private_ip(ans.address) then
-                    return true
+    local ok_new, r = pcall(dns_mod.new, dns_mod,
+        { nameservers = nameservers, retrans = 1, timeout = 2000 })
+    if not ok_new or not r then return nil end
+    local ok_query, result = pcall(function()
+        for _, qtype in ipairs({ "A", "AAAA" }) do
+            local answers = r:query(host, { qtype = qtype })
+            if type(answers) == "table" then
+                for _, ans in ipairs(answers) do
+                    if ans and ans.address and is_private_ip(ans.address) then
+                        return true
+                    end
                 end
             end
         end
-    end
-    return false
+        return false
+    end)
+    if not ok_query then return nil end
+    return result
 end
 
 local function validate_webhook_url(url)
@@ -235,6 +252,13 @@ local function validate_webhook_url(url)
     -- actually resolves to a private address.
     local priv, derr = resolves_to_private(host)
     if priv == nil then
+        -- Boot path (init/init_worker): cosockets are unavailable there.
+        -- Denying would brick nginx startup over a config that only needs
+        -- enforcement at SEND time — send_webhook() re-validates WITH DNS
+        -- on every dispatch, so defer to that moment.
+        if derr and derr:find("phase:", 1, true) then
+            return true
+        end
         -- Resolver unavailable (e.g. restricted network / unit test): fail-closed.
         -- Deny the webhook to prevent DNS rebinding SSRF bypass.
         ngx.log(ngx.WARN, "alerting: DNS resolution unavailable for webhook host ",
