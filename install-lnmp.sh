@@ -757,8 +757,15 @@ with open(nginx_conf, 'w') as f:
 print("OK")
 PYEOF
 
+  if ! command -v python3 >/dev/null 2>&1; then
+    rm -f "$py_script"
+    warn "python3 unavailable — cannot rewrite server block automatically"
+    echo "    Finish with ONE line inside each server{} you want protected:"
+    echo "      include ${VN_DIR}/nginx_conf/in_server_block.conf;"
+    return 0
+  fi
   local out
-  out=$(python3 "$py_script" "$NGINX_CONF" "$VN_DIR" 2>&1) || die "Failed to patch server block: $out"
+  out=$(python3 "$py_script" "$NGINX_CONF" "$VN_DIR" 2>&1) || { rm -f "$py_script"; die "Failed to patch server block: $out"; }
   rm -f "$py_script"
 
   if [ "$out" = "OK" ]; then
@@ -1490,6 +1497,17 @@ main() {
 
   require_root
   detect_web_server
+
+  # python3 powers config patching (replace_server_block) and password
+  # hashing. The password step is SKIPPED when a password is already
+  # configured, which used to let a python3-less box sail through every sed
+  # injection and die mid-patch at the server-block rewrite — nginx.conf
+  # left half-modified and never nginx -t'd. Fail BEFORE touching anything.
+  if ! command -v python3 >/dev/null 2>&1; then
+    die "python3 is required but not found. Install it first:
+    apt-get install -y python3   |   yum install -y python3"
+  fi
+
   check_lua_resty_deps
   check_geoip_deps
   install_files
