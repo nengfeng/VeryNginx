@@ -48,6 +48,34 @@
     }
     const wafTestCaseRows = reactive([defaultWafTestCaseRow()]);
     function addWafTestCaseRow() { wafTestCaseRows.push(defaultWafTestCaseRow()); }
+    const wafLogPaste = ref('');
+    function unescapeNginx(v) {
+      return (v || '').replace(/\\x22/g, '"').replace(/\\x27/g, "'").replace(/\\x5C/g, '\\');
+    }
+    function parseWafAccessLogLine(line) {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) return null;
+      const m = t.match(/^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"([^"]*)"\s+(\d{3})\s+(\S+)\s+"([^"]*)"\s+"([^"]*)"/);
+      if (!m) return null;
+      const req = unescapeNginx(m[3]).match(/^([A-Z]+)\s+(\S+)(?:\s+\S+)?$/);
+      if (!req) return null;
+      return {
+        name: '', uri: req[2].split('?')[0] + (req[2].includes('?') ? '?' + req[2].split('?').slice(1).join('?') : ''),
+        method: req[1], ip: m[1], ua: unescapeNginx(m[7]), expected: true,
+      };
+    }
+    function wafParseAccessLog() {
+      const lines = wafLogPaste.value.split('\n');
+      let ok = 0, bad = 0;
+      for (const ln of lines) {
+        const c = parseWafAccessLogLine(ln);
+        if (c) { c.name = 'log-' + (wafTestCaseRows.length + 1); wafTestCaseRows.push(c); ok++; }
+        else if (ln.trim() && !ln.trim().startsWith('#')) bad++;
+      }
+      if (!ok && !bad) { showToast('没有可解析的日志行', 'warn'); return; }
+      showToast('已添加 ' + ok + ' 条用例' + (bad ? '（' + bad + ' 行无法解析已跳过）' : ''), ok ? 'success' : 'warn');
+      wafLogPaste.value = '';
+    }
     function removeWafTestCaseRow(i) { if (wafTestCaseRows.length > 1) wafTestCaseRows.splice(i, 1); }
     function wafTestRuleFromForm() {
       const f = wafTestRuleForm;
@@ -961,6 +989,8 @@
     view('wafTestRuleForm', wafTestRuleForm);
     view('wafTestCaseRows', wafTestCaseRows);
     view('addWafTestCaseRow', addWafTestCaseRow);
+    view('wafLogPaste', wafLogPaste);
+    view('wafParseAccessLog', wafParseAccessLog);
     view('removeWafTestCaseRow', removeWafTestCaseRow);
     view('wafTestError', wafTestError);
     view('wafTesting', wafTesting);

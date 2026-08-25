@@ -894,6 +894,11 @@
                   </tbody>
                 </table>
                 <button class="outline small" style="margin-top:6px" @click="addWafTestCaseRow">+ 添加用例</button>
+                <details style="margin-top:8px">
+                  <summary style="cursor:pointer;font-size:13px;color:var(--muted)">从访问日志粘贴（支持多行，自动解析 IP/方法/URI/UA）</summary>
+                  <textarea v-model="wafLogPaste" spellcheck="false" class="code-editor" style="min-height:90px;margin-top:6px" placeholder='203.0.113.7 - - [25/Aug/2026:10:00:00 +0800] "GET /api/users?id=1 HTTP/1.1" 200 1234 "-" "Mozilla/5.0 ..."&#10;支持 combined 格式，每行一条，# 开头的行跳过；预期命中默认勾选'></textarea>
+                  <div><button class="primary small" style="margin-top:6px" @click="wafParseAccessLog">解析并添加用例</button></div>
+                </details>
               </div>
               <datalist id="vnUaPresets">
                 <option value="curl/8.5.0"></option>
