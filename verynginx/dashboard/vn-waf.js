@@ -642,7 +642,13 @@
         const d = await api('GET', '/verynginx/waf/analytics');
         if (!gWafAnalytics.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          wafAnalytics.value = d.data || { rules: [], dead_rules: [] };
+          // Sub-arrays need their own asList pass: a single null hole from an
+          // older/mismatched backend crashes the v-for renders (r.id/dr.id).
+          const src = d.data || {};
+          wafAnalytics.value = {
+            rules: asList(src.rules),
+            dead_rules: asList(src.dead_rules),
+          };
         } else {
           wafAnalyticsError.value = d.message || '分析数据加载失败';
           wafAnalytics.value = { rules: [], dead_rules: [] };
