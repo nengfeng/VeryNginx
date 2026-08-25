@@ -143,6 +143,37 @@ if (dups.length > 0) {
     pass('no duplicate view()/ctx() exports');
 }
 
+// 7. ctx helpers must be destructured from `shared` before use. Factories
+//    run at init but loaders run LATER — a bare `asList(...)` inside a
+//    non-destructured module only explodes on first data load (field bug:
+//    WAF rules list died with "asList is not defined").
+{
+    const commonSrc = fs.readFileSync(path.join(DASH, 'vn-common.js'), 'utf8');
+    const ctxNames = [...commonSrc.matchAll(/\bctx\('([A-Za-z_$][\w$]*)'/g)].map(m => m[1]);
+    const missing = [];
+    for (const f of MODULE_FILES) {
+        if (f === 'vn-common.js') continue; // defines them
+        const src = fs.readFileSync(path.join(DASH, f), 'utf8');
+        // strip comments so helper names in prose don't count as usage
+        const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+        const dm = code.match(/const\s*\{([^}]*)\}\s*=\s*shared/);
+        const destructured = new Set(
+            dm ? dm[1].split(',').map(s => s.trim().split(':')[0].trim()).filter(Boolean) : []
+        );
+        for (const name of ctxNames) {
+            const defRe = new RegExp(`(function\\s+${name}\\s*\\(|const\\s+${name}\\s*=)`);
+            const useRe = new RegExp(`(?<![\\w$.])${name}\\s*\\(`, 'g');
+            const uses = [...code.matchAll(useRe)]
+                .filter(m => !defRe.test(code.slice(Math.max(0, m.index - 200), m.index)));
+            if (uses.length > 0 && !destructured.has(name)) {
+                missing.push(`${f}: ${name}(...) used but not in shared-destructure`);
+            }
+        }
+    }
+    if (missing.length > 0) fail(`ctx helper(s) not destructured: ${missing.join('; ')}`);
+    else pass('all ctx helpers destructured where used');
+}
+
 console.log(failures === 0
     ? `\nOK: dashboard init gate passed (${setupBindings.size} view bindings, ${MODULE_FILES.length - 1} modules)`
     : `\n${failures} assertion(s) failed`);

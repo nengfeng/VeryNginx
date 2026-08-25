@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
-        const { ctx, view, api, store, page, showToast, showConfirm, validateMatcherIps } = shared;
+        const { ctx, view, api, store, page, showToast, showConfirm, validateMatcherIps, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
