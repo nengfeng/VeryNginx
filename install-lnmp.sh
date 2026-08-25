@@ -1280,7 +1280,7 @@ main() {
         require_root
         VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
         VN_DIR="${VN_PREFIX}"
-        reset_admin_password "$2"
+        reset_admin_password "${2:-}"
         exit 0
         ;;
     esac
