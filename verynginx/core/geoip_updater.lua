@@ -83,8 +83,19 @@ local function download_file(url, dest, timeout)
     end
     local httpc = http.new()
     httpc:set_timeout(timeout * 1000)
+    -- TLS verification stays ON by default; config.geoip.tls_verify=false is
+    -- an explicit operator escape hatch (no CA bundle on the box). Note the
+    -- library cannot take a CA path — verification uses the worker process
+    -- OpenSSL default store, which install-lnmp.sh wires up by injecting
+    -- `env SSL_CERT_FILE=<bundle>;` into nginx.conf.
+    local cfg_ok, cfg_mod = pcall(require, "core.config")
+    local tls_verify = true
+    if cfg_ok and cfg_mod and cfg_mod.geoip and cfg_mod.geoip.tls_verify == false then
+        tls_verify = false
+    end
     local res, err = httpc:request_uri(url, {
         method = "GET",
+        ssl_verify = tls_verify,
         headers = { ["User-Agent"] = "VeryNginx-GeoIP-Updater/2.0" },
     })
     if not res then return false, "download failed: " .. tostring(err) end
@@ -106,7 +117,16 @@ local function get_remote_etag(url)
     end
     local httpc = http.new()
     httpc:set_timeout(10000)
-    local res, err = httpc:request_uri(url, { method = "HEAD" })
+    -- Same TLS policy as download_file: verify unless geoip.tls_verify=false
+    local cfg_ok, cfg_mod = pcall(require, "core.config")
+    local tls_verify = true
+    if cfg_ok and cfg_mod and cfg_mod.geoip and cfg_mod.geoip.tls_verify == false then
+        tls_verify = false
+    end
+    local res, err = httpc:request_uri(url, {
+        method = "HEAD",
+        ssl_verify = tls_verify,
+    })
     if not res then return nil, tostring(err) end
     return res.headers["ETag"] or res.headers["Last-Modified"]
 end

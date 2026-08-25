@@ -345,6 +345,31 @@ patch_nginx_conf() {
     fi
   fi
 
+  # 1c) CA bundle for worker-process TLS verification. lua-resty-http's
+  # sslhandshake(verify=true) uses the OpenSSL DEFAULT store, which reads
+  # SSL_CERT_FILE / SSL_CERT_DIR from the process env — nginx strips all
+  # env by default, so pass it through explicitly (main context `env`).
+  local vn_ca
+  for vn_ca in /etc/ssl/certs/ca-certificates.crt \
+               /etc/pki/tls/certs/ca-bundle.crt \
+               /usr/local/share/certs/ca-root-nss.crt; do
+    [ -f "$vn_ca" ] && break
+    vn_ca=""
+  done
+  if [ -n "$vn_ca" ]; then
+    if grep -q 'SSL_CERT_FILE' "$NGINX_CONF" 2>/dev/null; then
+      info "SSL_CERT_FILE already present, skipping ✓"
+    else
+      sed -i "1i # VeryNginx v2 - CA bundle for cosocket TLS verification\nenv SSL_CERT_FILE=${vn_ca};" "$NGINX_CONF"
+      info "Added env SSL_CERT_FILE=${vn_ca} ✓"
+    fi
+  else
+    warn "No CA bundle found — outbound TLS (GeoIP updater) will fail verification"
+    echo "    Fix: apt-get install -y ca-certificates   (or yum install -y ca-certificates)"
+    echo "    Then re-run this installer."
+    echo "    Escape hatch (NOT recommended): set geoip.tls_verify=false in config.json"
+  fi
+
   # 2) add VeryNginx paths to existing lua_package_path inside http block
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"

@@ -123,6 +123,7 @@ _M.schema = {
                 update_url = "https://download.maxmind.com/app/geoip_download",
                 cdn_url = "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
                 use_cdn = false,
+                tls_verify = true,
             },
             children = {
                 enable              = leaf({ type = "boolean", default = false }),
@@ -136,6 +137,7 @@ _M.schema = {
                 update_url          = leaf({ type = "string", default = GEOIP_UPDATE_URL }),
                 cdn_url             = leaf({ type = "string", default = GEOIP_CDN_URL }),
                 use_cdn             = leaf({ type = "boolean", default = false }),
+                tls_verify          = leaf({ type = "boolean", default = true }),
             },
             preserve_unknown = true,
         },
