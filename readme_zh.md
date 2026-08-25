@@ -4,6 +4,17 @@
 
 [English](readme.md) | [安装手册](docs/INSTALL_zh.md) | [使用手册](docs/USAGE_zh.md) | [架构设计](docs/DESIGN_V2.md)
 
+## v2.2 亮点（2026-08-25）
+
+- **启动可靠性**：webhook DNS 校验的 init 阶段守卫（域形态 webhook 不再 brick nginx 启动）；静态文件字节保真输出（`ngx.print` 替代带换行的 `ngx.say`）
+- **安装器加固**：cosocket DNS 的 resolver 注入、出站 TLS 的 `lua_ssl_trusted_certificate`、SRI 钉值 vs 实际服务内容漂移比对、重装盲区清理、自检 000 端口归因
+- **安全**：SSRF 对 IPv6 括号/映射字形的防护、空 `session_secret` fail-closed 覆盖、审计遗留清偿批次
+- **面板稳定性**：`asList` 消毒全量收口 + 「模板绑定 == 导出集合」静态门禁；表格工具 reactive 修复；模块改名规避 uBlock（`vn-iploc.js`）
+- **WAF 规则测试器**：表单化测试（免手写 JSON）、一键载入现有规则、粘贴访问日志自动生成用例
+- **测试**：spec 199 + phase0 317 全绿；新增回归套件（init 阶段 webhook、字节保真、消毒契约）
+
+---
+
 ## v2.1 亮点（2026-08-16）
 
 - **性能优化**：Per-rule WAF 统计走索引（告别 `get_keys` 200 键上限），`is_v2_active()` 与 `is_whitelisted()` generation 读取缓存化，IP 信誉收集走 score_cache 快路径

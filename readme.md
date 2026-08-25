@@ -4,6 +4,17 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 
 [中文文档](readme_zh.md) | [Installation Guide](docs/INSTALL_zh.md) | [Usage Manual](docs/USAGE_zh.md) | [Architecture Design](docs/DESIGN_V2.md)
 
+## v2.2 Highlights (2026-08-25)
+
+- **Boot reliability**: init-phase guard for webhook DNS validation (a domain-shaped webhook no longer bricks nginx startup via cosocket-in-init), static file serving is byte-faithful (`ngx.print`, not `ngx.say` + stray newline)
+- **Installer hardening**: resolver injection for cosocket DNS, `lua_ssl_trusted_certificate` for outbound TLS, SRI pin-vs-served drift detection, reinstall blind-spot cleanup, self-check port-000 attribution
+- **Security**: SSRF guards for IPv6 bracket/mapped literal forms, fail-closed coverage for empty `session_secret`, audit-leftover cleanup batch
+- **Dashboard stability**: full `asList` sanitization sweep plus static gates that pin template bindings == exports, reactive table tools fix, uBlock-safe module rename (`vn-iploc.js`)
+- **WAF rule tester**: form-based testing (no hand-written JSON), one-click load of existing rules, paste-access-log case generation
+- **Testing**: 199 spec + 317 phase0 green; new regression suites (init-phase webhook, byte fidelity, sanitizer contracts)
+
+---
+
 ## v2.1 Highlights (2026-08-16)
 
 - **Performance optimizations**: Per-rule WAF stats via index (no more `get_keys` 200-key ceiling), cached `is_v2_active()` and `is_whitelisted()` generation reads, score cache fast-path in IP reputation collection
