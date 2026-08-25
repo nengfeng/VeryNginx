@@ -396,10 +396,39 @@ patch_nginx_conf() {
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"
   if grep -q 'lua_package_path' "$NGINX_CONF"; then
-    # Purge ANY previous VeryNginx prefix from the paths, then merge in the
-    # current one — a leftover stale prefix makes Lua load old code/files.
-    sed -i -E "\|lua_package_path|s|[^;\"]*verynginx/[^;\"]*;;|;;|g" "$NGINX_CONF" 2>/dev/null || true
-    sed -i "\|lua_package_path|s|;;|;${vn_paths};;|" "$NGINX_CONF"
+    # Purge EVERY VeryNginx segment, then merge in the current one — a
+    # leftover stale prefix makes Lua load old code/files. The previous
+    # regex ([^;"]*verynginx/[^;"]*;;) only removed a segment adjacent to
+    # ';;': our own injection is THREE segments, so the two leading ones
+    # survived every re-run (unbounded growth) and an old-prefix reinstall
+    # kept them forever. Split on ';' and filter instead.
+    local tmp_conf="${NGINX_CONF}.vn_tmp.$$"
+    # Managed-marker strategy: a line ending in '# vn2-managed' is rebuilt
+    # from scratch every run (idempotent under ANY VN_DIR — a literal
+    # 'verynginx/' filter cannot recognise custom prefixes like /data/vn2).
+    # Unmarked lines are migrated once: drop segments containing the
+    # literal 'verynginx/' (legacy default-prefix installs), merge current
+    # paths, add the marker.
+    awk -v vn="${vn_paths}" '
+      /lua_package_path/ && /"/ && !done {
+        pre = $0;  sub(/".*$/, "", pre); sub(/[ \t]+$/, "", pre)
+        val = $0;  sub(/^[^"]*"/, "", val); sub(/".*$/, "", val)
+        out = ""
+        if ($0 ~ /vn2-managed/) {
+          out = ""
+        } else {
+          n = split(val, segs, /;/)
+          for (i = 1; i <= n; i++) {
+            s = segs[i]
+            if (s != "" && s !~ /verynginx\//) { out = (out == "" ? s : out ";" s) }
+          }
+          if (out != "") out = out ";"
+        }
+        $0 = pre " \"" out vn ";;\" # vn2-managed"
+        done = 1
+      }
+      { print }
+    ' "$NGINX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$NGINX_CONF"
     info "Merged VeryNginx paths into existing lua_package_path ✓"
     # also ensure lua_package_cpath exists (ffi.load needs .so search path)
     if ! grep -q 'lua_package_cpath' "$NGINX_CONF"; then
