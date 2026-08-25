@@ -1486,7 +1486,11 @@ Before=nginx.service
 ListenStream=${FIREWALL_HELPER_SOCKET}
 SocketMode=0660
 Group=${vn_group}
-DirectoryMode=0750
+# Traversal-only: 0750 root:root would lock out the nginx worker after
+# reboot (/run is tmpfs; systemd recreates the dir before nginx starts and
+# the installer's chmod 755 only covers this run). Access is enforced by
+# the socket node itself (0660 + group).
+DirectoryMode=0755
 
 [Install]
 WantedBy=sockets.target
@@ -1512,6 +1516,7 @@ PrivateTmp=yes
 NoNewPrivileges=yes
 ReadWritePaths=${FIREWALL_HELPER_DIR}
 RuntimeDirectory=verynginx
+RuntimeDirectoryMode=0755
 ExecStartPre=/bin/mkdir -p ${FIREWALL_HELPER_DIR}
 
 [Install]

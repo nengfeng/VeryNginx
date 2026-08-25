@@ -22,6 +22,7 @@ PrivateTmp=yes
 NoNewPrivileges=yes
 ReadWritePaths=/run/verynginx
 RuntimeDirectory=verynginx
+RuntimeDirectoryMode=0755
 
 # Ensure the socket directory is accessible
 ExecStartPre=/bin/mkdir -p /run/verynginx
