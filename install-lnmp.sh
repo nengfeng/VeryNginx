@@ -172,7 +172,11 @@ install_files() {
   if [ -n "$nginx_user" ] && id "$nginx_user" &>/dev/null; then
     chown -R "${nginx_user}:${nginx_user}" "${VN_DIR}/configs" 2>/dev/null || true
   fi
-  chmod -R 755 "${VN_DIR}/configs"
+  # configs/ holds config.json with security.session_secret — world-readable
+  # (755) lets ANY local user forge admin sessions. nginx worker only needs
+  # rw via ownership; others get nothing.
+  chmod 750 "${VN_DIR}/configs"
+  find "${VN_DIR}/configs" -type f -exec chmod 640 {} +
 
   # Create GeoIP directory with proper permissions for DB downloads
   local geoip_dir="${VN_DIR}/geoip"
