@@ -313,13 +313,11 @@ patch_nginx_conf() {
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"
   if grep -q 'lua_package_path' "$NGINX_CONF"; then
-    # append VeryNginx paths if not already present
-    if ! grep -q "${VN_DIR}" "$NGINX_CONF" 2>/dev/null; then
-      sed -i "\|lua_package_path|s|;;|;${vn_paths};;|" "$NGINX_CONF"
-      info "Merged VeryNginx paths into existing lua_package_path ✓"
-    else
-      info "VeryNginx paths already in lua_package_path, skipping ✓"
-    fi
+    # Purge ANY previous VeryNginx prefix from the paths, then merge in the
+    # current one — a leftover stale prefix makes Lua load old code/files.
+    sed -i -E "\|lua_package_path|s|[^;\"]*verynginx/[^;\"]*;;|;;|g" "$NGINX_CONF" 2>/dev/null || true
+    sed -i "\|lua_package_path|s|;;|;${vn_paths};;|" "$NGINX_CONF"
+    info "Merged VeryNginx paths into existing lua_package_path ✓"
     # also ensure lua_package_cpath exists (ffi.load needs .so search path)
     if ! grep -q 'lua_package_cpath' "$NGINX_CONF"; then
       sed -i '/^http\s*{/a\    lua_package_cpath "'"${vn_cpath}"';;";' "$NGINX_CONF"
@@ -379,12 +377,9 @@ patch_nginx_conf() {
   fi
 
   # 4) server block directives
-  # Check for NEW server-level format (unique comment marker in vn block)
-  if grep -q 'VeryNginx v2 - server-level handlers' "$NGINX_CONF" 2>/dev/null; then
-    info "Server-level VeryNginx handlers already present, skipping ✓"
-  else
-    replace_server_block
-  fi
+  # ALWAYS re-inject: a previous install may have left handlers pointing at
+  # a stale prefix (marker alone proves nothing about WHERE they point).
+  replace_server_block
 
 
 }
@@ -403,11 +398,11 @@ vn_dir = sys.argv[2]
 with open(nginx_conf) as f:
     text = f.read()
 
-# Check if new server-level format already exists
-marker = '# VeryNginx v2 - server-level handlers (WAF for all requests)'
-if marker in text:
-    print("ALREADY_PRESENT")
-    sys.exit(0)
+# NOTE: no early-exit on a marker. A previous install may have left the
+# marker in place while pointing at a DIFFERENT (now stale) prefix — skipping
+# then keeps serving old files forever (field-reported: 7-day-cached stale
+# static location survived every reinstall). Always clean + re-inject with
+# the CURRENT vn_dir; the cleanup below is generation-agnostic.
 
 # Find the first server { block
 idx = text.find('server {')
@@ -436,9 +431,10 @@ server_inner = text[brace_pos+1:server_end]
 after = text[server_end:]
 
 # --- Clean old VeryNginx Lua handlers from the server block ---
-# (handles both location-level and server-level from previous installs)
+# (handles location-level AND server-level, from ANY previous install
+# prefix — not just the current one; a stale prefix's handlers must go too)
 lua_pattern = re.compile(
-    r'^\s*(rewrite|access|log)_by_lua_file\s+' + re.escape(vn_dir) + r'/on_\w+\.lua\s*;\s*$',
+    r'^\s*(rewrite|access|log)_by_lua_file\s+\S*on_(?:rewrite|access|log)\.lua\s*;\s*$',
     re.MULTILINE
 )
 server_inner = lua_pattern.sub('', server_inner)
