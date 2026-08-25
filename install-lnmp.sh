@@ -593,6 +593,31 @@ show_summary() {
       echo "    Note: since this version the Lua router ALSO serves dashboard assets,"
       echo "    so a plain 'systemctl restart nginx' usually fixes 404s even without the snippet."
     fi
+    # Serving-drift check: whatever nginx ACTUALLY returns for index.html must
+    # carry the same integrity pin as the installed file. A mismatch means a
+    # foreign/stale dashboard copy is being served (second docroot, manual
+    # edits, parallel tooling) — the #1 cause of irreproducible panel breakage.
+    local serve_pin local_pin
+    serve_pin=$(curl -s --max-time 5 -H 'Host: localhost' \
+      "http://127.0.0.1:${chk_port}/verynginx/index.html" 2>/dev/null \
+      | grep -o 'vue\.global\.prod\.js" integrity="[^"]*' | head -1)
+    local_pin=$(grep -o 'vue\.global\.prod\.js" integrity="[^"]*' \
+      "${VN_DIR}/dashboard/index.html" 2>/dev/null | head -1)
+    if [ -n "$local_pin" ]; then
+      if [ -z "$serve_pin" ]; then
+        warn "Self-check: served /verynginx/index.html has NO vue integrity pin (foreign copy?)"
+        echo "    nginx is not serving ${VN_DIR}/dashboard — find the real docroot:"
+        echo "      nginx -T 2>/dev/null | grep -n 'verynginx\\|alias\\|root'"
+      elif [ "$serve_pin" != "$local_pin" ]; then
+        warn "Self-check: SERVED index.html pin differs from installed copy — drift!"
+        echo "    served : ${serve_pin}"
+        echo "    local  : ${local_pin}"
+        echo "    Another dashboard copy is being served (stale dir / manual edit)."
+        echo "    Locate it: nginx -T 2>/dev/null | grep -n 'alias\\|root' ; then re-deploy THERE."
+      else
+        info "Self-check: served index.html matches installed copy ✓"
+      fi
+    fi
     # Drift check: the integrity pin inside index.html must equal the
     # sha384 of the INSTALLED vue.global.prod.js. Comparing against the pin
     # (not the vendored copy) catches the field failure mode where BOTH
