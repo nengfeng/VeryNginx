@@ -1309,8 +1309,12 @@ main() {
   echo ""
   confirm "Install Firewall Helper for kernel IP blocking?" DO_HELPER "y"
   if [ "$DO_HELPER" = "y" ]; then
-    probe_nftables_capabilities
-    install_firewall_helper
+    if ! probe_nftables_capabilities; then
+      warn "Skipping Firewall Helper installation — nftables unavailable"
+      warn "Kernel IP blocking disabled; panel/WAF/proxy remain fully functional"
+    else
+      install_firewall_helper
+    fi
   else
     info "Skipping Firewall Helper installation"
     info "You can install it later by re-running install-lnmp.sh"
