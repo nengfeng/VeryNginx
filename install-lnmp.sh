@@ -1403,6 +1403,28 @@ install_firewall_helper() {
   # Install systemd units if systemd is present
   if command -v systemctl >/dev/null 2>&1 && [ -d /etc/systemd/system ]; then
     info "Installing systemd socket activation units..."
+    _VN_GROUP_JOINED=0
+
+    # Socket access control: the helper holds CAP_NET_ADMIN and has NO
+    # per-request auth — a world-writable socket means ANY local user can
+    # add/drop nftables rules. 0660 + dedicated group whose member is the
+    # web-server user (the only legitimate client).
+    local vn_group="verynginx"
+    if ! getent group "$vn_group" >/dev/null 2>&1; then
+      groupadd -r "$vn_group" 2>/dev/null || true
+    fi
+    local vn_web_user
+    vn_web_user=$(grep -m1 '^\s*user\s' "$NGINX_CONF" 2>/dev/null | awk '{print $2}' | awk -F';' '{print $1}')
+    if [ -n "$vn_web_user" ] && id "$vn_web_user" >/dev/null 2>&1; then
+      if ! id -nG "$vn_web_user" 2>/dev/null | tr ' ' '\n' | grep -qx "$vn_group"; then
+        usermod -aG "$vn_group" "$vn_web_user" 2>/dev/null || true
+        info "Added ${vn_web_user} to group ${vn_group} ✓"
+        _VN_GROUP_JOINED=1
+      fi
+    else
+      warn "Could not detect nginx worker user — add it manually: usermod -aG ${vn_group} <user>"
+      _VN_GROUP_JOINED=1
+    fi
 
     # Write socket unit
     cat > /etc/systemd/system/firewall-helper.socket <<SOCKUNIT
@@ -1412,8 +1434,9 @@ Before=nginx.service
 
 [Socket]
 ListenStream=${FIREWALL_HELPER_SOCKET}
-SocketMode=0666
-DirectoryMode=0755
+SocketMode=0660
+Group=${vn_group}
+DirectoryMode=0750
 
 [Install]
 WantedBy=sockets.target
@@ -1457,7 +1480,18 @@ SVCUNIT
     fi
     info "systemd units installed and started ✓"
     if systemctl is-active --quiet firewall-helper.socket 2>/dev/null; then
+      local sock_mode
+      sock_mode=$(stat -c '%a' "${FIREWALL_HELPER_SOCKET}" 2>/dev/null || echo "?")
+      if [ "$sock_mode" = "660" ]; then
+        info "socket permission 0660 group=${vn_group:-verynginx} ✓"
+      else
+        warn "socket mode is ${sock_mode}, expected 660 — check Group=/SocketMode= in firewall-helper.socket"
+      fi
       info "firewall-helper.socket is active ✓"
+      if [ "${_VN_GROUP_JOINED:-0}" = "1" ]; then
+        warn "Group membership changed: FULLY restart nginx for workers to pick it up"
+        echo "      (a reload/HUP does NOT refresh supplementary groups)"
+      fi
     else
       warn "firewall-helper.socket failed to start — check: systemctl status firewall-helper.socket"
     fi

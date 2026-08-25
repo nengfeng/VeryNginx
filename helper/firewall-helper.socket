@@ -1,12 +1,12 @@
 [Unit]
 Description=VeryNginx Firewall Helper Socket
 Before=nginx.service
-Requires=nginx.service
 
 [Socket]
 ListenStream=/run/verynginx/firewall-helper.sock
-SocketMode=0666
-DirectoryMode=0755
+SocketMode=0660
+Group=verynginx
+DirectoryMode=0750
 
 [Install]
 WantedBy=sockets.target
