@@ -309,6 +309,29 @@ patch_nginx_conf() {
     info "upstream vn_dynamic_upstream already exists, skipping ✓"
   fi
 
+  # 1b) resolver — OpenResty cosockets (lua-resty-http downloads, webhook
+  # dispatch) resolve DNS ONLY via the `resolver` directive; without one,
+  # every hostname lookup fails with "no resolver defined". Detect the
+  # system resolvers and inject; respect an existing resolver config.
+  if grep -qE '^\s*resolver\s' "$NGINX_CONF" 2>/dev/null; then
+    info "resolver already configured, skipping ✓"
+  else
+    local vn_resolvers
+    vn_resolvers=$(awk '/^nameserver\s+/ {print $2}' /etc/resolv.conf 2>/dev/null \
+      | grep -v '^127\.0\.0\.53$\|^::1$' \
+      | head -2 | tr '\n' ' ' | sed 's/ *$//')
+    [ -z "$vn_resolvers" ] && vn_resolvers="8.8.8.8 1.1.1.1"
+    # systemd-resolved stub (127.0.0.53) is excluded above: cosocket access
+    # to it works, but only on localhost — external-facing boxes are safer
+    # with real upstreams; fall back to public resolvers when nothing else.
+    if grep -q '^http\s*{' "$NGINX_CONF"; then
+      sed -i "/^http\s*{/a\\
+    # VeryNginx v2 - resolver for cosocket DNS (GeoIP updater, webhooks)\\
+    resolver ${vn_resolvers} valid=300s ipv6=off;" "$NGINX_CONF"
+      info "Added resolver (${vn_resolvers}) ✓"
+    fi
+  fi
+
   # 2) add VeryNginx paths to existing lua_package_path inside http block
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"
