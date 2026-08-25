@@ -39,11 +39,23 @@ title() { echo -e "\n${BOLD}━━━ $* ━━━${NC}\n"; }
 die() { error "$*"; exit 1; }
 
 confirm() {
+  # printf -v instead of eval (same effect, no code-injection smell).
+  # EOF/non-interactive stdin: fall back to the default ONCE and stop
+  # asking — previously a closed stdin made read fail under set -e with
+  # no message at all.
   local prompt="$1" var="$2" default="${3:-n}" val
   while :; do
     printf "%s [y/n] (default: %s): " "$prompt" "$default"
-    read -r val; val="${val:-$default}"
-    case "$val" in y|Y) eval "$var=y"; break;; n|N) eval "$var=n"; break;; esac
+    if ! read -r val; then
+      warn "stdin closed — assuming '${default}'"
+      val="$default"
+    fi
+    val="${val:-$default}"
+    case "$val" in
+      y|Y) printf -v "$var" '%s' "y"; return 0 ;;
+      n|N) printf -v "$var" '%s' "n"; return 0 ;;
+      *) : ;;   # re-ask on garbage input only
+    esac
   done
 }
 
@@ -119,7 +131,23 @@ install_files() {
   fi
 
   mkdir -p "${VN_DIR}" "${BACKUP_DIR}"
-  cp -r "${src_dir}/verynginx/"* "${VN_DIR}/"
+
+  if command -v rsync >/dev/null 2>&1; then
+    # Mirror the source tree so files DELETED upstream don't linger across
+    # version upgrades (stale Lua modules keep being loaded — package.path
+    # hits them first). Runtime-mutable paths are excluded from deletion.
+    rsync -a --delete \
+      --exclude "configs/config.json" \
+      --exclude "configs/waf-rules.json" \
+      --exclude "configs/backups/" \
+      --exclude "geoip/" \
+      "${src_dir}/verynginx/" "${VN_DIR}/"
+    info "Synced files (rsync mirror, runtime data preserved) ✓"
+  else
+    # No rsync: plain copy (leaves upstream-deleted residue; noted).
+    cp -r "${src_dir}/verynginx/"* "${VN_DIR}/"
+    info "Copied files ✓ (install rsync for stale-file cleanup on upgrades)"
+  fi
 
   # Write version + git commit info for dashboard display
   if command -v git &>/dev/null && git -C "$src_dir" rev-parse --short HEAD &>/dev/null; then
@@ -298,10 +326,17 @@ PYEOF
 }
 
 # ----- backup nginx.conf ---------------------------------------------------
+VN_BACKUP_KEEP=5
+
 backup_nginx_conf() {
   local bak="${NGINX_CONF}.bak.$(date +%Y%m%d-%H%M%S)"
   cp "$NGINX_CONF" "$bak"
   info "Backup saved: ${bak}"
+  # Prune old timestamped backups — unbounded growth across many installs.
+  local old
+  ls -1t "${NGINX_CONF}".bak.* 2>/dev/null | tail -n +$((VN_BACKUP_KEEP + 1)) | while read -r old; do
+    rm -f "$old"
+  done || true
 }
 
 # ----- inject directives into nginx.conf -----------------------------------
@@ -957,8 +992,17 @@ show_summary() {
     fi
   fi
 
-  local host_ip
-  host_ip=$(ip -4 route get 1 2>/dev/null | head -1 | awk '{print $7}') || host_ip="<your-server-ip>"
+  local host_ip=""
+  # 'ip route get' field position breaks when there is no direct gateway
+  # route (yields http:///verynginx/). Try robust sources in order.
+  host_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  if [ -z "$host_ip" ]; then
+    host_ip=$(ip -4 -o addr show scope global 2>/dev/null | awk '$2!="lo"{print $4; exit}' | cut -d/ -f1)
+  fi
+  if [ -z "$host_ip" ]; then
+    host_ip=$(ip -4 route get 1 2>/dev/null | head -1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+  fi
+  [ -z "$host_ip" ] && host_ip="<your-server-ip>"
 
   echo ""
   echo "  ${BOLD}VeryNginx v2${NC} installed at: ${CYAN}${VN_DIR}${NC}"
