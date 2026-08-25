@@ -856,21 +856,21 @@
               </select>
             </div>
             <template v-if="wafTestMode==='form'">
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+              <div style="display:grid;grid-template-columns:minmax(110px,140px) minmax(140px,170px) minmax(220px,1fr) minmax(105px,125px);gap:8px;align-items:end;margin-bottom:8px">
                 <div class="field" style="margin:0"><label>匹配字段</label>
-                  <select v-model="wafTestRuleForm.field" style="width:auto">
+                  <select v-model="wafTestRuleForm.field" style="width:100%">
                     <option v-for="f in ['URI','IP','UA','Host','Referer','Header','Cookie','Args','Method']" :key="f" :value="f">{{ f }}</option>
                   </select></div>
                 <div class="field" style="margin:0"><label>操作符</label>
-                  <select v-model="wafTestRuleForm.operator" style="width:auto">
+                  <select v-model="wafTestRuleForm.operator" style="width:100%">
                     <option value="≈">≈ 正则匹配</option>
                     <option value="=">= 精确等于</option>
                     <option value="!≈">!≈ 正则不匹配</option>
                   </select></div>
-                <div class="field" style="margin:0;flex:1;min-width:200px"><label>匹配值</label>
+                <div class="field" style="margin:0"><label>匹配值</label>
                   <input v-model="wafTestRuleForm.value" type="text" placeholder='如 /api/* 或 \.\./'></div>
                 <div class="field" style="margin:0"><label>动作</label>
-                  <select v-model="wafTestRuleForm.action" style="width:auto">
+                  <select v-model="wafTestRuleForm.action" style="width:100%">
                     <option value="block">阻止</option>
                     <option value="accept">放行</option>
                     <option value="log">记录</option>
