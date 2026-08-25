@@ -17,6 +17,8 @@ set -euo pipefail
 
 # ----- constants -----------------------------------------------------------
 VN_PREFIX="${VN_PREFIX:-/opt/verynginx}"
+# Build fingerprint so field logs self-identify the exact code being run
+VN_BUILD="$(git -C "$(cd "$(dirname "$0")" && pwd)" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 VN_DIR="${VN_PREFIX}"
 BACKUP_DIR="${VN_DIR}/configs/backups"
 VN_ADMIN_PASSWORD=""
@@ -287,6 +289,7 @@ backup_nginx_conf() {
 # ----- inject directives into nginx.conf -----------------------------------
 patch_nginx_conf() {
   title "Patching nginx.conf"
+  info "Installer build: ${VN_BUILD}"
 
   backup_nginx_conf
 
@@ -316,13 +319,15 @@ patch_nginx_conf() {
   if grep -qE '^\s*resolver\s' "$NGINX_CONF" 2>/dev/null; then
     info "resolver already configured, skipping ✓"
   else
+    # Single awk: filter stubs, cap at 2, join with spaces — NO shell pipes.
+    # Under `set -euo pipefail` a pipeline here is a minefield: grep -v
+    # returns 1 when everything is filtered out, and head closing early
+    # SIGPIPEs its upstream (exit 141) — either kills the install silently.
     local vn_resolvers
-    vn_resolvers=$(awk '/^nameserver\s+/ {print $2}' /etc/resolv.conf 2>/dev/null \
-      | grep -v '^127\.0\.0\.53$\|^::1$' \
-      | head -2 | tr '\n' ' ' | sed 's/ *$//')
+    vn_resolvers=$(awk '/^nameserver[ \t]+/ && $2!="127.0.0.53" && $2!="::1" { printf "%s ", $2; if (++n == 2) exit }' /etc/resolv.conf 2>/dev/null || true)
+    vn_resolvers="${vn_resolvers% }"
     # NOTE: if-statement, NOT `[ -z ] && x=` — under set -e a false test in a
-    # standalone && chain returns 1 and kills the script mid-install
-    # (field bug: boxes WITH working /etc/resolv.conf died right here).
+    # standalone && chain returns 1 and kills the script mid-install.
     if [ -z "$vn_resolvers" ]; then vn_resolvers="8.8.8.8 1.1.1.1"; fi
     # systemd-resolved stub (127.0.0.53) is excluded above: cosocket access
     # to it works, but only on localhost — external-facing boxes are safer
