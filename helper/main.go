@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -1748,6 +1749,15 @@ func handleConnection(conn net.Conn, backend *NFTBackend) {
 	}
 }
 
+// lookupGroupID resolves a group name to its gid (best-effort).
+func lookupGroupID(name string) (int, error) {
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return -1, err
+	}
+	return strconv.Atoi(g.Gid)
+}
+
 // listenAndServe starts the Unix socket listener.
 func listenAndServe(sockPath string, backend *NFTBackend) error {
 	// Clean stale socket
@@ -1765,8 +1775,22 @@ func listenAndServe(sockPath string, backend *NFTBackend) error {
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
-	// Set permissions so nginx worker can connect.
-	_ = os.Chmod(sockPath, 0666)
+	// Set permissions so only the intended client group can connect. The
+	// helper has NO per-request auth and holds CAP_NET_ADMIN — a world-
+	// writable socket would let any local user add/drop nftables rules.
+	// 0660 + best-effort chown to the 'verynginx' group (installer adds the
+	// web-server user to it). systemd socket-activation path sets these on
+	// its own via Group=/SocketMode= in firewall-helper.socket.
+	if err := os.Chmod(sockPath, 0660); err != nil {
+		fmt.Fprintf(os.Stderr, "chmod %s: %v\n", sockPath, err)
+	}
+	if gid, err := lookupGroupID("verynginx"); err == nil {
+		if err := os.Chown(sockPath, -1, gid); err != nil {
+			fmt.Fprintf(os.Stderr, "chown group verynginx: %v\n", err)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: group 'verynginx' not found; socket restricted to 0660/root-group\n")
+	}
 
 	fmt.Fprintf(os.Stderr, "firewall-helper listening on %s\n", sockPath)
 	for {
