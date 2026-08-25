@@ -329,6 +329,11 @@ patch_nginx_conf() {
     # VeryNginx v2 - resolver for cosocket DNS (GeoIP updater, webhooks)\\
     resolver ${vn_resolvers} valid=300s ipv6=off;" "$NGINX_CONF"
       info "Added resolver (${vn_resolvers}) ✓"
+    else
+      warn "Cannot find '^http {' at line start in ${NGINX_CONF} — resolver NOT injected"
+      echo "    Add manually inside the http {} block:"
+      echo "      resolver ${vn_resolvers} valid=300s ipv6=off;"
+      echo "    Without it GeoIP updates and webhooks fail: 'no resolver defined'."
     fi
   fi
 
