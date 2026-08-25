@@ -494,6 +494,13 @@ patch_nginx_conf() {
     # ';;': our own injection is THREE segments, so the two leading ones
     # survived every re-run (unbounded growth) and an old-prefix reinstall
     # kept them forever. Split on ';' and filter instead.
+    # State file records the EXACT segments we injected last run — with
+    # custom VN_DIR prefixes there is otherwise NO way to tell our old paths
+    # from the user's own when it's time to swap prefixes.
+    local lpp_state="${NGINX_CONF}.vn_lpp"
+    local lpp_prev=""
+    [ -f "$lpp_state" ] && lpp_prev=$(cat "$lpp_state" 2>/dev/null || true)
+
     local tmp_conf="${NGINX_CONF}.vn_tmp.$$"
     # Managed-marker strategy: a line ending in '# vn2-managed' is rebuilt
     # from scratch every run (idempotent under ANY VN_DIR — a literal
@@ -501,14 +508,35 @@ patch_nginx_conf() {
     # Unmarked lines are migrated once: drop segments containing the
     # literal 'verynginx/' (legacy default-prefix installs), merge current
     # paths, add the marker.
-    awk -v vn="${vn_paths}" '
+    awk -v vn="${vn_paths}" -v prev="$lpp_prev" '
       /lua_package_path/ && /"/ && !done {
         pre = $0;  sub(/".*$/, "", pre); sub(/[ \t]+$/, "", pre)
         val = $0;  sub(/^[^"]*"/, "", val); sub(/".*$/, "", val)
-        out = ""
+        # Managed line does NOT mean "user segments are disposable":
+        # 1) drop exactly the segments WE injected last run (state file),
+        # 2) fallback-strip our deterministic trailing suffix (upgrades
+        #    from installers that had no state file yet).
         if ($0 ~ /vn2-managed/) {
-          out = ""
-        } else {
+          if (prev != "") {
+            delete pd
+            m = split(prev, psegs, /;/)
+            for (k = 1; k <= m; k++) { if (psegs[k] != "") pd[psegs[k]] = 1 }
+            nv = ""
+            n2 = split(val, s2, /;/)
+            for (k = 1; k <= n2; k++) {
+              if (s2[k] != "" && !(s2[k] in pd)) { nv = (nv == "" ? s2[k] : nv ";" s2[k]) }
+            }
+            val = nv
+          }
+          suffix = vn ";;"
+          while (length(val) >= length(suffix) &&
+                 substr(val, length(val) - length(suffix) + 1) == suffix) {
+            val = substr(val, 1, length(val) - length(suffix))
+            sub(/;$/, "", val)
+          }
+        }
+        out = ""
+        {
           n = split(val, segs, /;/)
           for (i = 1; i <= n; i++) {
             s = segs[i]
@@ -521,6 +549,8 @@ patch_nginx_conf() {
       }
       { print }
     ' "$lpp_target" > "$tmp_conf" && mv "$tmp_conf" "$lpp_target"
+    printf '%s\n' "${vn_paths}" > "$lpp_state"
+    chmod 644 "$lpp_state"
     info "Merged VeryNginx paths into existing lua_package_path ✓"
     # also ensure lua_package_cpath exists (ffi.load needs .so search path)
     if ! directive_file 'lua_package_cpath'; then
