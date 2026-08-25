@@ -370,6 +370,23 @@ patch_nginx_conf() {
     echo "    Escape hatch (NOT recommended): set geoip.tls_verify=false in config.json"
   fi
 
+  # 1d) lua cosocket TLS trust chain. CRITICAL: lua-nginx-module's
+  # sslhandshake(verify=true) does NOT consult the OpenSSL default store
+  # (env SSL_CERT_FILE is irrelevant here) — it ONLY trusts certs loaded via
+  # the `lua_ssl_trusted_certificate` directive. Without it every outbound
+  # https cosocket fails with X509 err 20 "unable to get local issuer".
+  if [ -n "$vn_ca" ]; then
+    if grep -q 'lua_ssl_trusted_certificate' "$NGINX_CONF" 2>/dev/null; then
+      info "lua_ssl_trusted_certificate already present, skipping ✓"
+    else
+      sed -i "/^http\s*{/a\\
+    # VeryNginx v2 - trust chain for cosocket TLS verification\\
+    lua_ssl_trusted_certificate ${vn_ca};\\
+    lua_ssl_verify_depth 2;" "$NGINX_CONF"
+      info "Added lua_ssl_trusted_certificate (${vn_ca}) ✓"
+    fi
+  fi
+
   # 2) add VeryNginx paths to existing lua_package_path inside http block
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"

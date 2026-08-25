@@ -243,6 +243,8 @@ Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enfor
 `core/geoip_updater.lua` 在 `init_worker` 启动定时器，按配置间隔检查并下载最新数据库。CDN 和官方源可切换。
 
 > **cosocket DNS 需要显式 resolver 指令**：OpenResty 的 tcp/udp cosocket（lua-resty-http 下载、webhook 分发）只经 nginx `resolver` 解析域名，没有该指令时一律报 "no resolver defined"。install-lnmp.sh 会探测 `/etc/resolv.conf` 注入 `resolver <ns...> valid=300s ipv6=off;`（跳过 systemd-resolved 存根 127.0.0.53，空则回退 8.8.8.8/1.1.1.1）；已有 resolver 则不动。手写 conf 时漏掉它是 GeoIP 更新/webhook 全挂的头号原因。
+>
+> **cosocket TLS 校验只认 `lua_ssl_trusted_certificate`**：lua-nginx-module 的 sslhandshake(verify=true) 不读 OpenSSL 默认证书库（env SSL_CERT_FILE 对它无效），没有该指令时出站 https 一律 X509 err 20 "unable to get local issuer certificate"。install-lnmp.sh 注入 `lua_ssl_trusted_certificate <bundle>; lua_ssl_verify_depth 2;`。
 
 ---
 
