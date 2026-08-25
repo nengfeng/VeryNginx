@@ -580,29 +580,79 @@ with open(nginx_conf) as f:
 # static location survived every reinstall). Always clean + re-inject with
 # the CURRENT vn_dir; the cleanup below is generation-agnostic.
 
-# Find the first server { block
-idx = text.find('server {')
-if idx == -1:
-    print("ERROR: no server block found")
-    sys.exit(1)
+# --- Locate an HTTP server{} block robustly -------------------------------
+# text.find('server {') was a literal match: it hit COMMENTED-OUT blocks,
+# quoted strings, and stream{} upstream servers; brace counting ignored
+# comments/strings entirely. Mask comments+strings (length-preserving), then
+# scan structurally. Masked offsets map 1:1 onto the original text.
+def mask_comments_strings(t):
+    out=[]; i=0; n=len(t); q=None; h=False
+    while i < n:
+        c = t[i]
+        if h:
+            out.append('\n' if c=='\n' else ' ')
+            if c=='\n': h=False
+            i += 1; continue
+        if q:
+            if c == '\\':
+                out.append('  '); i += 2; continue
+            out.append(' ')
+            if c == q: q = None
+            i += 1; continue
+        if c == '#':
+            h = True; out.append(' '); i += 1; continue
+        if c in ('"', "'"):
+            q = c; out.append(' '); i += 1; continue
+        out.append(c); i += 1
+    return ''.join(out)
 
-# Find matching closing } for the server block
-stack = []
-for i in range(idx, len(text)):
-    if text[i] == '{':
-        stack.append(i)
-    elif text[i] == '}':
-        stack.pop()
-        if not stack:
-            server_end = i
-            break
-else:
-    print("ERROR: unmatched braces in server block")
-    sys.exit(1)
+def match_brace(t, open_idx):
+    depth = 0
+    for j in range(open_idx, len(t)):
+        if t[j] == '{': depth += 1
+        elif t[j] == '}':
+            depth -= 1
+            if depth == 0: return j
+    return -1
 
-# Find position of '{' after 'server'
-brace_pos = text.find('{', idx)
-before = text[:brace_pos]
+def find_named_blocks(t, name):
+    res = []
+    for m in re.finditer(r'\b' + name + r'\b[ \t]*\{', t):
+        ob = m.end() - 1
+        cb = match_brace(t, ob)
+        if cb != -1: res.append((m.start(), ob, cb))
+    return res
+
+masked = mask_comments_strings(text)
+http_spans   = find_named_blocks(masked, 'http')
+stream_spans = find_named_blocks(masked, 'stream')
+
+candidates = []
+for m in re.finditer(r'\bserver\b[ \t]*\{', masked):
+    ob = m.end() - 1
+    cb = match_brace(masked, ob)
+    if cb == -1: continue
+    # A server{} inside stream{} is L4 proxying, not an HTTP vhost — skip.
+    if any(a <= m.start() <= c for a, b, c in stream_spans): continue
+    candidates.append((m.start(), ob, cb))
+
+chosen = None
+for ha, hob, hcb in http_spans:
+    for cand in candidates:
+        if ha < cand[0] < hcb:
+            chosen = cand; break
+    if chosen: break
+if not chosen and candidates:
+    chosen = candidates[0]
+
+if not chosen:
+    # LNMP-style conf: all vhosts live in include files. Degrade instead of
+    # dying AFTER nginx has been fully configured.
+    print("NO_SERVER")
+    sys.exit(0)
+
+brace_pos = chosen[1]
+server_end = chosen[2]
 server_inner = text[brace_pos+1:server_end]
 after = text[server_end:]
 
@@ -717,6 +767,13 @@ PYEOF
     info "→ Dashboard: http://your-ip/verynginx/index.html"
   elif [ "$out" = "ALREADY_PRESENT" ]; then
     info "Server-level VeryNginx handlers already present, skipping ✓"
+  elif [ "$out" = "NO_SERVER" ]; then
+    # Pure vhost-include layout: don't die this late — tell the user how to
+    # finish manually. Everything else (paths/dicts/upstream) already landed.
+    warn "No server{} block in ${NGINX_CONF} (vhosts live in include files?)"
+    echo "    Finish with ONE line inside each server{} you want protected:"
+    echo "      include ${VN_DIR}/nginx_conf/in_server_block.conf;"
+    echo "    then reload nginx. Dashboard: http://your-ip/verynginx/index.html"
   else
     die "Server block patch failed: $out"
   fi
