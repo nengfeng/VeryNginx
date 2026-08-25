@@ -1871,9 +1871,18 @@
   <div class="modal-overlay" v-if="fpEditModal.show" @click.self="fpEditModal.show=false">
     <div class="modal" style="max-width:480px">
       <h3>添加 TLS 指纹</h3>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:12px;padding:10px 12px;background:var(--bg);border-radius:6px">
+        <strong>什么是 JA3 指纹：</strong>对 TLS ClientHello 握手要素（版本/密码套件/扩展/椭圆曲线）取 MD5
+        得到的 32 位十六进制串。同一客户端程序的 JA3 通常稳定，可在不依赖 User-Agent（易伪造）的情况下识别工具。
+        <br><strong>如何获取：</strong>
+        ① WAF → 命中记录 → 打开命中详情，直接复制其中的「TLS 指纹」字段（最常用，针对真实来访工具）；
+        ② 查公开库 ja3er.com / abuse.ch（curl、python-requests、各类扫描器的现成 hash）；
+        ③ Wireshark 抓 ClientHello（过滤 tls.handshake.type == 1）后用 salesforce/ja3 的 ja3.py 计算。
+        <br><strong>建议：</strong>新指纹先用「挑战」观察确认无误拦，再升级为「拦截」。
+      </div>
       <div class="field">
-        <label>指纹哈希 *</label>
-        <input v-model="fpEditModal.hash" type="text" placeholder="如 3A:00:00:00:... 或明文指纹串">
+        <label>指纹哈希 *（JA3 MD5，32 位十六进制）</label>
+        <input v-model="fpEditModal.hash" type="text" placeholder="如 e7d705a3286e19ea42f587b344ee6865">
       </div>
       <div class="field">
         <label>名称 *</label>
