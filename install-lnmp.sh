@@ -561,8 +561,12 @@ after = text[server_end:]
 # --- Clean old VeryNginx Lua handlers from the server block ---
 # (handles location-level AND server-level, from ANY previous install
 # prefix — not just the current one; a stale prefix's handlers must go too)
+# [ \t] not \s: a greedy \s* after ';' swallows the NEWLINE plus the next
+# line's indentation, so the following line loses its line-start anchor '^'
+# and escapes matching entirely (two consecutive include/lua lines -> only
+# the first removed). Whitespace around directives never spans lines.
 lua_pattern = re.compile(
-    r'^\s*(rewrite|access|log)_by_lua_file\s+\S*on_(?:rewrite|access|log)\.lua\s*;\s*$',
+    r'^[ \t]*(rewrite|access|log)_by_lua_file\s+\S*on_(?:rewrite|access|log)\.lua[ \t]*;[ \t]*$',
     re.MULTILINE
 )
 server_inner = lua_pattern.sub('', server_inner)
@@ -581,11 +585,14 @@ server_inner = re.sub(
 # by hand; if kept alongside the handlers we inject here, nginx ends up
 # with DUPLICATE server-level lua handlers and fails `nginx -t`.
 server_inner = re.sub(
-    r'^\s*include\s+[^;]*in_server_block\.conf\s*;\s*\n?',
+    r'^[ \t]*include[ \t]+[^;\n]*in_server_block\.conf[ \t]*;[ \t]*\n?',
     '',
     server_inner,
     flags=re.MULTILINE
 )
+
+# Collapse runs of blank lines left by directive removal
+server_inner = re.sub(r'\n{3,}', '\n\n', server_inner)
 
 # Remove entire location /verynginx/static/ blocks (will be re-added)
 # Match from "location /verynginx/static/ {" to matching "}"
