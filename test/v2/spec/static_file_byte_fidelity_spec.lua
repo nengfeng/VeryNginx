@@ -42,7 +42,8 @@ describe("static_file.serve 字节保真(禁 ngx.say)", function()
         package.loaded["core.config"] = nil
         package.loaded["plugin.static_file.init"] = nil
         sf = require("plugin.static_file.init")
-        body_path = "/tmp/opencode/vn_sri_probe.js"
+        body_path = os.getenv("TMPDIR") or "/tmp"
+        body_path = body_path .. "/vn_byte_fidelity_probe.js"
     end)
 
     teardown(function()
@@ -60,6 +61,7 @@ describe("static_file.serve 字节保真(禁 ngx.say)", function()
     end)
 
     after_each(function()
+        os.remove(body_path)
         for k, v in pairs(__saved) do _G.ngx[k] = v end
         if not __saved.print then _G.ngx.print = nil end
         if not __saved.say then _G.ngx.say = nil end
@@ -68,7 +70,8 @@ describe("static_file.serve 字节保真(禁 ngx.say)", function()
     end)
 
     local function serve_capturing_exit()
-        local ok, err = pcall(sf.serve, "/tmp/opencode", "/vn_sri_probe.js", "epoch")
+        local tmp_root = os.getenv("TMPDIR") or "/tmp"
+        local ok, err = pcall(sf.serve, tmp_root, "/vn_byte_fidelity_probe.js", "epoch")
         -- serve ends with ngx.exit which we turn into an error to stop execution
         return ok, err
     end
