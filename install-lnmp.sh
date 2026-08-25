@@ -413,9 +413,9 @@ patch_nginx_conf() {
   # 3) shared dicts + init blocks inside http {}
   if ! grep -q 'lua_shared_dict vn_config' "$NGINX_CONF" 2>/dev/null; then
     local insert_point
-    insert_point=$(grep -n 'server_names_hash_bucket_size\|client_header_buffer_size\|sendfile\|keepalive_timeout' "$NGINX_CONF" | head -1 | cut -d: -f1)
+    insert_point=$(grep -n 'server_names_hash_bucket_size\|client_header_buffer_size\|sendfile\|keepalive_timeout' "$NGINX_CONF" | head -1 | cut -d: -f1 || true)
     if [ -z "$insert_point" ]; then
-      insert_point=$(grep -n '^http\s*{' "$NGINX_CONF" | head -1 | cut -d: -f1)
+      insert_point=$(grep -n '^http\s*{' "$NGINX_CONF" | head -1 | cut -d: -f1 || true)
     fi
 
     sed -i "${insert_point}a\\
@@ -656,17 +656,25 @@ show_summary() {
     # which curl reports as code 000 — not a real failure signal). First port
     # that yields ANY HTTP status wins; fall back to global listen scan.
     local ports p
+    # NOTE: `|| true` on every pipeline + if-statements (never `[ ] && =`):
+    # grep with no match exits 1 and pipefail turns that into a script-wide
+    # abort INSIDE the very warning branches this code exists to reach.
     ports=$(awk '/server[ \t]*\{/{f=1} f&&$1=="listen"&&$0!~/ssl/{print} f&&/^[ \t]*\}/{exit}' \
-      "$NGINX_CONF" 2>/dev/null | grep -oE '[0-9]{2,5}' | sort -un)
-    [ -z "$ports" ] && ports=$(grep -oP 'listen\s+\S*?:?\K[0-9]+' "$NGINX_CONF" 2>/dev/null | sort -un)
-    [ -z "$ports" ] && ports="80"
+      "$NGINX_CONF" 2>/dev/null | grep -oE '[0-9]{2,5}' | sort -un || true)
+    if [ -z "$ports" ]; then
+      ports=$(grep -oP 'listen\s+\S*?:?\K[0-9]+' "$NGINX_CONF" 2>/dev/null | sort -un || true)
+    fi
+    if [ -z "$ports" ]; then ports="80"; fi
     chk_port=""; chk_code="000"
     sleep 1
     for p in $ports; do
       local c
+      # NOTE: `|| true`, not `|| echo 000` — curl -w already prints 000 on
+      # connect failure; appending another yields "000\n000" which passes
+      # the != "000" test and misreports a dead port as serving.
       c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 \
-        -H 'Host: localhost' "http://127.0.0.1:${p}/verynginx/static/style.css" 2>/dev/null || echo 000)
-      if [ "$c" != "000" ]; then chk_port="$p"; chk_code="$c"; break; fi
+        -H 'Host: localhost' "http://127.0.0.1:${p}/verynginx/static/style.css" 2>/dev/null || true)
+      if [ -n "$c" ] && [ "$c" != "000" ]; then chk_port="$p"; chk_code="$c"; break; fi
     done
     if [ "$chk_code" = "200" ]; then
       info "Self-check: dashboard style.css served ✓ (port ${chk_port})"
@@ -694,9 +702,9 @@ show_summary() {
     local serve_pin local_pin
     serve_pin=$(curl -s --max-time 5 -H 'Host: localhost' \
       "http://127.0.0.1:${chk_port}/verynginx/index.html" 2>/dev/null \
-      | grep -o 'vue\.global\.prod\.js" integrity="[^"]*' | head -1)
+      | grep -o 'vue\.global\.prod\.js" integrity="[^"]*' | head -1 || true)
     local_pin=$(grep -o 'vue\.global\.prod\.js" integrity="[^"]*' \
-      "${VN_DIR}/dashboard/index.html" 2>/dev/null | head -1)
+      "${VN_DIR}/dashboard/index.html" 2>/dev/null | head -1 || true)
     if [ -n "$local_pin" ]; then
       if [ -z "$serve_pin" ]; then
         warn "Self-check: served /verynginx/index.html has NO vue integrity pin (foreign copy?)"
@@ -721,7 +729,7 @@ show_summary() {
     if [ -f "$vue_file" ] && [ -f "${VN_DIR}/dashboard/index.html" ]; then
       local vue_pin vue_hash
       vue_pin=$(grep -o 'vue\.global\.prod\.js" integrity="sha384-[^"]*' \
-        "${VN_DIR}/dashboard/index.html" 2>/dev/null | head -1 | sed 's/.*sha384-//')
+        "${VN_DIR}/dashboard/index.html" 2>/dev/null | head -1 | sed 's/.*sha384-//' || true)
       vue_hash=$(openssl dgst -sha384 -binary "$vue_file" 2>/dev/null | openssl base64 -A 2>/dev/null || true)
       if [ -n "$vue_pin" ] && [ -n "$vue_hash" ] && [ "$vue_pin" != "$vue_hash" ]; then
         warn "Self-check: index.html SRI pin != installed vue.global.prod.js (${vue_file})"
