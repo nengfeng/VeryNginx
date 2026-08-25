@@ -425,6 +425,8 @@
         if (d.ret === 'success') {
           wafTimeline.value = d.data || { buckets: [], categories: [] };
           if (Array.isArray(wafTimeline.value.buckets)) wafTimeline.value.buckets = asList(wafTimeline.value.buckets);
+          // categories: legend array rendered via categoryColor(cat) — same hole risk
+          if (Array.isArray(wafTimeline.value.categories)) wafTimeline.value.categories = asList(wafTimeline.value.categories);
         } else {
           wafTimelineError.value = d.message || '时间线加载失败';
           wafTimeline.value = { buckets: [], categories: [] };
