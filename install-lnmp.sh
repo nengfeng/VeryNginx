@@ -72,22 +72,18 @@ write_admin_hash() {
   local py_script out
   py_script=$(mktemp /tmp/vn_hash.XXXXXX.py)
   cat > "$py_script" << 'PYEOF'
-import os, hashlib, hmac, base64, json, secrets
+import os, base64, json, secrets
+from hashlib import pbkdf2_hmac
 
 password = os.environ['VN_PASSWORD'].encode('utf-8')
 salt = os.urandom(16)
 iterations = int(os.environ.get('VN_PBKDF2_ITER', '600000'))
 
-init_msg = salt + b'\x00\x00\x00\x01'
-u = hmac.new(password, init_msg, 'sha256').digest()
-result = bytearray(u)
-for i in range(2, iterations + 1):
-    u = hmac.new(password, u, 'sha256').digest()
-    for j, b in enumerate(u):
-        result[j] ^= b
-result = bytes(result)
+# stdlib C implementation — byte-for-byte identical to the previous hand-
+# rolled HMAC loop, ~10x faster at 600k iterations.
+derived = pbkdf2_hmac('sha256', password, salt, iterations)
 b64 = lambda d: base64.b64encode(d).decode('ascii')
-hash_str = 'p1$%s$%s$%s' % (iterations, b64(salt), b64(result))
+hash_str = 'p1$%s$%s$%s' % (iterations, b64(salt), b64(derived))
 
 config = json.load(open(os.environ['VN_CONFIG']))
 if 'admin' not in config or not config['admin']:
