@@ -208,7 +208,7 @@
           <a :class="{active:cfgTab==='rules'}" @click="cfgTab='rules'">规则</a>
           <a :class="{active:cfgTab==='upstreams'}" @click="cfgTab='upstreams'">上游</a>
           <a :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins';loadPlugins()">插件</a>
-          <span class="tab-sep">高级</span>
+          <span class="tab-sep" title="分组标签：以下为高级配置（匹配器 / 响应模板 / 原始 JSON）">▾ 高级</span>
           <a :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">匹配器</a>
           <a :class="{active:cfgTab==='responses'}" @click="cfgTab='responses'">响应模板</a>
           <a :class="{active:cfgTab==='json'}" @click="cfgTab='json'">原始 JSON</a>
