@@ -320,7 +320,10 @@ patch_nginx_conf() {
     vn_resolvers=$(awk '/^nameserver\s+/ {print $2}' /etc/resolv.conf 2>/dev/null \
       | grep -v '^127\.0\.0\.53$\|^::1$' \
       | head -2 | tr '\n' ' ' | sed 's/ *$//')
-    [ -z "$vn_resolvers" ] && vn_resolvers="8.8.8.8 1.1.1.1"
+    # NOTE: if-statement, NOT `[ -z ] && x=` — under set -e a false test in a
+    # standalone && chain returns 1 and kills the script mid-install
+    # (field bug: boxes WITH working /etc/resolv.conf died right here).
+    if [ -z "$vn_resolvers" ]; then vn_resolvers="8.8.8.8 1.1.1.1"; fi
     # systemd-resolved stub (127.0.0.53) is excluded above: cosocket access
     # to it works, but only on localhost — external-facing boxes are safer
     # with real upstreams; fall back to public resolvers when nothing else.
