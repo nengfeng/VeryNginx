@@ -292,6 +292,32 @@ backup_nginx_conf() {
 }
 
 # ----- inject directives into nginx.conf -----------------------------------
+
+# Locate a directive across the main conf AND one level of include files.
+# Sets VN_DIRECTIVE_FILE to the first file containing it. Without this, an
+# existing lua_package_path/lua_shared_dict living in an included snippet
+# is invisible to the main-conf checks -> we inject a SECOND copy and
+# `nginx -t` dies with "duplicate directive".
+VN_DIRECTIVE_FILE=""
+directive_file() {
+  VN_DIRECTIVE_FILE=""
+  local pat="$1" inc f exp
+  if grep -qE "$pat" "$NGINX_CONF" 2>/dev/null; then
+    VN_DIRECTIVE_FILE="$NGINX_CONF"; return 0
+  fi
+  while IFS= read -r inc; do
+    [ -z "$inc" ] && continue
+    case "$inc" in /*) f="$inc";; *) f="$(dirname "$NGINX_CONF")/$inc";; esac
+    for exp in $f; do            # unquoted: expand glob includes (conf.d/*.conf)
+      [ -f "$exp" ] || continue
+      if grep -qE "$pat" "$exp" 2>/dev/null; then
+        VN_DIRECTIVE_FILE="$exp"; return 0
+      fi
+    done
+  done < <(grep -hoE '^[[:space:]]*include[[:space:]]+[^;]+' "$NGINX_CONF" 2>/dev/null | awk '{print $2}')
+  return 1
+}
+
 patch_nginx_conf() {
   title "Patching nginx.conf"
   info "Installer build: ${VN_BUILD}"
@@ -299,7 +325,7 @@ patch_nginx_conf() {
   backup_nginx_conf
 
   # 1) upstream block inside http {} (upstream is only valid in http/stream context)
-  if ! grep -q 'upstream vn_dynamic_upstream' "$NGINX_CONF" 2>/dev/null; then
+  if ! directive_file 'upstream vn_dynamic_upstream'; then
     if grep -q '^http\s*{' "$NGINX_CONF"; then
       sed -i '/^http\s*{/a\
     # VeryNginx v2 - dynamic upstream for proxy_pass\
@@ -311,7 +337,13 @@ patch_nginx_conf() {
         keepalive 128;\
     }
 ' "$NGINX_CONF"
-      info "Added upstream vn_dynamic_upstream ✓"
+      if grep -q 'upstream vn_dynamic_upstream' "$NGINX_CONF" 2>/dev/null; then
+        info "Added upstream vn_dynamic_upstream ✓"
+      else
+        warn "upstream NOT injected — no '^http {' anchor found in ${NGINX_CONF}"
+        echo "    Add manually inside the http block:"
+        echo "      upstream vn_dynamic_upstream { balancer_by_lua_block { require(\"plugin.proxy_pass.balancer\").run(); } keepalive 128; }"
+      fi
     fi
   else
     info "upstream vn_dynamic_upstream already exists, skipping ✓"
@@ -395,7 +427,17 @@ patch_nginx_conf() {
   # 2) add VeryNginx paths to existing lua_package_path inside http block
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"
-  if grep -q 'lua_package_path' "$NGINX_CONF"; then
+  # If lua_package_path lives in an INCLUDED snippet, injecting into the
+  # main conf would create a duplicate directive and fail nginx -t. Merge
+  # into whichever file actually holds the directive.
+  local lpp_target="$NGINX_CONF"
+  if directive_file 'lua_package_path'; then
+    lpp_target="$VN_DIRECTIVE_FILE"
+    if [ "$lpp_target" != "$NGINX_CONF" ]; then
+      info "lua_package_path found in include: ${lpp_target} — merging there"
+    fi
+  fi
+  if [ -n "$lpp_target" ]; then
     # Purge EVERY VeryNginx segment, then merge in the current one — a
     # leftover stale prefix makes Lua load old code/files. The previous
     # regex ([^;"]*verynginx/[^;"]*;;) only removed a segment adjacent to
@@ -428,20 +470,26 @@ patch_nginx_conf() {
         done = 1
       }
       { print }
-    ' "$NGINX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$NGINX_CONF"
+    ' "$lpp_target" > "$tmp_conf" && mv "$tmp_conf" "$lpp_target"
     info "Merged VeryNginx paths into existing lua_package_path ✓"
     # also ensure lua_package_cpath exists (ffi.load needs .so search path)
-    if ! grep -q 'lua_package_cpath' "$NGINX_CONF"; then
+    if ! directive_file 'lua_package_cpath'; then
       sed -i '/^http\s*{/a\    lua_package_cpath "'"${vn_cpath}"';;";' "$NGINX_CONF"
       info "Added lua_package_cpath ✓"
+    elif [ "$VN_DIRECTIVE_FILE" != "$NGINX_CONF" ]; then
+      warn "lua_package_cpath exists in include (${VN_DIRECTIVE_FILE}) — ensure it covers ${vn_cpath}"
     fi
   else
-    # no existing lua_package_path; add it
+    # no existing lua_package_path anywhere (main + includes); add it
     sed -i '/^http\s*{/a\
     # VeryNginx v2 - Lua package paths\
     lua_package_path "'"${vn_paths}"';;";\
     lua_package_cpath "'"${vn_cpath}"';;";' "$NGINX_CONF"
-    info "Added lua_package_path ✓"
+    if grep -q 'lua_package_path' "$NGINX_CONF" 2>/dev/null; then
+      info "Added lua_package_path ✓"
+    else
+      warn "lua_package_path NOT injected — no '^http {' anchor in ${NGINX_CONF}; add manually"
+    fi
   fi
 
   # 3) shared dicts + init blocks inside http {}
@@ -461,7 +509,7 @@ $1" "$NGINX_CONF"
     "statistics:20m" "metrics:10m" "metrics_labeled:16m" "healthcheck:10m" \
     "dns_cache:4m" "frequency_limit:10m" "ip_reputation:16m"; do
     dname="${dentry%%:*}"; dsize="${dentry##*:}"
-    if ! grep -qE "lua_shared_dict[[:space:]]+${dname}[[:space:]]" "$NGINX_CONF" 2>/dev/null; then
+    if ! directive_file "lua_shared_dict[[:space:]]+${dname}[[:space:]]"; then
       inject_after_http "\
     lua_shared_dict ${dname} ${dsize};"
       added_dicts="$added_dicts ${dname}"
@@ -472,11 +520,11 @@ $1" "$NGINX_CONF"
   else
     info "Shared dicts already present, skipping ✓"
   fi
-  if ! grep -qE '^[[:space:]]*lua_code_cache' "$NGINX_CONF" 2>/dev/null; then
+  if ! directive_file '^[[:space:]]*lua_code_cache'; then
     inject_after_http "    lua_code_cache on;"
     info "Added lua_code_cache ✓"
   fi
-  if ! grep -q 'init_by_lua_block' "$NGINX_CONF" 2>/dev/null; then
+  if ! directive_file 'init_by_lua_block'; then
     inject_after_http "\
     # VeryNginx v2 - main process initialization\
     init_by_lua_block {\
@@ -484,7 +532,7 @@ $1" "$NGINX_CONF"
     }"
     info "Added init_by_lua_block ✓"
   fi
-  if ! grep -q 'init_worker_by_lua_block' "$NGINX_CONF" 2>/dev/null; then
+  if ! directive_file 'init_worker_by_lua_block'; then
     inject_after_http "\
     # VeryNginx v2 - worker-level timers\
     init_worker_by_lua_block {\
@@ -494,7 +542,7 @@ $1" "$NGINX_CONF"
   fi
 
   # WebSocket connection upgrade (map must live at http level)
-  if ! grep -qE 'map[[:space:]]+\$http_upgrade' "$NGINX_CONF" 2>/dev/null; then
+  if ! directive_file 'map[[:space:]]+\$http_upgrade'; then
     inject_after_http "\\
     # VeryNginx v2 - WebSocket connection upgrade\\
     map \\$http_upgrade \\$connection_upgrade {\\
