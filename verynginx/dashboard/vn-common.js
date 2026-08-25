@@ -648,6 +648,15 @@
     }
     ctx('createTableTools', createTableTools);
 
+    // ---- Safe list coercion ----
+    // API arrays must never hand null/undefined ITEMS to a v-for: a single
+    // corrupt entry crashes the whole render ("Cannot read properties of
+    // undefined (reading 'id')"). Use for every list assigned from a response.
+    function asList(v) {
+      return (Array.isArray(v) ? v : []).filter(r => r != null);
+    }
+    ctx('asList', asList);
+
     // ---- Clipboard ----
     // Clipboard API requires a secure context; fall back to a temporary
     // textarea + execCommand for plain-http deployments.

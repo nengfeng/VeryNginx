@@ -106,7 +106,7 @@
         const d = await api('GET', '/verynginx/waf/rules?' + params.toString());
         if (!gWafRules.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          wafRules.value = d.data.rules;
+          wafRules.value = asList(d.data.rules);
           wafCategories.value = d.data.categories || {};
           wafPagination.page = d.data.pagination.page;
           wafPagination.limit = d.data.pagination.limit;
@@ -137,7 +137,7 @@
         const d = await api('GET', '/verynginx/waf/stats');
         if (!gWafStats.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          wafStatsData.value = d.data;
+          wafStatsData.value = d.data || {}; if (wafStatsData.value && Array.isArray(wafStatsData.value.top_rules)) wafStatsData.value.top_rules = asList(wafStatsData.value.top_rules);
         } else {
           wafStatsError.value = d.message || '统计加载失败';
         }
@@ -151,7 +151,7 @@
         const d = await api('GET', '/verynginx/waf/rules/history');
         if (!gWafHistory.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          wafHistory.value = d.data;
+          wafHistory.value = asList(d.data);
         } else {
           wafHistError.value = d.message || '历史加载失败';
         }
@@ -370,7 +370,7 @@
       try {
         const d = await api('GET', '/verynginx/waf/rules/pending');
         if (d.ret === 'success') {
-          wafPendingChanges.value = d.data || [];
+          wafPendingChanges.value = asList(d.data);
         } else {
           wafPendingError.value = d.message || '暂存变更加载失败';
         }
@@ -470,7 +470,7 @@
       try {
         const d = await api('GET', '/verynginx/waf/test-history');
         if (d.ret === 'success') {
-          wafTestHistory.value = d.data || [];
+          wafTestHistory.value = asList(d.data);
         } else {
           wafTestHistoryError.value = d.message || '测试历史加载失败';
         }
@@ -570,7 +570,7 @@
         const d = await api('GET', '/verynginx/waf/hits/by-ip?ip=' + encodeURIComponent(ip))
         if (!gViewIpHits.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          wafIpHits.value = d.data || []
+          wafIpHits.value = asList(d.data)
           wafIpHitsIp.value = ip
         } else {
           wafIpHitsError.value = d.message || 'IP 命中记录加载失败';
@@ -619,7 +619,7 @@
         const d = await api('GET', '/verynginx/waf/hits?limit=' + wafHitsLimit.value);
         if (!gWafHits.isCurrent(tok)) return;
         if (d.ret === 'success') {
-          wafHits.value = d.data || [];
+          wafHits.value = asList(d.data);
           wafHitsTime.value = wafHits.value.length ? new Date().toLocaleTimeString() : '';
         } else {
           wafHitsError.value = d.message || '命中记录加载失败';
@@ -671,7 +671,7 @@
           api('GET', '/verynginx/waf/recommendations/stats')
         ]);
         if (!gRecs.isCurrent(tok)) return;
-        if (d.ret === 'success') recs.value = d.data || [];
+        if (d.ret === 'success') recs.value = asList(d.data);
         if (s.ret === 'success') recStats.value = s.data;
       } catch (e) { if (gRecs.isCurrent(tok)) recError.value = e.message; }
     }
