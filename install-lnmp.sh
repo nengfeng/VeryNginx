@@ -445,47 +445,63 @@ patch_nginx_conf() {
   fi
 
   # 3) shared dicts + init blocks inside http {}
-  if ! grep -q 'lua_shared_dict vn_config' "$NGINX_CONF" 2>/dev/null; then
-    local insert_point
-    insert_point=$(grep -n 'server_names_hash_bucket_size\|client_header_buffer_size\|sendfile\|keepalive_timeout' "$NGINX_CONF" | head -1 | cut -d: -f1 || true)
-    if [ -z "$insert_point" ]; then
-      insert_point=$(grep -n '^http\s*{' "$NGINX_CONF" | head -1 | cut -d: -f1 || true)
+  # PER-DICT injection: a single marker ('grep vn_config -> skip all') meant
+  # upgrades from versions lacking newer dicts never received them, and init
+  # crashed on ngx.shared.<name> == nil. Each dict/init directive below is
+  # checked and injected independently. List must stay in sync with
+  # verynginx/nginx_conf/in_http_block.conf (note: metrics_labeled was also
+  # missing from this installer block entirely).
+  inject_after_http() {
+    sed -i "/^http[ \t]*{/a\\
+$1" "$NGINX_CONF"
+  }
+  local dentry dname dsize added_dicts=""
+  for dentry in \
+    "vn_config:2m" "vn_locks:256k" "vn_rate_limit:4m" "vn_session:2m" \
+    "statistics:20m" "metrics:10m" "metrics_labeled:16m" "healthcheck:10m" \
+    "dns_cache:4m" "frequency_limit:10m" "ip_reputation:16m"; do
+    dname="${dentry%%:*}"; dsize="${dentry##*:}"
+    if ! grep -qE "lua_shared_dict[[:space:]]+${dname}[[:space:]]" "$NGINX_CONF" 2>/dev/null; then
+      inject_after_http "\
+    lua_shared_dict ${dname} ${dsize};"
+      added_dicts="$added_dicts ${dname}"
     fi
-
-    sed -i "${insert_point}a\\
-\\
-    lua_code_cache on;\\
-\\
-    # VeryNginx v2 - shared dictionaries\\
-    lua_shared_dict vn_config 2m;\\
-    lua_shared_dict vn_locks 256k;\\
-    lua_shared_dict vn_rate_limit 4m;\\
-    lua_shared_dict vn_session 2m;\\
-    lua_shared_dict ip_reputation 16m;\\
-    lua_shared_dict statistics 20m;\\
-    lua_shared_dict metrics 10m;\\
-    lua_shared_dict healthcheck 10m;\\
-    lua_shared_dict dns_cache 4m;\\
-    lua_shared_dict frequency_limit 10m;\\
-\\
-    # VeryNginx v2 - main process initialization\\
-    init_by_lua_block {\\
-        require(\"core.init\").init()\\
-    }\\
-\\
-    # VeryNginx v2 - worker-level timers\\
-    init_worker_by_lua_block {\\
-        require(\"core.init\").init_worker()\\
-    }\\
-\\
-    # WebSocket connection upgrade\\
-    map \$http_upgrade \$connection_upgrade {\\
-        default upgrade;\\
-        '' close;\\
-    }" "$NGINX_CONF"
-    info "Added shared dicts and init blocks ✓"
+  done
+  if [ -n "$added_dicts" ]; then
+    info "Added shared dict(s):${added_dicts} ✓"
   else
     info "Shared dicts already present, skipping ✓"
+  fi
+  if ! grep -qE '^[[:space:]]*lua_code_cache' "$NGINX_CONF" 2>/dev/null; then
+    inject_after_http "    lua_code_cache on;"
+    info "Added lua_code_cache ✓"
+  fi
+  if ! grep -q 'init_by_lua_block' "$NGINX_CONF" 2>/dev/null; then
+    inject_after_http "\
+    # VeryNginx v2 - main process initialization\
+    init_by_lua_block {\
+        require(\"core.init\").init()\
+    }"
+    info "Added init_by_lua_block ✓"
+  fi
+  if ! grep -q 'init_worker_by_lua_block' "$NGINX_CONF" 2>/dev/null; then
+    inject_after_http "\
+    # VeryNginx v2 - worker-level timers\
+    init_worker_by_lua_block {\
+        require(\"core.init\").init_worker()\
+    }"
+    info "Added init_worker_by_lua_block ✓"
+  fi
+
+  # WebSocket connection upgrade (map must live at http level)
+  if ! grep -qE 'map[[:space:]]+\$http_upgrade' "$NGINX_CONF" 2>/dev/null; then
+    inject_after_http "\\
+    # VeryNginx v2 - WebSocket connection upgrade\\
+    map \\$http_upgrade \\$connection_upgrade {\\
+        default upgrade;\\
+        '' close;\\
+    }"
+    info "Added WebSocket upgrade map ✓"
   fi
 
   # 4) server block directives
@@ -554,6 +570,18 @@ server_inner = lua_pattern.sub('', server_inner)
 # Remove empty location /verynginx/ { } blocks left after cleanup
 server_inner = re.sub(
     r'^\s*location /verynginx/\s*\{\s*\}\s*\n?',
+    '',
+    server_inner,
+    flags=re.MULTILINE
+)
+
+# Remove manual include lines pointing at our server-block snippet (any
+# prefix). Users following the DO_PATCH=n guidance added
+#   include /path/in_server_block.conf;
+# by hand; if kept alongside the handlers we inject here, nginx ends up
+# with DUPLICATE server-level lua handlers and fails `nginx -t`.
+server_inner = re.sub(
+    r'^\s*include\s+[^;]*in_server_block\.conf\s*;\s*\n?',
     '',
     server_inner,
     flags=re.MULTILINE
@@ -645,15 +673,35 @@ reload_nginx() {
 
   if "$WEB_SERVER_BIN" -t 2>&1; then
     info "nginx configuration test passed ✓"
-    if svc_is_active nginx 2>/dev/null; then
-      if command -v systemctl >/dev/null 2>&1; then
-        systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true
+    # Unit name is NOT always 'nginx' (source/openresty builds often use
+    # 'openresty'); detect rather than assume.
+    local vn_unit=""
+    if command -v systemctl >/dev/null 2>&1; then
+      local _u
+      for _u in nginx openresty; do
+        if systemctl cat "${_u}.service" >/dev/null 2>&1; then vn_unit="$_u"; break; fi
+      done
+    fi
+    if [ -n "$vn_unit" ]; then
+      if svc_is_active "$vn_unit" 2>/dev/null; then
+        if systemctl reload "$vn_unit" 2>/dev/null; then
+          info "${vn_unit} reloaded ✓"
+        elif systemctl restart "$vn_unit" 2>/dev/null; then
+          warn "reload failed — performed full restart of ${vn_unit} instead ✓"
+        else
+          warn "FAILED to reload/restart ${vn_unit} — do it manually:"
+          echo "      systemctl restart ${vn_unit}"
+        fi
       else
-        "$WEB_SERVER_BIN" -s reload 2>/dev/null || true
+        warn "${vn_unit} is not running. Start it with: systemctl start ${vn_unit}"
       fi
-      info "nginx reloaded ✓"
     else
-      warn "nginx is not running. Start it with: systemctl start nginx"
+      # No systemd unit (sysv/source build): signal-based reload.
+      if "$WEB_SERVER_BIN" -s reload 2>/dev/null; then
+        info "reload signal sent via '${WEB_SERVER_BIN} -s reload' ✓"
+      else
+        warn "'${WEB_SERVER_BIN} -s reload' failed — reload manually"
+      fi
     fi
   else
     error "nginx configuration test FAILED"
