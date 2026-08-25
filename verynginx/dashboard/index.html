@@ -236,6 +236,12 @@
           <div v-else class="empty">
             <div>未定义匹配器。</div>
             <button class="primary small" style="margin-top:8px" @click="editMatcher()">+ 创建第一个匹配器</button>
+            <div style="font-size:12px;color:var(--muted);margin-top:10px;max-width:560px;margin-left:auto;margin-right:auto;line-height:1.7">
+              匹配器是<strong>命名的可复用匹配条件集</strong>（URI / IP / Header / User-Agent 等），
+              存于 <span class="json-inline">config.matcher.*</span>。<br>
+              定义后可在「规则组」与「响应模板」里按名称引用，条件变更只需改一处。
+              WAF 面板的规则使用独立的内联匹配器，与此处互不影响。
+            </div>
           </div>
         </div>
 
