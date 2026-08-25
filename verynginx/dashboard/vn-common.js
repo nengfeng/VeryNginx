@@ -644,7 +644,13 @@
           state.sortDir = 1;
         }
       }
-      return { state, rows, sortBy };
+      // MUST be reactive(): template ref-unwrapping is SHALLOW — a computed
+      // inside a PLAIN returned object stays a ref, so v-for="r in t.rows"
+      // iterates the ref instance itself and any r.id access throws,
+      // white-screening the subtree (proxyRefs unwraps only setup() top-level
+      // or reactive() members). reactive() unwraps `rows` to the array.
+      // Consequence for script code: read `.rows` DIRECTLY (no .value).
+      return reactive({ state, rows, sortBy });
     }
     ctx('createTableTools', createTableTools);
 

@@ -480,7 +480,7 @@ registerPoll('health', {
 | 设施 | 注册 | 用法 |
 |------|------|------|
 | `createStaleGuard()` | ctx | 快速切页时旧响应不得覆盖新状态：`const tok=g.mark(); …; if(!g.isCurrent(tok)) return;`。带 loading 标志的 loader 其 `finally` 也须受 isCurrent 保护（否则迟到旧响应提前熄灭新请求的 spinner） |
-| `createTableTools(ref)` | ctx | 客户端排序/过滤，每表一个 view 绑定 `t`：`v-model="t.state.filter"`、`v-for="r in t.rows"`、`th @click="t.sortBy('col')"`；仅作用于已加载行 |
+| `createTableTools(ref)` | ctx | 客户端排序/过滤，每表一个 view 绑定 `t`：`v-model="t.state.filter"`、`v-for="r in t.rows"`、`th @click="t.sortBy('col')"`；仅作用于已加载行。**必须返回 `reactive({...})` 而非普通对象**：模板 ref 解包是浅层的（proxyRefs 只作用于 setup 顶层与 reactive 成员），普通对象里的 computed 不解包 → `v-for="r in t.rows"` 遍历 ref 实例自身，读 `r.id` 即抛错、整棵渲染子树白屏（曾致 WAF 面板整页白屏的回归）。脚本侧相应**直读 `.rows`**（无 `.value`）；行计算内置非对象条目过滤 |
 | `bindModal(modal,{label,onClose,trackInput})` | ctx | Esc 关栈顶 + 打开聚焦首字段 + 关闭还原焦点 + Tab 圈闭；自动跟踪弹窗内 input/change 作脏标记；confirm 类传 `trackInput:false` |
 | `showConfirm` | ctx | **队列化**（FIFO），重入不再覆盖未决 resolve；关闭统一走 `closeConfirm` |
 | `showToast(msg,type,opts)` | ctx | 分级队列（上限5）：success 2.5s/info 3s/warn 6s/error 常驻手动关；`opts={actionLabel,onAction,duration}` 支持"撤销"按钮；连续重复去重；登出清空 |

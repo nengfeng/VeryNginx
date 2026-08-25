@@ -813,15 +813,15 @@
     const wafSelectedIds = ref([]);
     const wafBulkBusy = ref(false);
     const wafAllSelected = computed(() =>
-      wafRulesTbl.rows.value.length > 0 &&
-      wafRulesTbl.rows.value.every(r => wafSelectedIds.value.includes(r.id))
+      wafRulesTbl.rows.length > 0 &&
+      wafRulesTbl.rows.every(r => wafSelectedIds.value.includes(r.id))
     );
     function wafToggleSelectAll() {
       if (wafAllSelected.value) {
-        const visible = new Set(wafRulesTbl.rows.value.map(r => r.id));
+        const visible = new Set(wafRulesTbl.rows.map(r => r.id));
         wafSelectedIds.value = wafSelectedIds.value.filter(id => !visible.has(id));
       } else {
-        for (const r of wafRulesTbl.rows.value) {
+        for (const r of wafRulesTbl.rows) {
           if (!wafSelectedIds.value.includes(r.id)) wafSelectedIds.value.push(r.id);
         }
       }
