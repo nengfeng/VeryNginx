@@ -582,13 +582,13 @@
           <div style="overflow-x:auto">
             <table>
                <thead><tr>
-                 <th style="width:32px"><input type="checkbox" :checked="wafAllSelected" title="全选当前页" @change="wafToggleSelectAll"></th>
-                 <th style="width:40px" class="sortable" @click="wafRulesTbl.sortBy('enable')">启用 <span v-if="wafRulesTbl.state.sortKey==='enable'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th style="width:44px"><input type="checkbox" :checked="wafAllSelected" title="全选当前页" @change="wafToggleSelectAll"></th>
+                 <th style="width:76px" class="sortable" @click="wafRulesTbl.sortBy('enable')">启用 <span v-if="wafRulesTbl.state.sortKey==='enable'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th class="sortable" @click="wafRulesTbl.sortBy('name')">名称 <span v-if="wafRulesTbl.state.sortKey==='name'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th style="width:80px" class="sortable" @click="wafRulesTbl.sortBy('category')">分类 <span v-if="wafRulesTbl.state.sortKey==='category'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th style="width:70px" class="sortable" @click="wafRulesTbl.sortBy('severity')">严重级别 <span v-if="wafRulesTbl.state.sortKey==='severity'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th style="width:100px" class="sortable" @click="wafRulesTbl.sortBy('severity')">严重级别 <span v-if="wafRulesTbl.state.sortKey==='severity'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th style="width:70px" class="sortable" @click="wafRulesTbl.sortBy('hit_count')">命中 <span v-if="wafRulesTbl.state.sortKey==='hit_count'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th style="width:100px">最后触发</th>
+                 <th style="width:130px">最后触发</th>
                  <th style="width:140px">操作</th>
                </tr></thead>
  <tbody>
