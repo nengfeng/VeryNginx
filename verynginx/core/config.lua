@@ -798,6 +798,29 @@ local function validate_config(config)
         end
     end
 
+    -- GeoIP custom mirror URLs: same SSRF gate as webhooks. The built-in
+    -- defaults are exempt (public endpoints, avoids a DNS probe on every
+    -- save); any operator-customized URL gets the full check.
+    do
+        local geoip_cfg = config.geoip
+        if type(geoip_cfg) == "table" then
+            local defaults = {
+                update_url = "https://download.maxmind.com/app/geoip_download",
+                cdn_url = "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
+            }
+            for _, field in ipairs({ "update_url", "cdn_url" }) do
+                local v = geoip_cfg[field]
+                if type(v) == "string" and v ~= "" and v ~= defaults[field] then
+                    local alerting = require "core.alerting"
+                    local ok, err = alerting.validate_webhook_url(v)
+                    if not ok then
+                        return false, "geoip." .. field .. " " .. tostring(err)
+                    end
+                end
+            end
+        end
+    end
+
     -- Whitelist entry format validation. The schema only checks items="string",
     -- so malformed entries like "999.1.1.1" would pass and persist — silently
     -- defeating the is_whitelisted/promote gate (the API layer validates via
@@ -1103,6 +1126,17 @@ function _M.save(config, opts)
             and config_data.security and config_data.security.session_secret
             and config_data.security.session_secret ~= "(redacted)" then
         config.security.session_secret = config_data.security.session_secret
+    end
+
+    -- Preserve real MaxMind license key when incoming value is the redacted
+    -- sentinel from GET /config — same contract as password_hash/session_secret.
+    if type(config.geoip) == "table" and config.geoip.license_key == "(redacted)" then
+        if type(config_data.geoip) == "table" and type(config_data.geoip.license_key) == "string"
+                and config_data.geoip.license_key ~= "(redacted)" then
+            config.geoip.license_key = config_data.geoip.license_key
+        else
+            config.geoip.license_key = ""
+        end
     end
 
     -- Password complexity check before auto-hashing.

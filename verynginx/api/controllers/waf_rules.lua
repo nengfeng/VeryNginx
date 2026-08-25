@@ -12,6 +12,71 @@ local waf_manager = require "waf-rule-manager"
 
 local PENDING_PREFIX = "waf_pending_rule:"
 
+-- ---------------------------------------------------------------------------
+-- Pending-change index: a JSON id list in vn_config maintained under the same
+-- spin-lock style used elsewhere (AGENTS §12.2). Replaces the old
+-- get_keys(200) bounded scan, which silently truncated at 200 keys and was
+-- O(N) over the whole dict. Live per-entry key ⇔ index entry (same invariant
+-- as ip_rep pending index); dead entries pruned on read.
+local PENDING_INDEX_KEY = "waf_pending_index"
+local PENDING_INDEX_LOCK = "waf_pending:index_lock"
+
+local function with_pending_lock(fn)
+    local locks = ngx.shared.vn_locks
+    if not locks then return fn() end -- no lock dict: best-effort (tests)
+    local token = require("core.random").bytes(8)
+    for _ = 1, 500 do
+        if locks:add(PENDING_INDEX_LOCK, token, 5) then
+            local ok, res = pcall(fn)
+            if locks:get(PENDING_INDEX_LOCK) == token then locks:delete(PENDING_INDEX_LOCK) end
+            if not ok then error(res) end
+            return res
+        end
+        ngx.sleep(0.002)
+    end
+    ngx.log(ngx.ERR, "waf_rules: pending index lock timeout")
+    return nil
+end
+
+local function pending_index_read(shared)
+    local raw = shared:get(PENDING_INDEX_KEY)
+    if not raw then return {} end
+    local ok, arr = pcall(json.decode, raw)
+    if ok and type(arr) == "table" then return arr end
+    return {}
+end
+
+local function pending_index_write(shared, arr)
+    shared:set(PENDING_INDEX_KEY, json.encode(arr), 0)
+end
+
+local function pending_index_add(rule_id)
+    local shared = ngx.shared.vn_config
+    if not shared then return end
+    with_pending_lock(function()
+        local arr = pending_index_read(shared)
+        for _, e in ipairs(arr) do
+            if e == rule_id then return end -- already indexed
+        end
+        arr[#arr + 1] = rule_id
+        pending_index_write(shared, arr)
+    end)
+end
+
+local function pending_index_remove(rule_id)
+    local shared = ngx.shared.vn_config
+    if not shared then return end
+    with_pending_lock(function()
+        local arr = pending_index_read(shared)
+        local out, changed = {}, false
+        for _, e in ipairs(arr) do
+            if e == rule_id then changed = true else out[#out + 1] = e end
+        end
+        if changed then pending_index_write(shared, out) end
+    end)
+end
+
+
 --- GET /waf/rules - list rules with filtering and pagination
 local function handle_list_waf_rules()
     local args = ngx.req.get_uri_args()
@@ -339,6 +404,7 @@ local function handle_stage_waf_rule()
         proposed = args,
     }
     shared:set(PENDING_PREFIX .. rule_id, json.encode(pending), 86400)
+    pending_index_add(rule_id)
     audit.log("rule_staged", rule_id, "-")
     return json.encode({ ret = "success", data = pending })
 end
@@ -398,6 +464,7 @@ local function handle_confirm_waf_rule()
 
     if not updated then
         shared:delete(PENDING_PREFIX .. rule_id)
+        pending_index_remove(rule_id)
         ngx.status = 404
         return json.encode({ ret = "failed", message = "rule not found" })
     end
@@ -411,6 +478,7 @@ local function handle_confirm_waf_rule()
         return json.encode({ ret = "failed", message = "rule change persist failed: " .. tostring(serr) })
     end
     shared:delete(PENDING_PREFIX .. rule_id)
+    pending_index_remove(rule_id)
     audit.log("rule_change_confirmed", rule_id, "-")
     return json.encode({ ret = "success", message = "rule change applied" })
 end
@@ -430,6 +498,7 @@ local function handle_discard_waf_rule()
 
     local existed = shared:get(PENDING_PREFIX .. rule_id) ~= nil
     shared:delete(PENDING_PREFIX .. rule_id)
+    pending_index_remove(rule_id)
     if existed then
         audit.log("rule_change_discarded", rule_id, "-")
     end
@@ -437,20 +506,50 @@ local function handle_discard_waf_rule()
     return json.encode({ ret = "success", message = msg })
 end
 
+
 --- GET /waf/rules/pending - list all pending rule changes
 local function handle_list_pending_rules()
     local shared = ngx.shared.vn_config
     local result = {}
     if shared then
-        local keys = shared:get_keys(200) -- NOTE: bounded scan; see audit F6 (index pending)
-        for _, k in ipairs(keys) do
-            if k:sub(1, #PENDING_PREFIX) == PENDING_PREFIX then
-                local data = shared:get(k)
-                if data then
-                    local ok, decoded = pcall(json.decode, data)
-                    if ok and decoded then
-                        result[#result + 1] = decoded
+        -- Index-driven listing (dead entries pruned opportunistically under
+        -- the lock). Legacy migration: an absent index falls back to the old
+        -- bounded scan once and seeds the index from what it finds.
+        local ids
+        if shared:get(PENDING_INDEX_KEY) == nil then
+            local seeded = {}
+            for _, k in ipairs(shared:get_keys(200)) do
+                if k:sub(1, #PENDING_PREFIX) == PENDING_PREFIX then
+                    seeded[#seeded + 1] = k:sub(#PENDING_PREFIX + 1)
+                end
+            end
+            with_pending_lock(function()
+                if shared:get(PENDING_INDEX_KEY) == nil then
+                    pending_index_write(shared, seeded)
+                end
+            end)
+            ids = seeded
+        else
+            ids = with_pending_lock(function()
+                local arr = pending_index_read(shared)
+                local live, dead = {}, {}
+                for _, id in ipairs(arr) do
+                    if shared:get(PENDING_PREFIX .. id) ~= nil then
+                        live[#live + 1] = id
+                    else
+                        dead[#dead + 1] = id
                     end
+                end
+                if #dead > 0 then pending_index_write(shared, live) end
+                return live
+            end) or {}
+        end
+        for _, id in ipairs(ids) do
+            local data = shared:get(PENDING_PREFIX .. id)
+            if data then
+                local ok, decoded = pcall(json.decode, data)
+                if ok and decoded then
+                    result[#result + 1] = decoded
                 end
             end
         end

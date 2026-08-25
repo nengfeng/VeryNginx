@@ -37,6 +37,10 @@ end
 --- Accepts a well-formed IPv4 (four octets 0-255) or IPv6 address.
 function _M.is_valid_ip(ip)
     if type(ip) ~= "string" or ip == "" then return false end
+    -- IPv4-mapped IPv6 literal (::ffff:a.b.c.d): validate the embedded v4.
+    -- Case-insensitive per RFC 5952 §4 hex normalization.
+    local mapped = ip:lower():match("^::ffff:(%d+%.%d+%.%d+%.%d+)$")
+    if mapped then ip = mapped end
     local a, b, c, d = ip:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
     if a then
         return tonumber(a) <= 255 and tonumber(b) <= 255

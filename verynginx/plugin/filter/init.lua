@@ -211,7 +211,11 @@ function _M.on_access(ctx)
         for _, r in ipairs(challenge_rules) do
             local pk = "ip_rep:pending_rules:" .. ctx_ip .. ":" .. r.id
             if ngx.shared.ip_reputation:get(pk) then
-                s:incr("waf_rule_challenge_pass:" .. r.id, 1, 0, 86400)
+                -- Per-DAY key: the analytics pass-rate divides this by the
+                -- per-day challenge counter — both must share a window or
+                -- the rate drifts toward zero as lifetime totals grow.
+                local pday = os.date("!%Y%m%d")
+                s:incr("waf_rule_stats:" .. tostring(r.id) .. ":cpass:" .. pday, 1, 0, 172800)
                 ngx.shared.ip_reputation:delete(pk)
             end
         end

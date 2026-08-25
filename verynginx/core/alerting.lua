@@ -368,7 +368,9 @@ function _M.evaluate()
     for rule_id, stat in pairs(current_hits) do
         local challenges = stat.challenge_count or 0
         if challenges >= conf.fp_min_challenges then
-            local pass_key = "waf_rule_challenge_pass:" .. rule_id
+            -- per-day key (aligned with analytics pass-rate window)
+        local pass_key = "waf_rule_stats:" .. rule_id
+            .. ":cpass:" .. os.date("!%Y%m%d")
             local passes = tonumber(s:get(pass_key) or 0)
             local pass_rate = passes / challenges
             if pass_rate < conf.fp_pass_rate_threshold then
@@ -463,7 +465,9 @@ function _M.evaluate()
         new_state.prev_hits[rule_id] = stat.hit_count or 0
         local challenges = stat.challenge_count or 0
         if challenges > 0 then
-            local pass_key = "waf_rule_challenge_pass:" .. rule_id
+            -- per-day key (aligned with analytics pass-rate window)
+        local pass_key = "waf_rule_stats:" .. rule_id
+            .. ":cpass:" .. os.date("!%Y%m%d")
             local passes = tonumber(s:get(pass_key) or 0)
             new_state.prev_pass_rate[rule_id] = passes / challenges
         end

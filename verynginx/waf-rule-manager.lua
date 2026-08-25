@@ -901,6 +901,12 @@ function _M.record_hit(rule_id, ctx, action)
     pcall(function()
         local day = os.date("!%Y%m%d")
         shared:incr("waf_rule_stats:" .. tostring(rule_id) .. ":today:" .. day, 1, 0, 172800)
+        if hit_action == "challenge" then
+            -- Per-day challenge count: numerator of the analytics pass-rate
+            -- (:cpass:) is also per-day; a lifetime denominator made the rate
+            -- decay toward 0% over time.
+            shared:incr("waf_rule_stats:" .. tostring(rule_id) .. ":chal:" .. day, 1, 0, 172800)
+        end
     end)
 
     -- Ring buffer for recent hits display (keep last 100)

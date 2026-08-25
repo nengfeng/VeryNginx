@@ -16,17 +16,19 @@ package.path = "verynginx/?.lua;verynginx/lua_script/?.lua;verynginx/lua_script/
 
 local function install_fake_re(fail_patterns)
     local saved = ngx.re
+    local calls = { last_opts = nil }
     ngx.re = {
         compile = function(pattern)
             if fail_patterns[pattern] then return nil, "pcre_compile_failed" end
             return { __pat = pattern }
         end,
-        match = function(subject, compiled)
+        match = function(subject, compiled, opts)
+            calls.last_opts = opts
             if subject:find(compiled.__pat, 1, true) then return {} end
             return nil
         end,
     }
-    return saved
+    return saved, calls
 end
 
 describe("compare.match invalid-regex fail-safe (production branch)", function()
@@ -54,11 +56,14 @@ describe("compare.match invalid-regex fail-safe (production branch)", function()
     end)
 
     it("valid patterns still evaluate through the compiled path", function()
-        install_fake_re({})
+        local _, calls = install_fake_re({})
         package.loaded["matcher.compare"] = nil
         local compare = require "matcher.compare"
 
+        -- ReDoS hardening: every exec must carry PCRE limits (AGENTS §7.7)
         assert.is_true(compare.match("/admin/x", "≈", "/admin"))
+        assert.truthy(type(calls.last_opts) == "table" and calls.last_opts.match_limit > 0)
+        assert.truthy(calls.last_opts.depth_limit > 0)
         assert.is_false(compare.match("/user", "≈", "/admin"))
         assert.is_true(compare.match("/user", "!≈", "/admin"))
         assert.is_false(compare.match("/admin", "!≈", "/admin"))

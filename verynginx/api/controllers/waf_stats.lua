@@ -413,13 +413,17 @@ local function handle_waf_analytics()
         local challenges = stat.challenge_count or 0
         local last_triggered = stat.last_triggered or 0
 
-        -- Challenge pass count
-        local passes = tonumber(shared:get("waf_rule_challenge_pass:" .. rule.id) or 0)
+        -- Challenge pass RATE uses per-day counters on BOTH sides (cpass /
+        -- chal, written in record_hit / filter confirm). The old mix — 1-day
+        -- passes over a LIFETIME challenge_count — decayed to ~0%% as totals
+        -- grew.
+        local today = os.date("!%Y%m%d")
+        local passes = tonumber(shared:get("waf_rule_stats:" .. rule.id .. ":cpass:" .. today) or 0)
+        local chal_today = tonumber(shared:get("waf_rule_stats:" .. rule.id .. ":chal:" .. today) or 0)
 
-        -- Calculate challenge pass rate
         local pass_rate = "-"
-        if challenges > 0 then
-            pass_rate = string.format("%.0f%%", (passes / challenges) * 100)
+        if chal_today > 0 then
+            pass_rate = string.format("%.0f%%", (passes / chal_today) * 100)
         end
 
         -- Effectiveness grade (A+/A/B/C/D)

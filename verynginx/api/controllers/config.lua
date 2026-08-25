@@ -111,6 +111,9 @@ local function handle_get_config()
     if ok and decoded and decoded.security then
         decoded.security.session_secret = "(redacted)"
     end
+    if ok and decoded and type(decoded.geoip) == "table" and decoded.geoip.license_key then
+        decoded.geoip.license_key = "(redacted)"
+    end
     if ok then
         return json.encode(decoded)
     end
@@ -135,6 +138,9 @@ local function handle_export_config()
     end
     if ok and decoded and decoded.security then
         decoded.security.session_secret = "(redacted)"
+    end
+    if ok and decoded and type(decoded.geoip) == "table" and decoded.geoip.license_key then
+        decoded.geoip.license_key = "(redacted)"
     end
     if ok then
         content = json.encode(decoded)

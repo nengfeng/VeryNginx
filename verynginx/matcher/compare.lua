@@ -19,6 +19,12 @@ local function get_compiled(pattern)
     return result
 end
 
+-- Execution limits applied to every regex evaluation. Without them a
+-- pathological stored pattern (catastrophic backtracking) pins a worker CPU
+-- core per request — PCRE match_limit aborts the match instead. Chosen well
+-- above legitimate rule needs (URI/header patterns are short subjects).
+local EXEC_OPTS = { match_limit = 2000, depth_limit = 400 }
+
 function _M.match(value, op, pattern)
     if op == "=" then return value == pattern end
     if op == "≈" or op == "!≈" then
@@ -26,7 +32,11 @@ function _M.match(value, op, pattern)
         local matched
         local re = get_compiled(pattern)
         if re then
-            matched = ngx.re.match(value, re) ~= nil
+            -- pcall: limit-exceeded raises ("pcre_exec failed: -8"-style);
+            -- treat as no-match rather than propagating into the critical
+            -- plugin's 503 policy.
+            local okm, mres = pcall(ngx.re.match, value, re, EXEC_OPTS)
+            matched = okm and mres ~= nil
         elseif type(ngx.re) ~= "table" or type(ngx.re.compile) ~= "function" then
             -- Minimal environments (unit-test rigs) without the compile API:
             -- degrade to find(). Guarded so a bad pattern can't raise here.
