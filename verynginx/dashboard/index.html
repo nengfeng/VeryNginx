@@ -586,6 +586,7 @@
                <option value="medium">中</option>
                <option value="low">低</option>
              </select>
+             <input v-model="wafRulesTbl.state.filter" class="tbl-filter" style="flex:1;min-width:160px;margin-bottom:0" placeholder="过滤当前页规则（名称/分类/标签…）">
           </div>
           <div v-if="wafSelectedIds.length" class="flex mb-8" style="gap:8px;align-items:center">
             <span style="font-size:13px">已选 {{ wafSelectedIds.length }} 条</span>
@@ -593,7 +594,6 @@
             <button class="danger small" :disabled="wafBulkBusy" @click="wafBulkDisable"><span v-if="wafBulkBusy" class="spinner"></span>批量禁用</button>
             <button class="outline small" @click="wafSelectedIds = []">清除选择</button>
           </div>
-          <input v-model="wafRulesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页规则（名称/分类/标签…）">
           <div style="overflow-x:auto">
             <table>
                <thead><tr>
