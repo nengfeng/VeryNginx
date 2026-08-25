@@ -93,7 +93,11 @@ function _M.serve(root, path, expires)
 
     _M.set_cache_header(expires)
     ngx.header["Content-Type"] = _M.mime_type(path)
-    ngx.say(f:read("*all"))
+    -- MUST be ngx.print, NOT ngx.say: ngx.say appends a trailing newline,
+    -- corrupting every served file by exactly one byte — which silently
+    -- breaks SRI pins (vue.global.prod.js integrity mismatch) and any
+    -- byte-exact consumer. ngx.print writes the body verbatim.
+    ngx.print(f:read("*all"))
     f:close()
     return ngx.exit(200)
 end
