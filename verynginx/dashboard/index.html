@@ -844,6 +844,66 @@
         <div v-if="wafTab==='tester'">
           <div class="card">
              <h3 style="font-size:14px;margin-bottom:8px">测试规则</h3>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+              <label style="font-size:13px;color:var(--muted)">模式</label>
+              <select v-model="wafTestMode" @change="wafTestModeChanged()" style="width:auto">
+                <option value="form">表单</option>
+                <option value="raw">JSON</option>
+              </select>
+              <select v-model="wafTestPresetRuleId" @change="wafTestLoadPreset" style="width:auto;max-width:280px">
+                <option value="">从现有规则载入…</option>
+                <option v-for="r in wafRulesTbl.rows" :key="r.id" :value="r.id">{{ r.name || r.id }}</option>
+              </select>
+            </div>
+            <template v-if="wafTestMode==='form'">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+                <div class="field" style="margin:0"><label>匹配字段</label>
+                  <select v-model="wafTestRuleForm.field" style="width:auto">
+                    <option v-for="f in ['URI','IP','UA','Host','Referer','Header','Cookie','Args','Method']" :key="f" :value="f">{{ f }}</option>
+                  </select></div>
+                <div class="field" style="margin:0"><label>操作符</label>
+                  <select v-model="wafTestRuleForm.operator" style="width:auto">
+                    <option value="≈">≈ 正则匹配</option>
+                    <option value="=">= 精确等于</option>
+                    <option value="!≈">!≈ 正则不匹配</option>
+                  </select></div>
+                <div class="field" style="margin:0;flex:1;min-width:200px"><label>匹配值</label>
+                  <input v-model="wafTestRuleForm.value" type="text" placeholder='如 /api/* 或 \.\./'></div>
+                <div class="field" style="margin:0"><label>动作</label>
+                  <select v-model="wafTestRuleForm.action" style="width:auto">
+                    <option value="block">阻止</option>
+                    <option value="accept">放行</option>
+                    <option value="log">记录</option>
+                    <option value="challenge">质询</option>
+                  </select></div>
+              </div>
+              <div class="field">
+                <label>测试用例（每行一条请求，勾选 = 预期被匹配）</label>
+                <table style="font-size:12px">
+                  <thead><tr><th style="width:110px">名称(可空)</th><th>URI</th><th style="width:90px">方法</th><th style="width:130px">IP(可空)</th><th>UA(可空, 可选预设)</th><th style="width:70px">预期命中</th><th style="width:36px"></th></tr></thead>
+                  <tbody>
+                    <tr v-for="(row, ci) in wafTestCaseRows" :key="ci">
+                      <td><input v-model="row.name" type="text" style="width:100%"></td>
+                      <td><input v-model="row.uri" type="text" style="width:100%" placeholder="/api/users?id=1"></td>
+                      <td><select v-model="row.method" style="width:100%"><option v-for="m in ['GET','POST','PUT','DELETE','HEAD']" :key="m">{{ m }}</option></select></td>
+                      <td><input v-model="row.ip" type="text" style="width:100%" placeholder="1.2.3.4"></td>
+                      <td><input v-model="row.ua" type="text" style="width:100%" list="vnUaPresets" placeholder="留空=Mozilla/5.0"></td>
+                      <td style="text-align:center"><input type="checkbox" v-model="row.expected"></td>
+                      <td><button class="outline small" @click="removeWafTestCaseRow(ci)" title="删除此行">×</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <button class="outline small" style="margin-top:6px" @click="addWafTestCaseRow">+ 添加用例</button>
+              </div>
+              <datalist id="vnUaPresets">
+                <option value="curl/8.5.0"></option>
+                <option value="sqlmap/1.8#stable (http://sqlmap.org)"></option>
+                <option value="python-requests/2.31.0"></option>
+                <option value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"></option>
+                <option value=""></option>
+              </datalist>
+            </template>
+            <template v-else>
              <div class="field">
                <label>规则 (JSON)</label>
               <textarea v-model="wafTestRuleJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"matcher":{"URI":{"operator":"≈","value":"/api/*"}},"action":"block"}'></textarea>
@@ -852,6 +912,7 @@
                <label>测试用例 (JSON 数组)</label>
               <textarea v-model="wafTestCasesJson" spellcheck="false" class="code-editor" style="min-height:120px" placeholder='[{"name":"normal","uri":"/api/users","expected":false},{"name":"attack","uri":"/api/../../etc","expected":true}]'></textarea>
             </div>
+            </template>
             <div class="error" v-if="wafTestError" style="margin-bottom:8px">{{ wafTestError }}</div>
              <button class="primary small" :disabled="wafTesting" @click="wafRunTest">{{ wafTesting ? '测试中…' : '运行测试' }}</button>
           </div>

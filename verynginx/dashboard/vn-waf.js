@@ -39,6 +39,65 @@
     const wafSaving = ref(false);
     const wafTestRuleJson = ref('');
     const wafTestCasesJson = ref('');
+    // 表单模式: 免写 JSON 的规则测试
+    const wafTestMode = ref('form');
+    const wafTestPresetRuleId = ref('');
+    const wafTestRuleForm = reactive({ field: 'URI', operator: '≈', value: '', action: 'block' });
+    function defaultWafTestCaseRow() {
+      return { name: '', uri: '/', method: 'GET', ip: '', ua: '', expected: true };
+    }
+    const wafTestCaseRows = reactive([defaultWafTestCaseRow()]);
+    function addWafTestCaseRow() { wafTestCaseRows.push(defaultWafTestCaseRow()); }
+    function removeWafTestCaseRow(i) { if (wafTestCaseRows.length > 1) wafTestCaseRows.splice(i, 1); }
+    function wafTestRuleFromForm() {
+      const f = wafTestRuleForm;
+      return { matcher: { [f.field]: { operator: f.operator, value: f.value } }, action: f.action };
+    }
+    function wafCasesFromRows() {
+      return wafTestCaseRows.map((r, i) => {
+        const c = { name: (r.name || '').trim() || ('case' + (i + 1)), uri: r.uri || '/', method: r.method || 'GET', expected: !!r.expected };
+        if ((r.ip || '').trim()) c.ip = r.ip.trim();
+        if ((r.ua || '').trim()) c.ua = r.ua.trim();
+        return c;
+      });
+    }
+    function serializeWafFormToRaw() {
+      try {
+        wafTestRuleJson.value = JSON.stringify(wafTestRuleFromForm(), null, 2);
+        wafTestCasesJson.value = JSON.stringify(wafCasesFromRows(), null, 2);
+      } catch (e) { /* noop */ }
+    }
+    function fillWafFormFromRule(rule) {
+      const m = rule && rule.matcher;
+      const keys = m && typeof m === 'object' && !Array.isArray(m) ? Object.keys(m) : [];
+      if (keys.length === 1 && m[keys[0]] && typeof m[keys[0]] === 'object') {
+        wafTestMode.value = 'form';
+        wafTestRuleForm.field = keys[0];
+        wafTestRuleForm.operator = m[keys[0]].operator || '≈';
+        wafTestRuleForm.value = m[keys[0]].value != null ? String(m[keys[0]].value) : '';
+        wafTestRuleForm.action = rule.action || 'block';
+        wafTestPresetRuleId.value = '';
+        return true;
+      }
+      return false;
+    }
+    function wafTestModeChanged() {
+      if (wafTestMode.value === 'raw') serializeWafFormToRaw();
+    }
+    async function wafTestLoadPreset() {
+      const id = wafTestPresetRuleId.value;
+      if (!id) return;
+      if (!Array.isArray(wafRules.value) || !wafRules.value.length) await loadWafRules();
+      const rule = (wafRules.value || []).find(r => r.id === id);
+      if (!rule) { showToast('未找到该规则', 'warn'); return; }
+      if (!fillWafFormFromRule(rule)) {
+        wafTestMode.value = 'raw';
+        wafTestRuleJson.value = JSON.stringify({ matcher: rule.matcher, action: rule.action, code: rule.code }, null, 2);
+        showToast('该规则含多条件/组合匹配器，已切换 JSON 模式', 'info');
+      } else {
+        showToast('已载入规则: ' + id, 'success');
+      }
+    }
     const wafTestError = ref('');
     const wafTesting = ref(false);
     const wafTestResults = ref(null);
@@ -500,18 +559,27 @@
       wafTestResults.value = null;
 
       let rule, cases;
-      try {
-        rule = JSON.parse(wafTestRuleJson.value);
-      } catch (e) {
-        wafTestError.value = 'Invalid rule JSON: ' + e.message;
-        return;
-      }
-      try {
-        cases = JSON.parse(wafTestCasesJson.value);
-        if (!Array.isArray(cases) || !cases.length) throw new Error('Must be a non-empty array');
-      } catch (e) {
-        wafTestError.value = 'Invalid test cases JSON: ' + e.message;
-        return;
+      if (wafTestMode.value === 'form') {
+        if (!(wafTestRuleForm.value || '').trim()) {
+          wafTestError.value = '请填写匹配值';
+          return;
+        }
+        rule = wafTestRuleFromForm();
+        cases = wafCasesFromRows();
+      } else {
+        try {
+          rule = JSON.parse(wafTestRuleJson.value);
+        } catch (e) {
+          wafTestError.value = 'Invalid rule JSON: ' + e.message;
+          return;
+        }
+        try {
+          cases = JSON.parse(wafTestCasesJson.value);
+          if (!Array.isArray(cases) || !cases.length) throw new Error('Must be a non-empty array');
+        } catch (e) {
+          wafTestError.value = 'Invalid test cases JSON: ' + e.message;
+          return;
+        }
       }
 
       wafTesting.value = true;
@@ -886,6 +954,14 @@
     view('wafSaving', wafSaving);
     view('wafTestRuleJson', wafTestRuleJson);
     view('wafTestCasesJson', wafTestCasesJson);
+    view('wafTestMode', wafTestMode);
+    view('wafTestPresetRuleId', wafTestPresetRuleId);
+    view('wafTestLoadPreset', wafTestLoadPreset);
+    view('wafTestModeChanged', wafTestModeChanged);
+    view('wafTestRuleForm', wafTestRuleForm);
+    view('wafTestCaseRows', wafTestCaseRows);
+    view('addWafTestCaseRow', addWafTestCaseRow);
+    view('removeWafTestCaseRow', removeWafTestCaseRow);
     view('wafTestError', wafTestError);
     view('wafTesting', wafTesting);
     view('wafTestResults', wafTestResults);
