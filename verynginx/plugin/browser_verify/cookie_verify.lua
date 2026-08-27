@@ -103,9 +103,7 @@ function _M.challenge(ctx)
     if qs and qs ~= "" then
         target = target .. "?" .. qs:gsub("[\r\n]", "")
     end
-    if target:match("^https?://") or target:match("^/") then
-        -- keep
-    else
+    if not (target:match("^https?://") or target:match("^/")) then
         target = "/"
     end
     target = (target:gsub('[\\"\'<>/\r\n]', {
