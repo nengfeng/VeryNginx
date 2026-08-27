@@ -415,6 +415,12 @@ end
 _M.local_hash = nil
 _M.attempted_hash = nil
 
+-- Forward declaration: atomic_write_json is defined further below (after
+-- copy_file) but is referenced inside load_from_file, which appears earlier.
+-- A `local function` is not visible before its declaration, so declare the
+-- binding here and assign it at the definition site.
+local atomic_write_json
+
 local config_data = {}
 
 local function set_config_store(new_data)
@@ -1077,7 +1083,7 @@ local function fsync_dir(dir)
     end
 end
 
-local function atomic_write_json(final_path, encoded)
+atomic_write_json = function(final_path, encoded)
     local tmp_path = final_path .. ".tmp"
     if ffi_ok then
         -- O_WRONLY(1) | O_CREAT(64) | O_TRUNC(512) = 577 ; mode 0644 = 420
