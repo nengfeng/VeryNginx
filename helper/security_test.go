@@ -619,3 +619,39 @@ func TestSnapshotStatesCleanupAndCapacity(t *testing.T) {
 		t.Fatalf("expired snapshots were not cleaned up: %#v", store.snapshots)
 	}
 }
+
+// TestFlushOwnedAllClearsAllowEntries is a regression test for the fail-closed
+// drift where FlushOwned("all") flushed the kernel 'allow' set but left the
+// in-memory allowEntries mirror intact. Subsequent drop Adds for those IPs were
+// rejected by isAllowCoveredLocked, silently disabling kernel blocking.
+func TestFlushOwnedAllClearsAllowEntries(t *testing.T) {
+	withSkipEnv(t)
+	backend := NewNFTBackend()
+
+	// Simulate a reconciled allow entry (mirrors Add/Reconcile populating
+	// allowEntries in production).
+	backend.allowEntries["203.0.113.99"] = true
+	if !backend.isAllowCoveredLocked("203.0.113.99") {
+		t.Fatal("precondition: allow IP should be covered before flush")
+	}
+
+	if _, err := backend.FlushOwned("all"); err != nil {
+		t.Fatalf("FlushOwned(all): %v", err)
+	}
+
+	if len(backend.allowEntries) != 0 {
+		t.Fatalf("FlushOwned(all) left allowEntries populated: %v", backend.allowEntries)
+	}
+	if backend.isAllowCoveredLocked("203.0.113.99") {
+		t.Fatal("FlushOwned(all) left stale allow cover; drop Add would be rejected")
+	}
+
+	// And the whitelist must survive FlushOwned("auto").
+	backend.allowEntries["198.51.100.7"] = true
+	if _, err := backend.FlushOwned("auto"); err != nil {
+		t.Fatalf("FlushOwned(auto): %v", err)
+	}
+	if _, ok := backend.allowEntries["198.51.100.7"]; !ok {
+		t.Fatal("FlushOwned(auto) wrongly cleared the whitelist allowEntries")
+	}
+}

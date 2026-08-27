@@ -1507,6 +1507,12 @@ func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
 		count = len(b.owned)
 		b.state = map[string]map[string]map[string]*setEntry{}
 		b.owned = map[string]bool{}
+		// The kernel 'allow' set was just flushed; clear its in-memory mirror
+		// too. Otherwise isAllowCoveredLocked() keeps returning true for the
+		// stale allow IPs and every subsequent drop Add is rejected — a
+		// fail-closed drift where kernel blocking silently stops working.
+		// (scope == "auto" deliberately keeps allow and must NOT reach here.)
+		b.allowEntries = make(map[string]bool)
 	} else {
 		// scope == "auto": only remove auto-managed sets (scanner_drop +
 		// cc_drop). Never touch manual_drop or allow (whitelist) entries —
