@@ -63,6 +63,27 @@ function _M._arg_limit()
     return (config and config.body and config.body.max_args) or 1000
 end
 
+--- Recursively flatten a decoded JSON value into dotted-path scalar entries.
+-- {"a":{"b":"x"},"c":["y","z"]} -> {["a.b"]="x", ["c.1"]="y", ["c.2"]="z"}.
+-- A shared `state.n` counter enforces the global leaf `limit` (config arg cap).
+function _M._flatten_json(obj, prefix, out, limit, state)
+    if type(obj) ~= "table" then
+        out[prefix] = tostring(obj)
+        state.n = state.n + 1
+        return
+    end
+    for k, v in pairs(obj) do
+        if state.n >= limit then return end
+        local key = (prefix == "" and tostring(k)) or (prefix .. "." .. tostring(k))
+        if type(v) == "table" then
+            _M._flatten_json(v, key, out, limit, state)
+        else
+            out[key] = tostring(v)
+            state.n = state.n + 1
+        end
+    end
+end
+
 function _M.get_body_args(ctx)
     if ctx.request._body_read then
         return ctx.request._body_args
@@ -95,15 +116,12 @@ function _M.get_body_args(ctx)
             ngx.log(ngx.ERR, "context: json body is ", type(decoded), ", expected table for ", ngx.var.uri)
             return nil
         end
+        -- Flatten nested objects/arrays into dotted-path scalar keys so the
+        -- payload inside {"a":{"b":"union select..."}} actually reaches the
+        -- matcher (a bare tostring() on a table yields "table: 0x..." and the
+        -- value is never scanned). Bounded by max_args leaf count.
         local args = {}
-        local n = 0
-        for k, v in pairs(decoded) do
-            if type(k) == "string" then
-                n = n + 1
-                if n > max_args then break end
-                args[k] = tostring(v)
-            end
-        end
+        _M._flatten_json(decoded, "", args, max_args, { n = 0 })
         ctx.request._body_args = args
         ctx.request._body_read = true
         return args
