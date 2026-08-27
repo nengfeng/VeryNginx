@@ -1463,6 +1463,12 @@ install_firewall_helper() {
     if ! getent group "$vn_group" >/dev/null 2>&1; then
       groupadd -r "$vn_group" 2>/dev/null || true
     fi
+    # The helper holds CAP_NET_ADMIN (set via AmbientCapabilities) and needs NO
+    # root. Run it as a dedicated unprivileged system user in the socket group.
+    if ! id -u "$vn_group" >/dev/null 2>&1; then
+      useradd -r -g "$vn_group" -s /usr/sbin/nologin -d /nonexistent "$vn_group" 2>/dev/null \
+        || useradd -M -s /usr/sbin/nologin -g "$vn_group" "$vn_group" 2>/dev/null || true
+    fi
     local vn_web_user
     vn_web_user=$(grep -m1 '^\s*user\s' "$NGINX_CONF" 2>/dev/null | awk '{print $2}' | awk -F';' '{print $1}')
     if [ -n "$vn_web_user" ] && id "$vn_web_user" >/dev/null 2>&1; then
@@ -1508,6 +1514,8 @@ Type=simple
 ExecStart=${FIREWALL_HELPER_BIN}
 Restart=on-failure
 RestartSec=1
+User=${vn_group}
+Group=${vn_group}
 AmbientCapabilities=CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_ADMIN
 ProtectSystem=strict

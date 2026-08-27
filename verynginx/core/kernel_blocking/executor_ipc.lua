@@ -164,13 +164,28 @@ end
 -- delete(set, family, ip) -> ok, error?
 -- ---------------------------------------------------------------------------
 function _M.delete(set, family, ip)
-    local resp, err = client.request("delete", "automatic", {
-        items = { { set = set, family = family, ip = ip } },
-    })
-    if resp and resp.ok then
-        return true, nil
-    end
-    return false, err or "delete_failed"
+	-- DROP/allow writes require a validated scope session (mirrors the
+	-- helper-side checkDropBinding guard). ensure_drop_scope rebinds the
+	-- connection via ensure_base if needed.
+	local scoped, swhy = ensure_drop_scope()
+	if not scoped then
+		return false, swhy or "scope_validation_pending"
+	end
+	local resp, err = client.request("delete", "automatic", {
+		items = { { set = set, family = family, ip = ip } },
+		binding = scope_binding.binding_fields(),
+	})
+	if resp and resp.ok then
+		return true, nil
+	end
+	if resp then
+		local code = err_code((resp.error and resp.error) or "delete_failed")
+		if is_scope_err(code) then
+			scope_binding.invalidate(code)
+		end
+		return false, code
+	end
+	return false, err or "delete_failed"
 end
 
 -- ---------------------------------------------------------------------------
@@ -214,13 +229,28 @@ end
 -- replace_allow_snapshot(entries) -> ok, error?
 -- ---------------------------------------------------------------------------
 function _M.replace_allow_snapshot(entries)
-    local resp, err = client.request("replace_allow_snapshot", "whitelist", {
-        items = entries or {},
-    })
-    if resp and resp.ok then
-        return true, nil
-    end
-    return false, err or "replace_allow_snapshot_failed"
+	-- Allow refresh is a write to the blocking surface: require a validated
+	-- scope (mirrors the helper-side checkDropBinding guard). A 0.0.0.0/0
+	-- allow would accept all traffic and silently disable kernel blocking.
+	local scoped, swhy = ensure_drop_scope()
+	if not scoped then
+		return false, swhy or "scope_validation_pending"
+	end
+	local resp, err = client.request("replace_allow_snapshot", "whitelist", {
+		items = entries or {},
+		binding = scope_binding.binding_fields(),
+	})
+	if resp and resp.ok then
+		return true, nil
+	end
+	if resp then
+		local code = err_code((resp.error and resp.error) or "replace_allow_snapshot_failed")
+		if is_scope_err(code) then
+			scope_binding.invalidate(code)
+		end
+		return false, code
+	end
+	return false, err or "replace_allow_snapshot_failed"
 end
 
 -- ---------------------------------------------------------------------------
@@ -314,11 +344,27 @@ end
 -- flush_owned(scope) -> ok, result, error?
 -- ---------------------------------------------------------------------------
 function _M.flush_owned(scope)
-    local resp, err = client.request("flush_owned", "automatic", { scope = scope or "all" })
-    if resp and resp.ok then
-        return true, resp.result or { removed = 0 }, nil
-    end
-    return false, { removed = 0 }, err or "flush_owned_failed"
+	-- Flush is a write to the blocking surface: require a validated scope
+	-- (mirrors the helper-side checkDropBinding guard).
+	local scoped, swhy = ensure_drop_scope()
+	if not scoped then
+		return false, { removed = 0 }, swhy or "scope_validation_pending"
+	end
+	local resp, err = client.request("flush_owned", "automatic", {
+		scope = scope or "all",
+		binding = scope_binding.binding_fields(),
+	})
+	if resp and resp.ok then
+		return true, resp.result or { removed = 0 }, nil
+	end
+	if resp then
+		local code = err_code((resp.error and resp.error) or "flush_owned_failed")
+		if is_scope_err(code) then
+			scope_binding.invalidate(code)
+		end
+		return false, { removed = 0 }, code
+	end
+	return false, { removed = 0 }, err or "flush_owned_failed"
 end
 
 -- ---------------------------------------------------------------------------

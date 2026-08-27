@@ -772,6 +772,8 @@ bash test/v2/phase0/test_go_helper_e2e.sh
 
 > 回归测试见 `helper/reconcile_guards_test.go`（无需 E2E，直接构造 `NFTBackend` + `VN_HELPER_SKIP_NFT=1`）。
 
+- **`delete` / `flush_owned` / `replace_allow_snapshot` 同样必须过 `checkDropBinding`**：这三者改的是"封禁面"（删 drop / 清全部 / 刷新 allow），此前 dispatch 注释写"always allowed"且跳过 scope 校验——导致一个未 `ensure_base` 的连接即可缩小甚至一键关停内核封禁（`replace_allow_snapshot` 写入 `0.0.0.0/0` 这类 allow，因 allow 先于 drop 求值而放行全部流量）。现三者在 dispatch 都先 `checkDropBinding(sess,nil)`；Lua 侧 `executor_ipc.lua` 的 `_M.delete`/`replace_allow_snapshot`/`flush_owned` 也先 `ensure_drop_scope()`（与 `add`/`reconcile` 一致）。**allow 快照另有最小前缀限制**：`validate.go` 的 `validateAllowPrefix` 拒 `<= /8`(v4) 与 `<= /64`(v6) 的 CIDR（即 `0.0.0.0/0`、`::/0` 均被拒），防止"allow 一切"。回归测试见 `helper/guard_test.go`。
+
 - **`FlushOwned("auto")` 必须只删 scanner_drop + cc_drop**：`FlushOwned` 的 else 分支（scope="auto"）曾遍历全部 `b.owned` 并清空，连带删除 `manual_drop` 和 `allow`（白名单）条目，且重置全部 ownership。现用 `auto_sets` 过滤，仅移除自动集合，保留手动封禁和白名单，与 mock 执行器一致。回归测试见 `helper/flush_owned_scope_test.go`。
 
 ### 11.9 连接必须设 deadline（防慢客户端 goroutine 泄漏）

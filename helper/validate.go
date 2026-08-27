@@ -17,6 +17,13 @@ const (
 	MaxRequestIDLen = 64
 	// MaxSeenRequestIDs is the per-connection replay window size.
 	MaxSeenRequestIDs = 256
+	// MinAllowPrefixV4/MinAllowPrefixV6: minimum CIDR prefix for allow-set
+	// entries. A bare 0.0.0.0/0 (or ::/0) allow would accept ALL traffic and
+	// silently disable kernel blocking (the allow set is evaluated before the
+	// drop set). Reject prefixes broader than /8 (v4) and /64 (v6); the
+	// narrowest legitimate whitelist (a whole org block) is far smaller.
+	MinAllowPrefixV4 = 8
+	MinAllowPrefixV6 = 64
 )
 
 var (
@@ -134,6 +141,27 @@ func validateTTL(ttl int) error {
 	return nil
 }
 
+// validateAllowPrefix rejects allow-set CIDR entries that are broad enough to
+// effectively disable kernel blocking (e.g. 0.0.0.0/0). Bare IPs (/32, /128)
+// are always permitted.
+func validateAllowPrefix(s string) error {
+	if !strings.Contains(s, "/") {
+		return nil
+	}
+	_, ipnet, err := net.ParseCIDR(s)
+	if err != nil {
+		return fmt.Errorf("invalid_address")
+	}
+	ones, bits := ipnet.Mask.Size()
+	if bits == 32 && ones < MinAllowPrefixV4 {
+		return fmt.Errorf("allow_prefix_too_broad")
+	}
+	if bits == 128 && ones < MinAllowPrefixV6 {
+		return fmt.Errorf("allow_prefix_too_broad")
+	}
+	return nil
+}
+
 // validateSetEntry validates one drop/allow item before nft interpolation.
 func validateSetEntry(item setEntry, allowCIDR bool) error {
 	if err := validateSetName(item.Set); err != nil {
@@ -147,6 +175,9 @@ func validateSetEntry(item setEntry, allowCIDR bool) error {
 	}
 	if allowCIDR {
 		if err := validateAddressOrCIDR(item.IP); err != nil {
+			return err
+		}
+		if err := validateAllowPrefix(item.IP); err != nil {
 			return err
 		}
 	} else {

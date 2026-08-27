@@ -1609,7 +1609,12 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		if err := json.Unmarshal(env.Payload, &payload); err != nil {
 			return resultError(env.RequestID, "invalid payload: "+err.Error())
 		}
-		// delete/clear always allowed (reduces blocking surface)
+		// delete/clear always allowed (reduces blocking surface) — but only
+		// for a connection that has proven its scope via ensure_base. Without
+		// this an unbound connection could shrink the blocking surface.
+		if code := backend.checkDropBinding(sess, nil); code != "" {
+			return resultError(env.RequestID, code)
+		}
 		result, err := backend.Delete(payload.Items)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
@@ -1659,7 +1664,12 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		if err := validateBatch(payload.Items, true); err != nil {
 			return resultError(env.RequestID, err.Error())
 		}
-		// allow refresh always permitted
+		// allow refresh is a write to the blocking surface: require a validated
+		// scope. A 0.0.0.0/0 allow would accept all traffic and silently
+		// disable kernel blocking, so an unbound connection must not refresh it.
+		if code := backend.checkDropBinding(sess, nil); code != "" {
+			return resultError(env.RequestID, code)
+		}
 		result, err := backend.ReplaceAllowSnapshot(payload.Items)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
@@ -1704,7 +1714,10 @@ func handleRequest(env *RequestEnvelope, backend *NFTBackend, sess *ScopeSession
 		if err := validateFlushScope(payload.Scope); err != nil {
 			return resultError(env.RequestID, err.Error())
 		}
-		// flush always allowed once scope is valid
+		// flush is a write to the blocking surface: require a validated scope.
+		if code := backend.checkDropBinding(sess, nil); code != "" {
+			return resultError(env.RequestID, code)
+		}
 		result, err := backend.FlushOwned(payload.Scope)
 		if err != nil {
 			return resultError(env.RequestID, err.Error())
