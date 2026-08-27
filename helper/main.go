@@ -1760,6 +1760,31 @@ func lookupGroupID(name string) (int, error) {
 
 // listenAndServe starts the Unix socket listener.
 func listenAndServe(sockPath string, backend *NFTBackend) error {
+	// Prefer systemd socket activation when it handed us a bound listener.
+	// systemd passes the fd as 3 and sets LISTEN_FDS / LISTEN_PID. Adopting
+	// it (instead of re-binding) preserves the access control systemd already
+	// applied (SocketMode=0660, Group=verynginx) and — critically — avoids
+	// os.Remove() orphaning that fd, which would leave connections to the
+	// systemd socket hanging until timeout while we listen on a fresh one.
+	if pidStr := os.Getenv("LISTEN_PID"); pidStr != "" {
+		if lp, err := strconv.Atoi(pidStr); err == nil && lp == os.Getpid() {
+			if fds, err := strconv.Atoi(os.Getenv("LISTEN_FDS")); err == nil && fds >= 1 {
+				f := os.NewFile(uintptr(3), sockPath)
+				if f != nil {
+					li, err := net.FileListener(f)
+					f.Close() // FileListener dups the fd; the original can close.
+					if err != nil {
+						return fmt.Errorf("adopt systemd socket: %w", err)
+					}
+					fmt.Fprintf(os.Stderr, "firewall-helper using systemd-activated socket %s\n", sockPath)
+					return serve(li, backend)
+				}
+			}
+		}
+	}
+
+	// Fallback: create the socket ourselves (standalone run / tests / no
+	// socket unit). We own the permissions here.
 	// Clean stale socket
 	_ = os.Remove(sockPath)
 
@@ -1779,8 +1804,7 @@ func listenAndServe(sockPath string, backend *NFTBackend) error {
 	// helper has NO per-request auth and holds CAP_NET_ADMIN — a world-
 	// writable socket would let any local user add/drop nftables rules.
 	// 0660 + best-effort chown to the 'verynginx' group (installer adds the
-	// web-server user to it). systemd socket-activation path sets these on
-	// its own via Group=/SocketMode= in firewall-helper.socket.
+	// web-server user to it).
 	if err := os.Chmod(sockPath, 0660); err != nil {
 		fmt.Fprintf(os.Stderr, "chmod %s: %v\n", sockPath, err)
 	}
@@ -1793,6 +1817,11 @@ func listenAndServe(sockPath string, backend *NFTBackend) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "firewall-helper listening on %s\n", sockPath)
+	return serve(li, backend)
+}
+
+// serve runs the accept loop for an already-bound listener.
+func serve(li net.Listener, backend *NFTBackend) error {
 	for {
 		conn, err := li.Accept()
 		if err != nil {
