@@ -172,6 +172,15 @@ shared:incr("counter:" .. key, 1, 0, ttl)
 
 当前 shared dict 名称：`vn_config`、`vn_locks`、`vn_rate_limit`、`vn_session`、`ip_reputation`、`frequency_limit`、`healthcheck`、`statistics`、`metrics`、`metrics_labeled`、`dns_cache`。新增时要在 `nginx_conf/in_http_block.conf` 的 `lua_shared_dict` 中声明。
 
+### 3.4 高基数指标（metrics_labeled）必须带 TTL + 暴露丢弃计数
+
+`metrics_labeled`（16m）承载无界增长的 per-rule gauge 与 per-IP `ip_reputation_score`。曾有两个静默失效：
+
+- `incr`/`set` 返回 `nil, "no memory"` 被直接丢弃——dict 填满后新标签指标永久丢失，仅重启可愈。现 `core/metrics.lua` 的 `incr`/`observe`/`gauge` 捕获返回值，失败时 `record_drop(name, err)`：把 `vn_metrics_dropped_total`（落在低基数 `metrics` dict）加 1 并以 WARN（30s 限频）记录。该 counter 经 `/metrics` 暴露。
+- 标签指标原先 TTL=0（永不过期）。改为 `LABELED_TTL=3600`：不活跃系列自动回收，dict 不再被永久挤满；活跃系列由 observability 采集器在窗口内重写/刷新 TTL 而续命。索引 `_M.index_add` 的 `s:set` 失败也单独告警（避免索引条目静默丢失导致指标不可见）。
+
+> 若观察到 `vn_metrics_dropped_total` 持续上涨，说明 `metrics_labeled` 16m 容量不足或标签基数失控，应扩 dict 或收紧标签维度，而非靠重启缓解。
+
 ---
 
 ## 4. IP 声誉引擎
@@ -233,6 +242,8 @@ Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enfor
 ### 5.2 启动后下载的数据库要自动重载
 
 `lookup()` 和 `is_available()` 中检测到 `_db == nil` 时自动调用 `reload()`。
+
+> **缺失数据库不要每个请求都 open+WARN（热路径塌陷）**：DB 缺失时 `lookup`/`is_available` 原会每次请求 `io.open` 大文件并打 WARN，请求量大时把数据面热路径打爆。`core/geoip.lua` 现用负缓存 `_db_failed_at` + `GEOIP_RETRY_INTERVAL=60`：一次 reload 失败后 60s 内不再尝试 open/日志；`reload()` 成功时清零、失败时置位；updater 下载完直接调 `reload()` 仍可立即生效。
 
 ### 5.3 数据源：P3TERX GeoLite2-City
 
@@ -771,6 +782,10 @@ bash test/v2/phase0/test_go_helper_e2e.sh
 - `batchAllow` 让同 snapshot 内先出现的 allow 能保护后出现的 drop（chunked 模式下跨 chunk 的保护由已提交的 `b.allowEntries` 覆盖）。
 
 > 回归测试见 `helper/reconcile_guards_test.go`（无需 E2E，直接构造 `NFTBackend` + `VN_HELPER_SKIP_NFT=1`）。
+
+### 11.8b ipc_client 不可达必须区别于真实降级
+
+`ipc_client.request_safe` 失败时是 fail-open（返回兜底 `result`）。原先 `health` 兜底返回 `state="degraded"`，导致 helper 进程挂掉 / 套接字不可达 与 helper 存活但自身 degraded **无法区分**——健康判定形同虚设。现 `request_safe` 在兜底响应里带回真实 `error`（connect_failed/read_timeout/...），`executor_ipc.health()` 检测到 `resp.error` 时返回 `state="unreachable"` + `ipc_error`，dashboard 据此区分「helper 挂了」与「helper 降级」。`kb.status()` 透传 `health.state`。
 
 - **`delete` / `flush_owned` / `replace_allow_snapshot` 同样必须过 `checkDropBinding`**：这三者改的是"封禁面"（删 drop / 清全部 / 刷新 allow），此前 dispatch 注释写"always allowed"且跳过 scope 校验——导致一个未 `ensure_base` 的连接即可缩小甚至一键关停内核封禁（`replace_allow_snapshot` 写入 `0.0.0.0/0` 这类 allow，因 allow 先于 drop 求值而放行全部流量）。现三者在 dispatch 都先 `checkDropBinding(sess,nil)`；Lua 侧 `executor_ipc.lua` 的 `_M.delete`/`replace_allow_snapshot`/`flush_owned` 也先 `ensure_drop_scope()`（与 `add`/`reconcile` 一致）。**allow 快照另有最小前缀限制**：`validate.go` 的 `validateAllowPrefix` 拒 `<= /8`(v4) 与 `<= /64`(v6) 的 CIDR（即 `0.0.0.0/0`、`::/0` 均被拒），防止"allow 一切"。回归测试见 `helper/guard_test.go`。
 

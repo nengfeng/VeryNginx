@@ -18,6 +18,25 @@ end
 
 local _db = nil
 local _geodb_path = nil
+-- Negative cache: once a (re)load fails (DB missing/corrupt), do not retry the
+-- expensive open + WARN log on every request. The data plane calls lookup()/
+-- is_available() per request; without this cooldown a missing 66MB DB means a
+-- file open + a WARN per request — a hot-path collapse. After the interval we
+-- retry once (e.g. the updater may have fetched the DB in the meantime).
+local GEOIP_RETRY_INTERVAL = 60
+local _db_failed_at = 0
+
+local function geoip_cooldown_active()
+    return _db_failed_at > 0 and (ngx.now() - _db_failed_at) < GEOIP_RETRY_INTERVAL
+end
+
+local function geoip_mark_failed()
+    _db_failed_at = ngx.now()
+end
+
+local function geoip_mark_ok()
+    _db_failed_at = 0
+end
 
 -- Initialize GeoIP database
 function _M.init(geodb_path)
@@ -60,16 +79,22 @@ function _M.reload()
     local path = (_geodb_path and _geodb_path ~= "" and _geodb_path)
         or (config.geoip and config.geoip.geodb_path and config.geoip.geodb_path ~= "" and config.geoip.geodb_path)
         or ""
-    if path == "" then return false, "no geodb_path configured" end
+    if path == "" then
+        geoip_mark_failed()
+        return false, "no geodb_path configured"
+    end
     local ok, result = pcall(maxminddb.new, maxminddb, path)
     if not ok then
+        geoip_mark_failed()
         return false, "reload failed: " .. tostring(result)
     end
     if not result then
+        geoip_mark_failed()
         return false, "reload failed: maxminddb:new returned nil"
     end
     _db = result
     _geodb_path = path
+    geoip_mark_ok()
     return true
 end
 
@@ -83,17 +108,24 @@ function _M.is_available()
     if _db ~= nil then
         return true
     end
+    -- Negative cache: if a recent (re)load failed, skip the per-request file
+    -- open + WARN storm until the cooldown elapses.
+    if geoip_cooldown_active() then
+        return false
+    end
     -- Try reload if DB file was downloaded after startup
     local path = (_geodb_path and _geodb_path ~= "" and _geodb_path)
         or (config.geoip and config.geoip.geodb_path and config.geoip.geodb_path ~= "" and config.geoip.geodb_path)
         or ""
     if path == "" then
         ngx.log(ngx.WARN, "geoip: is_available() — no geodb_path configured")
+        geoip_mark_failed()
         return false
     end
     local f = io.open(path, "rb")
     if not f then
         ngx.log(ngx.WARN, "geoip: is_available() — DB file not found at ", path)
+        geoip_mark_failed()
         return false
     end
     f:close()
@@ -112,8 +144,11 @@ end
 -- @return table|nil: { country_code, country_name, city_name, continent, latitude, longitude, asn }
 function _M.lookup(ip)
     if not ip then return nil end
-    -- Auto-reload if database was downloaded after startup (e.g. by updater)
+    -- Auto-reload if database was downloaded after startup (e.g. by updater).
+    -- Respect the negative cache so a missing/corrupt DB doesn't trigger a file
+    -- open + error log on every request (hot-path collapse).
     if not _db then
+        if geoip_cooldown_active() then return nil end
         local ok = _M.reload()
         if not ok then return nil end
     end

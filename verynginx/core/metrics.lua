@@ -20,6 +20,12 @@ local INDEX_LOCK_MAX_RETRIES = 500
 -- crowd core counters/gauges or saturate one shared dict.
 local CORE_DICT = "metrics"
 local LABELED_DICT = "metrics_labeled"
+-- High-cardinality labeled series (per-rule gauges, per-IP score) are churny
+-- and unbounded. Giving them a finite TTL lets the shared dict reclaim space
+-- once a series goes quiet, instead of a full dict permanently losing every
+-- new key (and only restart recovering it). Active series are re-written by the
+-- observability collector well within this window, so they persist.
+local LABELED_TTL = 3600
 
 local function is_labeled(name)
     return name:match("^waf_rule_") ~= nil
@@ -37,6 +43,24 @@ local random = nil
 local function get_random()
     if not random then random = require "core.random" end
     return random
+end
+
+-- Rate-limited log + counter for dropped writes (e.g. shared dict "no memory").
+-- A dropped metric used to be silently lost; now it is counted in the core
+-- dict (bounded cardinality) and logged at most once per window.
+local last_drop_log = 0
+local DROP_LOG_INTERVAL = 30
+local function record_drop(name, err)
+    local core = ngx.shared[CORE_DICT]
+    if core then
+        pcall(function() core:incr("vn_metrics_dropped_total", 1, 0) end)
+    end
+    local now = ngx.now()
+    if now - last_drop_log > DROP_LOG_INTERVAL then
+        last_drop_log = now
+        ngx.log(ngx.WARN, "metrics: write dropped for ", name, " (", tostring(err),
+            ") — shared dict full? check capacity of ", LABELED_DICT)
+    end
 end
 
 --- Fast, lock-free membership probe. The index is a newline-joined list of
@@ -74,7 +98,11 @@ local function index_add(s, key)
     -- Re-check under the lock; a concurrent writer may have added it already.
     if not index_contains(s, key) then
         local raw = s:get(INDEX_KEY) or ""
-        s:set(INDEX_KEY, raw .. key .. "\n", 0)
+        local ok_idx, err_idx = s:set(INDEX_KEY, raw .. key .. "\n", 0)
+        if not ok_idx then
+            ngx.log(ngx.WARN, "metrics: index write failed (", tostring(err_idx),
+                ") for ", key, " — metric may not be exported")
+        end
     end
     if locks:get(INDEX_LOCK_KEY) == token then
         locks:delete(INDEX_LOCK_KEY)
@@ -106,7 +134,9 @@ function _M.incr(name, value, labels)
     local key = _M.key(name, labels)
     local shared = shared_for(name)
     if not shared then return end
-    shared:incr(key, value or 1, 0)
+    local ttl = is_labeled(name) and LABELED_TTL or 0
+    local ok, err = shared:incr(key, value or 1, 0, ttl)
+    if not ok then record_drop(name, err) return end
     index_add(shared, key)
 end
 
@@ -115,8 +145,11 @@ function _M.observe(name, value, labels)
     local sum_key = _M.key(name .. "_sum", labels)
     local shared = shared_for(name)
     if not shared then return end
-    shared:incr(count_key, 1, 0)
-    shared:incr(sum_key, value, 0)
+    local ttl = is_labeled(name) and LABELED_TTL or 0
+    local ok1, err1 = shared:incr(count_key, 1, 0, ttl)
+    if not ok1 then record_drop(name .. "_count", err1) return end
+    local ok2, err2 = shared:incr(sum_key, value, 0, ttl)
+    if not ok2 then record_drop(name .. "_sum", err2) return end
     index_add(shared, count_key)
     index_add(shared, sum_key)
 end
@@ -125,7 +158,9 @@ function _M.gauge(name, value, labels)
     local key = _M.key(name, labels)
     local shared = shared_for(name)
     if not shared then return end
-    shared:set(key, value)
+    local ttl = is_labeled(name) and LABELED_TTL or 0
+    local ok, err = shared:set(key, value, ttl)
+    if not ok then record_drop(name, err) return end
     index_add(shared, key)
 end
 
@@ -173,6 +208,9 @@ local METADATA = {
     verynginx_kernel_block_promotions_total = { type = "counter", help = "Kernel blocking promotions total" },
     verynginx_kernel_block_lifecycle_transitions_total = {
         type = "counter", help = "Kernel blocking lifecycle transitions"
+    },
+    vn_metrics_dropped_total = {
+        type = "counter", help = "Metrics dropped due to shared dict capacity errors"
     },
 }
 

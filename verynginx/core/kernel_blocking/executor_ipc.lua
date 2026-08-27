@@ -372,6 +372,18 @@ end
 -- ---------------------------------------------------------------------------
 function _M.health()
     local resp = client.request_safe("health", "automatic", {})
+    -- A fail-open fallback (request_safe) means the helper was unreachable
+    -- (connection refused, timeout, lock contention) — NOT a live helper
+    -- reporting degraded. Surface that distinctly so the dashboard/status can
+    -- tell "firewall-helper is down" apart from "helper is up but degraded".
+    if resp.error then
+        return {
+            state = "unreachable",
+            instance_id = "unknown",
+            ipc_error = resp.error,
+            scope_validation = "ipc_unreachable",
+        }
+    end
     local h = resp.result or { state = "degraded", instance_id = "unknown" }
     -- Side-effect: validate binding against health snapshot.
     if h.state == "ok" then

@@ -336,17 +336,19 @@ function _M.request_safe(operation, source, payload)
     if not resp then
         ngx.log(ngx.WARN, "ipc_client: request '", operation, "' failed (fail-open): ",
             tostring(err))
-        -- Return operation-appropriate defaults
+        -- Return operation-appropriate defaults, but carry the real ipc error
+        -- so callers (notably health) can distinguish a dead/unreachable
+        -- helper from a live-but-degraded one instead of swallowing it.
         if operation == "contains" then
-            return { ok = true, result = { contains = false } }
+            return { ok = true, result = { contains = false }, error = err }
         elseif operation == "list" then
-            return { ok = true, result = { entries = {}, next_cursor = nil } }
+            return { ok = true, result = { entries = {}, next_cursor = nil }, error = err }
         elseif operation == "probe" then
-            return { ok = true, result = { protocol_min = 1, protocol_max = 1 } }
+            return { ok = true, result = { protocol_min = 1, protocol_max = 1 }, error = err }
         elseif operation == "health" then
-            return { ok = true, result = { state = "degraded" } }
+            return { ok = true, result = { state = "degraded" }, error = err }
         else
-            return { ok = true, result = {} }
+            return { ok = true, result = {}, error = err }
         end
     end
     return resp
