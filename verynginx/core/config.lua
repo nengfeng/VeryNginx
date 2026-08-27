@@ -413,6 +413,7 @@ end
 -- Runtime config store (immutable via read-only metatable at end of file)
 -- ---------------------------------------------------------------------------
 _M.local_hash = nil
+_M.attempted_hash = nil
 
 local config_data = {}
 
@@ -868,7 +869,12 @@ function _M.check_update()
         return
     end
     local remote_hash = shared:get("config_hash")
-    if remote_hash and remote_hash ~= _M.local_hash then
+    if remote_hash and remote_hash ~= _M.local_hash and remote_hash ~= _M.attempted_hash then
+        -- Only attempt a given remote hash once. If load_from_file fails
+        -- (e.g. corrupt config.json that we deliberately keep serving the
+        -- previous in-memory config for), we must not loop re-reading it on
+        -- every sampled request — that would be an I/O storm.
+        _M.attempted_hash = remote_hash
         if shared:get("config_save_lock") then
             return
         end
@@ -891,32 +897,34 @@ function _M.load_from_file()
     file:close()
 
     local config = json.decode(data)
+    local file_corrupt = (config == nil)
+
     if not config then
-        -- Try config.default.json as fallback
-        ngx.log(ngx.ERR, "config.json decode error, trying config.default.json")
+        ngx.log(ngx.ERR, "config.json decode error at ", path,
+                " — will NOT overwrite. Retaining previous config if already loaded.")
+        if _M.local_hash then
+            -- A good config is already in memory: keep serving it and leave
+            -- the broken file untouched so the operator can repair it. This
+            -- also prevents an every-100-request reload storm: local_hash and
+            -- the shared config_hash stay equal, so check_update() no-ops.
+            return false
+        end
+        -- Boot with a corrupt file and no prior good config: fall back to the
+        -- shipped defaults IN-MEMORY ONLY. We deliberately do not clobber the
+        -- operator's file, so it remains recoverable. file_corrupt stays true
+        -- so the apply path below skips any on-disk writes / shared-hash set.
         local default_path = config_default_json_path()
         local default_file = io.open(default_path, "r")
         if default_file then
             local default_data = default_file:read("*all")
             default_file:close()
             config = json.decode(default_data)
-            if config then
-                ngx.log(ngx.WARN, "config.json invalid, loaded config.default.json as fallback")
-                -- Persist the valid default config
-                local tmp = path .. ".tmp"
-                local out = io.open(tmp, "w")
-                if out then
-                    out:write(default_data)
-                    out:close()
-                    os.rename(tmp, path)
-                    data = default_data
-                end
-            end
         end
         if not config then
             ngx.log(ngx.ERR, "config.json and config.default.json both invalid, using schema defaults")
             return false
         end
+        ngx.log(ngx.WARN, "config.json corrupt; serving shipped defaults in-memory (file left untouched)")
     end
 
     -- Auto-generate password_hash for admin entries with empty hash.
@@ -966,14 +974,9 @@ function _M.load_from_file()
             end
         end
 
-        if do_write then
+        if do_write and not file_corrupt then
             local encoded = json.encode(config, { indent = true })
-            local tmp = path .. ".tmp"
-            local f = io.open(tmp, "w")
-            if f then
-                f:write(encoded)
-                f:close()
-                os.rename(tmp, path)
+            if atomic_write_json(path, encoded) then
                 data = encoded
             end
         elseif not got_lock then
@@ -1012,6 +1015,10 @@ function _M.load_from_file()
     set_config_store(compiled)
     _M.local_hash = ngx.md5(data)
 
+    -- Note: on the boot-corruption fallback path (file_corrupt == true, no
+    -- prior good config) we still publish the in-memory default hash so every
+    -- worker converges on the same hash and check_update() stays stable. The
+    -- corrupt on-disk file is intentionally NOT overwritten (kept for repair).
     local shared = ngx.shared.vn_config
     if shared then
         shared:set("config_hash", _M.local_hash)
@@ -1041,6 +1048,59 @@ local function copy_file(src, dst)
     f_src:close()
     f_dst:close()
     return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Durable atomic JSON write: tmp + fsync + rename + dir fsync.
+-- The previous tmp+rename (no fsync) left the rename target's data in the page
+-- cache; a crash between write and rename could truncate config.json, which on
+-- next boot decodes to nil and (historically) overwrote all rules with defaults.
+-- fsync makes the persisted config survive a power loss.
+-- ---------------------------------------------------------------------------
+local ffi_ok, ffi = pcall(require, "ffi")
+if ffi_ok then
+    ffi.cdef([[
+        int open(const char *pathname, int flags, int mode);
+        int open(const char *pathname, int flags);
+        ssize_t write(int fd, const void *buf, size_t count);
+        int fsync(int fd);
+        int close(int fd);
+    ]])
+end
+
+local function fsync_dir(dir)
+    if not ffi_ok or not dir or dir == "" then return end
+    local fd = ffi.C.open(dir, 0)  -- O_RDONLY
+    if fd and fd >= 0 then
+        ffi.C.fsync(fd)
+        ffi.C.close(fd)
+    end
+end
+
+local function atomic_write_json(final_path, encoded)
+    local tmp_path = final_path .. ".tmp"
+    if ffi_ok then
+        -- O_WRONLY(1) | O_CREAT(64) | O_TRUNC(512) = 577 ; mode 0644 = 420
+        local fd = ffi.C.open(tmp_path, 577, 420)
+        if fd and fd >= 0 then
+            local buf = ffi.cast("const char *", encoded)
+            ffi.C.write(fd, buf, #encoded)
+            ffi.C.fsync(fd)
+            ffi.C.close(fd)
+            if os.rename(tmp_path, final_path) then
+                local dir = string.match(final_path, "^(.*)/[^/]*$")
+                fsync_dir(dir)
+                return true
+            end
+            return false
+        end
+    end
+    -- Fallback: buffered IO (no fsync guarantee) when FFI is unavailable.
+    local f = io.open(tmp_path, "w")
+    if not f then return false end
+    f:write(encoded)
+    f:close()
+    return os.rename(tmp_path, final_path)
 end
 
 local function prune_backups(keep_count)
@@ -1236,25 +1296,17 @@ function _M.save(config, opts)
 
     -- prepare file paths
     local final_path = config_json_path()
-    local tmp_path = final_path .. ".tmp"
     make_backup(final_path)
     refresh_save_lock(lock_key, lock_token, lock_ttl)
 
-    -- write tmp file
-    local file, err_write = io.open(tmp_path, "w")
-    if not file then
+    -- Durable atomic write: tmp + fsync + rename + dir fsync. Without the
+    -- fsync a crash mid-write can leave config.json truncated, which on the
+    -- next boot decodes to nil and (pre-fix) wiped every rule via the default
+    -- fallback overwrite.
+    local ok_write = atomic_write_json(final_path, encoded)
+    if not ok_write then
         release_save_lock(lock_key, lock_token)
-        return false, "cannot open temp file: " .. tostring(err_write)
-    end
-    file:write(encoded)
-    file:close()
-    refresh_save_lock(lock_key, lock_token, lock_ttl)
-
-    -- atomic rename
-    local ok_rename, err_rename = os.rename(tmp_path, final_path)
-    if not ok_rename then
-        release_save_lock(lock_key, lock_token)
-        return false, "rename failed: " .. tostring(err_rename)
+        return false, "atomic write to " .. final_path .. " failed"
     end
 
     -- capture previous config for lifecycle transition hooks
