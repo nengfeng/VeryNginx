@@ -2,7 +2,7 @@
 local _M = {}
 local compare = require "matcher.compare"
 local config = require "core.config"
-function _M.test(condition, ctx)
+function _M.test(condition, _)
     local max_headers = (config and config.headers and config.headers.max_count) or 1000
     local headers = ngx.req.get_headers(max_headers)
     local name_op, name_val = condition.name_operator, condition.name_value
