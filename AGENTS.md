@@ -352,7 +352,11 @@ auto_whitelist = { type = "table", default = {
 - **不能**用 `Set-Cookie` header 设置（否则直接设置 cookie 就绕过了 JS 执行验证）
 - 通过 JavaScript 执行后由浏览器设置
 - Cookie `Max-Age = 600`（与 `pending_ttl` 一致）
-- `sign()` 不包含 `time_slot`，IP+UA 绑定 + 600s TTL 足够
+- `sign()` 绑定滚动时间槽 `floor(ngx.time()/600)`（IP+UA+mark+seed+slot）：
+  纯浏览器端 `Max-Age` 可被原始 header 重放绕过，故服务端校验只认当前槽与前一槽，
+  解出后的 cookie 约 600–1200s 后被服务端过期，杜绝长期复用（旧设计「不含 time_slot」
+  属弱点，已修复）。`cookie_verify.challenge` 同样改为下发 JS 挑战页（客户端设 cookie），
+  不再服务端 `Set-Cookie` + 302——`type:"cookie"` 挑战此前零强度（跟随重定向的脚本 bot 免 JS 通过）。
 
 ### 7.4 插件优先级
 

@@ -34,19 +34,36 @@ end
 local _fallback_seed = _get_seed()
 
 --- Compute verification signature for JavaScript mark.
-local function sign(ctx, mark)
+-- The signature is bound to a rolling time slot (VALIDITY seconds) so a solved
+-- cookie cannot be replayed forever even if the browser-side Max-Age is ignored
+-- by a raw header replay (Issue B). Accepts the current/previous slot on check.
+local VALIDITY = 600
+
+local function current_slot()
+    return math.floor(ngx.time() / VALIDITY)
+end
+
+local function sign(ctx, mark, slot)
+    slot = slot or current_slot()
     local ua = ngx.var.http_user_agent or ""
     -- Nil-safe (config.security may be absent) + empty-string guard: a blank
     -- session_secret is truthy in Lua and would replace the random fallback.
     local secret = config and config.security and config.security.session_secret or nil
     local seed = (type(secret) == "string" and #secret > 0 and secret) or _fallback_seed
-    return ngx.md5("VN" .. ctx.request.remote_addr .. ua .. mark .. seed)
+    return ngx.md5("VN" .. slot .. ctx.request.remote_addr .. ua .. mark .. seed)
 end
 
 --- Check if the request already passed the JavaScript challenge.
 function _M.check(ctx)
-    local js_sign = sign(ctx, "javascript")
-    if ngx.var.http_cookie and ngx.var.http_cookie:find(js_sign, 1, true) then
+    local hc = ngx.var.http_cookie
+    if not hc then
+        return false
+    end
+    local slot = current_slot()
+    if hc:find(sign(ctx, "javascript", slot), 1, true) then
+        return true
+    end
+    if hc:find(sign(ctx, "javascript", slot - 1), 1, true) then
         return true
     end
     return false

@@ -7,9 +7,14 @@ local _M = {}
 
 local config = require "core.config"
 local random = require "core.random"
+local util = require "util"
 
--- Fallback seed: stored in shared dict so all workers use the same seed
--- when session_secret is not configured.
+-- Signature validity window (seconds). The cookie carries no time component
+-- by itself; the server binds the signature to a rolling time slot so a
+-- solved cookie cannot be replayed indefinitely (Issue B). Browser-side
+-- Max-Age stays 600; this adds a server-side expiry (~1-2 slots).
+local VALIDITY = 600
+
 local function _get_seed()
     -- Nil-safe: config.security may be absent after a failed config load;
     -- this runs at require time (_fallback_seed) and must never raise.
@@ -30,41 +35,90 @@ local function _get_seed()
 end
 local _fallback_seed = _get_seed()
 
+local function current_slot()
+    return math.floor(ngx.time() / VALIDITY)
+end
+
 --- Compute verification signature for a given mark.
 -- Uses session_secret if configured, otherwise a random per-worker seed.
-local function sign(ctx, mark)
+-- The signature is bound to a rolling time slot so the server can expire it.
+local function sign(ctx, mark, slot)
+    slot = slot or current_slot()
     local ua = ngx.var.http_user_agent or ""
     local secret = config and config.security and config.security.session_secret or nil
     -- Empty string guard: "" is truthy in Lua and would replace the fallback.
     local seed = (type(secret) == "string" and #secret > 0 and secret) or _fallback_seed
-    return ngx.md5("VN" .. ctx.request.remote_addr .. ua .. mark .. seed)
+    return ngx.md5("VN" .. slot .. ctx.request.remote_addr .. ua .. mark .. seed)
 end
 
 --- Check if the request already has a valid verification cookie.
+-- Accepts the current and previous slot to avoid mid-flight expiry at a
+-- slot boundary.
 function _M.check(ctx)
-    local cookie_sign = sign(ctx, "cookie")
-    if ngx.var.http_cookie and ngx.var.http_cookie:find(cookie_sign, 1, true) then
+    local hc = ngx.var.http_cookie
+    if not hc then
+        return false
+    end
+    local slot = current_slot()
+    if hc:find(sign(ctx, "cookie", slot), 1, true) then
+        return true
+    end
+    if hc:find(sign(ctx, "cookie", slot - 1), 1, true) then
         return true
     end
     return false
 end
 
---- Issue a cookie challenge: set verification cookie and redirect.
--- Sets a REDIRECT action on ctx for rule_engine to execute (outside pcall).
--- Do NOT call ngx.redirect() directly — this function runs inside pcall
--- and ngx.exit() would be swallowed (AGENTS.md 1.1).
+--- Issue a cookie challenge: serve a JS page that sets the verification
+-- cookie CLIENT-SIDE on execution (never via Set-Cookie — otherwise a script
+-- bot that simply follows the redirect obtains a valid cookie without running
+-- any JS, defeating the challenge entirely).
+--
+-- Sets a 200 response for rule_engine to finalize (outside pcall). Do NOT call
+-- ngx.exit()/ngx.redirect() directly (AGENTS.md 1.1).
 function _M.challenge(ctx)
+    local path = require("core.config").resolve_path():match("(.+/)lua_script/")
+        or "/opt/verynginx/"
+    path = path:gsub("lua_script/", "") .. "support/verify_javascript.html"
+    local f = io.open(path, "r")
+    local verify_html
+    if f then
+        verify_html = f:read("*all")
+        f:close()
+    else
+        verify_html = "<html><body><script>document.cookie='INFOCOOKIE';location='INFOURI';</script></body></html>"
+    end
+
     local cookie_sign = sign(ctx, "cookie")
     local prefix = (config and config.cookie_prefix) or "verynginx"
-    local cookie_str = prefix .. "_sign_cookie=" .. cookie_sign .. "; Path=/; Max-Age=600; HttpOnly; SameSite=Lax"
-    ngx.header["Set-Cookie"] = cookie_str
 
     local target = ctx.request.scheme .. "://" .. ctx:get_safe_host() .. ctx.request.uri
     if ngx.var.query_string and ngx.var.query_string ~= "" then
         target = target .. "?" .. ngx.var.query_string
     end
-    -- Set action for rule_engine.apply() to execute outside pcall
-    ctx.set_action(ctx, "redirect", { url = target, code = ngx.HTTP_MOVED_TEMPORARILY })
+    if target:match("^https?://") or target:match("^/") then
+        -- keep
+    else
+        target = "/"
+    end
+    target = (target:gsub('[\\"\'<>/\r\n]', {
+        ['\\'] = '\\\\', ['"'] = '\\x22', ["'"] = '\\x27',
+        ['<'] = '\\x3C', ['>'] = '\\x3E', ['/'] = '\\x2F',
+        ['\r'] = '\\r', ['\n'] = '\\n',
+    }))
+
+    local html = verify_html
+    html = html:gsub("INFOCOOKIE", cookie_sign)
+    html = html:gsub("COOKIEPREFIX", prefix)
+    html = util.string_replace(html, "INFOURI", target, 1)
+
+    ngx.header.content_type = "text/html; charset=utf-8"
+    ngx.header["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    ngx.header["Pragma"] = "no-cache"
+    ngx.header["Expires"] = "0"
+    ngx.header["X-Content-Type-Options"] = "nosniff"
+    ngx.say(html)
+    -- ngx.exit(200) is called by rule_engine.apply() outside pcall
 end
 
 return _M
