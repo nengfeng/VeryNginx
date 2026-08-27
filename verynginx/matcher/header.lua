@@ -1,8 +1,10 @@
 -- @Disc: Header matcher - Phase 2 implementation
 local _M = {}
 local compare = require "matcher.compare"
-function _M.test(condition, _)
-    local headers = ngx.req.get_headers()
+local config = require "core.config"
+function _M.test(condition, ctx)
+    local max_headers = (config and config.headers and config.headers.max_count) or 1000
+    local headers = ngx.req.get_headers(max_headers)
     local name_op, name_val = condition.name_operator, condition.name_value
     local op, val = condition.operator, condition.value
     for k, v in pairs(headers) do

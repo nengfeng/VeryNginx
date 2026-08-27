@@ -56,6 +56,13 @@ end
 --- Lazy body read: only reads the request body when first called.
 -- Supports application/x-www-form-urlencoded, multipart/form-data, and application/json.
 -- Respects config.body.max_size and max_args limits.
+function _M._arg_limit()
+    if config and config.uri and config.uri.max_args then
+        return config.uri.max_args
+    end
+    return (config and config.body and config.body.max_args) or 1000
+end
+
 function _M.get_body_args(ctx)
     if ctx.request._body_read then
         return ctx.request._body_args
@@ -107,14 +114,36 @@ function _M.get_body_args(ctx)
     if perr then
         ctx.request._body_error = perr
     end
+    -- Overflow guard: OpenResty silently truncates beyond max_args. If the
+    -- raw body actually carries more name=value pairs than we parsed, mark
+    -- it so the Args matcher fails closed instead of skipping the tail.
+    if data and max_args and args then
+        local raw = 0
+        for _ in data:gmatch("&") do raw = raw + 1 end
+        if raw >= max_args then
+            ctx.request._body_error = "args_truncated"
+        end
+    end
     ctx.request._body_args = args
     ctx.request._body_read = true
     return args
 end
 
 --- Get URI query args (no body read).
-function _M.get_uri_args(_)
-    return ngx.req.get_uri_args()
+function _M.get_uri_args(ctx)
+    local max_args = _M._arg_limit()
+    local args = ngx.req.get_uri_args(max_args)
+    -- Overflow guard (see get_body_args): a query string with more pairs
+    -- than max_args means the tail was silently dropped — fail closed.
+    local qs = ngx.var.query_string
+    if qs and qs ~= "" and max_args then
+        local raw = 0
+        for _ in qs:gmatch("&") do raw = raw + 1 end
+        if raw >= max_args then
+            ctx.request._uri_args_error = "args_truncated"
+        end
+    end
+    return args
 end
 
 --- Set the action result (decision).

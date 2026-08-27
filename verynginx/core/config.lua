@@ -60,12 +60,33 @@ _M.schema = {
         observability = leaf({ type = "table", default = {} }),
         body = {
             type = "object",
-            default = { max_size = 1048576, max_args = 100, on_error = "fail_closed" },
+            default = { max_size = 1048576, max_args = 1000, on_error = "fail_closed" },
             children = {
                 max_size = leaf({ type = "integer", default = 1048576, min = 1024, max = 104857600 }),
-                max_args = leaf({ type = "integer", default = 100, min = 1, max = 10000 }),
+                max_args = leaf({ type = "integer", default = 1000, min = 1, max = 10000 }),
                 on_error = leaf({ type = "string", default = "fail_closed",
                     enum = { "match", "skip", "fail_closed" } }),
+            },
+            preserve_unknown = true,
+        },
+        -- URI query-string arg cap. OpenResty's get_uri_args silently drops
+        -- pairs beyond the limit; we cap high and fail-closed on overflow.
+        uri = {
+            type = "object",
+            default = { max_args = 1000 },
+            children = {
+                max_args = leaf({ type = "integer", default = 1000, min = 1, max = 10000 }),
+            },
+            preserve_unknown = true,
+        },
+        -- Request header cap. OpenResty's get_headers silently drops headers
+        -- beyond the limit; cap high (nginx header buffers bound the real
+        -- ceiling) and fail-closed on overflow.
+        headers = {
+            type = "object",
+            default = { max_count = 1000 },
+            children = {
+                max_count = leaf({ type = "integer", default = 1000, min = 1, max = 10000 }),
             },
             preserve_unknown = true,
         },

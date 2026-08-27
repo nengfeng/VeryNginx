@@ -17,10 +17,14 @@ function _M.test(condition, ctx)
     if body_args then
         return _M._test_args(body_args, name_op, name_val, op, val)
     end
-    if ctx.request._body_error then
+
+    -- Either body read failed, or URI args were truncated (tail dropped).
+    -- Apply the configured on_error policy so a hidden payload cannot slip
+    -- past the scanner. Default to fail_closed when the policy is missing.
+    if ctx.request._body_error or ctx.request._uri_args_error then
         local policy = condition.on_body_error
             or (require("core.config").body and require("core.config").body.on_error)
-            or "skip"
+            or "fail_closed"
         return policy == "match" or policy == "fail_closed"
     end
     return false
