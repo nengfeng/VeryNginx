@@ -25,7 +25,12 @@ do
     end
 end
 
-local DEFAULT_ITERATIONS = 12000
+-- OWASP current guidance: PBKDF2-HMAC-SHA256 >= 600,000 iterations.
+-- Keep in sync with install-lnmp.sh VN_PBKDF2_ITER and install.py
+-- hash_password() default so every install entry point yields equally strong
+-- admin hashes. The verifier reads the iteration count from the stored hash
+-- string, so 12000-iteration legacy hashes still verify side by side.
+local DEFAULT_ITERATIONS = 600000
 local SALT_BYTES = 16
 
 --- Constant-time string comparison to prevent timing attacks.

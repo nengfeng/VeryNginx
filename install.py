@@ -196,11 +196,15 @@ def safe_pop(l):
     else:
         return l.pop(0)
 
-def hash_password(password, iterations=12000):
+def hash_password(password, iterations=600000):
     """Generate a PBKDF2-HMAC-SHA256 hash compatible with VeryNginx v2.
 
     Same algorithm as core/password_hash.lua.
     Format: p1$iterations$salt_b64$hash_b64
+
+    Default 600000 iterations (OWASP current guidance). Keep in sync with
+    core/password_hash.lua DEFAULT_ITERATIONS and install-lnmp.sh
+    VN_PBKDF2_ITER so all install entry points produce equally strong hashes.
     """
     import hashlib
     import hmac
