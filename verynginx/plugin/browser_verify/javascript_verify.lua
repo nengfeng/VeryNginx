@@ -108,9 +108,14 @@ function _M.challenge(ctx)
     local js_sign = sign(ctx, "javascript")
     local prefix = (config and config.cookie_prefix) or "verynginx"
 
-    local target = ctx.request.scheme .. "://" .. ctx:get_safe_host() .. ctx.request.uri
-    if ngx.var.query_string and ngx.var.query_string ~= "" then
-        target = target .. "?" .. ngx.var.query_string
+    -- Strip CR/LF from the request URI / query before building the redirect
+    -- target, as defense in depth against response-splitting / header injection
+    -- (the target is HTML/JS-escaped on injection, but remove CRLF at source).
+    local uri = (ctx.request.uri or ""):gsub("[\r\n]", "")
+    local target = ctx.request.scheme .. "://" .. ctx:get_safe_host() .. uri
+    local qs = ngx.var.query_string
+    if qs and qs ~= "" then
+        target = target .. "?" .. qs:gsub("[\r\n]", "")
     end
     target = sanitize_redirect_url(target)
     target = js_string_escape(target)

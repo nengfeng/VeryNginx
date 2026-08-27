@@ -92,9 +92,16 @@ function _M.challenge(ctx)
     local cookie_sign = sign(ctx, "cookie")
     local prefix = (config and config.cookie_prefix) or "verynginx"
 
-    local target = ctx.request.scheme .. "://" .. ctx:get_safe_host() .. ctx.request.uri
-    if ngx.var.query_string and ngx.var.query_string ~= "" then
-        target = target .. "?" .. ngx.var.query_string
+    -- Strip CR/LF from the request URI / query before building the redirect
+    -- target. Even though the target is injected into the JS challenge page
+    -- (HTML/JS-escaped below), a CRLF here is a latent response-splitting /
+    -- header-injection vector if the injection context ever changes — so
+    -- remove it at the source (defense in depth).
+    local uri = (ctx.request.uri or ""):gsub("[\r\n]", "")
+    local target = ctx.request.scheme .. "://" .. ctx:get_safe_host() .. uri
+    local qs = ngx.var.query_string
+    if qs and qs ~= "" then
+        target = target .. "?" .. qs:gsub("[\r\n]", "")
     end
     if target:match("^https?://") or target:match("^/") then
         -- keep
