@@ -73,6 +73,12 @@ end
 
 Lua 模块查找顺序：`lua_package_path` 中列出的路径依次查找。调试时可以用 `package.searchpath("module.name")` 确认文件位置。
 
+### 1.7 FFI `open` 必须用 3 参数形式
+
+LuaJIT FFI 对重载 C 函数按参数个数解析；`open` 同时 cdef `int open(path, flags)` 与 `int open(path, flags, mode)` 时，用 2 参数 `ffi.C.open(dir, 0)` 调用会抛 `wrong number of arguments for function call`。**一律用 3 参数** `ffi.C.open(dir, 0, 0)`（mode 在 flags 不含 O_CREAT 时被忽略），且不要把 `open` 声明成 2 参数重载。
+
+> **血泪**：`core/config.lua` 的 `atomic_write_json`/`fsync_dir` 曾用 2 参数形式，导致 save() 在 rename 成功后、fsync_dir 处抛错——config.json 已落盘但 save() 以异常终止，既返回 500 "internal error"，又**没走到 `release_save_lock`** 把 `config_save_lock` 释放，进而后续所有 `POST /config` 都报 "config save is already running"（级联失败）。修法是统一 3 参数 + 把 save() 整体 `xpcall` 包一层 finally-release。
+
 ---
 
 ## 2. 路由调度

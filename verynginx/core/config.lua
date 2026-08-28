@@ -1067,7 +1067,6 @@ local ffi_ok, ffi = pcall(require, "ffi")
 if ffi_ok then
     ffi.cdef([[
         int open(const char *pathname, int flags, int mode);
-        int open(const char *pathname, int flags);
         ssize_t write(int fd, const void *buf, size_t count);
         int fsync(int fd);
         int close(int fd);
@@ -1076,7 +1075,11 @@ end
 
 local function fsync_dir(dir)
     if not ffi_ok or not dir or dir == "" then return end
-    local fd = ffi.C.open(dir, 0)  -- O_RDONLY
+    -- Use the 3-arg form (mode is ignored unless O_CREAT); the 2-arg open form
+    -- triggers a LuaJIT FFI overload-resolution error ("wrong number of
+    -- arguments for function call") and throws after the rename already
+    -- succeeded — which left config.save() aborting with the lock still held.
+    local fd = ffi.C.open(dir, 0, 0)  -- O_RDONLY
     if fd and fd >= 0 then
         ffi.C.fsync(fd)
         ffi.C.close(fd)
@@ -1186,6 +1189,10 @@ function _M.save(config, opts)
         end
     end
 
+    -- Run the save body inside a protected call so a thrown Lua error (e.g. an
+    -- unexpected FFI/IO failure) can never leave config_save_lock held. Early
+    -- `return false, msg` results propagate normally and are re-emitted.
+    local function do_save()
     -- Preserve real password_hash when incoming value is the redacted
     -- sentinel "(redacted)" returned by GET /config.  Without this, saving
     -- any config change from the dashboard would overwrite the real hash
@@ -1334,8 +1341,24 @@ function _M.save(config, opts)
         life.on_config_activated(previous, compiled)
     end)
 
-    release_save_lock(lock_key, lock_token)
+        release_save_lock(lock_key, lock_token)
 
+        return true
+    end
+
+    local ok, r1, r2 = xpcall(do_save, debug.traceback)
+    -- Final safety net: release the lock in every case. On a clean early return
+    -- do_save already released it (no-op here); on a thrown error this is the
+    -- only thing that prevents the lock from staying held until TTL expiry.
+    if shared and lock_token then
+        release_save_lock(lock_key, lock_token)
+    end
+    if not ok then
+        return false, "config save failed: " .. tostring(r1)
+    end
+    if r1 == false then
+        return false, r2
+    end
     return true
 end
 
