@@ -22,25 +22,27 @@ local function get_pid()
 end
 
 -- XOR implementation compatible with Lua 5.1 / 5.2 / LuaJIT.
-local xor = (function()
+local xor
+do
     local ok, bitmod = pcall(require, "bit")
-    if ok then
-        return bitmod.bxor
-    end
-    -- Pure arithmetic XOR for Lua 5.1 without bit library.
-    return function(a, b)
-        local r, p = 0, 1
-        a = math.floor(a)
-        b = math.floor(b)
-        while a > 0 or b > 0 do
-            if (a % 2) ~= (b % 2) then r = r + p end
-            a = math.floor(a / 2)
-            b = math.floor(b / 2)
-            p = p * 2
+    if ok and type(bitmod) == "table" and type(bitmod.bxor) == "function" then
+        xor = bitmod.bxor
+    else
+        -- Pure arithmetic XOR for environments without a usable bit library.
+        xor = function(a, b)
+            local r, p = 0, 1
+            a = math.floor(a)
+            b = math.floor(b)
+            while a > 0 or b > 0 do
+                if (a % 2) ~= (b % 2) then r = r + p end
+                a = math.floor(a / 2)
+                b = math.floor(b / 2)
+                p = p * 2
+            end
+            return r
         end
-        return r
     end
-end)()
+end
 
 local function seed_prng()
     if seeded then return end

@@ -679,7 +679,7 @@ function _M.create_rule(rule)
     new_rule.hit_count    = 0
 
     rules[#rules + 1] = new_rule
-    local save_ok, save_err = _M.save_rules(rules, "create", rules_obj.version)
+    local save_ok, save_err = _M.save_rules(rules, "create", rules_obj and rules_obj.version)
     if not save_ok then return false, save_err end
     return true, new_rule
 end
@@ -699,7 +699,7 @@ function _M.update_rule(rule_id, updates)
             local ok_v, err_v = _M.validate_rule(merged)
             if not ok_v then return false, err_v end
             rules[i] = merged
-            local save_ok, save_err = _M.save_rules(rules, "update", rules_obj.version)
+            local save_ok, save_err = _M.save_rules(rules, "update", rules_obj and rules_obj.version)
             if not save_ok then return false, save_err end
             return true, merged
         end
@@ -716,7 +716,7 @@ function _M.delete_rule(rule_id)
     for i, r in ipairs(rules) do
         if r.id == rule_id then
             table.remove(rules, i)
-            return _M.save_rules(rules, "delete", rules_obj.version)
+            return _M.save_rules(rules, "delete", rules_obj and rules_obj.version)
         end
     end
     return false, "rule not found: " .. rule_id
