@@ -120,8 +120,16 @@ function _M.init_worker()
 
         -- Unified persistence every 600s (ip reputation + kernel blocking)
         -- Fixed interval: timer.every is fine (not hot-reloaded).
+        -- On a graceful reload OpenResty cancels the timer with premature=true;
+        -- we must still flush here, otherwise up to 10 minutes of in-memory
+        -- state (ip_reputation scores / kernel_blocking desired state) is lost.
         ngx.timer.every(600, function(premature)
-            if premature or ngx.worker.exiting() then return end
+            if premature then
+                pcall(function() ip_reputation.persist() end)
+                pcall(function() kb.persist() end)
+                return
+            end
+            if ngx.worker.exiting() then return end
             pcall(function() ip_reputation.persist() end)
             pcall(function() kb.persist() end)
         end)

@@ -100,4 +100,15 @@ function _M.hex(length)
     return hex
 end
 
+-- Seed the legacy math.random PRNG at module load time (init_by_lua context,
+-- where ngx is available). Without this, any direct math.random() call
+-- (statistics sampling, balancer jitter, snapshot jitter, etc.) produces an
+-- identical sequence in every worker on every restart. seed_prng() is a no-op
+-- once already seeded, so calling it here is cheap and idempotent.
+if ngx ~= nil then
+    seed_prng()
+end
+
+_M.seed = seed_prng
+
 return _M

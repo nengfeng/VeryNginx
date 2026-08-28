@@ -249,7 +249,7 @@ end
 -- ---------------------------------------------------------------------------
 -- save_rules  — atomic file write + chunk cache update + backup + history
 -- ---------------------------------------------------------------------------
-function _M.save_rules(rules, action)
+function _M.save_rules(rules, action, expected_version)
     if type(rules) ~= "table" then
         return false, "rules must be a table"
     end
@@ -274,7 +274,7 @@ function _M.save_rules(rules, action)
         end
     end
 
-    local ok, r1, r2 = pcall(_M._save_rules_unlocked, rules, action)
+    local ok, r1, r2 = pcall(_M._save_rules_unlocked, rules, action, expected_version)
 
     if locked and locks then
         -- release only if we still own it (TTL may have expired and been
@@ -294,13 +294,26 @@ function _M.save_rules(rules, action)
     return true
 end
 
-function _M._save_rules_unlocked(rules, action)
+function _M._save_rules_unlocked(rules, action, expected_version)
     local shared = ngx.shared.vn_config
     local current_version
     if shared then
         current_version = shared:incr("waf_rules_save_version", 1, 0)
     else
         current_version = 1
+    end
+
+    -- Optimistic concurrency: if the caller loaded a specific version, reject
+    -- the save when another worker committed in between (version drift). This
+    -- closes the read-modify-write TOCTOU where two concurrent admins both
+    -- based on the same version would otherwise silently lose one another's
+    -- changes. The client must reload and retry.
+    if expected_version ~= nil then
+        local prev = current_version - 1
+        if prev ~= expected_version then
+            return false, "rule version conflict: expected " .. tostring(expected_version)
+                .. " but found " .. tostring(prev) .. " (reload and retry)"
+        end
     end
 
     local timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
@@ -666,7 +679,7 @@ function _M.create_rule(rule)
     new_rule.hit_count    = 0
 
     rules[#rules + 1] = new_rule
-    local save_ok, save_err = _M.save_rules(rules, "create")
+    local save_ok, save_err = _M.save_rules(rules, "create", rules_obj.version)
     if not save_ok then return false, save_err end
     return true, new_rule
 end
@@ -686,7 +699,7 @@ function _M.update_rule(rule_id, updates)
             local ok_v, err_v = _M.validate_rule(merged)
             if not ok_v then return false, err_v end
             rules[i] = merged
-            local save_ok, save_err = _M.save_rules(rules, "update")
+            local save_ok, save_err = _M.save_rules(rules, "update", rules_obj.version)
             if not save_ok then return false, save_err end
             return true, merged
         end
@@ -703,7 +716,7 @@ function _M.delete_rule(rule_id)
     for i, r in ipairs(rules) do
         if r.id == rule_id then
             table.remove(rules, i)
-            return _M.save_rules(rules, "delete")
+            return _M.save_rules(rules, "delete", rules_obj.version)
         end
     end
     return false, "rule not found: " .. rule_id

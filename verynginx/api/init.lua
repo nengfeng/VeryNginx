@@ -181,19 +181,19 @@ local function run_route(route, ctx, method, path)
         response = json.encode({ ret = "failed", message = "response too large" })
     end
 
-    -- Finalize the idempotency claim only on success. A server-side failure
-    -- (exception, 5xx, or a 413 truncation) releases the key so the client can
-    -- safely retry; otherwise a single failed attempt would burn the
-    -- idempotency key for up to an hour.
+    -- Finalize the idempotency claim only on success (2xx). Any non-2xx
+    -- outcome — exception, 5xx, 413 truncation, or a 4xx client error — releases
+    -- the key so the client can correct and retry without being permanently
+    -- blocked by a 409 for up to an hour. A failed request is not idempotent work.
     if idem_key and idem_key ~= "" then
         local shared = ngx.shared.vn_session
         if shared then
             local cache_key = "idempotent:" .. ngx.md5(idem_key)
             local status = tonumber(ngx.status) or 0
-            if not ok or status >= 500 or status == 413 then
-                shared:delete(cache_key)
-            else
+            if ok and status >= 200 and status < 300 then
                 shared:set(cache_key, true, 3600)
+            else
+                shared:delete(cache_key)
             end
         end
     end

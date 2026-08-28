@@ -254,8 +254,12 @@ func splitAddrsByFamily(addrs []string) (v4, v6 []string) {
 		if ip == nil {
 			continue
 		}
-		if ip.To4() != nil {
-			v4 = append(v4, a)
+		// ip.To4() is non-nil for both genuine IPv4 and IPv4-mapped IPv6
+		// (::ffff:1.2.3.4). nftables inet/v4 sets reject the mapped textual
+		// form, so normalize it to the plain dotted-quad; otherwise the whole
+		// batch add fails.
+		if v4ip := ip.To4(); v4ip != nil {
+			v4 = append(v4, v4ip.String())
 		} else {
 			v6 = append(v6, a)
 		}

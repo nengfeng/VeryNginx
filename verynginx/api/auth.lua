@@ -12,6 +12,12 @@ local rate_limit = require "api.rate_limit"
 local csrf = require "api.csrf"
 local cookie = require "cookie"
 
+-- Fixed dummy PBKDF2 hash used to equalize login timing for non-existent
+-- users. It is a well-formed "p1$600000$" hash (16 zero-byte salt, 32 zero-byte
+-- digest) so verify_builtin runs the full PBKDF2 cost but never matches, closing
+-- the timing side-channel that otherwise reveals whether a username exists.
+local DUMMY_HASH = "p1$600000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+
 -- ---------------------------------------------------------------------------
 -- Auth strategy registry
 -- ---------------------------------------------------------------------------
@@ -94,41 +100,53 @@ _M.strategies["session"] = {
         end
 
         local admins = config and config.admin or {}
+        local target = nil
         for _, admin in ipairs(admins) do
             if admin.user == user and admin.enable ~= false then
-                if password_hash.verify(password, admin.password_hash) then
-                    -- Clear any account lock on success
-                    if shared then
-                        shared:delete("account_lock:" .. tostring(user))
-                        shared:delete("failed_login:" .. tostring(user))
-                    end
-                    local sec = config and config.security or nil
-                    local payload = {
-                        user = user,
-                        expire_at = ngx.time() + ((sec and sec.session_ttl) or 28800),
-                        nonce = require("core.random").bytes(16)
-                    }
-                    local secret = config and config.security and config.security.session_secret or nil
-                    if type(secret) ~= "string" or #secret < 16 then
-                        return false, "session_secret missing or too short (<16)"
-                    end
-                    local token = session.sign(payload, secret)
-                    return true, token
+                target = admin
+                break
+            end
+        end
+
+        -- Constant-time defense against username enumeration: regardless of
+        -- whether the user exists, run exactly one password-hash verification
+        -- with equivalent cost. A non-existent user verifies against DUMMY_HASH
+        -- (which never matches), so PBKDF2/bcrypt timing can no longer reveal
+        -- account existence. The single returned error is generic.
+        local hash = target and target.password_hash or DUMMY_HASH
+        local ok, matched = pcall(password_hash.verify, password, hash)
+        local good = (ok and matched) and target ~= nil
+
+        if not good then
+            -- Track failed attempts per user (account lockout)
+            if shared then
+                local fail_key = "failed_login:" .. tostring(user)
+                local attempts = shared:incr(fail_key, 1, 1, 300)
+                if attempts and attempts >= 5 then
+                    shared:set("account_lock:" .. tostring(user), true, 900)
+                    shared:delete(fail_key)
                 end
             end
+            return false, "invalid_credentials"
         end
 
-        -- Track failed attempts per user (account lockout)
+        -- Success: clear any account lock, issue session token.
         if shared then
-            local fail_key = "failed_login:" .. tostring(user)
-            local attempts = shared:incr(fail_key, 1, 1, 300)
-            if attempts and attempts >= 5 then
-                shared:set("account_lock:" .. tostring(user), true, 900)
-                shared:delete(fail_key)
-            end
+            shared:delete("account_lock:" .. tostring(user))
+            shared:delete("failed_login:" .. tostring(user))
         end
-
-        return false, "invalid_credentials"
+        local sec = config and config.security or nil
+        local payload = {
+            user = user,
+            expire_at = ngx.time() + ((sec and sec.session_ttl) or 28800),
+            nonce = require("core.random").bytes(16)
+        }
+        local secret = config and config.security and config.security.session_secret or nil
+        if type(secret) ~= "string" or #secret < 16 then
+            return false, "session_secret missing or too short (<16)"
+        end
+        local token = session.sign(payload, secret)
+        return true, token
     end,
 
     logout = function(_)

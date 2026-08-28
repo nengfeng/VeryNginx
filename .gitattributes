@@ -1,1 +1,12 @@
-*.html  linguist-vendored=true
+# Enforce LF line endings for text assets so the dashboard's SRI integrity
+# hashes (sha384 over the raw bytes) stay valid regardless of the checkout
+# platform. A CRLF workspace would silently corrupt the hash and white-screen
+# the dashboard. Apply to the vendored SPA + Lua sources.
+*        text=auto eol=lf
+*.lua    text eol=lf
+*.js     text eol=lf
+*.html   text eol=lf
+*.css    text eol=lf
+*.json   text eol=lf
+*.conf   text eol=lf
+*.go     text eol=lf

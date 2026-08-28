@@ -42,25 +42,30 @@ function _M.get_filtered(user_filter, action_filter, action_prefix, since_ts, un
     for i = 0, RING_SIZE - 1 do
         local idx = ((tail - 1 - i) % RING_SIZE) + 1
         local data = shared:get(PREFIX .. idx)
-        if not data then break end
-        local ts_str, user, action, detail = data:match("^([^|]*)|([^|]*)|([^|]*)|(.*)$")
-        if ts_str then
-            local ts = tonumber(ts_str)
-            -- Apply filters
-            if user_filter and user_filter ~= "" and user ~= user_filter then goto continue end
-            if action_filter and action_filter ~= "" and action ~= action_filter then goto continue end
-            if action_prefix and action_prefix ~= "" and
-                string.sub(action, 1, #action_prefix) ~= action_prefix then goto continue end
-            if since_ts and since_ts > 0 and ts < since_ts then goto continue end
-            if until_ts and until_ts > 0 and ts > until_ts then goto continue end
-            entries[#entries + 1] = {
-                time = ts,
-                user = user or "-",
-                action = action or "",
-                detail = detail or "",
-            }
-            if #entries >= limit then break end
-            ::continue::
+        -- Skip empty slots (holes) instead of breaking: a full shared dict can
+        -- drop a set() leaving a nil slot, and on ring wrap unfilled slots are
+        -- nil too. Breaking on the first nil would truncate all older history.
+        if data then
+            local ts_str, user, action, detail = data:match("^([^|]*)|([^|]*)|([^|]*)|(.*)$")
+            if ts_str then
+                local ts = tonumber(ts_str)
+                local skip = false
+                if user_filter and user_filter ~= "" and user ~= user_filter then skip = true end
+                if not skip and action_filter and action_filter ~= "" and action ~= action_filter then skip = true end
+                if not skip and action_prefix and action_prefix ~= "" and
+                    string.sub(action, 1, #action_prefix) ~= action_prefix then skip = true end
+                if not skip and since_ts and since_ts > 0 and ts < since_ts then skip = true end
+                if not skip and until_ts and until_ts > 0 and ts > until_ts then skip = true end
+                if not skip then
+                    entries[#entries + 1] = {
+                        time = ts,
+                        user = user or "-",
+                        action = action or "",
+                        detail = detail or "",
+                    }
+                    if #entries >= limit then break end
+                end
+            end
         end
     end
     return entries
