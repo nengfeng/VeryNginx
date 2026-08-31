@@ -11,7 +11,7 @@ local hmac_sha256 = hmac.hmac_sha256
 local bxor
 do
     local ok, bitmod = pcall(require, "bit")
-    if ok then
+    if ok and type(bitmod) == "table" and type(bitmod.bxor) == "function" then
         bxor = bitmod.bxor
     else
         function bxor(a, b)
