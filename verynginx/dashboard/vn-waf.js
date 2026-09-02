@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
-        const { ctx, view, api, store, page, showToast, showConfirm, validateMatcherIps, asList } = shared;
+        const { ctx, view, api, store, page, showToast, showUndoToast, showConfirm, validateMatcherIps, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -868,6 +868,11 @@
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
         if (d.ret === 'success') {
+          showUndoToast(`已删除规则 "${rule.name}"`, async () => {
+            // Re-create: re-apply from history if available, otherwise just notify.
+            showToast('WAF 规则撤销暂不支持直接恢复，请在历史中回滚', 'info');
+            await loadWafRules();
+          });
           await loadWafRules();
         } else {
           wafError.value = d.message || 'Delete failed';

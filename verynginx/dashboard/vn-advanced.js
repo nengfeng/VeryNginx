@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnadvanced'] = function createvnadvancedModule(shared) {
-        const { ctx, view, api, showToast, showConfirm, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil, asList } = shared;
+        const { ctx, view, api, showToast, showUndoToast, showConfirm, auditFilterUser, auditFilterAction, auditFilterSince, auditFilterUntil, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -188,13 +188,22 @@
     }
 
     async function deleteFp(fp) {
-      if (!await showConfirm({ title: '删除指纹', message: `删除指纹 "${fp.hash}"?`, type: 'danger' })) return;
+      if (!await showConfirm({ title: '删除指纹', message: `删除指纹 "${fp.hash}"?\n\n删除后需在「添加」页手动重建才能恢复。`, type: 'danger' })) return;
       try {
         const d = await api('DELETE', '/verynginx/fingerprints/' + encodeURIComponent(fp.hash));
         if (d.ret === 'success') {
           if (d.removed === false) {
             showToast('指纹不存在（可能已被删除）: ' + fp.hash, 'error');
           } else {
+            showUndoToast(`已删除指纹 "${fp.name || fp.hash.slice(0,8)}"`, async () => {
+              // Fingerprint undo: re-add via API
+              const entry = JSON.parse(JSON.stringify(fp));
+              delete entry._removed;
+              const r = await api('POST', '/verynginx/fingerprints', entry);
+              if (r.ret === 'success') showToast('已撤销：恢复指纹', 'success');
+              else throw new Error(r.message || '恢复失败');
+              await loadFingerprints();
+            });
             showToast('指纹已删除', 'success');
           }
           await loadFingerprints();

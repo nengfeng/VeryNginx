@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnreputation'] = function createvnreputationModule(shared) {
-        const { ctx, view, api, isValidIpLiteral, showConfirm, showToast } = shared;
+        const { ctx, view, api, isValidIpLiteral, showConfirm, showToast, showUndoToast } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -90,6 +90,11 @@
       })) return;
       try {
         await api('DELETE', '/verynginx/reputation/whitelist?ip=' + encodeURIComponent(ip));
+        showUndoToast(`已从白名单移除 ${ip}`, async () => {
+          await api('POST', '/verynginx/reputation/whitelist', { ip });
+          showToast('已撤销：重新加入白名单 ' + ip, 'success');
+          loadRepData();
+        });
         loadRepData();
       } catch (e) {
         repError.value = e.message;

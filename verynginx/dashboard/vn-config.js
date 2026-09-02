@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnconfig'] = function createvnconfigModule(shared) {
-        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showConfirm, validateMatcherIps } = shared;
+        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showUndoToast, showConfirm, validateMatcherIps } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -219,10 +219,20 @@
           + '注意：此处的规则与 WAF 面板的规则是两套独立的系统，删除不影响 WAF 规则。',
         type: 'danger',
       })) return;
+      const snapshot = JSON.parse(JSON.stringify(rule));
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
       newCfg.rule[group].splice(index, 1);
-      await commitConfig(newCfg);
+      const ok = await commitConfig(newCfg);
+      if (ok) {
+        showUndoToast(`已从「${group}」删除规则`, async () => {
+          const restored = JSON.parse(JSON.stringify(cfg.value));
+          if (!restored.rule) restored.rule = {};
+          if (!restored.rule[group]) restored.rule[group] = [];
+          restored.rule[group].splice(index, 0, snapshot);
+          await commitConfig(restored);
+        });
+      }
     }
 
     async function ruleToggle(rule, group, index) {

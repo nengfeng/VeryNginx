@@ -82,8 +82,11 @@
   <!-- App -->
   <template v-else>
     <div id="topnav">
+      <button class="hamburger" @click="mobileNavOpen = !mobileNavOpen" title="菜单" aria-label="切换导航菜单">
+        <span></span><span></span><span></span>
+      </button>
       <span class="brand">VeryNginx <small>v2{{ versionInfo.commit ? ' · ' + versionInfo.commit.slice(0,8) : '' }}</small></span>
-      <nav>
+      <nav :class="{open: mobileNavOpen}">
         <a :class="{active:groupPage==='dashboard'}" @click="navigateTo('dashboard')">仪表盘</a>
         <a :class="{active:groupPage==='protect'}" @click="navigateTo('waf')">防护</a>
         <a :class="{active:groupPage==='system'}" @click="navigateTo('kb')">系统</a>
@@ -1670,13 +1673,21 @@
         <div class="card mb-16">
           <h3 style="font-size:14px;margin-bottom:8px">手动封禁</h3>
           <div class="flex" style="gap:8px;align-items:center;flex-wrap:wrap">
-            <input v-model="kbNewIP" placeholder="要封禁的 IP" style="width:180px">
+            <input v-model="kbNewIP" placeholder="要封禁的 IP" style="width:180px"
+              :style="{borderColor: kbNewIPErr ? 'var(--danger)' : ''}"
+              @input="kbNewIPErr = ''"
+              @blur="kbNewIPErr = kbNewIP.trim() && !isValidIpLiteral(kbNewIP.trim(), false) ? 'IP 格式无效' : ''">
+            <div v-if="kbNewIPErr" style="font-size:11px;color:var(--danger);margin-top:2px">{{ kbNewIPErr }}</div>
             <select v-model="kbNewPolicy" style="width:120px">
               <option value="scanner">扫描器</option>
               <option value="cc">CC</option>
               <option value="manual">手动</option>
             </select>
-            <input v-model.number="kbNewTTL" placeholder="TTL (秒)" type="number" min="60" style="width:100px">
+            <input v-model.number="kbNewTTL" placeholder="TTL (秒)" type="number" min="60" style="width:100px"
+              :style="{borderColor: kbNewTTLErr ? 'var(--danger)' : ''}"
+              @input="kbNewTTLErr = ''"
+              @blur="kbNewTTLErr = (kbNewTTL < 60) ? '最少 60 秒' : ''">
+            <div v-if="kbNewTTLErr" style="font-size:11px;color:var(--danger);margin-top:2px">{{ kbNewTTLErr }}</div>
             <button class="small primary" :disabled="kbBusy" @click="kbPromote"><span v-if="kbBusy" class="spinner"></span>封禁 IP</button>
           </div>
         </div>
@@ -2288,6 +2299,44 @@
         <button class="outline" @click="confirmModalCancel">取消</button>
         <button :class="confirmModal.type==='danger' ? 'danger' : confirmModal.type==='warning' ? 'primary' : 'primary'" @click="confirmModalOk">确认</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Command Palette (Ctrl+K) -->
+  <div v-if="cmdPaletteOpen" class="cmd-overlay" @click.self="closeCmdPalette">
+    <div class="cmd-palette">
+      <div class="cmd-input-wrap">
+        <span class="cmd-icon">⌕</span>
+        <input id="cmd-palette-input" v-model="cmdQuery" placeholder="搜索命令…" autocomplete="off" spellcheck="false">
+        <kbd class="cmd-esc" @click="closeCmdPalette">Esc</kbd>
+      </div>
+      <div class="cmd-list" v-if="cmdFiltered.length">
+        <div v-for="(cmd, i) in cmdFiltered" :key="cmd.label" class="cmd-item" :class="{active: i === cmdIdx}" @click="cmdSelect(cmd.action)" @mouseenter="cmdIdx = i">
+          <span class="cmd-label">{{ cmd.label }}</span>
+          <span v-if="cmd.shortcut" class="cmd-kbd">{{ cmd.shortcut }}</span>
+        </div>
+      </div>
+      <div v-else class="cmd-empty">无匹配命令</div>
+      <div class="cmd-hint">按 ↑↓ 选择，Enter 执行，Esc 关闭</div>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Help (?) -->
+  <div v-if="kbShortcutsOpen" class="cmd-overlay" @click.self="kbShortcutsOpen=false">
+    <div class="cmd-palette" style="max-width:380px">
+      <div class="cmd-input-wrap">
+        <span class="cmd-icon">⌨</span>
+        <span style="font-size:14px;font-weight:600;color:var(--text)">快捷键</span>
+        <kbd class="cmd-esc" @click="kbShortcutsOpen=false">Esc</kbd>
+      </div>
+      <table class="cmd-keys">
+        <tbody>
+          <tr v-for="(s, i) in KB_SHORTCUTS" :key="i">
+            <td><kbd>{{ s[0] }}</kbd></td><td>{{ s[1] }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="cmd-hint">提示：? 可随时打开此面板</div>
     </div>
   </div>
 

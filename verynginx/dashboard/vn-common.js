@@ -236,6 +236,21 @@
     }
     ctx('showToast', showToast);
 
+    // Undoable-action toast: shows a success toast with a 10s "撤销" button
+    // that runs the reverse API. Replaces the per-module kbUndoToast pattern.
+    function showUndoToast(msg, undoFn) {
+      showToast(msg, 'success', {
+        actionLabel: '撤销',
+        duration: 10000,
+        onAction: async () => {
+          try { await undoFn(); }
+          catch (e) { showToast('撤销失败: ' + e.message, 'error'); }
+        },
+      });
+    }
+    // showUndoToast is a module-level utility, not a template binding.
+    ctx('showUndoToast', showUndoToast);
+
     function dismissToast(id) {
       const i = toasts.value.findIndex(t => t.id === id);
       if (i >= 0) {
@@ -335,6 +350,8 @@
     view('cfgTab', cfgTab);
     const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
     view('theme', theme);
+    const mobileNavOpen = ref(false);
+    view('mobileNavOpen', mobileNavOpen);
 
     // ---- First-time intro tour ----
     // 引导步骤配置：导航目标 + 描述文案（先定义，view() 注册后才能引用）
@@ -409,6 +426,99 @@
         try {
           if (!localStorage.getItem('vn_seen_intro')) startIntro();
         } catch(e) {}
+      }
+    });
+
+    // ---- Command palette (Ctrl+K) + keyboard shortcuts help (?) ----
+    const cmdPaletteOpen = ref(false);
+    const cmdQuery = ref('');
+    const kbShortcutsOpen = ref(false);
+    view('cmdPaletteOpen', cmdPaletteOpen);
+    view('cmdQuery', cmdQuery);
+    view('kbShortcutsOpen', kbShortcutsOpen);
+
+    // Commands available in the palette; each has a label, optional shortcut,
+    // and either a page target or an action callback.
+    const CMD_ACTIONS = [
+      { label: '仪表盘', shortcut: '⌘1', action: () => { navigateTo('dashboard'); cmdPaletteOpen.value = false; } },
+      { label: '防护 · WAF', shortcut: '⌘2', action: () => { navigateTo('waf'); cmdPaletteOpen.value = false; } },
+      { label: '防护 · 频率限制', shortcut: null, action: () => { navigateTo('frequency'); cmdPaletteOpen.value = false; } },
+      { label: '防护 · IP 声誉', shortcut: null, action: () => { navigateTo('reputation'); cmdPaletteOpen.value = false; } },
+      { label: '系统 · 内核封禁', shortcut: '⌘3', action: () => { navigateTo('kb'); cmdPaletteOpen.value = false; } },
+      { label: '系统 · GeoIP', shortcut: null, action: () => { navigateTo('geoip'); cmdPaletteOpen.value = false; } },
+      { label: '配置管理', shortcut: '⌘4', action: () => { navigateTo('config'); cmdPaletteOpen.value = false; } },
+      { label: '高级 · TLS 指纹', shortcut: null, action: () => { navigateTo('advanced'); cmdPaletteOpen.value = false; } },
+      { label: '高级 · 审计日志', shortcut: null, action: () => { shared.advTab && (shared.advTab.value = 'audit'); navigateTo('advanced'); cmdPaletteOpen.value = false; } },
+      { label: '关于', shortcut: '⌘5', action: () => { navigateTo('about'); cmdPaletteOpen.value = false; } },
+      { label: '切换深色/浅色模式', shortcut: '⌘D', action: () => { toggleTheme(); cmdPaletteOpen.value = false; } },
+    ];
+    ctx('CMD_ACTIONS', CMD_ACTIONS);
+
+    // Filtered commands based on query
+    const cmdFiltered = computed(() => {
+      const q = cmdQuery.value.trim().toLowerCase();
+      if (!q) return CMD_ACTIONS;
+      return CMD_ACTIONS.filter(a => a.label.toLowerCase().includes(q));
+    });
+    view('cmdFiltered', cmdFiltered);
+
+    function openCmdPalette() {
+      cmdQuery.value = '';
+      cmdPaletteOpen.value = true;
+      Vue.nextTick(() => {
+        const input = document.querySelector('#cmd-palette-input');
+        if (input) input.focus();
+      });
+    }
+    function closeCmdPalette() { cmdPaletteOpen.value = false; cmdQuery.value = ''; }
+    ctx('openCmdPalette', openCmdPalette);
+    view('closeCmdPalette', closeCmdPalette);
+    view('cmdSelect', (action) => { action(); cmdPaletteOpen.value = false; });
+    const cmdIdx = ref(0);
+    view('cmdIdx', cmdIdx);
+    // Cmd palette keyboard nav: ↑↓ arrows, Enter, Escape
+    window.addEventListener('keydown', (e) => {
+      if (!cmdPaletteOpen.value) return;
+      const items = document.querySelectorAll('.cmd-item');
+      if (e.key === 'ArrowDown') { e.preventDefault(); cmdIdx.value = Math.min(cmdIdx.value + 1, items.length - 1); items[cmdIdx.value]?.scrollIntoView({ block: 'nearest' }); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); cmdIdx.value = Math.max(cmdIdx.value - 1, 0); items[cmdIdx.value]?.scrollIntoView({ block: 'nearest' }); }
+      else if (e.key === 'Enter') { e.preventDefault(); const action = cmdFiltered.value[cmdIdx.value]?.action; if (action) action(); cmdPaletteOpen.value = false; }
+    });
+
+    // Keyboard shortcuts reference list for the help modal
+    const KB_SHORTCUTS = [
+      ['Ctrl+K', '打开命令面板'],
+      ['?', '显示快捷键帮助'],
+      ['Esc', '关闭弹窗/面板'],
+      ['1-5', '跳转到对应主导航项'],
+    ];
+    view('KB_SHORTCUTS', KB_SHORTCUTS);
+
+    // Global keydown: Ctrl+K open palette, ? show shortcuts, Esc close either.
+    // This runs BEFORE the modal Tab-trap handler so palette/shortcuts can
+    // intercept even when a modal is open.
+    window.addEventListener('keydown', (e) => {
+      // Ctrl/Cmd+K → command palette
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        cmdPaletteOpen.value = !cmdPaletteOpen.value;
+        if (cmdPaletteOpen.value) cmdQuery.value = '';
+        return;
+      }
+      // ? → shortcuts help (only when not typing in an input)
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        const tag = document.activeElement && document.activeElement.tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+          e.preventDefault();
+          kbShortcutsOpen.value = !kbShortcutsOpen.value;
+        }
+      }
+    });
+    // Close palette/shortcuts on Escape (separate from modal Escape trap).
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (cmdPaletteOpen.value) { closeCmdPalette(); e.preventDefault(); }
+        else if (kbShortcutsOpen.value) { kbShortcutsOpen.value = false; e.preventDefault(); }
       }
     });
 
@@ -500,7 +610,7 @@
 
     // Expose core utilities
     ctx('api', api);
-    ctx('isValidIpLiteral', isValidIpLiteral);
+    view('isValidIpLiteral', isValidIpLiteral);
     ctx('refreshCsrf', refreshCsrf);
     ctx('refreshCsrfOnce', refreshCsrfOnce);
     ctx('csrfToken', () => csrfToken); // getter for current token

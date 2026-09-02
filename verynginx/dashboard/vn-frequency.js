@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnfrequency'] = function createvnfrequencyModule(shared) {
-        const { ctx, view, api, showToast, showConfirm, validateMatcherIps, asList } = shared;
+        const { ctx, view, api, showToast, showUndoToast, showConfirm, validateMatcherIps, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -228,10 +228,16 @@
 
     async function deleteFreqRule(rule) {
       if (!await showConfirm({ title: '删除频率规则', message: `删除频率规则 "${rule.id}"?`, type: 'danger' })) return;
+      const snapshot = JSON.parse(JSON.stringify(rule));
       try {
         const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
         if (d.ret === 'success') {
-          showToast('规则已删除', 'success');
+          showUndoToast(`已删除频率规则 "${rule.id}"`, async () => {
+            const r = await api('POST', '/verynginx/frequency/rules', snapshot);
+            if (r.ret === 'success') showToast('已撤销：恢复规则 ' + rule.id, 'success');
+            else throw new Error(r.message || '恢复失败');
+            await loadFrequencyData();
+          });
           await loadFrequencyData();
         } else {
           showToast(d.message || '删除失败', 'error');

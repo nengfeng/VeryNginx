@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnkb'] = function createvnkbModule(shared) {
-        const { ctx, view, api, page, status, connHistory, isValidIpLiteral, showToast, showConfirm, asList } = shared;
+        const { ctx, view, api, page, status, connHistory, isValidIpLiteral, showToast, showUndoToast, showConfirm, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -42,8 +42,10 @@
     const kbDiffError = ref('');
     const kbTab = ref('entries');
     const kbNewIP = ref('');
+    const kbNewIPErr = ref('');
     const kbNewPolicy = ref('scanner');
     const kbNewTTL = ref(300);
+    const kbNewTTLErr = ref('');
     const kbError = ref('');
     const kbBusy = ref(false);
     const kbFilterPolicy = ref('');
@@ -524,18 +526,8 @@
       finally { kbBusy.value = false; }
     }
 
-    // Undoable-action toast: 10s window with a 撤销 button that auto-runs the
-    // reverse API. Undo failures surface as their own error toast.
-    function kbUndoToast(msg, undoFn) {
-      showToast(msg, 'success', {
-        actionLabel: '撤销',
-        duration: 10000,
-        onAction: async () => {
-          try { await undoFn(); }
-          catch (e) { showToast('撤销失败: ' + e.message, 'error'); }
-        },
-      });
-    }
+    // Aliased for brevity in call sites.
+    const undoToast = showUndoToast;
 
     async function kbPromote() {
       if (!kbNewIP.value) { showToast('请输入 IP', 'error'); return; }
@@ -560,7 +552,7 @@
           ip, policy, ttl: ttl
         });
         if (d.ret === 'success') {
-          kbUndoToast(`IP ${ip} 已封禁 (${policy}, TTL ${ttl}s)`, async () => {
+          undoToast(`IP ${ip} 已封禁 (${policy}, TTL ${ttl}s)`, async () => {
             await api('POST', '/verynginx/kernel-blocking/clear', { ip });
             showToast('已撤销：解除 ' + ip + ' 的封禁', 'success');
             await loadKbData();
@@ -587,7 +579,7 @@
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy, ttl: 300 });
         if (d.ret === 'success') {
-          kbUndoToast('IP ' + ip + ' 已晋升 (' + policy + ', TTL 300s)', async () => {
+          undoToast('IP ' + ip + ' 已晋升 (' + policy + ', TTL 300s)', async () => {
             await api('POST', '/verynginx/kernel-blocking/clear', { ip });
             showToast('已撤销：解除 ' + ip + ' 的封禁', 'success');
             await loadKbData();
@@ -648,7 +640,7 @@
         const d = await api('POST', '/verynginx/kernel-blocking/clear', { ip });
         if (d.ret === 'success') {
           if (prior.length) {
-            kbUndoToast('已清除 ' + ip + ' 的封禁 (' + prior.length + ' 条)', async () => {
+            undoToast('已清除 ' + ip + ' 的封禁 (' + prior.length + ' 条)', async () => {
               for (const p of prior) {
                 await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy: p.policy, ttl: p.ttl });
               }
@@ -746,8 +738,10 @@
     view('kbDiffError', kbDiffError);
     view('kbTab', kbTab);
     view('kbNewIP', kbNewIP);
+    view('kbNewIPErr', kbNewIPErr);
     view('kbNewPolicy', kbNewPolicy);
     view('kbNewTTL', kbNewTTL);
+    view('kbNewTTLErr', kbNewTTLErr);
     view('kbError', kbError);
     view('kbBusy', kbBusy);
     view('kbFilterPolicy', kbFilterPolicy);
