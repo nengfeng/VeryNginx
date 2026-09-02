@@ -138,7 +138,7 @@
                 </tr>
               </tbody>
             </table>
-             <div v-else class="empty">暂无数据</div>
+             <div v-else class="empty">暂无数据。<div style="font-size:12px;color:var(--muted);margin-top:4px">有请求经过代理后会自动记录，当前无数据说明尚未有流量经过。</div></div>
           </div>
           <div class="card">
             <strong>插件性能</strong>
@@ -153,7 +153,7 @@
                 </tr>
               </tbody>
             </table>
-            <div v-else class="empty">暂无数据</div>
+            <div v-else class="empty">暂无数据。<div style="font-size:12px;color:var(--muted);margin-top:4px">插件性能数据在请求经过后自动生成，需要一定流量才会填充。</div></div>
           </div>
         </div>
       </div>
@@ -289,7 +289,10 @@
                 </tr>
               </tbody>
             </table>
-            <div v-else class="empty">此组中无规则。</div>
+            <div v-else class="empty">
+              <div>此组中无规则。</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px"><button class="primary small" @click="ruleOpenCreate(group)">+ 添加规则</button></div>
+            </div>
           </div>
         </div>
 
@@ -329,7 +332,10 @@
               Method: {{ up.method || 'round_robin' }}
             </div>
           </div>
-          <div v-if="!cfg.backend_upstream || !Object.keys(cfg.backend_upstream).length" class="empty">未定义上游。</div>
+          <div v-if="!cfg.backend_upstream || !Object.keys(cfg.backend_upstream).length" class="empty">
+            <div>未定义上游服务器。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">上游是后端服务的地址（如 <code>127.0.0.1:8080</code>）。在「原始 JSON」中配置 <span class="json-inline">backend_upstream</span>，或通过 API 下发配置。</div>
+          </div>
         </div>
 
         <!-- Responses -->
@@ -346,7 +352,10 @@
               </tr>
             </tbody>
           </table>
-          <div v-else class="empty">没有响应模板。</div>
+          <div v-else class="empty">
+            <div>没有响应模板。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">响应模板用于自定义拦截页面（403、429 等），在「原始 JSON」的 <span class="json-inline">config.response.*</span> 中定义，或直接通过 API 创建。</div>
+          </div>
         </div>
 
         <!-- Plugins -->
@@ -369,7 +378,10 @@
               </tr>
             </tbody>
           </table>
-          <div v-if="!plugins.length" class="empty">没有注册插件。</div>
+          <div v-if="!plugins.length" class="empty">
+            <div>没有注册插件。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">这通常意味着 VeryNginx 启动时未检测到任何插件，或所有插件已被停用。如需启用功能（WAF、频率限制、JS 挑战等），请检查 <span class="json-inline">config.plugin</span> 配置。</div>
+          </div>
         </div>
 
         <!-- System -->
@@ -579,7 +591,10 @@
 
               </tr>
               <tr v-if="!(wafAnalytics.rules || []).length">
-                <td colspan="8" class="empty">暂无分析数据</td>
+                <td colspan="8" class="empty">
+                  <div>暂无分析数据。</div>
+                  <div style="font-size:12px;color:var(--muted);margin-top:4px">先让 WAF 规则运行一段时间产生命中记录后，分析数据才会出现。也可在「规则推荐」页运行推荐引擎自动生成规则。</div>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -666,7 +681,10 @@
         <div v-if="wafTab==='attacks' && wafAttackView==='stats'">
           <div class="page-desc">展示 WAF 按分类和严重级别的命中分布，以及命中最多的规则 TOP，帮助了解当前遭受的攻击类型和强度。</div>
           <div v-if="wafStatsError" class="error" style="margin-bottom:8px">{{ wafStatsError }}</div>
-          <div v-if="!wafStatsData && !wafStatsError" class="empty">无统计数据</div>
+          <div v-if="!wafStatsData && !wafStatsError" class="empty">
+            <div>暂无攻击统计数据。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">当 WAF 规则开始命中请求时，这里会显示按分类和严重级别的命中分布。先去「规则」页添加规则，或运行推荐引擎自动生成。</div>
+          </div>
           <div v-if="wafStatsData" class="grid grid-4 mb-16">
              <div class="stat-card"><div class="stat-label">规则总数</div><div class="stat-value">{{ wafStatsData.total_rules }}</div></div>
              <div class="stat-card"><div class="stat-label">已启用</div><div class="stat-value">{{ wafStatsData.enabled_rules }}</div></div>
@@ -748,7 +766,7 @@
               </span>
             </div>
             <div v-if="!(wafTimeline.buckets || []).length || !hasTimelineData" style="color:#6b7280;font-size:13px;text-align:center;padding:20px">
-              暂无攻击数据
+              暂无攻击数据<div style="font-size:12px;margin-top:4px">WAF 规则开始命中后，这里会显示攻击在时间轴上的分布。去「规则」页启用规则或运行推荐引擎。</div>
             </div>
           </div>
         </div>
@@ -785,7 +803,10 @@
               </tbody>
             </table>
           </div>
-          <div v-if="!wafHits.length" class="empty">无最近命中</div>
+          <div v-if="!wafHits.length" class="empty">
+            <div>无最近命中记录。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">WAF 规则没有命中任何请求，或还没有规则在运行。去「规则」页检查规则是否启用，或去「推荐」页自动生成规则。</div>
+          </div>
           <div v-else-if="!wafHitsTbl.rows.length" class="empty">无匹配当前过滤</div>
         </div>
 
@@ -828,7 +849,7 @@
               </tbody>
             </table>
           </div>
-          <div v-else style="color:var(--muted)">无可用历史。</div>
+          <div v-else style="color:var(--muted)">无可用历史。<div style="font-size:12px;color:var(--muted);margin-top:4px">规则变更后才会产生历史记录，每次保存会生成一个版本，可随时回滚。</div></div>
         </div>
 
         <!-- Recommendations -->
@@ -1014,7 +1035,10 @@
               </tbody>
             </table>
           </div>
-          <div v-else class="empty">无活跃计数。</div>
+          <div v-else class="empty">
+            <div>无活跃计数。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">计数器会在有请求匹配到限流规则时出现。添加频率限制规则后，当请求触发规则会在此显示对应 key 的当前计数。</div>
+          </div>
         </div>
 
         <!-- Template Gallery -->
@@ -1027,7 +1051,10 @@
               <button class="primary small" style="width:100%" @click="previewFreqTemplate(t.name)">使用模板</button>
             </div>
           </div>
-          <div v-else-if="freqTemplatesLoaded" class="empty">无可用模板。</div>
+          <div v-else-if="freqTemplatesLoaded" class="empty">
+            <div>无可用模板。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">频率限制场景模板由系统提供，如果模板为空请检查后端服务是否正常，或手动创建规则。</div>
+          </div>
           <div v-else class="empty">加载模板中...</div>
         </div>
 
@@ -1163,7 +1190,10 @@
                </tbody>
             </table>
           </div>
-          <div v-if="!repFlagged.length" class="empty">无已标记 IP。</div>
+          <div v-if="!repFlagged.length" class="empty">
+            <div>无已标记 IP。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">当 IP 累积的声誉分数超过阈值时会自动出现在这里。通常无需手动处理，IP 声誉引擎会根据 WAF 命中、404 等信号自动计算。</div>
+          </div>
         </div>
         <!-- Whitelist -->
         <div class="card mb-16">
@@ -1185,7 +1215,10 @@
               </tbody>
             </table>
           </div>
-          <div v-if="!repWhitelist.length" class="empty">无白名单条目。</div>
+          <div v-if="!repWhitelist.length" class="empty">
+            <div>无白名单条目。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">白名单中的 IP 会被跳过声誉评分，避免误判。可以添加您的服务器 IP 或可信内网段，防止正常流量被挑战或封禁。</div>
+          </div>
         </div>
         <!-- Score Lookup -->
         <div class="card">
@@ -1265,7 +1298,10 @@
               </tbody>
             </table>
           </div>
-          <div v-else class="empty">无可用 GeoIP 数据。请确保 MaxMind 数据库已配置。</div>
+          <div v-else class="empty">
+            <div>无可用 GeoIP 数据。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">需要在「GeoIP 配置」页填写 MaxMind 数据库路径并启用，或确保数据库文件已下载。点击「立即检查更新」可自动下载。</div>
+          </div>
         </div>
         <!-- Config -->
         <div class="card" style="padding:16px;margin-bottom:16px">
@@ -1412,7 +1448,10 @@
               </tr>
             </tbody>
           </table>
-           <div v-if="!auditEntries.length" class="empty">无审计记录。</div>
+           <div v-if="!auditEntries.length" class="empty">
+             <div>无审计记录。</div>
+             <div style="font-size:12px;color:var(--muted);margin-top:6px">审计日志记录管理员操作（配置修改、规则增删、封禁变更等）。当您开始进行配置操作后，这里会显示操作历史。</div>
+           </div>
            <div v-else-if="!auditTbl.rows.length" class="empty">无匹配当前过滤。</div>
         </div>
       </div>
@@ -1652,7 +1691,7 @@
           <input v-model="kbEntriesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页条目（IP/来源/模式…）">
           <div v-if="!kbEntries.length" class="empty">
             <span v-if="kbFilterPolicy || kbFilterIP">无匹配当前过滤 (策略: {{ kbFilterPolicy || '全部' }}, IP: {{ kbFilterIP || '全部' }})</span>
-            <span v-else>无已安装条目。</span>
+            <span v-else>无已安装条目。<a style="cursor:pointer;text-decoration:underline" @click="navigateTo('kb')" :class="page==='kb'?'':'':page==='kb' ? '' : ''">查看候选 IP</a></span>
           </div>
           <div v-else-if="!kbEntriesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
@@ -1693,7 +1732,7 @@
           <input v-model="kbCandidatesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页候选（IP/策略/状态…）">
           <div v-if="!kbCandidates.length" class="empty">
             <span v-if="kbFilterState || kbFilterIP">无匹配当前过滤 (状态: {{ kbFilterState || '全部' }}, IP: {{ kbFilterIP || '全部' }})</span>
-            <span v-else>无候选。</span>
+            <span v-else>无候选 IP。<div style="font-size:12px;color:var(--muted);margin-top:4px">候选是满足晋升条件的可疑 IP，等待令牌桶配额晋升为内核封禁。触发扫描器或 CC 规则后会出现。</div></span>
           </div>
           <div v-else-if="!kbCandidatesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
@@ -1737,7 +1776,10 @@
             <span style="font-size:12px;color:var(--muted)">{{ kbTimeline.length }} 条事件<span v-if="kbTimelineFilter">（按动作筛选，最多返回 300 条匹配）</span><span v-else>（全类型内核封禁事件，最多 300 条）</span></span>
           </div>
           <input v-model="kbTimelineTbl.state.filter" class="tbl-filter" placeholder="过滤当前页事件（用户/动作/详情…）">
-          <div v-if="!kbTimeline.length" class="empty">无最近内核封禁审计事件。</div>
+          <div v-if="!kbTimeline.length" class="empty">
+            <div>无最近内核封禁审计事件。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px">封禁、解除、协调等操作会记录在此时间线。触发内核封禁后这里会显示对应事件。</div>
+          </div>
           <div v-else-if="!kbTimelineTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
              <thead><tr>
@@ -1790,7 +1832,7 @@
                  <span>最大 {{ kbTrendPoints.max }} 令牌</span>
               </div>
             </div>
-             <div v-else class="empty">暂无历史数据 (每 5 分钟采样)。</div>
+              <div v-else class="empty">暂无历史数据 (每 5 分钟采样)。<div style="font-size:12px;color:var(--muted);margin-top:4px">晋升令牌桶余额趋势需要系统运行一段时间才会积累数据，启用内核封禁并产生封禁行为后会自动记录。</div></div>
           </div>
 
           <!-- Per-rule reachability with visual bars -->
@@ -1828,8 +1870,8 @@
                 ({{ kbDiff.desired_count }} desired / {{ kbDiff.actual_count }} in kernel)
               </span>
              <div v-if="!kbDiff.missing_in_kernel.length && !kbDiff.orphan_in_kernel.length" class="empty" style="color:var(--ok)">
-               已同步 — 无漂移。
-             </div>
+                已同步 — 无漂移。<div style="font-size:12px;margin-top:4px">期望状态与内核实际状态一致，无需手动干预。</div>
+              </div>
             <div v-else>
               <div v-if="kbDiff.missing_in_kernel.length" style="margin-bottom:12px">
                  <div style="font-size:12px;color:var(--warn);margin-bottom:6px">
