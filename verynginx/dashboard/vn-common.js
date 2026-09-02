@@ -409,14 +409,8 @@
       }
     });
 
-    // 登出时重置，下次登录可重新引导
-    onLogout(() => {
-      _introTriggered = false;
-      try { localStorage.removeItem('vn_seen_intro'); } catch(e) {}
-      introShow.value = false;
-      introStep.value = 0;
-    });
-    view('theme', theme);
+    // view('theme', theme); is BELOW — keep intro setup here, defer onLogout
+    // registration until logoutHooks exists (see the block after line ~680).
 
     function toggleTheme() {
       const newTheme = theme.value === 'dark' ? 'light' : 'dark';
@@ -679,6 +673,15 @@
     const logoutHooks = [];
     function onLogout(cb) { if (typeof cb === 'function') logoutHooks.push(cb); }
     ctx('onLogout', onLogout);
+    // Defer intro logout hook registration until logoutHooks is initialized.
+    if (typeof introStep !== 'undefined') {
+      onLogout(() => {
+        _introTriggered = false;
+        try { localStorage.removeItem('vn_seen_intro'); } catch(e) {}
+        introShow.value = false;
+        introStep.value = 0;
+      });
+    }
     function runLogoutHooks() {
       for (const cb of logoutHooks) {
         try { cb(); } catch (e) { console.error('[VeryNginx] logout hook failed', e); }
