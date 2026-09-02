@@ -64,7 +64,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 #topnav .user-area{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted)}
 /* Main layout */
 #main{padding:24px;max-width:1200px;margin:0 auto}
-.page-title{font-size:22px;font-weight:700;margin-bottom:20px}
+.page-title{font-size:22px;font-weight:700;margin-bottom:4px}
+/* 页面/板块说明文案：在标题下方一行浅色副标题，让新用户一眼看懂这个功能的作用 */
+.page-desc{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6}
 /* Status cards */
 .stat-card{background:var(--card);border-radius:10px;padding:20px;border:1px solid var(--border);text-align:center}
 .stat-card .stat-value{font-size:32px;font-weight:700;margin-top:4px}

@@ -86,6 +86,7 @@
       <!-- Overview -->
       <div v-if="page==='dashboard' && dashTab==='overview'">
         <h2 class="page-title">系统概览</h2>
+        <div class="page-desc">监控 VeryNginx 运行状态：连接数、请求速率、上游健康、WAF 命中和共享字典使用率。数字变红或变黄时说明需要关注。</div>
         <!-- Top row: connections + upstream -->
         <div class="grid grid-4 mb-16">
           <div class="stat-card">
@@ -160,6 +161,7 @@
       <!-- Status -->
       <div v-if="page==='dashboard' && dashTab==='status'">
         <h2 class="page-title">连接状态</h2>
+        <div class="page-desc">Nginx worker 当前连接状态（活跃/读取/写入/等待），以及最近 3 分钟的连接变化趋势图，帮助判断是否有突发流量或连接泄漏。</div>
         <div class="grid grid-4 mb-16">
           <div class="stat-card"><div class="stat-label">活跃连接</div><div class="stat-value">{{ statusRow.connections_active || 0 }}</div></div>
           <div class="stat-card"><div class="stat-label">读取中</div><div class="stat-value">{{ statusRow.connections_reading || 0 }}</div></div>
@@ -193,7 +195,10 @@
       <!-- Config -->
       <div v-if="page==='config'">
         <div class="flex flex-between" style="align-items:flex-start">
-          <h2 class="page-title" style="margin-bottom:0">配置管理</h2>
+          <div>
+            <h2 class="page-title" style="margin-bottom:0">配置管理</h2>
+            <div class="page-desc" style="margin-bottom:0">管理 VeryNginx 的全部运行时配置：系统参数、规则组、上游服务器、插件开关、匹配器与响应模板，以及底层 JSON。一般无需手动编辑原始 JSON。</div>
+          </div>
           <div class="flex gap-8">
             <button class="outline small" @click="refreshConfig">刷新</button>
             <button class="outline small" @click="exportConfig">导出</button>
@@ -216,6 +221,7 @@
 
         <!-- Matchers -->
         <div class="config-section" v-if="cfgTab==='matchers'">
+          <div class="page-desc">命名的可复用匹配条件集，存于 config.matcher.*。WAF 规则使用独立的内联匹配器与此处互不影响。定义后可在「规则组」与「响应模板」里按名称引用，条件变更只需改一处。</div>
           <div class="flex flex-between mb-16">
             <h3>匹配器 <small>{{ matcherKeys.length }} 个已定义</small> <small style="color:var(--muted);font-weight:400">定义请求匹配条件</small></h3>
             <button class="primary small" @click="editMatcher(null)">+ 添加</button>
@@ -247,6 +253,7 @@
 
         <!-- Rules -->
         <div class="config-section" v-if="cfgTab==='rules'">
+          <div class="page-desc">通用规则组，由 static_file / proxy_pass 等通用插件消费，用于定义 URI / IP / Header 等条件的放行或阻断动作。WAF 攻击防护请到 WAF 面板，请求限速请到频率限制面板。</div>
           <h3>规则组</h3>
           <div class="empty" v-if="!cfg.rule || Object.keys(cfg.rule).length === 0">
             <div>暂无通用规则组。</div>
@@ -288,6 +295,7 @@
 
         <!-- Upstreams -->
         <div class="config-section" v-if="cfgTab==='upstreams'">
+          <div class="page-desc">后端服务节点的配置与健康检测。绿点代表健康，黄点有失败记录，红点表示熔断或宕机。点击刷新可重新探测上游状态。</div>
           <h3>后端上游服务器</h3>
           <div v-for="(up, name) in cfg.backend_upstream || {}" :key="name" class="card" style="padding:16px">
             <strong>{{ name }}</strong>
@@ -326,6 +334,7 @@
 
         <!-- Responses -->
         <div class="config-section" v-if="cfgTab==='responses'">
+          <div class="page-desc">当规则触发特定动作（如 403、429、challenge）时返回的自定义 HTTP 响应内容。修改后可立即生效，无需重启 Nginx。</div>
           <h3>响应模板</h3>
           <table v-if="respKeys.length">
              <thead><tr><th>名称</th><th>Content-Type</th><th>内容</th></tr></thead>
@@ -342,6 +351,7 @@
 
         <!-- Plugins -->
         <div class="config-section" v-if="cfgTab==='plugins'">
+          <div class="page-desc">VeryNginx 的功能扩展模块，启用后参与请求处理流水线。优先级数字越小越先执行，critical 标记的插件出错时会直接阻断请求。一般保持默认即可。</div>
           <div class="flex flex-between mb-8">
             <h3>插件设置 <small>启用或停用插件</small></h3>
             <button class="outline small" @click="loadPlugins">刷新</button>
@@ -364,6 +374,7 @@
 
         <!-- System -->
         <div class="config-section" v-if="cfgTab==='system'">
+          <div class="page-desc">管理员账户、cookie 前缀、请求体大小限制、健康检查间隔、共享字典内存用量等基础设置。绝大多数场景无需修改，仅在新建管理员或调整超时参数时需要。</div>
           <h3>系统设置</h3>
           <table>
             <tbody>
@@ -413,6 +424,7 @@
 
         <!-- Raw JSON -->
         <div class="config-section" v-if="cfgTab==='json'">
+          <div class="page-desc">直接编辑 config.json 底层配置，适合熟悉配置的熟练用户。普通用户请使用上方标签页，避免手动修改导致配置损坏。</div>
           <div class="flex flex-between mb-16">
             <h3>原始配置</h3>
             <div class="flex gap-8">
@@ -500,6 +512,7 @@
       <div v-if="page==='waf'">
         <div class="flex flex-between mb-16">
           <h2 class="page-title" style="margin-bottom:0">WAF 规则管理</h2>
+          <div class="page-desc" style="margin-bottom:0;align-self:center">Web 应用防火墙，根据请求特征（SQL 注入、XSS、路径穿越、扫描器等）拦截恶意流量，保护后端服务。建议先查看「分析」页了解当前规则效果，再用「推荐」自动生成规则。</div>
           <div class="flex gap-8">
             <button class="outline small" @click="wafRefreshAll">刷新</button>
             <button class="primary small" @click="wafOpenCreate">+ 新建规则</button>
@@ -528,6 +541,7 @@
         </div>
 <!-- Analytics Panel -->
         <div v-if="wafTab==='rules' && wafRuleView==='analytics'">
+          <div class="page-desc">分析每条规则的命中统计，识别长期零命中的休眠规则，帮助清理无效规则降低误判风险。绿色评级表示规则有效，灰色表示从未触发。</div>
           <div v-if="wafAnalyticsError" class="error" style="margin-bottom:8px">
             {{ wafAnalyticsError }}
             <button class="outline small" style="margin-left:12px" @click="loadWafAnalytics">重试</button>
@@ -573,6 +587,7 @@
 
         <!-- Rule List -->
         <div v-if="wafTab==='rules' && wafRuleView==='list'">
+          <div class="page-desc">查看所有已配置的 WAF 规则，可按分类和严重级别筛选。点击名称进入编辑，点击启用/禁用徽章可快速切换规则状态。</div>
           <div v-if="wafError" class="error" style="margin-bottom:8px">{{ wafError }}</div>
           <div class="flex gap-8 mb-8" style="flex-wrap:wrap">
              <select v-model="wafFilterCat" @change="wafFilterChange" style="width:auto">
@@ -649,6 +664,7 @@
 
         <!-- Stats -->
         <div v-if="wafTab==='attacks' && wafAttackView==='stats'">
+          <div class="page-desc">展示 WAF 按分类和严重级别的命中分布，以及命中最多的规则 TOP，帮助了解当前遭受的攻击类型和强度。</div>
           <div v-if="wafStatsError" class="error" style="margin-bottom:8px">{{ wafStatsError }}</div>
           <div v-if="!wafStatsData && !wafStatsError" class="empty">无统计数据</div>
           <div v-if="wafStatsData" class="grid grid-4 mb-16">
@@ -696,6 +712,7 @@
 
         <!-- Timeline -->
         <div v-if="wafTab==='attacks' && wafAttackView==='timeline'">
+          <div class="page-desc">攻击命中在时间轴上的分布直方图，可按小时/分钟粒度查看，帮助判断攻击是持续性的还是突发性的。</div>
           <div style="margin-bottom:12px">
             <select v-model="wafTimelineHours" @change="loadWafTimeline" style="width:auto;display:inline-block;margin-right:8px">
               <option value="1">1 小时</option>
@@ -738,6 +755,7 @@
 
         <!-- Hits -->
         <div v-if="wafTab==='attacks' && wafAttackView==='hits'">
+          <div class="page-desc">展示被 WAF 拦截的具体请求记录，点击行可展开命中详情（完整请求头、URI、TLS 指纹等），用于事后分析和规则调优。</div>
           <div v-if="wafHitsError" class="error" style="margin-bottom:8px">{{ wafHitsError }}</div>
           <div class="flex flex-between mb-8">
              <span style="font-size:13px;color:var(--muted)">最近 {{ wafHitsTime }} — 显示 {{ wafHits.length }} 条记录</span>
@@ -815,6 +833,7 @@
 
         <!-- Recommendations -->
         <div v-if="wafTab==='rules' && wafRuleView==='recs'">
+          <div class="page-desc">基于近期被 WAF 拦截的流量模式自动生成规则建议，识别攻击特征（路径穿越、SQL 注入、扫描器等）。点击「分析流量」扫描命中记录，再逐条应用或忽略。</div>
           <div class="flex flex-between mb-16">
             <h3 style="font-size:14px;margin:0">规则推荐
               <span class="tag tag-ok" v-if="recStats" style="vertical-align:middle">{{ recStats.pending }} 条待处理</span>
@@ -842,6 +861,7 @@
           </table>
         </div>
         <div v-if="wafTab==='tester'">
+          <div class="page-desc">在不修改真实规则的情况下，用表单或 JSON 模拟请求测试规则匹配效果。支持粘贴访问日志自动解析，帮助验证规则逻辑是否正确，避免直接修改线上规则的风险。</div>
           <div class="card">
              <h3 style="font-size:14px;margin-bottom:8px">测试规则</h3>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
@@ -964,7 +984,10 @@
       <!-- Frequency Limit -->
       <div v-if="page==='frequency'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">频率限制</h2>
+          <div>
+            <h2 class="page-title" style="margin-bottom:0">频率限制</h2>
+            <div class="page-desc" style="margin-bottom:0">根据单位时间内的请求次数限制访问频率，防止暴力破解和 CC 攻击。支持按 IP/URI/用户名/域名等不同维度限速，推荐先用上方模板库一键套用常见场景。</div>
+          </div>
           <div class="flex gap-8">
             <button class="outline small" @click="loadFrequencyData">刷新</button>
             <button class="primary small" @click="openFreqRuleCreate">+ 新建规则</button>
@@ -1104,7 +1127,10 @@
       <!-- Reputation -->
       <div v-if="page==='reputation'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">IP 声誉</h2>
+          <div>
+            <h2 class="page-title" style="margin-bottom:0">IP 声誉</h2>
+            <div class="page-desc" style="margin-bottom:0">根据 IP 的历史行为（触发 WAF、扫描、404 频率）打分，分数高的 IP 会被自动挑战或封禁。绝大多数情况你只需要看这里有没有红色条目。</div>
+          </div>
           <div class="flex gap-8">
             <button class="outline small" @click="loadRepData">刷新</button>
             <button class="outline small" @click="repPersist">立即持久化</button>
@@ -1189,7 +1215,10 @@
         </div>
         <div v-if="geoipLoading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">GeoIP</h2>
+          <div>
+            <h2 class="page-title" style="margin-bottom:0">GeoIP</h2>
+            <div class="page-desc" style="margin-bottom:0">根据 IP 归属地实施地域访问控制，可配置白名单/黑名单国家或大洲。常用于合规要求或限制特定地区的访问，配合 IP 声誉可实现更细粒度的地域策略。</div>
+          </div>
           <button class="outline small" @click="loadGeoIP">刷新</button>
         </div>
         <!-- Lookup -->
@@ -1286,7 +1315,10 @@
       <!-- Fingerprints -->
       <div v-if="page==='advanced' && advTab==='fingerprints'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">TLS 指纹</h2>
+          <div>
+            <h2 class="page-title" style="margin-bottom:0">TLS 指纹</h2>
+            <div class="page-desc" style="margin-bottom:0">基于 JA3 哈希识别客户端 TLS 握手特征，可用于识别已知扫描器/僵尸网络/自动化工具。指纹存于 config.fingerprints.entries，与 WAF 规则的 IP 匹配器配合使用效果更佳。</div>
+          </div>
           <div class="flex gap-8">
             <button class="outline small" @click="loadFingerprints">刷新</button>
             <button class="primary small" @click="openFpAdd">+ 添加</button>
@@ -1328,7 +1360,10 @@
       <!-- Audit -->
       <div v-if="page==='advanced' && advTab==='audit'">
         <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">审计日志</h2>
+          <div>
+            <h2 class="page-title" style="margin-bottom:0">审计日志</h2>
+            <div class="page-desc" style="margin-bottom:0">记录所有管理员操作（配置修改、规则增删、封禁变更等），用于事后追溯和安全审计。最多保留 1000 条记录，可按用户、操作类型和时间范围筛选。</div>
+          </div>
 <button class="outline small" @click="loadAudit">刷新</button>
         </div>
         <!-- Filters -->
@@ -1396,6 +1431,7 @@
       <!-- Kernel Blocking -->
       <div v-if="page==='kb'">
         <h2 class="page-title">内核 IP 封禁</h2>
+        <div class="page-desc">把屡教不改的恶意 IP 直接封在系统内核层，比应用层拦截更快、更省资源。配合扫描器和 CC 规则自动晋升，通常只需关注「已安装」页是否有异常条目。</div>
         <div v-if="kbError" class="error" style="margin-bottom:8px">{{ kbError }}</div>
           <div v-if="kbBusy" class="empty" style="text-align:left;padding:8px 0">处理中…</div>
 
@@ -1589,6 +1625,7 @@
           <a :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">时间线</a>
           <a :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard';loadKbDashboard()">仪表盘</a>
         </div>
+        <div class="page-desc">已安装：内核中当前生效的封禁条目；候选：等待晋升的 IP 列表；时间线：封禁/解除操作的历史记录；仪表盘：令牌桶余额趋势与规则可达性可视化。</div>
 
         <!-- Filters -->
         <div class="flex mb-8" style="gap:8px;flex-wrap:wrap" v-if="kbTab!=='timeline'">
