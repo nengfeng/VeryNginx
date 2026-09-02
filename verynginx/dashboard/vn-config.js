@@ -212,7 +212,13 @@
     }
 
     async function ruleDelete(rule, group, index) {
-      if (!await showConfirm({ title: '删除规则', message: 'Delete this rule?', type: 'danger' })) return;
+      if (!await showConfirm({
+        title: '删除规则',
+        message: `确认从「${group}」组中删除此规则？\n\n`
+          + '此规则由 static_file / proxy_pass 等通用插件消费。删除后匹配到此条件的请求将不再执行该动作。\n'
+          + '注意：此处的规则与 WAF 面板的规则是两套独立的系统，删除不影响 WAF 规则。',
+        type: 'danger',
+      })) return;
       const newCfg = JSON.parse(JSON.stringify(cfg.value));
       if (!newCfg.rule || !newCfg.rule[group]) return;
       newCfg.rule[group].splice(index, 1);

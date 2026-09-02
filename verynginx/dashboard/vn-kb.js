@@ -431,8 +431,10 @@
 
     async function enableCcEnforceReady() {
       if (!await showConfirm({
-        title: '启用 CC enforce_ready',
-        message: '启用 CC enforce_ready? 这将为符合条件的 IP 激活自动 CC 内核封禁。',
+        title: '启用 CC 执行',
+        message: '启用后，系统将根据 CC 规则自动将高频请求 IP 封禁到内核层。\n\n'
+          + '生效前请确认：① CC 规则已创建且引用了正确的 rule_ids；② Helper 健康；③ 拓扑已设置。\n'
+          + '未满足条件时启用将导致封禁静默失效（IP 仍会累积分数但不会被拦截）。',
         type: 'danger',
         requireInput: true,
         inputLabel: '请输入 "ENABLE" 确认',
@@ -478,13 +480,19 @@
         showToast('启用执行模式前必须先启用全局开关', 'error'); return;
       }
       if (kbForm.mode === 'enforce' && !await showConfirm({
-        title: '保存执行模式设置',
-        message: '切换/保存执行相关设置? 请确保 Helper、拓扑和检查清单已就绪。',
+        title: '切换到执行模式',
+        message: '切换到「执行」模式后，系统将根据规则自动将可疑 IP 封禁到内核层。\n\n'
+          + '⚠️ 注意：执行模式下匹配的 IP 会被直接拦截，无法访问您的服务。\n'
+          + '建议先在「观察」模式运行一段时间，确认规则没有误伤正常流量后再切换。\n\n'
+          + '请确认：Helper 进程健康 / 拓扑已设置 / 规则已引用。',
         type: 'warning',
       })) return;
       if (kbForm.cc_enforce_ready && !await showConfirm({
-        title: '启用 CC enforce_ready',
-        message: '确认迁移/切换/校准完成后启用 CC enforce_ready=true？',
+        title: '启用 CC 自动封禁',
+        message: 'CC（Content Copying）自动封禁用于拦截高频请求的恶意 IP。\n\n'
+          + '此功能需要：① 频率限制面板中有 CC 规则的 rule_ids 被正确引用；'
+          + '② CC 模块已启用；③ 全局模式为执行或观察。\n'
+          + '未满足条件时启用不会报错，但封禁会静默失效。',
         type: 'danger',
       })) return;
       kbBusy.value = true;
@@ -539,7 +547,13 @@
       const ttlNum = Number(kbNewTTL.value);
       const ttl = (ttlNum && ttlNum > 0) ? ttlNum : 300;
       const policy = kbNewPolicy.value;
-      if (!await showConfirm({ title: '手动封禁 IP', message: `手动封禁 ${ip} 策略 ${policy} TTL ${ttl}秒?`, type: 'danger' })) return;
+      if (!await showConfirm({
+        title: '手动封禁 IP',
+        message: `将 IP ${ip} 加入内核封禁表，策略: ${policy}，TTL: ${ttl} 秒。\n\n`
+          + `${policy === 'manual' ? '手动封禁：仅由管理员操作，不受扫描器/CC 规则影响。' : '自动策略：该 IP 会被加入 ' + policy + ' 集合，在 TTL 到期后自动解除。'}`
+          + '\n封禁期间该 IP 的所有流量将被 nftables DROP。',
+        type: 'danger',
+      })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', {
@@ -562,7 +576,13 @@
 
     async function kbPromoteIp(ip, policy) {
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
-      if (!await showConfirm({ title: '晋升 IP', message: `晋升 ${ip} 为 ${policy} (TTL 300秒)?`, type: 'danger' })) return;
+      if (!await showConfirm({
+        title: '晋升 IP',
+        message: `将候选 IP ${ip} 立即晋升为 ${policy} 策略，TTL 300 秒。\n\n`
+          + '晋升意味着绕过令牌桶限速直接写入内核封禁表。通常用于确认某候选 IP 确实是恶意攻击者。'
+          + '\n晋升后该 IP 在 5 分钟内不可再被候选池回收。',
+        type: 'danger',
+      })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/promote', { ip, policy, ttl: 300 });
@@ -581,7 +601,13 @@
     }
 
     async function kbReconcile() {
-      if (!await showConfirm({ title: '触发协调', message: '立即触发协调?', type: 'primary' })) return;
+      if (!await showConfirm({
+        title: '触发内核协调',
+        message: '强制将内核中的封禁条目与配置期望状态对齐。\n\n'
+          + '协调会：① 添加期望但内核中缺失的条目；② 移除内核中存在但期望中不存在的孤儿条目。\n'
+          + '通常进程崩溃或 Helper 异常后需要手动触发。正常运行时系统会自动协调。',
+        type: 'primary',
+      })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/reconcile', {});
@@ -598,7 +624,13 @@
 
     async function kbClear(ip) {
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
-      if (!await showConfirm({ title: '清除封禁条目', message: `清除 ${ip} 的所有内核封禁条目?`, type: 'danger' })) return;
+      if (!await showConfirm({
+        title: '清除封禁',
+        message: `从内核封禁表中移除 ${ip} 的所有条目。\n\n`
+          + '此操作立即生效，该 IP 恢复可访问。'
+          + (prior.length ? `\n\n系统将为您保留 ${prior.length} 条原始封禁记录，可在撤销按钮中一键恢复。` : ''),
+        type: 'danger',
+      })) return;
       // Snapshot the visible entries for this IP so 撤销 can re-promote them
       // with their remaining TTL. Entries on unloaded pages can't be restored —
       // in that case the toast carries no undo button.
@@ -635,7 +667,16 @@
     }
 
     async function kbPause(paused) {
-      if (!await showConfirm({ title: paused ? '暂停自动晋升' : '恢复自动晋升', message: paused ? '暂停自动晋升?' : '恢复自动晋升?', type: 'warning' })) return;
+      if (!await showConfirm({
+        title: paused ? '暂停自动晋升' : '恢复自动晋升',
+        message: paused
+          ? '暂停后，扫描器和 CC 识别出的恶意 IP 将不再被自动晋升到内核封禁表。\n\n'
+            + '已有的封禁条目不会被清除，仅停止新增。适用于正在排查误封或紧急止血。'
+            + '\n恢复后晋升逻辑继续从候选池接管。'
+          : '恢复自动晋升后，系统将继续按扫描器/CC 规则自动将可疑 IP 晋升到内核封禁表。\n\n'
+            + '如果期间积累了大量候选，恢复后可能立即触发批量晋升。',
+        type: 'warning',
+      })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/pause', { paused });
@@ -651,13 +692,19 @@
 
     async function kbFlushAuto() {
       if (!await showConfirm({
-        title: '刷新自动条目',
-        message: '刷新所有自动扫描器/cc 内核条目? 此操作不可撤销。',
+        title: '刷新自动封禁集合',
+        message: '清除所有由扫描器和 CC 规则自动晋升的内核封禁条目。\n\n'
+          + '⚠️ 影响范围：\n'
+          + '• 删除 scanner_drop 和 cc_drop 集合中的所有条目\n'
+          + '• 保留 manual_drop（手动封禁）和 allow（白名单）\n'
+          + '• 不影响候选池和晋升逻辑，后续仍会自动生成新封禁\n\n'
+          + '适用场景：误封大规模流量后的紧急止血，或测试环境重置。',
         type: 'danger',
       })) return;
       if (!await showConfirm({
-        title: '最终确认',
-        message: '最终确认: 立即刷新自动集合?',
+        title: '最终确认：刷新自动封禁',
+        message: '此操作不可撤销（手动封禁和白名单不受影响）。\n\n'
+          + '请输入 "FLUSH" 确认执行。',
         type: 'danger',
         requireInput: true,
         inputLabel: '请输入 "FLUSH" 确认',

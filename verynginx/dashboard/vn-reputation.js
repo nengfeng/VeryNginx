@@ -45,8 +45,10 @@
 
     async function repClear(ip) {
       if (!await showConfirm({
-        title: '清除声誉分数',
-        message: `清除 IP ${ip} 的声誉分数?`,
+        title: '清除 IP 声誉',
+        message: `将清除 IP ${ip} 的所有声誉信号槽和待处理状态。\n\n`
+          + '清除后该 IP 的分数归零，不再触发自动挑战或封禁，直到下一次被 WAF 命中累积新分数。\n'
+          + '如果该 IP 当前正在封禁中，此操作仅清除声誉数据，内核封禁条目需单独清除。',
         type: 'danger',
         requireInput: true,
         inputLabel: `请输入 IP 地址 ${ip} 确认`,
@@ -79,7 +81,13 @@
     }
 
     async function repRemoveWhitelist(ip) {
-      if (!await showConfirm({ title: '移除白名单', message: `从白名单移除 ${ip}?`, type: 'danger' })) return;
+      if (!await showConfirm({
+        title: '移除白名单',
+        message: `从白名单中移除 ${ip}。\n\n`
+          + '移除后该 IP 将重新接受声誉评分，触发 WAF 规则，并可能被自动封禁。\n'
+          + '如果您是在排查误封后想恢复该 IP 的正常风控，请确认这是预期操作。',
+        type: 'danger',
+      })) return;
       try {
         await api('DELETE', '/verynginx/reputation/whitelist?ip=' + encodeURIComponent(ip));
         loadRepData();
@@ -89,7 +97,15 @@
     }
 
     async function repPersist() {
-      if (!await showConfirm({ title: '持久化声誉数据', message: '立即将 IP 声誉数据持久化到磁盘？', type: 'primary' })) return;
+      if (!await showConfirm({
+        title: '持久化声誉数据',
+        message: '将内存中的 IP 声誉分数和状态写入磁盘。\n\n'
+          + '系统会在每 600 秒（10 分钟）自动持久化一次，手动触发通常用于：\n'
+          + '• 怀疑数据未同步前的紧急保存\n'
+          + '• 配合内核封禁重启前的数据快照\n'
+          + '• 故障排查时确认磁盘数据最新。',
+        type: 'primary',
+      })) return;
       try {
         await api('POST', '/verynginx/reputation/persist');
       } catch (e) {

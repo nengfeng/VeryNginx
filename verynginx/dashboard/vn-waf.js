@@ -857,7 +857,13 @@
 
     // ---- Rule delete / toggle / pagination (used from KB page too) ----
     async function wafDeleteRule(rule) {
-      if (!await showConfirm({ title: '删除 WAF 规则', message: `删除规则 "${rule.name}"? 此操作不可撤销。`, type: 'danger' })) return;
+      if (!await showConfirm({
+        title: '删除 WAF 规则',
+        message: `确认删除规则 "${rule.name}"？\n\n`
+          + `此规则当前命中 ${rule.hit_count || 0} 次，停用或删除后命中统计将停止累计。\n`
+          + '删除后无法通过界面恢复，但可在历史记录中回滚到上一版本。',
+        type: 'danger',
+      })) return;
       wafDeleteBusy.value = true;
       try {
         const d = await api('DELETE', '/verynginx/waf/rules/' + rule.id);
@@ -875,7 +881,15 @@
 
     async function wafToggleRule(rule) {
       const enable = rule.enable === false;
-      if (!await showConfirm({ title: enable ? '启用规则' : '停用规则', message: enable ? `启用规则 ${rule.name}？将立即生效。` : `停用规则 ${rule.name}？将立即停止拦截。`, type: enable ? 'primary' : 'warning' })) return;
+      if (!await showConfirm({
+        title: enable ? '启用规则' : '停用规则',
+        message: enable
+          ? `启用规则 "${rule.name}"？\n\n启用后该规则将立即参与所有请求的匹配。\n`
+            + `当前命中次数: ${rule.hit_count || 0}，严重级别: ${rule.severity || '-'}`
+          : `停用规则 "${rule.name}"？\n\n停用后该规则不再匹配任何请求，直到再次启用。\n`
+            + '已累积的命中统计不会被清除，仅停止新增计数。',
+        type: enable ? 'primary' : 'warning',
+      })) return;
       wafToggleBusy.value = true;
       try {
         const endpoint = enable ? 'enable' : 'disable';
