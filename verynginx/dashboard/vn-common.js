@@ -377,9 +377,10 @@
       try { localStorage.removeItem('vn_seen_intro'); } catch(e) {}
       startIntro();
     }
-    view('startIntro', startIntro);
     view('completeIntro', completeIntro);
     view('replayIntro', replayIntro);
+    view('introNext', introNext);
+    view('introBack', introBack);
 
     function introNext() {
       const s = introStep.value;
