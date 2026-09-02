@@ -570,7 +570,7 @@
           </div>
           <table class="table">
             <thead>
-               <tr><th>规则</th><th>动作</th><th>命中</th><th>拦截</th><th>质询</th><th>通过率</th><th>效果评级</th><th>最后触发</th></tr>
+               <tr><th>规则</th><th>动作</th><th title="该规则命中的总请求数">命中</th><th title="被直接阻断的请求数（block 动作）">拦截</th><th title="要求执行 JS 验证的请求数（challenge 动作），用户通过浏览器验证后放行">质询</th><th title="通过质询的 IP 占总质询量的比例，低通过率说明规则可能误伤正常用户">通过率</th><th>效果评级</th><th>最后触发</th></tr>
             </thead>
             <tbody>
               <tr v-for="r in wafAnalytics.rules || []" :key="r.id" :style="{opacity: r.dead ? 0.5 : 1}">
@@ -609,7 +609,7 @@
                <option value="">全部分类</option>
               <option v-for="(cnt,cat) in wafCategories" :key="cat" :value="cat">{{ cat }} ({{ cnt }})</option>
             </select>
-             <select v-model="wafFilterSev" @change="wafFilterChange" style="width:auto">
+             <select v-model="wafFilterSev" @change="wafFilterChange" style="width:auto" title="按规则严重级别筛选：critical 表示确认攻击，low 表示可疑行为">
                <option value="">全部严重级别</option>
                <option value="critical">严重</option>
                <option value="high">高</option>
@@ -632,7 +632,7 @@
                  <th class="sortable" @click="wafRulesTbl.sortBy('name')">名称 <span v-if="wafRulesTbl.state.sortKey==='name'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th style="width:80px" class="sortable" @click="wafRulesTbl.sortBy('category')">分类 <span v-if="wafRulesTbl.state.sortKey==='category'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th style="width:100px" class="sortable" @click="wafRulesTbl.sortBy('severity')">严重级别 <span v-if="wafRulesTbl.state.sortKey==='severity'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th style="width:70px" class="sortable" @click="wafRulesTbl.sortBy('hit_count')">命中 <span v-if="wafRulesTbl.state.sortKey==='hit_count'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                  <th style="width:70px" class="sortable" @click="wafRulesTbl.sortBy('hit_count')" title="该规则累计命中的请求数（包括所有动作：阻止/质询/记录）">命中 <span v-if="wafRulesTbl.state.sortKey==='hit_count'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th style="width:130px">最后触发</th>
                  <th style="width:140px">操作</th>
                </tr></thead>
@@ -656,8 +656,8 @@
                     </span>
                   </td>
                    <td><a style="cursor:pointer;text-decoration:underline" @click="wafOpenEdit(r)">{{ r.name }}</a></td>
-                   <td><span class="tag">{{ r.category }}</span></td>
-                   <td><span class="tag" :class="sevClass(r.severity)">{{ r.severity }}</span></td>
+                   <td><span class="tag" :title="r.category + '：SQL 注入/XSS/RCE/路径穿越/扫描器/暴力破解等攻击类型'">{{ r.category }}</span></td>
+                   <td><span class="tag" :class="sevClass(r.severity)" :title="r.severity === 'critical' ? '确认攻击行为，直接拦截' : r.severity === 'high' ? '高度可疑，建议拦截' : r.severity === 'medium' ? '中等风险，可质询或记录' : '低风险，仅记录日志'">{{ r.severity }}</span></td>
                    <td>{{ r.hit_count || 0 }}</td>
                    <td style="white-space:nowrap">{{ r.last_triggered ? fmtTime(r.last_triggered) : '-' }}</td>
                    <td>
@@ -911,7 +911,7 @@
                 <div class="field" style="margin:0"><label>匹配值</label>
                   <input v-model="wafTestRuleForm.value" type="text" placeholder='如 /api/* 或 \.\./'></div>
                 <div class="field" style="margin:0"><label>动作</label>
-                  <select v-model="wafTestRuleForm.action" style="width:100%">
+                  <select v-model="wafTestRuleForm.action" style="width:100%" title="block=直接返回 403 阻断；accept=放行；log=仅记录不拦截；challenge=要求浏览器执行 JS 验证（防 bot）">
                     <option value="block">阻止</option>
                     <option value="accept">放行</option>
                     <option value="log">记录</option>
@@ -1096,7 +1096,7 @@
             <p style="font-size:13px;color:var(--muted);margin-bottom:12px">{{ freqTemplateModal.description }}</p>
              <div class="field"><label>规则 ID</label><input v-model="freqTemplateModal.id"></div>
              <div class="field"><label>键维度</label>
-              <select v-model="freqTemplateModal.key" style="width:100%">
+              <select v-model="freqTemplateModal.key" style="width:100%" title="按哪个维度计数：IP=单个地址，URI=请求路径，user=登录用户名，host=域名">
                 <option value="ip">IP</option>
                 <option value="uri">URI</option>
                 <option value="user">用户名</option>
@@ -1104,12 +1104,12 @@
               </select>
             </div>
             <div class="grid grid-2 mb-8">
-               <div class="field"><label>限制 (最大命中)</label><input v-model.number="freqTemplateModal.limit" type="number" min="1"></div>
-               <div class="field"><label>窗口 (秒)</label><input v-model.number="freqTemplateModal.window" type="number" min="1"></div>
+               <div class="field"><label>限制 (最大命中)</label><input v-model.number="freqTemplateModal.limit" type="number" min="1" title="窗口期内允许的最大请求数，超过后触发阻止动作"></div>
+               <div class="field"><label>窗口 (秒)</label><input v-model.number="freqTemplateModal.window" type="number" min="1" title="计数时间窗口，如 60 表示 60 秒内累计计数，超出 limit 后重置"></div>
             </div>
             <div class="grid grid-2 mb-8">
-               <div class="field"><label>阻止代码</label><input v-model.number="freqTemplateModal.code" type="number" min="100" max="599"></div>
-               <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqTemplateModal.matcherJson"></div>
+               <div class="field"><label>阻止代码</label><input v-model.number="freqTemplateModal.code" type="number" min="100" max="599" title="触发限流时返回的 HTTP 状态码，通常用 429（Too Many Requests）"></div>
+               <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqTemplateModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
             </div>
             <div class="modal-actions">
              <button class="outline" @click="freqTemplateModal.show=false">取消</button>
@@ -1124,7 +1124,7 @@
              <h3>{{ freqRuleModal.mode === 'create' ? '创建频率规则' : '编辑频率规则' }}</h3>
             <div class="field"><label>规则 ID</label><input v-model="freqRuleModal.id" placeholder="freq_login" :disabled="freqRuleModal.mode !== 'create'"></div>
              <div class="field"><label>键维度</label>
-              <select v-model="freqRuleModal.key" style="width:100%">
+              <select v-model="freqRuleModal.key" style="width:100%" title="按哪个维度计数：IP=单个地址，URI=请求路径，user=登录用户名，host=域名">
                 <option value="ip">IP</option>
                 <option value="uri">URI</option>
                 <option value="user">用户名</option>
@@ -1132,12 +1132,12 @@
               </select>
             </div>
             <div class="grid grid-2 mb-8">
-               <div class="field"><label>限制 (最大命中)</label><input v-model.number="freqRuleModal.limit" type="number" min="1" placeholder="60"></div>
-               <div class="field"><label>窗口 (秒)</label><input v-model.number="freqRuleModal.window" type="number" min="1" placeholder="60"></div>
+               <div class="field"><label>限制 (最大命中)</label><input v-model.number="freqRuleModal.limit" type="number" min="1" placeholder="60" title="窗口期内允许的最大请求数，超过后触发阻止动作"></div>
+               <div class="field"><label>窗口 (秒)</label><input v-model.number="freqRuleModal.window" type="number" min="1" placeholder="60" title="计数时间窗口，如 60 表示 60 秒内累计计数，超出 limit 后重置"></div>
             </div>
 <div class="grid grid-2 mb-8">
-                <div class="field"><label>阻止代码</label><input v-model.number="freqRuleModal.code" type="number" min="100" max="599" placeholder="429"></div>
-                <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}'></div>
+                <div class="field"><label>阻止代码</label><input v-model.number="freqRuleModal.code" type="number" min="100" max="599" placeholder="429" title="触发限流时返回的 HTTP 状态码，通常用 429（Too Many Requests）"></div>
+                <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
              <div style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:8px">留空匹配所有请求；内联格式见占位符，或引用已有匹配器名。</div>
              </div>
              <div class="field" style="margin-bottom:0">
@@ -1160,7 +1160,7 @@
           </div>
           <div class="flex gap-8">
             <button class="outline small" @click="loadRepData">刷新</button>
-            <button class="outline small" @click="repPersist">立即持久化</button>
+            <button class="outline small" @click="repPersist" title="将内存中的 IP 声誉数据写入磁盘，防止进程重启后丢失已计算的分数。系统会自动周期性持久化，此按钮用于手动触发">立即持久化</button>
           </div>
         </div>
         <div v-if="repError" class="error" style="margin-bottom:8px">{{ repError }}</div>
@@ -1200,8 +1200,8 @@
           <div class="flex flex-between mb-8">
              <strong>白名单</strong>
              <div class="flex gap-8">
-               <input v-model="repNewWhitelist" placeholder="IP 或 CIDR" style="width:180px;font-size:13px" @keyup.enter="repAddWhitelist">
-               <button class="primary small" @click="repAddWhitelist" :disabled="!repNewWhitelist">添加</button>
+               <input v-model="repNewWhitelist" placeholder="IP 或 CIDR" style="width:180px;font-size:13px" @keyup.enter="repAddWhitelist" title="输入单个 IP（如 1.2.3.4）或 CIDR 段（如 10.0.0.0/8），加入后该 IP 完全跳过声誉评分和封禁">
+               <button class="primary small" @click="repAddWhitelist" :disabled="!repNewWhitelist" title="将输入框中的 IP 或 CIDR 段加入白名单">添加</button>
              </div>
           </div>
           <div style="overflow-x:auto">
@@ -1225,8 +1225,8 @@
           <div class="flex flex-between mb-8">
              <strong>分数查询</strong>
              <div class="flex gap-8">
-               <input v-model="repLookupIP" placeholder="IP 地址" style="width:180px;font-size:13px" @keyup.enter="repLookup">
-               <button class="primary small" @click="repLookup" :disabled="!repLookupIP">查询</button>
+             <input v-model="repLookupIP" placeholder="IP 地址" style="width:180px;font-size:13px" @keyup.enter="repLookup" title="输入任意 IP 查看其当前声誉分数、是否被标记/封禁、是否在白名单中">
+                <button class="primary small" @click="repLookup" :disabled="!repLookupIP" title="查询该 IP 的声誉状态">查询</button>
              </div>
           </div>
           <div v-if="repLookupResult" style="font-size:13px">
@@ -1260,7 +1260,7 @@
           <div style="display:flex;gap:8px;align-items:flex-end">
             <div>
               <label style="font-size:11px;color:#6b7280">IP 地址</label>
-              <input v-model="geoipLookupIP" placeholder="8.8.8.8" style="width:150px" @keyup.enter="lookupGeoIP">
+              <input v-model="geoipLookupIP" placeholder="8.8.8.8" style="width:150px" @keyup.enter="lookupGeoIP" title="输入 IP 地址查询其地理位置信息（国家/城市/ASN），用于验证 GeoIP 配置是否生效">
             </div>
             <button class="primary small" @click="lookupGeoIP">查询</button>
           </div>
@@ -1309,10 +1309,10 @@
           <table>
             <tr><td>启用</td><td><input type="checkbox" v-model="geoipConfig.enable" @change="saveGeoIPConfig"></td></tr>
             <tr><td>数据库路径</td><td><input v-model="geoipConfig.geodb_path" placeholder="/opt/verynginx/geoip/GeoLite2-City.mmdb" style="width:350px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>白名单</td><td><input v-model="geoipConfig.whitelistStr" placeholder="US,GB,DE (逗号分隔)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>黑名单</td><td><input v-model="geoipConfig.blocklistStr" placeholder="CN,RU,KP (逗号分隔)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>封禁大洲</td><td><input v-model="geoipConfig.blockContinentsStr" placeholder="EU,AS (逗号分隔, ISO 大洲代码)" style="width:350px" @change="saveGeoIPConfig"></td></tr>
-            <tr><td>CDN 模式</td><td><input type="checkbox" v-model="geoipConfig.use_cdn" @change="saveGeoIPConfig"> <span style="font-size:12px;color:var(--muted)">客户端经 CDN 访问时按真实 IP 判定</span></td></tr>
+            <tr><td>白名单</td><td><input v-model="geoipConfig.whitelistStr" placeholder="US,GB,DE (逗号分隔)" style="width:350px" @change="saveGeoIPConfig" title="国家 ISO 代码白名单，列表内的国家不受 GeoIP 封禁影响，用于排除本地用户所在国家"></td></tr>
+            <tr><td>黑名单</td><td><input v-model="geoipConfig.blocklistStr" placeholder="CN,RU,KP (逗号分隔)" style="width:350px" @change="saveGeoIPConfig" title="国家 ISO 代码黑名单，来自此列表国家的请求将被拦截。需同时启用 GeoIP 功能"></td></tr>
+            <tr><td>封禁大洲</td><td><input v-model="geoipConfig.blockContinentsStr" placeholder="EU,AS (逗号分隔, ISO 大洲代码)" style="width:350px" @change="saveGeoIPConfig" title="按大洲封禁，如填写 EU 则欧洲所有国家将被拦截。优先级高于白名单/黑名单"></td></tr>
+            <tr><td>CDN 模式</td><td><input type="checkbox" v-model="geoipConfig.use_cdn" @change="saveGeoIPConfig" title="启用后从 X-Forwarded-For 等头部提取真实客户端 IP，而非 CDN 边缘节点 IP。经 Cloudflare/AWS CloudFront 等 CDN 加速时必须开启，否则 GeoIP 判定的是 CDN 节点位置"> <span style="font-size:12px;color:var(--muted)">客户端经 CDN 访问时按真实 IP 判定</span></td></tr>
           </table>
         </div>
         <!-- Auto-Update -->
@@ -1331,14 +1331,14 @@
                  <option value="custom">自定义 URL</option>
                </select>
               </td></tr>
-             <tr v-if="geoipConfig.mirror === 'custom'"><td>自定义 URL</td><td><input v-model="geoipConfig.custom_mirror_url" placeholder="https://..." style="width:350px" @change="saveGeoIPConfig"></td></tr>
+             <tr v-if="geoipConfig.mirror === 'custom'"><td>自定义 URL</td><td><input v-model="geoipConfig.custom_mirror_url" placeholder="https://..." style="width:350px" @change="saveGeoIPConfig" title="自定义 GeoLite2 数据库下载地址，需返回 .mmdb 文件"></td></tr>
              <tr><td>当前数据库</td><td><code>{{ geoipStatus.geodb_path || '-' }}</code></td></tr>
              <tr><td>数据库大小</td><td>{{ geoipStatus.size ? (geoipStatus.size / 1024 / 1024).toFixed(1) + ' MB' : '-' }}</td></tr>
              <tr><td>数据库状态</td><td><span :class="geoipStatus.available ? 'tag tag-ok' : 'tag tag-err'">{{ geoipStatus.available ? '可用' : '未加载' }}</span></td></tr>
              <tr><td>上次检查</td><td>{{ geoipStatus.last_check ? new Date(geoipStatus.last_check * 1000).toLocaleString() : '从未' }}</td></tr>
              <tr><td>上次更新</td><td>{{ geoipStatus.last_update ? new Date(geoipStatus.last_update * 1000).toLocaleString() : '从未' }}</td></tr>
           </table>
-             <div style="margin-top:8px"><button class="primary small" :disabled="geoipUpdating" @click="triggerGeoIPUpdate"><span v-if="geoipUpdating" class="spinner"></span>立即检查更新</button></div>
+             <div style="margin-top:8px"><button class="primary small" :disabled="geoipUpdating" @click="triggerGeoIPUpdate" title="手动触发一次数据库下载和校验，下载完成后自动重载。通常由定时任务自动执行即可">立即检查更新</button></div>
         </div>
       </div>
 
@@ -1372,13 +1372,13 @@
         <!-- Table -->
         <div class="card" style="padding:16px">
           <table>
-             <thead><tr><th>JA3 哈希</th><th>名称</th><th>分类</th><th>动作</th><th>启用</th><th></th></tr></thead>
+             <thead><tr><th>JA3 哈希 <small style="font-weight:400;color:var(--muted);font-size:10px" title="TLS ClientHello 握手的 MD5 哈希，同一客户端程序通常稳定，用于识别扫描器/僵尸网络/自动化工具">(?</small></th><th>名称</th><th>分类</th><th>动作</th><th>启用</th><th></th></tr></thead>
             <tbody>
 <tr v-for="fp in fingerprints" :key="fp.hash">
                 <td><code style="font-size:10px">{{ fp.hash }}</code> <button class="outline small" @click="copyText(fp.hash)" title="复制 hash">复制</button></td>
                 <td>{{ fp.name }}</td>
-                <td><span class="tag">{{ fp.category }}</span></td>
-                <td><span class="tag" :style="{background:fp.action==='block'?'#fee2e2':'#fef3c7'}">{{ fp.action }}</span></td>
+                <td><span class="tag" :title="fp.category === 'scanner' ? '已知扫描器/漏洞探测工具' : fp.category === 'bot' ? '自动化机器人/爬虫' : fp.category === 'browser' ? '正常浏览器（通常用于误判排查）' : '用户自定义分类'">{{ fp.category }}</span></td>
+                <td><span class="tag" :style="{background:fp.action==='block'?'#fee2e2':'#fef3c7'}" :title="fp.action==='block'?'命中此指纹的 IP 将被直接拦截(403)':'命中此指纹的 IP 将触发 JS 挑战，验证为浏览器后放行'">{{ fp.action }}</span></td>
                 <td><input type="checkbox" :checked="fp.enabled" @change="toggleFp(fp)" :disabled="fpToggleBusy"></td>
                  <td><button class="outline small" @click="deleteFp(fp)">删除</button></td>
                </tr>
@@ -1513,7 +1513,7 @@
             <div class="stat-value" style="font-size:16px">{{ kbEffMode('cc') }}</div>
             <div class="stat-sub">{{ kbEffReachable('cc') ? '可达' : '已阻止' }}</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" title="令牌桶控制自动晋升速率：每个桶满时可晋升一个 IP；桶空时需等待刷新。rate_limited 表示近期被限流的尝试次数。">
             <div class="stat-label">晋升令牌</div>
             <div class="stat-value">{{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.tokens_available) || 0 }}</div>
             <div class="stat-sub">限流 {{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.rate_limited_recent) || kbStatus.counters.rate_limited || 0 }} · 候选 {{ kbStatus.counters.candidates || 0 }}</div>
@@ -1557,20 +1557,26 @@
                 <label class="kb-check"><input type="checkbox" v-model="kbForm.enabled" @change="kbMarkFormDirty"> 全局启用</label>
               </div>
               <div class="field">
-                <label style="font-size:12px;color:var(--muted)">全局模式</label>
-                <select v-model="kbForm.mode" @change="kbMarkFormDirty" style="margin-top:4px">
+                <label style="font-size:12px;color:var(--muted)" title="观察模式只记录拦截日志，不实际封禁；执行模式会将匹配到的 IP 加入内核封禁表并生效。切换前请确认已添加至少一条规则">全局模式</label>
+                <select v-model="kbForm.mode" @change="kbMarkFormDirty" style="margin-top:4px" title="观察 (observe)：仅记录日志，不封禁任何 IP；执行 (enforce)：将匹配规则的结果实际写入内核封禁表">
                   <option value="observe">观察 (observe)</option>
                   <option value="enforce">执行 (enforce)</option>
                 </select>
               </div>
               <div class="field">
-                <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enforce_ready" @change="kbMarkFormDirty"> CC 执行就绪</label>
+                <label class="kb-check" title="所有先决条件满足后（迁移完成、CC 规则引用有效、内核助手可达），勾选此项激活 CC 封禁。未激活前仅观察，不封禁任何 IP。">
+                  <input type="checkbox" v-model="kbForm.cc_enforce_ready" @change="kbMarkFormDirty"> CC 执行就绪
+                </label>
               </div>
               <div class="field">
-                <label class="kb-check"><input type="checkbox" v-model="kbForm.scanner_enabled" @change="kbMarkFormDirty"> 扫描器启用</label>
+                <label class="kb-check" title="启用后，系统会根据请求频率、User-Agent 等特征自动识别扫描器/爬虫，将其晋升为内核封禁。建议配合 CC 策略一起使用。">
+                  <input type="checkbox" v-model="kbForm.scanner_enabled" @change="kbMarkFormDirty"> 扫描器启用
+                </label>
               </div>
               <div class="field">
-                <label class="kb-check"><input type="checkbox" v-model="kbForm.cc_enabled" @change="kbMarkFormDirty"> CC 启用</label>
+                <label class="kb-check" title="启用后，系统根据 CC（Content Copying）规则自动晋升高频请求 IP 到内核封禁。需要先在上游频率限制面板创建 CC 规则并引用到此处的 rule_ids。">
+                  <input type="checkbox" v-model="kbForm.cc_enabled" @change="kbMarkFormDirty"> CC 启用
+                </label>
               </div>
                <div class="field">
                  <label style="font-size:12px;color:var(--muted)">拓扑</label>
@@ -1581,21 +1587,24 @@
                  </select>
                </div>
                <div class="field">
-                 <label style="font-size:12px;color:var(--muted)">受保护地址 (逗号分隔)</label>
-                 <input v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px">
+                 <label style="font-size:12px;color:var(--muted)" title="填写这些地址后，系统不会封禁这些 IP，防止管理员机器或健康检查被误封。支持 CIDR 如 10.0.0.0/8">受保护地址 (逗号分隔)</label>
+                 <input v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px" title="填写这些地址后，系统不会封禁这些 IP，防止管理员机器或健康检查被误封。支持 CIDR 如 10.0.0.0/8">
                </div>
                <div class="field">
-                 <label style="font-size:12px;color:var(--muted)">受保护端口 (逗号分隔)</label>
-                 <input v-model="kbForm.protected_ports_str" @change="kbMarkFormDirty" placeholder="如: 80, 443, 8080" style="margin-top:4px">
+                 <label style="font-size:12px;color:var(--muted)" title="填写这些端口后，目标 IP 在这些端口上的流量不会被拦截。留空则不对端口做特殊保护。">受保护端口 (逗号分隔)</label>
+                 <input v-model="kbForm.protected_ports_str" @change="kbMarkFormDirty" placeholder="如: 80, 443, 8080" style="margin-top:4px" title="填写这些端口后，目标 IP 在这些端口上的流量不会被拦截。留空则不对端口做特殊保护。">
                </div>
             </div>
             <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
               <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
-              <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)">
+              <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)"
+                title="暂停时停止自动晋升新 IP，但不解除已封禁的条目；恢复后晋升逻辑继续运行">
                 {{ kbStatus.configured.emergency_pause ? '恢复晋升' : '暂停晋升' }}
               </button>
-              <button class="outline small" :disabled="kbBusy" @click="kbReconcile">立即协调</button>
-              <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto">刷新自动集合</button>
+              <button class="outline small" :disabled="kbBusy" @click="kbReconcile"
+                title="强制将内核中的封禁条目与配置的期望状态对齐，修复因进程崩溃等原因导致的漂移">立即协调</button>
+              <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto"
+                title="清除所有由扫描器/CC 自动晋升的条目（保留手动封禁和白名单），用于紧急重置封禁状态">刷新自动集合</button>
               <button class="outline small" :disabled="kbBusy" @click="loadKbData">刷新</button>
             </div>
           </div>
@@ -1668,20 +1677,21 @@
 
         <!-- Filters -->
         <div class="flex mb-8" style="gap:8px;flex-wrap:wrap" v-if="kbTab!=='timeline'">
-           <select v-model="kbFilterPolicy" @change="kbReloadList" style="width:140px">
-             <option value="">全部策略</option>
-             <option value="scanner">扫描器</option>
-             <option value="cc">CC</option>
-             <option value="manual">手动</option>
-           </select>
-           <select v-if="kbTab==='candidates'" v-model="kbFilterState" @change="kbReloadList" style="width:160px">
-             <option value="">全部状态</option>
-             <option value="candidate">候选</option>
-             <option value="rejected">已拒绝</option>
-             <option value="rate_limited">已限流</option>
-             <option value="degraded">已降级</option>
-             <option value="observed">已观察</option>
-           </select>
+              <select v-model="kbFilterPolicy" @change="kbReloadList" style="width:140px" title="按封禁来源过滤：scanner=自动识别的扫描器，CC=应用层限流触发，manual=管理员手动封禁">
+                <option value="">全部策略</option>
+                <option value="scanner">扫描器</option>
+                <option value="cc">CC</option>
+                <option value="manual">手动</option>
+              </select>
+            <select v-if="kbTab==='candidates'" v-model="kbFilterState" @change="kbReloadList" style="width:160px"
+              title="候选状态：candidate=等待晋升，rejected=被拒绝（如保留地址），rate_limited=触发晋升限流，degraded=降级处理，observed=仅观察不封禁">
+              <option value="">全部状态</option>
+              <option value="candidate">候选</option>
+              <option value="rejected">已拒绝</option>
+              <option value="rate_limited">已限流</option>
+              <option value="degraded">已降级</option>
+              <option value="observed">已观察</option>
+            </select>
            <input v-model="kbFilterIP" placeholder="筛选 IP 包含…" style="width:180px" @keyup.enter="kbReloadList">
            <button class="outline small" @click="kbReloadList">应用</button>
         </div>
@@ -1697,8 +1707,8 @@
            <table v-else class="data-table">
              <thead><tr>
                <th class="sortable" @click="kbEntriesTbl.sortBy('ip')">IP <span v-if="kbEntriesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" @click="kbEntriesTbl.sortBy('list')">集合 <span v-if="kbEntriesTbl.state.sortKey==='list'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th>协议族</th><th>来源</th><th>模式</th>
+               <th class="sortable" @click="kbEntriesTbl.sortBy('list')" title="scanner=扫描器自动封禁，cc=CC攻击自动封禁，manual=管理员手动封禁">集合 <span v-if="kbEntriesTbl.state.sortKey==='list'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th title="ipv4=IPv4 地址，ipv6=IPv6 地址">协议族</th><th title="manual=手动封禁，auto=自动晋升（scanner/cc）">来源</th><th title="ensure=确保存在，delete=确保移除">模式</th>
                <th class="sortable" @click="kbEntriesTbl.sortBy('installed_at')">已安装 <span v-if="kbEntriesTbl.state.sortKey==='installed_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th class="sortable" @click="kbEntriesTbl.sortBy('expires_at')">过期 <span v-if="kbEntriesTbl.state.sortKey==='expires_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th>内核</th><th>操作</th>
@@ -1940,7 +1950,7 @@
       <div class="grid-2 mb-8">
         <div class="field">
            <label>分类 *</label>
-           <select v-model="wafEditModal.category" style="width:100%">
+           <select v-model="wafEditModal.category" style="width:100%" title="攻击类型：SQL注入=尝试执行恶意SQL；XSS=跨站脚本；RCE=远程代码执行；路径穿越=访问../../etc/passwd类；扫描器=漏洞扫描工具；暴力破解=密码猜测">
              <option value="">选择…</option>
              <option value="sqli">SQL 注入</option>
              <option value="xss">XSS</option>
@@ -1956,7 +1966,7 @@
         </div>
         <div class="field">
            <label>严重级别 *</label>
-           <select v-model="wafEditModal.severity" style="width:100%">
+           <select v-model="wafEditModal.severity" style="width:100%" title="critical=确认攻击直接拦截；high=高度可疑建议拦截；medium=中等风险可质询；low=低风险仅记录日志">
              <option value="">选择…</option>
              <option value="critical">严重</option>
              <option value="high">高</option>
@@ -1968,7 +1978,7 @@
       <div class="grid-2 mb-8">
         <div class="field">
            <label>动作 *</label>
-           <select v-model="wafEditModal.action" style="width:100%">
+           <select v-model="wafEditModal.action" style="width:100%" title="阻止=返回403阻断请求；放行=允许通过；记录=仅记日志不拦截；质询=要求浏览器执行JS验证（防自动化工具，用户无感知）">
              <option value="block">阻止</option>
              <option value="accept">放行</option>
              <option value="log">记录</option>
@@ -1977,22 +1987,22 @@
         </div>
         <div class="field">
            <label>状态码</label>
-           <input v-model.number="wafEditModal.code" type="number" placeholder="403" min="200" max="599">
+           <input v-model.number="wafEditModal.code" type="number" placeholder="403" min="200" max="599" title="动作=阻止时返回的 HTTP 状态码，默认 403；动作=质询时通常用 200 返回 JS 挑战页">
         </div>
       </div>
       <div class="field">
          <label>匹配器 (JSON) *</label>
-        <textarea v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}'></textarea>
+        <textarea v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}' title='{"URI": {"operator":"≈","value":"/admin"}} 匹配 URI 字段；operator ≈ 正则匹配，= 精确匹配；支持 URI/IP/UA/Host/Referer/Header/Cookie/Args/Method 等字段'></textarea>
       </div>
       <div class="field">
          <label>标签 (逗号分隔)</label>
-         <input v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union, injection">
+         <input v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union, injection" title="用于规则分类和搜索，不影响匹配行为，可填写多个用逗号分隔">
       </div>
       <div class="field">
          <label><input type="checkbox" v-model="wafEditModal.rateLimitEnabled"> 速率限制</label>
          <div v-if="wafEditModal.rateLimitEnabled" class="grid-3 mb-8">
-           <div class="field"><label>最大命中</label><input v-model.number="wafEditModal.rateLimitMax" type="number" min="1"></div>
-           <div class="field"><label>窗口 (秒)</label><input v-model.number="wafEditModal.rateLimitWindow" type="number" min="1"></div>
+           <div class="field"><label>最大命中</label><input v-model.number="wafEditModal.rateLimitMax" type="number" min="1" title="同一请求在窗口期内最多命中此规则多少次，超过后触发速率限制动作"></div>
+           <div class="field"><label>窗口 (秒)</label><input v-model.number="wafEditModal.rateLimitWindow" type="number" min="1" title="计数重置的时间窗口，如 60 表示 60 秒内累计计数"></div>
            <div class="field"><label>动作</label><select v-model="wafEditModal.rateLimitAction" style="width:100%"><option value="log">记录</option><option value="block">阻止</option></select></div>
          </div>
       </div>
@@ -2045,7 +2055,7 @@
         </div>
         <div class="field">
           <label>动作</label>
-          <select v-model="fpEditModal.action" style="width:100%">
+          <select v-model="fpEditModal.action" style="width:100%" title="拦截=命中此指纹的 IP 直接返回 403；挑战=要求浏览器执行 JS 验证（防 bot）；仅记录=记下日志不拦截">
             <option value="block">拦截</option>
             <option value="challenge">挑战</option>
             <option value="log">仅记录</option>
@@ -2099,9 +2109,9 @@
            <div>
              <code>{{ wafHitDetailModal.data.ip }}</code>
              <button class="outline small" style="margin-left:4px" @click="copyText(wafHitDetailModal.data.ip)" title="复制 IP">复制</button>
-             <span v-if="wafHitDetailModal.data.ip_whitelisted" class="tag" style="background:#d1fae5;color:#065f46;margin-left:4px">白名单</span>
-             <span v-else-if="wafHitDetailModal.data.ip_flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px">已标记</span>
-             <span class="tag" style="margin-left:4px">分数: {{ wafHitDetailModal.data.ip_score || 0 }}</span>
+             <span v-if="wafHitDetailModal.data.ip_whitelisted" class="tag" style="background:#d1fae5;color:#065f46;margin-left:4px" title="已加入白名单的 IP，不受声誉评分和封禁影响">白名单</span>
+             <span v-else-if="wafHitDetailModal.data.ip_flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px" title="该 IP 的声誉分数已超过阈值，已被系统自动挑战或封禁">已标记</span>
+             <span class="tag" style="margin-left:4px" title="IP 声誉分数：0=可信，≥阈值自动挑战，过高则封禁。由 WAF 命中、404 频率等信号累积计算">分数: {{ wafHitDetailModal.data.ip_score || 0 }}</span>
              <span class="tag" style="margin-left:4px;color:#6b7280">该 IP 共 {{ wafHitDetailModal.data.ip_hit_count || 0 }} 条命中</span>
            </div>
          </div>
@@ -2123,7 +2133,7 @@
         </div>
         <div class="modal-actions">
           <button class="outline" @click="wafHitDetailModal.show=false">关闭</button>
-          <button class="outline" @click="addToWhitelist(wafHitDetailModal.data.ip)">加入白名单</button>
+            <button class="outline" @click="addToWhitelist(wafHitDetailModal.data.ip)" title="将该 IP 加入白名单，后续请求不再受声誉评分和封禁影响">加入白名单</button>
           <button class="outline" @click="viewIpHits(wafHitDetailModal.data.ip)">查看该 IP 命中</button>
           <button class="primary" @click="editRuleById(wafHitDetailModal.data.rule_id)">调整此规则</button>
         </div>
@@ -2164,7 +2174,7 @@
       </div>
       <div class="field">
          <label>动作</label>
-         <select v-model="ruleEditModal.action" @change="ruleEditModalChanged" style="width:100%">
+         <select v-model="ruleEditModal.action" @change="ruleEditModalChanged" style="width:100%" title="阻止=返回403；重定向=302跳转；响应=返回自定义响应模板；重写=修改URI；代理=转发到上游；静态=返回静态文件；放行=允许通过；质询=要求浏览器执行JS验证">
            <option value="block">阻止</option>
            <option value="redirect">重定向</option>
            <option value="response">响应</option>
