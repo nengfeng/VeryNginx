@@ -324,6 +324,9 @@
     // ===== Shared navigation state =====
     const page = ref('dashboard');
     view('page', page);
+    // Top-level group navigation: 'dashboard' | 'protect' | 'system' | 'config' | 'advanced' | 'about'
+    const groupPage = ref('dashboard');
+    view('groupPage', groupPage);
     const dashTab = ref('overview');
     view('dashTab', dashTab);
     const advTab = ref('fingerprints');
@@ -337,24 +340,24 @@
     // 引导步骤配置：导航目标 + 描述文案（先定义，view() 注册后才能引用）
     const INTRO_STEPS = [
       {
-        page: 'dashboard', tab: 'overview',
+        page: 'dashboard',
         title: '仪表盘',
         body: '这是你的首页，显示连接数、请求速率、上游健康、WAF 命中和共享字典使用率。数字变红或变黄时说明需要关注。',
       },
       {
-        page: 'waf', tab: 'attacks', subtab: 'hits',
-        title: '看到攻击了？来这',
-        body: 'WAF → 攻击 → 命中，这里列出所有被拦截的请求。点任意一行可展开完整详情（IP、URI、TLS 指纹、请求头），用于事后分析和调优规则。',
+        page: 'waf',
+        title: '看到攻击了？去「防护」→ WAF',
+        body: '点击顶部「防护」→「WAF」→「攻击」→「命中」，这里列出所有被拦截的请求。点任意一行可展开完整详情（IP、URI、TLS 指纹、请求头），用于事后分析和调优规则。',
       },
       {
-        page: 'waf', tab: 'rules', subtab: 'list',
-        title: '规则管理',
-        body: 'WAF → 规则 → 规则列表。点击名称编辑规则，点击启用/禁用徽章快速切换。也可在「规则推荐」页运行推荐引擎，自动从命中记录生成规则。',
+        page: 'frequency',
+        title: '频率限制 — 防 CC / 暴力破解',
+        body: '防护 → 频率限制。按模板一键套用登录防爆破、API 限流等场景，或用「+ 手动新建」自定义规则。规则生效后会立即限制超限请求。',
       },
       {
         page: 'kb',
-        title: '内核封禁与模式开关',
-        body: '内核封禁面板控制自动封禁策略：全局模式「观察」只记录日志不封禁，「执行」才会真正写入内核表。受保护地址用于防止误封管理员机器。',
+        title: '内核封禁 — 系统级自动拦截',
+        body: '系统 → 内核封禁。将屡教不改的恶意 IP 直接封在系统内核层。注意观察/执行模式的区别：观察只记日志，执行才会真正写入封禁表。',
       },
     ];
 
@@ -610,6 +613,13 @@
         discardUnsaved();
       }
       page.value = newPage;
+      // Sync top-level group based on target page
+      if (newPage === 'dashboard') groupPage.value = 'dashboard';
+      else if (['waf', 'frequency', 'reputation'].includes(newPage)) groupPage.value = 'protect';
+      else if (['geoip', 'kb'].includes(newPage)) groupPage.value = 'system';
+      else if (newPage === 'config') groupPage.value = 'config';
+      else if (newPage === 'advanced') groupPage.value = 'advanced';
+      else if (newPage === 'about') groupPage.value = 'about';
       // Per-page data loading
       if (newPage === 'waf') { if (shared.loadWafData) await shared.loadWafData(); }
       else if (newPage === 'frequency') { if (shared.loadFrequencyData) await shared.loadFrequencyData(); }

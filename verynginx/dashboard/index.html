@@ -84,15 +84,12 @@
     <div id="topnav">
       <span class="brand">VeryNginx <small>v2{{ versionInfo.commit ? ' · ' + versionInfo.commit.slice(0,8) : '' }}</small></span>
       <nav>
-        <a :class="{active:page==='dashboard'}" @click="navigateTo('dashboard')">仪表盘</a>
-        <a :class="{active:page==='config'}" @click="navigateTo('config')">配置</a>
-        <a :class="{active:page==='waf'}" @click="navigateTo('waf')">WAF</a>
-        <a :class="{active:page==='frequency'}" @click="navigateTo('frequency')">频率限制</a>
-        <a :class="{active:page==='reputation'}" @click="navigateTo('reputation')">IP 声誉</a>
-        <a :class="{active:page==='geoip'}" @click="navigateTo('geoip')">GeoIP</a>
-        <a :class="{active:page==='kb'}" @click="navigateTo('kb')">内核封禁</a>
-        <a :class="{active:page==='advanced'}" @click="navigateTo('advanced')">高级</a>
-        <a :class="{active:page==='about'}" @click="navigateTo('about')">关于</a>
+        <a :class="{active:groupPage==='dashboard'}" @click="navigateTo('dashboard')">仪表盘</a>
+        <a :class="{active:groupPage==='protect'}" @click="navigateTo('waf')">防护</a>
+        <a :class="{active:groupPage==='system'}" @click="navigateTo('kb')">系统</a>
+        <a :class="{active:groupPage==='config'}" @click="navigateTo('config')">配置</a>
+        <a :class="{active:groupPage==='advanced'}" @click="navigateTo('advanced')">高级</a>
+        <a :class="{active:groupPage==='about'}" @click="navigateTo('about')">关于</a>
       </nav>
       <div class="user-area">
         <span v-if="lastRefreshLabel" class="refresh-badge" :title="autoRefreshPaused ? '自动刷新已暂停' : '自动刷新运行中'">
@@ -105,6 +102,17 @@
         <span>{{ store.user }}</span>
         <button class="outline small" @click="doLogout">退出</button>
       </div>
+    </div>
+
+    <!-- Group sub-navigation: shown under "防护" and "系统" -->
+    <div v-if="groupPage==='protect'" class="group-subnav">
+      <a :class="{active:page==='waf'}" @click="navigateTo('waf')">WAF</a>
+      <a :class="{active:page==='frequency'}" @click="navigateTo('frequency')">频率限制</a>
+      <a :class="{active:page==='reputation'}" @click="navigateTo('reputation')">IP 声誉</a>
+    </div>
+    <div v-if="groupPage==='system'" class="group-subnav">
+      <a :class="{active:page==='geoip'}" @click="navigateTo('geoip')">GeoIP</a>
+      <a :class="{active:page==='kb'}" @click="navigateTo('kb')">内核封禁</a>
     </div>
 
     <div id="main">
@@ -1499,7 +1507,7 @@
         <div style="margin-top:24px;display:flex;flex-direction:column;align-items:center;gap:12px">
           <button class="outline" @click="replayIntro" title="重新观看首次使用引导，了解仪表盘、攻击监控、规则管理和内核封禁的用法">📖 重新观看引导</button>
           <p style="font-size:12px;color:var(--muted);max-width:400px;line-height:1.6">
-            引导共 4 步：仪表盘看什么 → 出攻击了去哪看 → 怎么加规则 → 模式开关在哪。<br>
+            引导共 4 步：仪表盘看什么 → 防护页怎么看攻击 → 频率限制怎么用 → 内核封禁怎么开。<br>
             完成后可随时在此重播。
           </p>
         </div>

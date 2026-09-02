@@ -55,6 +55,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .login-box .field > input[type="text"],.login-box .field > input[type="password"]{height:42px;font-size:15px;width:100%;box-sizing:border-box}
 /* Top nav */
 #topnav{background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:56px;position:sticky;top:0;z-index:100}
+/* Group sub-navigation bar */
+.group-subnav{display:flex;gap:4px;padding:0 24px;background:var(--card);border-bottom:1px solid var(--border);height:40px;align-items:center}
+.group-subnav a{padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text);border:1px solid transparent;transition:all .15s}
+.group-subnav a:hover{background:var(--bg);text-decoration:none}
+.group-subnav a.active{background:var(--primary);color:#fff;border-color:var(--primary)}
 #topnav .brand{font-weight:700;font-size:16px;margin-right:32px;color:var(--text)}
 #topnav .brand small{font-weight:400;color:var(--muted);font-size:12px}
 #topnav nav{display:flex;gap:4px;flex:1}

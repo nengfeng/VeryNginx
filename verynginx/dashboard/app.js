@@ -67,15 +67,25 @@
     // Skipped when location is unavailable (e.g. the Node-based init gate).
     if (typeof window !== 'undefined' && window.location) {
       const routeRefs = {
-        page: shared.page, dashTab: shared.dashTab, cfgTab: shared.cfgTab,
+        page: shared.page, groupPage: shared.groupPage,
+        dashTab: shared.dashTab, cfgTab: shared.cfgTab,
         advTab: shared.advTab, wafTab: shared.wafTab, wafRuleView: shared.wafRuleView,
         wafAttackView: shared.wafAttackView, kbTab: shared.kbTab,
       };
-      const KNOWN_PAGES = ['dashboard', 'config', 'waf', 'frequency', 'reputation', 'geoip', 'advanced', 'kb', 'about'];
+      // Group membership: which top-level section each sub-page belongs to.
+      const PAGE_GROUP = {
+        dashboard: 'dashboard', config: 'config', waf: 'protect', frequency: 'protect',
+        reputation: 'protect', geoip: 'system', kb: 'system', advanced: 'advanced', about: 'about',
+      };
+      // Backward-compat: treat bare sub-page hashes (e.g. #/waf) as group+page.
+      const KNOWN_SUB = Object.keys(PAGE_GROUP);
+      const KNOWN_GROUPS = ['dashboard', 'protect', 'system', 'config', 'advanced', 'about'];
+      const isKnown = (s) => KNOWN_GROUPS.includes(s) || KNOWN_SUB.includes(s);
 
       const buildHash = () => {
+        const gp = routeRefs.groupPage.value;
         const p = routeRefs.page.value;
-        const segs = [p];
+        const segs = [gp, p];
         if (p === 'dashboard') segs.push(routeRefs.dashTab.value);
         else if (p === 'config') segs.push(routeRefs.cfgTab.value);
         else if (p === 'advanced') segs.push(routeRefs.advTab.value);
@@ -89,16 +99,35 @@
 
       const applyHash = () => {
         const raw = window.location.hash.replace(/^#\/?/, '');
-        if (!raw) return;
+        if (!raw) {
+          // Empty hash: reset to dashboard (default group + page).
+          routeRefs.groupPage.value = 'dashboard';
+          routeRefs.page.value = 'dashboard';
+          return;
+        }
         const segs = raw.split('/').map(s => decodeURIComponent(s));
-        if (!KNOWN_PAGES.includes(segs[0])) return;
+        const seg0 = segs[0];
+        let group, page;
+        if (isKnown(seg0) && KNOWN_GROUPS.includes(seg0)) {
+          // New format: #/protect/waf or #/system/kb
+          group = seg0;
+          page = segs[1] || group; // fallback keeps group visible
+          // If second seg is also a known group, treat as legacy bare-page hash.
+          if (KNOWN_GROUPS.includes(page)) { page = page; group = PAGE_GROUP[page] || group; }
+        } else if (KNOWN_SUB.includes(seg0)) {
+          // Legacy bare sub-page hash: #/waf → treat as belonging to its group.
+          page = seg0;
+          group = PAGE_GROUP[page] || 'dashboard';
+        } else {
+          return;
+        }
         // A PAGE segment change unmounts any open editor modal (they live in
         // per-page v-if blocks). History navigation and address-bar edits
         // arrive here without passing navigateTo's unsaved-changes guard, so
         // run the same check: confirm first; on reject snap the URL back to
         // the current view — that echo re-enters applyHash with refs already
         // equal and stops (no loop).
-        if (segs[0] !== routeRefs.page.value && shared.collectUnsaved && shared.collectUnsaved().length) {
+        if (page !== routeRefs.page.value && shared.collectUnsaved && shared.collectUnsaved().length) {
           const labels = shared.collectUnsaved().join('、');
           const restore = buildHash();
           shared.showConfirm({
@@ -108,7 +137,7 @@
           }).then((ok) => {
             if (ok) {
               if (shared.discardUnsaved) shared.discardUnsaved();
-              applyHash(); // URL still points at the target — now proceed.
+              applyHash();
             } else if (window.location.hash !== restore) {
               window.location.hash = restore;
             }
@@ -116,15 +145,16 @@
           return;
         }
         const set = (ref, v) => { if (ref && v && ref.value !== v) ref.value = v; };
-        set(routeRefs.page, segs[0]);
-        if (segs[0] === 'dashboard') set(routeRefs.dashTab, segs[1]);
-        else if (segs[0] === 'config') set(routeRefs.cfgTab, segs[1]);
-        else if (segs[0] === 'advanced') set(routeRefs.advTab, segs[1]);
-        else if (segs[0] === 'waf') {
-          set(routeRefs.wafTab, segs[1]);
-          if (segs[1] === 'rules') set(routeRefs.wafRuleView, segs[2]);
-          if (segs[1] === 'attacks') set(routeRefs.wafAttackView, segs[2]);
-        } else if (segs[0] === 'kb') set(routeRefs.kbTab, segs[1]);
+        set(routeRefs.groupPage, group);
+        set(routeRefs.page, page);
+        if (page === 'dashboard') set(routeRefs.dashTab, segs[2]);
+        else if (page === 'config') set(routeRefs.cfgTab, segs[2]);
+        else if (page === 'advanced') set(routeRefs.advTab, segs[2]);
+        else if (page === 'waf') {
+          set(routeRefs.wafTab, segs[2]);
+          if (segs[2] === 'rules') set(routeRefs.wafRuleView, segs[3]);
+          if (segs[2] === 'attacks') set(routeRefs.wafAttackView, segs[3]);
+        } else if (page === 'kb') set(routeRefs.kbTab, segs[2]);
       };
 
       // Writer: any navigation change updates the URL. PAGE switches push a
