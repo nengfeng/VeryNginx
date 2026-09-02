@@ -22,6 +22,38 @@
       <button class="toast-close" @click="dismissToast(t.id)" title="关闭">×</button>
     </div>
   </transition-group>
+  <!-- First-time intro tour -->
+  <div v-if="introShow" class="intro-overlay" @click.self="completeIntro">
+    <div class="intro-card">
+      <button class="intro-close" @click="completeIntro" title="跳过引导">×</button>
+      <div class="intro-steps">
+        <div v-for="(s,i) in INTRO_STEPS" :key="i" class="intro-step" :class="{active: introStep === i+1}">
+          <div class="intro-dot" :class="{done: introStep > i+1, current: introStep === i+1}"></div>
+        </div>
+      </div>
+      <template v-if="introStep >= 1 && introStep <= INTRO_STEPS.length">
+        <div class="intro-body">
+          <div class="intro-step-num">步骤 {{ introStep }} / {{ INTRO_STEPS.length }}</div>
+          <h2 class="intro-title">{{ INTRO_STEPS[introStep-1].title }}</h2>
+          <p class="intro-desc">{{ INTRO_STEPS[introStep-1].body }}</p>
+        </div>
+        <div class="intro-footer">
+          <button class="outline" :disabled="introStep===1" @click="introBack" v-if="introStep>1">上一步</button>
+          <button class="primary" style="margin-left:auto" @click="introNext">{{ introStep === INTRO_STEPS.length ? '完成' : '下一步' }}</button>
+        </div>
+      </template>
+      <template v-else-if="introStep > INTRO_STEPS.length">
+        <div class="intro-body" style="text-align:center">
+          <div style="font-size:48px;margin-bottom:16px">✓</div>
+          <h2 class="intro-title">引导完成</h2>
+          <p class="intro-desc" style="max-width:360px;margin:0 auto">你已经了解了 VeryNginx 的核心功能。随时可在「关于」页面重新观看引导。</p>
+        </div>
+        <div class="intro-footer">
+          <button class="primary" @click="completeIntro">开始使用</button>
+        </div>
+      </template>
+    </div>
+  </div>
   <!-- Login -->
   <div id="login-page" v-if="!store.loggedIn">
     <div class="login-box">
@@ -1464,6 +1496,13 @@
           <code :title="versionInfo.commit || ''">{{ versionInfo.commit ? versionInfo.commit.slice(0,8) : '' }}</code>
         </p>
         <p style="color:var(--muted);font-size:14px">基于 Nginx + Lua 构建的 WAF、反向代理与请求管理引擎。</p>
+        <div style="margin-top:24px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <button class="outline" @click="replayIntro" title="重新观看首次使用引导，了解仪表盘、攻击监控、规则管理和内核封禁的用法">📖 重新观看引导</button>
+          <p style="font-size:12px;color:var(--muted);max-width:400px;line-height:1.6">
+            引导共 4 步：仪表盘看什么 → 出攻击了去哪看 → 怎么加规则 → 模式开关在哪。<br>
+            完成后可随时在此重播。
+          </p>
+        </div>
         <p style="margin-top:24px"><a href="https://github.com/nengfeng/VeryNginx" target="_blank">GitHub</a></p>
       </div>
 

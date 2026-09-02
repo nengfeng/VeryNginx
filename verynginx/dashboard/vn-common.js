@@ -333,6 +333,92 @@
     const theme = ref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
     view('theme', theme);
 
+    // ---- First-time intro tour ----
+    const introStep = ref(0); // 0=未开始, 1-4=步骤, 5=已完成
+    const introShow = ref(false);
+    view('introStep', introStep);
+    view('introShow', introShow);
+
+    function startIntro() {
+      introStep.value = 1;
+      introShow.value = true;
+    }
+    function completeIntro() {
+      try { localStorage.setItem('vn_seen_intro', '1'); } catch(e) {}
+      introShow.value = false;
+      introStep.value = 0;
+    }
+    function replayIntro() {
+      try { localStorage.removeItem('vn_seen_intro'); } catch(e) {}
+      startIntro();
+    }
+    view('INTRO_STEPS', INTRO_STEPS);
+    view('introStep', introStep);
+    view('introShow', introShow);
+    view('startIntro', startIntro);
+    view('completeIntro', completeIntro);
+    view('replayIntro', replayIntro);
+
+    // 引导步骤配置：导航目标 + 描述文案
+    const INTRO_STEPS = [
+      {
+        page: 'dashboard', tab: 'overview',
+        title: '仪表盘',
+        body: '这是你的首页，显示连接数、请求速率、上游健康、WAF 命中和共享字典使用率。数字变红或变黄时说明需要关注。',
+      },
+      {
+        page: 'waf', tab: 'attacks', subtab: 'hits',
+        title: '看到攻击了？来这',
+        body: 'WAF → 攻击 → 命中，这里列出所有被拦截的请求。点任意一行可展开完整详情（IP、URI、TLS 指纹、请求头），用于事后分析和调优规则。',
+      },
+      {
+        page: 'waf', tab: 'rules', subtab: 'list',
+        title: '规则管理',
+        body: 'WAF → 规则 → 规则列表。点击名称编辑规则，点击启用/禁用徽章快速切换。也可在「规则推荐」页运行推荐引擎，自动从命中记录生成规则。',
+      },
+      {
+        page: 'kb',
+        title: '内核封禁与模式开关',
+        body: '内核封禁面板控制自动封禁策略：全局模式「观察」只记录日志不封禁，「执行」才会真正写入内核表。受保护地址用于防止误封管理员机器。',
+      },
+    ];
+
+    function introNext() {
+      const s = introStep.value;
+      if (s >= INTRO_STEPS.length) { completeIntro(); return; }
+      const step = INTRO_STEPS[s];
+      introStep.value = s + 1;
+      // Navigate to the target page/tab; wait for data load
+      if (shared.navigateTo) shared.navigateTo(step.page);
+    }
+    function introBack() {
+      const s = introStep.value;
+      if (s <= 1) { completeIntro(); return; }
+      const step = INTRO_STEPS[s - 2];
+      introStep.value = s - 1;
+      if (shared.navigateTo) shared.navigateTo(step.page);
+    }
+
+    // 登录成功后若为首次访问则弹出引导
+    let _introTriggered = false;
+    watch(() => store.loggedIn, (v) => {
+      if (v && !_introTriggered) {
+        _introTriggered = true;
+        try {
+          if (!localStorage.getItem('vn_seen_intro')) startIntro();
+        } catch(e) {}
+      }
+    });
+
+    // 登出时重置，下次登录可重新引导
+    onLogout(() => {
+      _introTriggered = false;
+      try { localStorage.removeItem('vn_seen_intro'); } catch(e) {}
+      introShow.value = false;
+      introStep.value = 0;
+    });
+    view('theme', theme);
+
     function toggleTheme() {
       const newTheme = theme.value === 'dark' ? 'light' : 'dark';
       theme.value = newTheme;
