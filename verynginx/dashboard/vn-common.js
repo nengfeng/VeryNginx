@@ -334,32 +334,7 @@
     view('theme', theme);
 
     // ---- First-time intro tour ----
-    const introStep = ref(0); // 0=未开始, 1-4=步骤, 5=已完成
-    const introShow = ref(false);
-    view('introStep', introStep);
-    view('introShow', introShow);
-
-    function startIntro() {
-      introStep.value = 1;
-      introShow.value = true;
-    }
-    function completeIntro() {
-      try { localStorage.setItem('vn_seen_intro', '1'); } catch(e) {}
-      introShow.value = false;
-      introStep.value = 0;
-    }
-    function replayIntro() {
-      try { localStorage.removeItem('vn_seen_intro'); } catch(e) {}
-      startIntro();
-    }
-    view('INTRO_STEPS', INTRO_STEPS);
-    view('introStep', introStep);
-    view('introShow', introShow);
-    view('startIntro', startIntro);
-    view('completeIntro', completeIntro);
-    view('replayIntro', replayIntro);
-
-    // 引导步骤配置：导航目标 + 描述文案
+    // 引导步骤配置：导航目标 + 描述文案（先定义，view() 注册后才能引用）
     const INTRO_STEPS = [
       {
         page: 'dashboard', tab: 'overview',
@@ -382,6 +357,29 @@
         body: '内核封禁面板控制自动封禁策略：全局模式「观察」只记录日志不封禁，「执行」才会真正写入内核表。受保护地址用于防止误封管理员机器。',
       },
     ];
+
+    const introStep = ref(0); // 0=未开始, 1-4=步骤, 5=已完成
+    const introShow = ref(false);
+    view('INTRO_STEPS', INTRO_STEPS);
+    view('introStep', introStep);
+    view('introShow', introShow);
+
+    function startIntro() {
+      introStep.value = 1;
+      introShow.value = true;
+    }
+    function completeIntro() {
+      try { localStorage.setItem('vn_seen_intro', '1'); } catch(e) {}
+      introShow.value = false;
+      introStep.value = 0;
+    }
+    function replayIntro() {
+      try { localStorage.removeItem('vn_seen_intro'); } catch(e) {}
+      startIntro();
+    }
+    view('startIntro', startIntro);
+    view('completeIntro', completeIntro);
+    view('replayIntro', replayIntro);
 
     function introNext() {
       const s = introStep.value;
