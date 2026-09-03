@@ -313,7 +313,10 @@
       const t = wafTrend.value;
       if (t.curr === 0 && t.prev === 0) return '';
       if (t.pct === null) {
-        return t.dir === 'up' ? '↑ 上一小时无命中，本小时新增 ' + t.curr + ' 次' : '';
+        // pct null <=> prev === 0; since (curr===0 && prev===0) is caught above,
+        // curr must be > 0 here, so dir is always 'up'.  The '' branch is dead
+        // code — kept implicitly by dropping the else.
+        return '↑ 上一小时无命中，本小时新增 ' + t.curr + ' 次';
       }
       const arrow = t.dir === 'up' ? '↑' : (t.dir === 'down' ? '↓' : '→');
       return arrow + ' 较上一小时 ' + Math.abs(t.pct) + '%';
@@ -324,7 +327,10 @@
       if (pts.length < 2) return '';
       const max = Math.max(...pts, 1);
       const w = 100 / (pts.length - 1);
-      return pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
+      // Reserve 5% margin at top and bottom so the polyline stroke (which
+      // extends ~half its width beyond the point coords) is not clipped at the
+      // viewBox edges when all values are equal or at the maximum.
+      return pts.map((v, i) => `${(i * w).toFixed(1)},${(5 + ((100 - v / max * 90))).toFixed(1)}`).join(' ');
     });
 
     const hasWafTrend = computed(() => {
@@ -375,7 +381,8 @@
 
 
     // ---- Helpers ----
-    function formatTime(t) {      if (!t) return '-';
+    function formatTime(t) {
+      if (!t) return '-';
       return new Date(t * 1000).toLocaleString();
     }
 
