@@ -348,10 +348,12 @@
       const o = overview.value || {};
       const kb = shared.kbStatus && shared.kbStatus.value;
       const kbState = (kb && kb.health && kb.health.state) || 'unknown';
-      // Read from kbStatus (live) not cfg (draft). cfg may contain an unsaved
-      // change while the running system still reflects the previous mode —
-      // only configured.mode tracks the actual enforced behaviour.
-      const mode = (kb && kb.configured && kb.configured.mode) || 'observe';
+      // Read from effective.global_mode (live), not configured.mode (draft).
+      // effective.global_mode = 'disabled' when enabled=false regardless of
+      // what mode is configured — using configured.mode would lie and say
+      // "拦截规则已生效" even while the kernel block is completely off.
+      const eff = (kb && kb.effective) || {};
+      const globalMode = eff.global_mode || 'disabled';
       if (kbState === 'unreachable') {
         return { level: 'err', text: '内核封禁 Helper 无法连接，内核层拦截已停摆（应用层拦截仍生效）。请到 系统 → 内核封禁 查看 Helper 状态。' };
       }
@@ -375,7 +377,12 @@
       if (hot) {
         return { level: 'warn', text: '共享字典 ' + hot.name + ' 使用率 ' + hot.pct.toFixed(0) + '%，接近上限，可能影响新指标与缓存的写入。' };
       }
-      const modeNote = mode === 'enforce'
+      // global_mode drives the live behaviour note; disabled is a distinct
+      // state (kernel blocks entirely off) and should not be conflated with observe.
+      if (globalMode === 'disabled') {
+        return { level: 'warn', text: '内核封禁已关闭（enabled=false），kernel 层无任何拦截。应用层 WAF 仍在工作。可到 系统 → 内核封禁 重新启用。' };
+      }
+      const modeNote = globalMode === 'enforce'
         ? '拦截规则已生效'
         : '当前为 observe 观察模式，规则只记录不拦截（可到 系统 → 内核封禁 切换）';
       return { level: 'ok', text: '系统运行正常：' + modeNote + '，过去一小时无攻击峰值。' };
