@@ -454,7 +454,8 @@
       { label: '系统 · 内核封禁', shortcut: '3', action: () => { navigateTo('kb'); cmdPaletteOpen.value = false; } },
       { label: '系统 · GeoIP', shortcut: null, action: () => { navigateTo('geoip'); cmdPaletteOpen.value = false; } },
       { label: '配置管理', shortcut: '4', action: () => { navigateTo('config'); cmdPaletteOpen.value = false; } },
-      { label: '高级', shortcut: '5', action: () => { navigateTo('advanced'); cmdPaletteOpen.value = false; } },
+      { label: '高级 · TLS 指纹', shortcut: '5', action: () => { shared.advTab && (shared.advTab.value = 'fingerprints'); navigateTo('advanced'); cmdPaletteOpen.value = false; } },
+      { label: '高级 · 审计日志', shortcut: null, action: () => { shared.advTab && (shared.advTab.value = 'audit'); navigateTo('advanced'); cmdPaletteOpen.value = false; } },
       { label: '关于', shortcut: '6', action: () => { navigateTo('about'); cmdPaletteOpen.value = false; } },
       { label: '切换深色/浅色模式', shortcut: '⌘D', action: () => { toggleTheme(); cmdPaletteOpen.value = false; } },
     ];
