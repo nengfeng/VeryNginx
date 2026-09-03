@@ -146,7 +146,11 @@
           console.warn('Overview reputation stats failed:', e.message);
         }
       } catch (e) {
-        console.warn('Overview load error:', e.message);
+        // Main data source failed: keep the last good overview so the page
+        // never shows a silent all-zero "all quiet" picture. The health
+        // summary card surfaces the error instead.
+        if (gOverview.isCurrent(tok)) overviewError.value = e.message;
+        return;
       }
       // Merge plugin errors with duration into plugin_perf
       const perfMap = {};
@@ -170,6 +174,7 @@
       o.dicts = (o.dicts || []).sort((a, b) => b.pct - a.pct).slice(0, 6);
       if (!gOverview.isCurrent(tok)) return;
       overview.value = o;
+      overviewError.value = '';
     }
 
 
@@ -186,6 +191,11 @@
         active: () => page.value === 'dashboard' && dashTab.value === 'overview',
         interval: 5000,
         load: loadOverview,
+    });
+    registerPoll('wafTrend', {
+        active: () => page.value === 'dashboard' && dashTab.value === 'overview',
+        interval: 30000,
+        load: loadWafTrend,
     });
     registerPoll('health', {
         active: () => page.value === 'config' && cfgTab.value === 'upstreams',
@@ -249,6 +259,9 @@
     // ---- Stats ----
     const gStats = shared.createStaleGuard();
     const gOverview = shared.createStaleGuard();
+    const gWafTrend = shared.createStaleGuard();
+    const overviewError = ref('');
+    const statusError = ref('');
     async function loadStats() {
       const tok = gStats.mark();
       statsError.value = '';
@@ -263,9 +276,103 @@
     }
 
 
+    // ---- WAF attack trend (baseline comparison) ----
+    // 2h window / 15min buckets = 8 buckets: current hour vs previous hour.
+    // A dedicated 30s poller keeps the 5s overview poller light.
+    const wafTrendData = ref([]);
+    async function loadWafTrend() {
+      const tok = gWafTrend.mark();
+      try {
+        const d = await api('GET', '/verynginx/waf/timeline?hours=2&bucket=15');
+        if (!gWafTrend.isCurrent(tok)) return;
+        if (d.ret === 'success' && d.data && Array.isArray(d.data.buckets)) {
+          wafTrendData.value = asList(d.data.buckets).map((b) => {
+            let sum = 0;
+            for (const c in (b.counts || {})) sum += b.counts[c];
+            return sum;
+          });
+        }
+      } catch (e) {
+        // Trend is a secondary view; on failure the card simply stays hidden.
+      }
+    }
+
+    const wafTrend = computed(() => {
+      const arr = wafTrendData.value;
+      if (!arr || arr.length < 4) return { curr: 0, prev: 0, pct: null, dir: 'flat' };
+      const half = Math.floor(arr.length / 2);
+      let prev = 0, curr = 0;
+      for (let i = 0; i < half; i++) prev += arr[i];
+      for (let i = arr.length - half; i < arr.length; i++) curr += arr[i];
+      const pct = prev > 0 ? Math.round((curr - prev) / prev * 100) : null;
+      const dir = curr > prev ? 'up' : (curr < prev ? 'down' : 'flat');
+      return { curr, prev, pct, dir };
+    });
+
+    const wafTrendLabel = computed(() => {
+      const t = wafTrend.value;
+      if (t.curr === 0 && t.prev === 0) return '';
+      if (t.pct === null) {
+        return t.dir === 'up' ? '↑ 上一小时无命中，本小时新增 ' + t.curr + ' 次' : '';
+      }
+      const arrow = t.dir === 'up' ? '↑' : (t.dir === 'down' ? '↓' : '→');
+      return arrow + ' 较上一小时 ' + Math.abs(t.pct) + '%';
+    });
+
+    const wafTrendSpark = computed(() => {
+      const pts = wafTrendData.value;
+      if (pts.length < 2) return '';
+      const max = Math.max(...pts, 1);
+      const w = 100 / (pts.length - 1);
+      return pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
+    });
+
+    const hasWafTrend = computed(() => {
+      const t = wafTrend.value;
+      return (t.curr + t.prev) > 0;
+    });
+
+
+    // ---- Health summary (one-line verdict for the overview page) ----
+    // Priority: helper down > data unavailable > upstream unhealthy >
+    // attack spike > flagged IPs > dict pressure > all clear.
+    const healthSummary = computed(() => {
+      const o = overview.value || {};
+      const kb = shared.kbStatus && shared.kbStatus.value;
+      const kbState = (kb && kb.health && kb.health.state) || 'unknown';
+      const mode = (cfg.value && cfg.value.mode) || 'observe';
+      if (kbState === 'unreachable') {
+        return { level: 'err', text: '内核封禁 Helper 无法连接，内核层拦截已停摆（应用层拦截仍生效）。请到 系统 → 内核封禁 查看 Helper 状态。' };
+      }
+      if (kbState === 'degraded') {
+        return { level: 'warn', text: '内核封禁 Helper 已降级，部分内核层操作可能失败。请到 系统 → 内核封禁 查看详情。' };
+      }
+      if (overviewError.value) {
+        return { level: 'err', text: '监控数据获取失败（' + overviewError.value + '），下方数字可能过期或为空。' };
+      }
+      if (o.up_total > 0 && o.up_healthy < o.up_total) {
+        return { level: 'warn', text: (o.up_total - o.up_healthy) + ' 个上游节点不健康，转发到这些节点的请求会失败。请到 配置 → 上游 查看节点状态。' };
+      }
+      const t = wafTrend.value;
+      if (t.curr >= 20 && t.prev > 0 && t.pct !== null && t.pct >= 100) {
+        return { level: 'warn', text: 'WAF 命中较上一小时上涨 ' + t.pct + '%（本小时 ' + t.curr + ' 次），疑似攻击活动。请到 WAF → 分析 查看命中详情。' };
+      }
+      if ((o.flagged || 0) > 0) {
+        return { level: 'warn', text: o.flagged + ' 个 IP 被声誉系统标记为可疑。请到 防护 → IP 声誉 确认是否需要处理。' };
+      }
+      const hot = (o.dicts || []).find((d) => d.pct > 80);
+      if (hot) {
+        return { level: 'warn', text: '共享字典 ' + hot.name + ' 使用率 ' + hot.pct.toFixed(0) + '%，接近上限，可能影响新指标与缓存的写入。' };
+      }
+      const modeNote = mode === 'enforce'
+        ? '拦截规则已生效'
+        : '当前为 observe 观察模式，规则只记录不拦截（可在 配置 → 系统 中切换）';
+      return { level: 'ok', text: '系统运行正常：' + modeNote + '，过去一小时无攻击峰值。' };
+    });
+
+
     // ---- Helpers ----
-    function formatTime(t) {
-      if (!t) return '-';
+    function formatTime(t) {      if (!t) return '-';
       return new Date(t * 1000).toLocaleString();
     }
 
@@ -317,13 +424,16 @@
       try {
         const s = await api('GET', '/verynginx/status');
         status.value = s;
+        statusError.value = '';
         // Push to connection history ring buffer (max 60 points, 3s each = 3 min)
         const h = connHistory.value;
         h.push(s.connections_active || 0);
         if (h.length > 60) h.shift();
         connHistory.value = [...h];
       } catch (e) {
-        console.warn('Status refresh failed:', e.message);
+        // Keep the last good numbers on screen; the error banner tells the
+        // user the data may be stale instead of showing a silent 0.
+        statusError.value = '连接状态获取失败：' + e.message;
       }
     }
 
@@ -487,6 +597,19 @@
     view('successClass', successClass);
     view('summarizeRule', summarizeRule);
     view('actionClass', actionClass);
+    view('statusError', statusError);
+    view('wafTrend', wafTrend);
+    view('wafTrendLabel', wafTrendLabel);
+    view('wafTrendSpark', wafTrendSpark);
+    view('hasWafTrend', hasWafTrend);
+    view('healthSummary', healthSummary);
+
+    // Wipe per-session data on logout (explicit logout AND server-side expiry).
+    shared.onLogout(() => {
+      overviewError.value = '';
+      statusError.value = '';
+      wafTrendData.value = [];
+    });
 
         // Module initialization (if any)
         // No return needed; ctx()/view() calls register everything

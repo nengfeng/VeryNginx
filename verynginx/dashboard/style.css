@@ -37,6 +37,15 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .mb-8{margin-bottom:8px}.mb-16{margin-bottom:16px}.mt-16{margin-top:16px}
 .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
 .tag-ok{background:#d1fae5;color:#065f46}.tag-err{background:#fee2e2;color:#991b1b}.tag-warn{background:#fef3c7;color:#92400e}
+/* Health summary card: one-line verdict with a left accent bar */
+.health-summary{display:flex;align-items:center;gap:10px;padding:12px 16px;font-size:13px;border-left:4px solid var(--border)}
+.health-summary-ok{border-left-color:var(--success)}
+.health-summary-warn{border-left-color:var(--warning);background:rgba(244,162,97,.08)}
+.health-summary-err{border-left-color:var(--danger);background:rgba(230,57,70,.08)}
+.health-dot{width:9px;height:9px;border-radius:50%;background:var(--border);flex-shrink:0}
+.health-dot-ok{background:var(--success)}
+.health-dot-warn{background:var(--warning)}
+.health-dot-err{background:var(--danger)}
 /* Login */
 #login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
 .login-box{background:var(--card);border-radius:12px;padding:40px;width:100%;max-width:400px;border:1px solid var(--border);box-shadow:0 4px 24px rgba(0,0,0,.06)}
