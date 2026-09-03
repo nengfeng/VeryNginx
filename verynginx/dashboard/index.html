@@ -1778,7 +1778,7 @@
           <input v-model="kbEntriesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页条目（IP/来源/模式…）">
           <div v-if="!kbEntries.length" class="empty">
             <span v-if="kbFilterPolicy || kbFilterIP">无匹配当前过滤 (策略: {{ kbFilterPolicy || '全部' }}, IP: {{ kbFilterIP || '全部' }})</span>
-            <span v-else>无已安装条目。<a style="cursor:pointer;text-decoration:underline" @click="navigateTo('kb')" :class="page==='kb'?'':'':page==='kb' ? '' : ''">查看候选 IP</a></span>
+            <span v-else>无已安装条目。<a style="cursor:pointer;text-decoration:underline" @click="navigateTo('kb')">查看候选 IP</a></span>
           </div>
           <div v-else-if="!kbEntriesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
