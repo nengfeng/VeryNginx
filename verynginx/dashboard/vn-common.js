@@ -536,7 +536,7 @@
       }
       // Plain 1-6 → jump to top-level nav (no modifier — matches GitHub/Linear/
       // Notion convention and avoids all browser-reserved key combos).
-      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !cmdPaletteOpen.value && !kbShortcutsOpen.value) {
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !cmdPaletteOpen.value && !kbShortcutsOpen.value && !confirmModal.show) {
         const tag = document.activeElement && document.activeElement.tagName;
         if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
           const num = parseInt(e.key, 10);
