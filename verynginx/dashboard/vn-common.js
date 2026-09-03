@@ -447,15 +447,15 @@
     // Commands available in the palette; each has a label, optional shortcut,
     // and either a page target or an action callback.
     const CMD_ACTIONS = [
-      { label: '仪表盘', shortcut: '⌘1', action: () => { navigateTo('dashboard'); cmdPaletteOpen.value = false; } },
-      { label: '防护 · WAF', shortcut: '⌘2', action: () => { navigateTo('waf'); cmdPaletteOpen.value = false; } },
+      { label: '仪表盘', shortcut: '1', action: () => { navigateTo('dashboard'); cmdPaletteOpen.value = false; } },
+      { label: '防护 · WAF', shortcut: '2', action: () => { navigateTo('waf'); cmdPaletteOpen.value = false; } },
       { label: '防护 · 频率限制', shortcut: null, action: () => { navigateTo('frequency'); cmdPaletteOpen.value = false; } },
       { label: '防护 · IP 声誉', shortcut: null, action: () => { navigateTo('reputation'); cmdPaletteOpen.value = false; } },
-      { label: '系统 · 内核封禁', shortcut: '⌘3', action: () => { navigateTo('kb'); cmdPaletteOpen.value = false; } },
+      { label: '系统 · 内核封禁', shortcut: '3', action: () => { navigateTo('kb'); cmdPaletteOpen.value = false; } },
       { label: '系统 · GeoIP', shortcut: null, action: () => { navigateTo('geoip'); cmdPaletteOpen.value = false; } },
-      { label: '配置管理', shortcut: '⌘4', action: () => { navigateTo('config'); cmdPaletteOpen.value = false; } },
-      { label: '高级', shortcut: '⌘5', action: () => { navigateTo('advanced'); cmdPaletteOpen.value = false; } },
-      { label: '关于', shortcut: '⌘6', action: () => { navigateTo('about'); cmdPaletteOpen.value = false; } },
+      { label: '配置管理', shortcut: '4', action: () => { navigateTo('config'); cmdPaletteOpen.value = false; } },
+      { label: '高级', shortcut: '5', action: () => { navigateTo('advanced'); cmdPaletteOpen.value = false; } },
+      { label: '关于', shortcut: '6', action: () => { navigateTo('about'); cmdPaletteOpen.value = false; } },
       { label: '切换深色/浅色模式', shortcut: '⌘D', action: () => { toggleTheme(); cmdPaletteOpen.value = false; } },
     ];
     ctx('CMD_ACTIONS', CMD_ACTIONS);
@@ -499,8 +499,7 @@
       ['⌘K', '打开命令面板'],
       ['?', '显示快捷键帮助'],
       ['Esc', '关闭弹窗/面板'],
-      ['⌘1–⌘5', '跳转到主导航项（仪表盘/WAF/内核封禁/配置/高级）'],
-      ['⌘6', '跳转关于页'],
+      ['1–6', '跳转到主导航项（仪表盘/WAF/内核封禁/配置/高级/关于）'],
       ['⌘D', '切换深色/浅色主题'],
     ];
     view('KB_SHORTCUTS', KB_SHORTCUTS);
@@ -524,7 +523,10 @@
           kbShortcutsOpen.value = !kbShortcutsOpen.value;
         }
       }
-      // Ctrl/Cmd+D → toggle theme (guard against typing in input fields)
+      // Ctrl/Cmd+D → toggle theme (guard against typing in input fields).
+      // ⚠️ Do NOT use Ctrl/Cmd+1-9 here: browsers intercept those at the UI
+      // layer (tab-switching) before JavaScript ever sees them, so
+      // preventDefault() is ineffective and the handler never fires.
       if ((e.ctrlKey || e.metaKey) && e.key === 'd' && !e.shiftKey) {
         const tag = document.activeElement && document.activeElement.tagName;
         if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
@@ -532,26 +534,18 @@
           toggleTheme();
         }
       }
-      // Ctrl/Cmd+1-5 → jump to top-level nav (matches the badge shortcuts shown
-      // in the command palette and the shortcuts help modal).
-      if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '5' && !e.shiftKey
-          && !cmdPaletteOpen.value && !kbShortcutsOpen.value) {
+      // Plain 1-6 → jump to top-level nav (no modifier — matches GitHub/Linear/
+      // Notion convention and avoids all browser-reserved key combos).
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !cmdPaletteOpen.value && !kbShortcutsOpen.value) {
         const tag = document.activeElement && document.activeElement.tagName;
         if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
-          e.preventDefault();
-          const targets = ['dashboard','waf','kb','config','advanced'];
-          const t = targets[parseInt(e.key, 10) - 1];
-          if (t) { navigateTo(t); mobileNavOpen.value = false; }
-        }
-      }
-      // Ctrl/Cmd+6 → about page (the only top-level nav entry without a 1-5 key).
-      if ((e.ctrlKey || e.metaKey) && e.key === '6' && !e.shiftKey
-          && !cmdPaletteOpen.value && !kbShortcutsOpen.value) {
-        const tag = document.activeElement && document.activeElement.tagName;
-        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
-          e.preventDefault();
-          navigateTo('about');
-          mobileNavOpen.value = false;
+          const num = parseInt(e.key, 10);
+          if (num >= 1 && num <= 6) {
+            e.preventDefault();
+            const targets = ['dashboard','waf','kb','config','advanced','about'];
+            const t = targets[num - 1];
+            if (t) { navigateTo(t); mobileNavOpen.value = false; }
+          }
         }
       }
     });
