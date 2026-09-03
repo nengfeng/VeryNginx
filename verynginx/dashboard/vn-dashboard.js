@@ -340,7 +340,10 @@
       const o = overview.value || {};
       const kb = shared.kbStatus && shared.kbStatus.value;
       const kbState = (kb && kb.health && kb.health.state) || 'unknown';
-      const mode = (cfg.value && cfg.value.kernel_ip_blocking && cfg.value.kernel_ip_blocking.mode) || 'observe';
+      // Read from kbStatus (live) not cfg (draft). cfg may contain an unsaved
+      // change while the running system still reflects the previous mode —
+      // only configured.mode tracks the actual enforced behaviour.
+      const mode = (kb && kb.configured && kb.configured.mode) || 'observe';
       if (kbState === 'unreachable') {
         return { level: 'err', text: '内核封禁 Helper 无法连接，内核层拦截已停摆（应用层拦截仍生效）。请到 系统 → 内核封禁 查看 Helper 状态。' };
       }
@@ -366,7 +369,7 @@
       }
       const modeNote = mode === 'enforce'
         ? '拦截规则已生效'
-        : '当前为 observe 观察模式，规则只记录不拦截（可在 配置 → 系统 中切换）';
+        : '当前为 observe 观察模式，规则只记录不拦截（可到 系统 → 内核封禁 切换）';
       return { level: 'ok', text: '系统运行正常：' + modeNote + '，过去一小时无攻击峰值。' };
     });
 
