@@ -204,7 +204,6 @@
               else throw new Error(r.message || '恢复失败');
               await loadFingerprints();
             });
-            showToast('指纹已删除', 'success');
           }
           await loadFingerprints();
         }

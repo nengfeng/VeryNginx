@@ -421,11 +421,18 @@
     // 登录成功后若为首次访问则弹出引导
     let _introTriggered = false;
     watch(() => store.loggedIn, (v) => {
-      if (v && !_introTriggered) {
-        _introTriggered = true;
-        try {
-          if (!localStorage.getItem('vn_seen_intro')) startIntro();
-        } catch(e) {}
+      if (v) {
+        // Start nowTick ticker so "最后更新" label stays fresh.
+        _startNowTick();
+        // Fire intro tour on first login only.
+        if (!_introTriggered) {
+          _introTriggered = true;
+          try {
+            if (!localStorage.getItem('vn_seen_intro')) startIntro();
+          } catch(e) {}
+        }
+      } else {
+        _stopNowTick();
       }
     });
 
@@ -647,7 +654,11 @@
     view('autoRefreshPaused', autoRefreshPaused);
     const lastUpdated = {};
     const nowTick = ref(Date.now());
-    setInterval(() => { nowTick.value = Date.now(); }, 1000);
+    // nowTick drives the "最后更新 X 秒前" label. Run only while logged in so
+    // the interval is killed on logout (consistent with registerPoll semantics).
+    let _nowTickTimer = null;
+    function _startNowTick() { if (_nowTickTimer) return; _nowTickTimer = setInterval(() => { nowTick.value = Date.now(); }, 1000); }
+    function _stopNowTick() { if (!_nowTickTimer) return; clearInterval(_nowTickTimer); _nowTickTimer = null; }
     const lastRefreshLabel = computed(() => {
         let newest = 0;
         for (const t of Object.values(lastUpdated)) { if (t > newest) newest = t; }
@@ -1038,6 +1049,8 @@
       auditFilterAction.value = '';
       auditFilterSince.value = '';
       auditFilterUntil.value = '';
+      // Stop the nowTick ticker so it doesn't keep firing after logout.
+      _stopNowTick();
       // Sticky error toasts from the old session must not linger on the
       // login page of the next one.
       for (const t of toasts.value) { if (t.timer) clearTimeout(t.timer); }
