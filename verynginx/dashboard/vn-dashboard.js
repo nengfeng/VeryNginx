@@ -379,8 +379,12 @@
       }
       // global_mode drives the live behaviour note; disabled is a distinct
       // state (kernel blocks entirely off) and should not be conflated with observe.
-      if (globalMode === 'disabled') {
-        return { level: 'warn', text: '内核封禁已关闭（enabled=false），kernel 层无任何拦截。应用层 WAF 仍在工作。可到 系统 → 内核封禁 重新启用。' };
+      // Note: disabled is the DEFAULT for fresh installs (helper is optional).
+      // Show as 'ok' to avoid permanent yellow bar → alert fatigue. Skip the
+      // first paint when kbState is still 'unknown' (API hasn't responded yet)
+      // to prevent a flash of the warning before data arrives.
+      if (globalMode === 'disabled' && kbState !== 'unknown') {
+        return { level: 'ok', text: '内核封禁未启用，当前仅应用层 WAF 生效。可在 系统 → 内核封禁 开启。' };
       }
       const modeNote = globalMode === 'enforce'
         ? '拦截规则已生效'
