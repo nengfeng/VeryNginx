@@ -213,9 +213,11 @@
         1
       );
       const w = 100 / (samples.length - 1);
+      // 5% top/bottom margin: y = 5 + (1 - v/max) * 90 (same convention as
+      // wafTrendSpark in vn-dashboard.js). v=0 → 95 (bottom), v=max → 5 (top).
       const toPts = (key) => samples.map((s, i) => {
         const v = s[key] || 0;
-        return `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`;
+        return `${(i * w).toFixed(1)},${(5 + (1 - v / max) * 90).toFixed(1)}`;
       }).join(' ');
       const labels = samples.map(s => {
         const d = new Date(s.t * 1000);
@@ -224,23 +226,26 @@
       return { enforce: toPts('enforce_tokens'), observe: toPts('observe_tokens'), max, labels };
     });
 
+    // Fill anchors at y=95 (bottom of viewBox with 5% margin) so the gradient
+    // reaches the chart floor without extending beyond it.
     const kbTrendFillEnforce = computed(() => {
       const p = kbTrendPoints.value;
       if (!p.enforce) return '';
-      return `0,100 ${p.enforce} 100,100`;
+      return `0,95 ${p.enforce} 100,95`;
     });
     const kbTrendFillObserve = computed(() => {
       const p = kbTrendPoints.value;
       if (!p.observe) return '';
-      return `0,100 ${p.observe} 100,100`;
+      return `0,95 ${p.observe} 100,95`;
     });
 
+    // 5% top/bottom margin for connection trend chart.
     const connLinePoints = computed(() => {
       const pts = connHistory.value;
       if (pts.length < 2) return '';
       const max = Math.max(...pts, 1);
       const w = 100 / (pts.length - 1);
-      return pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
+      return pts.map((v, i) => `${(i * w).toFixed(1)},${(5 + (1 - v / max) * 90).toFixed(1)}`).join(' ');
     });
 
     const connFillPoints = computed(() => {
@@ -248,8 +253,8 @@
       if (pts.length < 2) return '';
       const max = Math.max(...pts, 1);
       const w = 100 / (pts.length - 1);
-      const line = pts.map((v, i) => `${(i * w).toFixed(1)},${(100 - (v / max) * 100).toFixed(1)}`).join(' ');
-      return `0,100 ` + line + ` 100,100`;
+      const line = pts.map((v, i) => `${(i * w).toFixed(1)},${(5 + (1 - v / max) * 90).toFixed(1)}`).join(' ');
+      return `0,95 ` + line + ` 100,95`;
     });
 
 
