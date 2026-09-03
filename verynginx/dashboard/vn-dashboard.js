@@ -340,7 +340,7 @@
       const o = overview.value || {};
       const kb = shared.kbStatus && shared.kbStatus.value;
       const kbState = (kb && kb.health && kb.health.state) || 'unknown';
-      const mode = (cfg.value && cfg.value.mode) || 'observe';
+      const mode = (cfg.value && cfg.value.kernel_ip_blocking && cfg.value.kernel_ip_blocking.mode) || 'observe';
       if (kbState === 'unreachable') {
         return { level: 'err', text: '内核封禁 Helper 无法连接，内核层拦截已停摆（应用层拦截仍生效）。请到 系统 → 内核封禁 查看 Helper 状态。' };
       }
