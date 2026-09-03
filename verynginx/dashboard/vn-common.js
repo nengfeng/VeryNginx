@@ -476,6 +476,9 @@
     view('cmdSelect', (action) => { action(); cmdPaletteOpen.value = false; });
     const cmdIdx = ref(0);
     view('cmdIdx', cmdIdx);
+    // Watch cmdQuery: reset idx so filtered results always start at top.
+    watch(cmdQuery, () => { cmdIdx.value = 0; });
+
     // Cmd palette keyboard nav: ↑↓ arrows, Enter, Escape
     window.addEventListener('keydown', (e) => {
       if (!cmdPaletteOpen.value) return;
@@ -487,10 +490,11 @@
 
     // Keyboard shortcuts reference list for the help modal
     const KB_SHORTCUTS = [
-      ['Ctrl+K', '打开命令面板'],
+      ['⌘K', '打开命令面板'],
       ['?', '显示快捷键帮助'],
       ['Esc', '关闭弹窗/面板'],
-      ['1-5', '跳转到对应主导航项'],
+      ['1-5', '跳转到主导航项（仪表盘/WAF/内核封禁/配置/高级）'],
+      ['⌘D', '切换深色/浅色主题'],
     ];
     view('KB_SHORTCUTS', KB_SHORTCUTS);
 
@@ -511,6 +515,25 @@
         if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
           e.preventDefault();
           kbShortcutsOpen.value = !kbShortcutsOpen.value;
+        }
+      }
+      // Ctrl/Cmd+D → toggle theme
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        toggleTheme();
+      }
+      // Plain 1-5 → jump to top-level nav (only when not typing in an input,
+      // palette/help not open, and no modal blocking).
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !cmdPaletteOpen.value && !kbShortcutsOpen.value) {
+        const tag = document.activeElement && document.activeElement.tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+          const num = parseInt(e.key, 10);
+          if (num >= 1 && num <= 5) {
+            e.preventDefault();
+            const targets = ['dashboard','waf','kb','config','advanced'];
+            const t = targets[num - 1];
+            if (t) { navigateTo(t); mobileNavOpen.value = false; }
+          }
         }
       }
     });
