@@ -330,7 +330,9 @@
       // Reserve 5% margin at top and bottom so the polyline stroke (which
       // extends ~half its width beyond the point coords) is not clipped at the
       // viewBox edges when all values are equal or at the maximum.
-      return pts.map((v, i) => `${(i * w).toFixed(1)},${(5 + ((100 - v / max * 90))).toFixed(1)}`).join(' ');
+      // 5% top margin, 5% bottom margin: y = 5 + (1 - v/max) * 90
+      // = 95 - v/max * 90, so v=0 → y=95 (bottom), v=max → y=5 (top).
+      return pts.map((v, i) => `${(i * w).toFixed(1)},${(5 + (1 - v / max) * 90).toFixed(1)}`).join(' ');
     });
 
     const hasWafTrend = computed(() => {
