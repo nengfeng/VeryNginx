@@ -941,15 +941,20 @@
         }
       }
       const sortKeys = [];
-      const tools = reactive({ state, rows, sortBy, sortKeys, _bound: false });
-      _allTools.push(tools);
-      return tools;
+      // MUST be reactive(): template ref-unwrapping is SHALLOW — a computed
+      // inside a PLAIN returned object stays a ref, so v-for="r in t.rows"
+      // iterates the ref instance itself and any r.id access throws,
+      // white-screening the subtree (proxyRefs unwraps only setup() top-level
+      // or reactive() members). reactive() unwraps `rows` to the array.
+      // Consequence for script code: read `.rows` DIRECTLY (no .value).
+      return reactive({ state, rows, sortBy, sortKeys });
     }
     ctx('createTableTools', createTableTools);
     // Global delegated listener for sortable-table keyboard interaction.
-    // Lazy-binds: on first keystroke against a table, finds the unbound
-    // factory tools, populates its sortKeys from the DOM, and attaches it
-    // to table.__vnTools so Enter/Space sorting works immediately.
+    // Arrow keys need sortKeys populated; Enter/Space delegates to the
+    // existing @click handler (th.click()) which already has the correct
+    // tools reference via Vue's template closure. This avoids any
+    // table↔tools mapping issues.
     if (typeof document !== 'undefined') {
       document.addEventListener('keydown', (e) => {
         if (!e.target || !e.target.closest) return;
@@ -959,36 +964,22 @@
         if (!col) return;
         const table = th.closest('table');
         if (!table) return;
-        let tools = table.__vnTools;
-        // Lazy-bind: if no tools yet, or only a stub (no sortBy), find the
-        // unbound factory tools and bind it to this table.
-        if (!tools || typeof tools.sortBy !== 'function') {
-          // Find an unbound factory tools instance.
-          const factoryTools = _allTools.find(t => t._bound === false);
-          if (factoryTools) {
-            // Populate its sortKeys from the DOM.
-            for (const t of table.querySelectorAll('th.sortable[tabindex="0"]')) {
-              const k = t.getAttribute('data-sort-col');
-              if (k && !factoryTools.sortKeys.includes(k)) factoryTools.sortKeys.push(k);
-            }
-            factoryTools._bound = true;
-            table.__vnTools = factoryTools;
-            tools = factoryTools;
-          } else {
-            // Fallback stub (should not happen if factory ran).
-            tools = { sortKeys: [] };
-            for (const t of table.querySelectorAll('th.sortable[tabindex="0"]')) {
-              const k = t.getAttribute('data-sort-col');
-              if (k && !tools.sortKeys.includes(k)) tools.sortKeys.push(k);
-            }
-            table.__vnTools = tools;
+        // Lazy-populate sortKeys for Arrow navigation on first keystroke.
+        if (!table.__vnTools) {
+          const keys = [];
+          for (const t of table.querySelectorAll('th.sortable[tabindex="0"]')) {
+            const k = t.getAttribute('data-sort-col');
+            if (k && !keys.includes(k)) keys.push(k);
           }
+          table.__vnTools = { sortKeys: keys };
         }
-        const keys = tools.sortKeys || [];
+        const keys = table.__vnTools.sortKeys || [];
         const idx = keys.indexOf(col);
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (typeof tools.sortBy === 'function') tools.sortBy(col);
+          // Delegate to the template @click handler which has the correct
+          // tools bound via closure — no mapping ambiguity.
+          th.click();
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
           const next = keys[(idx + 1) % Math.max(keys.length, 1)];
