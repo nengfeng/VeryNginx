@@ -155,7 +155,8 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
   .group-subnav a{padding:6px 12px;font-size:12px}
   #main{padding:12px}
   .grid-2,.grid-3{grid-template-columns:1fr}
-  #main table th,#main table td{white-space:nowrap}
+   #main table th,#main table td{white-space:nowrap}
+   #main table{display:block;overflow-x:auto}
   .stat-card .stat-value{font-size:24px}
   .cmd-palette{width:95%;max-width:none}
 }
