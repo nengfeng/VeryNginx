@@ -390,10 +390,20 @@
       if (globalMode === 'disabled' && kbState !== 'unknown') {
         return { level: 'ok', text: '内核封禁未启用，当前仅应用层 WAF 生效。可在 系统 → 内核封禁 开启。' };
       }
-      const modeNote = globalMode === 'enforce'
-        ? '拦截规则已生效'
-        : '当前为 observe 观察模式，规则只记录不拦截（可到 系统 → 内核封禁 切换）';
-      return { level: 'ok', text: '系统运行正常：' + modeNote + '，过去一小时无攻击峰值。' };
+      // Application-layer WAF mode (cfg.mode), separate from kernel blocking.
+      const wafMode = (cfg.value && cfg.value.mode) || 'enforce';
+      const wafNote = wafMode === 'enforce'
+        ? '应用层 WAF 拦截已生效'
+        : '应用层 WAF 当前为观察模式（只记录不拦截，可在 配置 → 系统 切换）';
+      // Kernel mode note (only shown when not disabled)
+      const kernelNote = globalMode === 'enforce'
+        ? '内核封禁已生效'
+        : '内核封禁为观察模式（可到 系统 → 内核封禁 切换）';
+      if (kbState === 'unknown') {
+        // API not yet responded — only show WAF mode to avoid stale kernel text
+        return { level: 'ok', text: '系统运行正常：' + wafNote + '，过去一小时无攻击峰值。' };
+      }
+      return { level: 'ok', text: '系统运行正常：' + wafNote + '；' + kernelNote + '，过去一小时无攻击峰值。' };
     });
 
 
