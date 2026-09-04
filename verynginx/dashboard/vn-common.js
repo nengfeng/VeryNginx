@@ -975,6 +975,7 @@
     // Reads table.__vnTools set by _bindTableTools on each DOM tick.
     if (typeof document !== 'undefined') {
       document.addEventListener('keydown', (e) => {
+        if (!e.target || !e.target.closest) return;
         const th = e.target.closest('th.sortable[tabindex="0"]');
         if (!th) return;
         const col = th.getAttribute('data-sort-col');
