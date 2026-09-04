@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vndashboard'] = function createvndashboardModule(shared) {
-        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, sessionExpiredNotice, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls, asList } = shared;
+        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, sessionExpiredNotice, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls, refreshPollActivePages, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -186,21 +186,25 @@
         active: () => page.value === 'dashboard' && dashTab.value === 'status',
         interval: 3000,
         load: loadStatus,
+        pages: ['dashboard'],
     });
     registerPoll('overview', {
         active: () => page.value === 'dashboard' && dashTab.value === 'overview',
         interval: 5000,
         load: loadOverview,
+        pages: ['dashboard'],
     });
     registerPoll('wafTrend', {
         active: () => page.value === 'dashboard' && dashTab.value === 'overview',
         interval: 30000,
         load: loadWafTrend,
+        pages: ['dashboard'],
     });
     registerPoll('health', {
         active: () => page.value === 'config' && cfgTab.value === 'upstreams',
         interval: 10000,
         load: loadHealth,
+        pages: ['config'],
     });
 
     // Single reconciler: page/dashTab/cfgTab navigation starts/stops pollers.
@@ -249,6 +253,7 @@
         loadVersion();
         loadConfig();
         syncPolls();
+        refreshPollActivePages();
         // Hash routing may have restored a non-default view before mount; its
         // page-change watchers never fired, so run the per-page loaders once.
         if (shared.navigateTo) await shared.navigateTo(shared.page.value);
@@ -569,8 +574,9 @@
           await refreshCsrf();
           loadVersion();
           loadConfig();
-          syncPolls();
-          // Same as the restore path: land on the hash-restored view with data.
+           syncPolls();
+           refreshPollActivePages();
+           // Same as the restore path: land on the hash-restored view with data.
           if (shared.navigateTo) await shared.navigateTo(shared.page.value);
         } else {
           loginError.value = LOGIN_ERROR_MAP[d.message] || d.message || '登录失败';

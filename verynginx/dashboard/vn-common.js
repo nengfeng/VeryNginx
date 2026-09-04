@@ -687,14 +687,16 @@
     const pollActivePages = ref([]);
     view('pollActivePages', pollActivePages);
     function refreshPollActivePages() {
-        const result = [];
-        for (const [name, p] of polls) {
-            if (p.timer !== null && p.active()) {
-                result.push('dashboard');
-                if (name === 'health') result.push('config');
+        // Use declared pages from poll specs — no dependence on timer state,
+        // no hard-coding of poll names. Returns a stable set so the badge
+        // stays visible as long as the user is on a page that has pollers.
+        const result = new Set();
+        for (const [, p] of polls) {
+            if (p.timer !== null) {
+                for (const pg of p.pages) result.add(pg);
             }
         }
-        pollActivePages.value = [...new Set(result)];
+        pollActivePages.value = [...result];
     }
     // Re-evaluate whenever the nowTick tickers fire (1s interval) or polls change state.
     // Watch page/dashTab/cfgTab so navigation instantly updates the badge visibility.
@@ -724,6 +726,10 @@
             interval: spec.interval,
             load: spec.load,
             timer: null,
+            // Declared pages this poller covers. Used by refreshPollActivePages
+            // so the badge knows which page to show on without depending on
+            // timer state or hard-coded name checks.
+            pages: spec.pages || [],
         });
     }
 
@@ -770,6 +776,7 @@
     ctx('registerPoll', registerPoll);
     ctx('syncPolls', syncPolls);
     ctx('stopAllPolls', stopAllPolls);
+    ctx('refreshPollActivePages', refreshPollActivePages);
 
     // ---- Global navigation ----
     // Central navigation handler — all topnav links use this.
