@@ -41,8 +41,8 @@ function _M.on_access(ctx)
     -- for the LITERAL string "%.%." (plain=true disables pattern syntax) and
     -- never matched an actual "..", silently disabling this guard.
     if static_path:find("..", 1, true) or static_path:find("\0", 1, true) then
-        ngx.status = 403
-        return ngx.exit(403)
+        ctx.set_action(ctx, "block", { code = 403, response = "Forbidden" })
+        return
     end
 
     if static_path == "" or static_path == "/" then
