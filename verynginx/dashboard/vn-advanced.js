@@ -19,7 +19,7 @@
       const tok = gAudit.mark();
       auditError.value = '';
       try {
-        let url = '/verynginx/audit?limit=500';
+        let url = '/verynginx/audit?limit=' + shared.AUDIT_LIMIT;
         if (auditFilterUser.value) url += '&user=' + encodeURIComponent(auditFilterUser.value);
         if (auditFilterAction.value) url += '&action=' + encodeURIComponent(auditFilterAction.value);
         if (auditFilterSince.value) {

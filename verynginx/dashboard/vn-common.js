@@ -654,6 +654,11 @@
     ctx('csrfToken', () => csrfToken); // getter for current token
     ctx('clearCsrf', () => { csrfToken = null; });
 
+    // Audit ring buffer size — must match core/audit.lua RING_SIZE (1000).
+    // Used by vn-advanced.js and vn-kb.js for the audit API limit.
+    const AUDIT_LIMIT = 1000;
+    ctx('AUDIT_LIMIT', AUDIT_LIMIT);
+
     // ---- Polling registry ----
     // Refresh transparency: pause switch + per-poll last-run timestamps. The
     // badge computes "最后更新 N 秒前" from the newest stamp; a 1s ticker

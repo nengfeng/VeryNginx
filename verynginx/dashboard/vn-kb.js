@@ -347,12 +347,12 @@
     async function loadKbTimeline() {
       const tok = gKbTimeline.mark();
       try {
-        let url = '/verynginx/audit?limit=300';
+        let url = '/verynginx/audit?limit=' + shared.AUDIT_LIMIT;
         if (kbTimelineFilter.value) {
-          // Specific action filter - exact match on server (full ring scan)
+          // Specific action filter - exact match on server
           url += '&action=kernel_blocking.' + encodeURIComponent(kbTimelineFilter.value);
         } else {
-          // No filter: prefix match to get ALL kernel_blocking events from full ring (1000)
+          // No filter: prefix match to get all kernel_blocking events within ring
           url += '&action_prefix=kernel_blocking';
         }
         const d = await api('GET', url);
