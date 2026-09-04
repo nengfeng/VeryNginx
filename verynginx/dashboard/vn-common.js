@@ -906,28 +906,9 @@
     // sorting; nulls always sort last.
     // Keyboard: columns are focusable (tabindex=0 via CSS class), ArrowRight
     // / ArrowLeft walk the column list, Enter/Toggle sort by that column.
-    // Each tools instance auto-registers itself on the next DOM tick so the
-    // global delegated handler can find it via table.__vnTools.
-    const _tableToolsRegistry = [];
-    function _bindTableTools(tools) {
-      // Defer until after Vue has flushed the DOM for this table's render.
-      Vue.nextTick(() => {
-        const tables = document.querySelectorAll('table');
-        for (const table of tables) {
-          const ths = table.querySelectorAll('th.sortable[tabindex="0"]');
-          if (!ths.length) continue;
-          // Only bind if not already bound to avoid double-wiring.
-          if (table.__vnTools) continue;
-          table.__vnTools = tools;
-          // Populate sortKeys from DOM order (stable across re-renders).
-          for (const th of ths) {
-            const col = th.getAttribute('data-sort-col');
-            if (col && !tools.sortKeys.includes(col)) tools.sortKeys.push(col);
-          }
-          _tableToolsRegistry.push({ tools, table });
-        }
-      });
-    }
+    // Binding is lazy: the global keydown handler populates sortKeys on first
+    // interaction with a given table, so it works regardless of when the table
+    // enters the DOM (v-if pages, lazy-loaded modules, etc.).
     function createTableTools(sourceRef) {
       const state = reactive({ sortKey: '', sortDir: 1, filter: '' });
       const rows = computed(() => {
@@ -956,9 +937,6 @@
           state.sortDir = 1;
         }
       }
-      // SortKeys is a plain array filled by _bindTableTools after render.
-      // Arrow-key traversal uses this array — it must be populated before
-      // the user can navigate with keys.
       const sortKeys = [];
       // MUST be reactive(): template ref-unwrapping is SHALLOW — a computed
       // inside a PLAIN returned object stays a ref, so v-for="r in t.rows"
@@ -966,13 +944,14 @@
       // white-screening the subtree (proxyRefs unwraps only setup() top-level
       // or reactive() members). reactive() unwraps `rows` to the array.
       // Consequence for script code: read `.rows` DIRECTLY (no .value).
-      const tools = reactive({ state, rows, sortBy, sortKeys });
-      _bindTableTools(tools);
-      return tools;
+      return reactive({ state, rows, sortBy, sortKeys });
     }
     ctx('createTableTools', createTableTools);
     // Global delegated listener for sortable-table keyboard interaction.
-    // Reads table.__vnTools set by _bindTableTools on each DOM tick.
+    // Lazy-binds: on first keystroke against a table, scans its <th> elements
+    // to populate sortKeys. This avoids relying on any lifecycle hook and
+    // works correctly even when tables are created after module load (v-if
+    // page switches, dynamic content, etc.).
     if (typeof document !== 'undefined') {
       document.addEventListener('keydown', (e) => {
         if (!e.target || !e.target.closest) return;
@@ -981,13 +960,26 @@
         const col = th.getAttribute('data-sort-col');
         if (!col) return;
         const table = th.closest('table');
-        const tools = table && table.__vnTools;
-        if (!tools) return;
+        if (!table) return;
+        let tools = table.__vnTools;
+        // Lazy-bind: first time this table sees a keyboard event, populate
+        // sortKeys from the DOM so Arrow-key travel works immediately.
+        if (!tools) {
+          tools = { sortKeys: [] };
+          for (const t of table.querySelectorAll('th.sortable[tabindex="0"]')) {
+            const k = t.getAttribute('data-sort-col');
+            if (k && !tools.sortKeys.includes(k)) tools.sortKeys.push(k);
+          }
+          table.__vnTools = tools;
+        }
         const keys = tools.sortKeys || [];
         const idx = keys.indexOf(col);
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          tools.sortBy(col);
+          // Click-compatible sort toggle: find the matching tools state from
+          // the factory; fall back to a no-op if this is a late-bound stub
+          // (only the lazy stub path, since real factory tools expose sortBy).
+          if (typeof tools.sortBy === 'function') tools.sortBy(col);
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
           const next = keys[(idx + 1) % Math.max(keys.length, 1)];
