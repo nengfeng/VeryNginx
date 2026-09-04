@@ -1119,9 +1119,8 @@
               if (overlay) {
                 overlay.removeEventListener('input', entry.handlers.input);
                 overlay.removeEventListener('change', entry.handlers.change);
-        }
-        refreshPollActivePages();
-    }
+              }
+            }
             try {
               if (entry.prevFocus && document.body.contains(entry.prevFocus)) entry.prevFocus.focus();
             } catch (_) { /* detached element */ }
