@@ -673,6 +673,25 @@
         return sec < 5 ? '刚刚更新' : '最后更新 ' + sec + ' 秒前';
     });
     view('lastRefreshLabel', lastRefreshLabel);
+    // Pages where an active poller exists — badge only shown when the current
+    // page is one of these. Without this guard, the badge would display a
+    // stale "last updated N seconds ago" on pages (waf, kb, advanced, etc.)
+    // that have no live auto-refresh at all.
+    const pollActivePages = ref([]);
+    view('pollActivePages', pollActivePages);
+    function refreshPollActivePages() {
+        const result = [];
+        for (const [name, p] of polls) {
+            if (p.timer !== null && p.active()) {
+                result.push('dashboard');
+                if (name === 'health') result.push('config');
+            }
+        }
+        pollActivePages.value = [...new Set(result)];
+    }
+    // Re-evaluate whenever the nowTick tickers fire (1s interval) or polls change state.
+    // Watch page/dashTab/cfgTab so navigation instantly updates the badge visibility.
+    watch([page, dashTab, cfgTab], refreshPollActivePages);
     function toggleAutoRefresh() {
         autoRefreshPaused.value = !autoRefreshPaused.value;
         syncPolls();

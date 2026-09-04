@@ -95,7 +95,7 @@
         <a :class="{active:groupPage==='about'}" @click="navigateTo('about');mobileNavOpen=false">关于</a>
       </nav>
       <div class="user-area">
-        <span v-if="lastRefreshLabel" class="refresh-badge" :title="autoRefreshPaused ? '自动刷新已暂停' : '自动刷新运行中'">
+        <span v-if="lastRefreshLabel && pollActivePages.includes(page)" class="refresh-badge" :title="autoRefreshPaused ? '自动刷新已暂停' : '自动刷新运行中'">
           {{ autoRefreshPaused ? '⏸ 刷新已暂停' : lastRefreshLabel }}
           <a style="cursor:pointer;margin-left:6px" @click="toggleAutoRefresh">{{ autoRefreshPaused ? '恢复' : '暂停' }}</a>
         </span>
