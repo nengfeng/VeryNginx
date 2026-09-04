@@ -14,6 +14,10 @@
     // ---- Audit State ----
     const auditEntries = ref([]);
     const auditError = ref('');
+    // Pagination: the server ring holds up to AUDIT_LIMIT entries; we fetch all
+    // of them and paginate client-side so the UI stays responsive at 1000 rows.
+    const auditPage = ref(1);
+    const AUDIT_PAGE_SIZE = 50;
 
     async function loadAudit() {
       const tok = gAudit.mark();
@@ -260,6 +264,22 @@
     view('auditEntries', auditEntries);
     const auditTbl = shared.createTableTools(auditEntries);
     view('auditTbl', auditTbl);
+    // Pagination computed defined AFTER auditTbl so it can reference auditTbl.rows.
+    const auditPagedRows = computed(() => {
+      const rows = auditTbl.rows || [];
+      const list = Array.isArray(rows) ? rows : [];
+      const start = (auditPage.value - 1) * AUDIT_PAGE_SIZE;
+      return list.slice(start, start + AUDIT_PAGE_SIZE);
+    });
+    const auditTotalPages = computed(() => {
+      const rows = auditTbl.rows || [];
+      const list = Array.isArray(rows) ? rows : [];
+      return Math.max(1, Math.ceil(list.length / AUDIT_PAGE_SIZE));
+    });
+    view('auditPage', auditPage);
+    view('auditTotalPages', auditTotalPages);
+    view('auditPagedRows', auditPagedRows);
+    view('AUDIT_PAGE_SIZE', AUDIT_PAGE_SIZE);
     view('auditError', auditError);
     view('loadAudit', loadAudit);
     view('clearAuditFilters', clearAuditFilters);

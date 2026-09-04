@@ -1490,32 +1490,39 @@
             </div>
             <button class="outline small" @click="clearAuditFilters">清除筛选</button>
            </div>
-        <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
-        <div style="font-size:13px;color:#6b7280;margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
-        <input v-model="auditTbl.state.filter" class="tbl-filter" placeholder="过滤当前页记录（用户/操作/IP/详情…）">
-        <div style="overflow-x:auto">
-          <table>
-            <thead><tr>
-              <th class="sortable" tabindex="0" data-sort-col="time" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-              <th class="sortable" tabindex="0" data-sort-col="user" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-              <th class="sortable" tabindex="0" data-sort-col="action" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-              <th>详情</th>
-            </tr></thead>
-            <tbody>
-              <tr v-for="(e, i) in auditTbl.rows" :key="(e.time||'') + '|' + (e.action||'') + '|' + (e.user||'') + '|' + (e.ip||'') + '|' + i">
-                <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
-                <td><code>{{ e.user }}</code></td>
-                <td><span class="tag" :class="auditActionClass(e.action)">{{ e.action }}</span></td>
-                <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.detail }}</td>
-              </tr>
-            </tbody>
-          </table>
-           <div v-if="!auditEntries.length" class="empty">
-             <div>无审计记录。</div>
-             <div style="font-size:12px;color:var(--muted);margin-top:6px">审计日志记录管理员操作（配置修改、规则增删、封禁变更等）。当您开始进行配置操作后，这里会显示操作历史。</div>
+         <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
+         <div style="font-size:13px;color:#6b7280;margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
+         <input v-model="auditTbl.state.filter" class="tbl-filter" placeholder="过滤当前页记录（用户/操作/IP/详情…）">
+         <div style="overflow-x:auto">
+           <table>
+             <thead><tr>
+               <th class="sortable" tabindex="0" data-sort-col="time" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="user" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="action" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th>详情</th>
+             </tr></thead>
+             <tbody>
+               <tr v-for="(e, i) in auditPagedRows" :key="(e.time||'') + '|' + (e.action||'') + '|' + (e.user||'') + '|' + (e.ip||'') + '|' + i">
+                 <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
+                 <td><code>{{ e.user }}</code></td>
+                 <td><span class="tag" :class="auditActionClass(e.action)">{{ e.action }}</span></td>
+                 <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.detail }}</td>
+               </tr>
+             </tbody>
+           </table>
+            <div v-if="!auditEntries.length" class="empty">
+              <div>无审计记录。</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px">审计日志记录管理员操作（配置修改、规则增删、封禁变更等）。当您开始进行配置操作后，这里会显示操作历史。</div>
+            </div>
+            <div v-else-if="!auditPagedRows.length" class="empty">无匹配当前过滤。</div>
+         </div>
+         <div v-if="auditTotalPages > 1" class="flex flex-between mt-8">
+           <span style="font-size:13px;color:var(--muted)">第 {{ auditPage }} / {{ auditTotalPages }} 页（每页 {{ AUDIT_PAGE_SIZE }} 条）</span>
+           <div class="flex gap-4">
+             <button class="outline small" :disabled="auditPage<=1" @click="auditPage=auditPage-1">上一页</button>
+             <button class="outline small" :disabled="auditPage>=auditTotalPages" @click="auditPage=auditPage+1">下一页</button>
            </div>
-           <div v-else-if="!auditTbl.rows.length" class="empty">无匹配当前过滤。</div>
-        </div>
+         </div>
       </div>
 
       <!-- About -->
