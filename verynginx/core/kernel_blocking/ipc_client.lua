@@ -245,7 +245,7 @@ function _M.request(operation, source, payload)
             return nil, err
         end
 
-        local request_id = random.bytes(16)
+        local request_id = random.hex(16)
         local framed, encode_err = proto.encode_request(request_id, operation, source, payload)
         if not framed then
             close_socket_no_backoff()  -- invalid request framing = protocol error
