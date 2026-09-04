@@ -273,8 +273,8 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 
 	-- Success: desired_state + state machine installed
 	evidence_tbl.result = (plan.reason == "stepped_renewal") and "renewed" or "promoted"
-	local ok_ds, err_ds = pcall(function()
-		desired.set_desired(ip, family, "scanner_drop", evidence_tbl, ttl, {
+	local ok_ds, ds_ok, ds_err = pcall(function()
+		return desired.set_desired(ip, family, "scanner_drop", evidence_tbl, ttl, {
 			source = "automatic",
 			policy = "scanner",
 			reason = plan.reason,
@@ -283,9 +283,12 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 			ttl_tier = plan.tier,
 		})
 	end)
-	if not ok_ds then
+	if not ok_ds or not ds_ok then
 		ngx.log(ngx.ERR, "kernel_blocking: desired.set_desired failed for scanner ", ip,
-			": ", tostring(err_ds))
+			": ", tostring(ds_err or err_ds))
+		-- Compensate: roll back executor add
+		pcall(function() exec.delete("scanner_drop", family, ip) end)
+		return false
 	end
 	-- scanner supersedes cc desired entry
 	local ok_rm, err_rm = pcall(function() desired.remove_desired(ip, family, "cc_drop") end)
@@ -540,8 +543,8 @@ local function enforce_promote_cc(ip, violation_count)
 
 	-- Success: desired_state + installed
 	ev_tbl.result = (plan.reason == "stepped_renewal") and "renewed" or "promoted"
-	local ok_ds, err_ds = pcall(function()
-		desired.set_desired(ip, family, "cc_drop", ev_tbl, ttl, {
+	local ok_ds, ds_ok, ds_err = pcall(function()
+		return desired.set_desired(ip, family, "cc_drop", ev_tbl, ttl, {
 			source = "automatic",
 			policy = "cc",
 			reason = plan.reason,
@@ -550,9 +553,12 @@ local function enforce_promote_cc(ip, violation_count)
 			ttl_tier = plan.tier,
 		})
 	end)
-	if not ok_ds then
+	if not ok_ds or not ds_ok then
 		ngx.log(ngx.ERR, "kernel_blocking: desired.set_desired failed for CC ", ip,
-			": ", tostring(err_ds))
+			": ", tostring(ds_err or err_ds))
+		-- Compensate: roll back executor add
+		pcall(function() exec.delete("cc_drop", family, ip) end)
+		return false
 	end
 	sm.upsert(ip, "cc", "installed", ev_tbl, {
 		list = "cc_drop",
