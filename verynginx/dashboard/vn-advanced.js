@@ -22,6 +22,7 @@
     async function loadAudit() {
       const tok = gAudit.mark();
       auditError.value = '';
+      auditPage.value = 1;
       try {
         let url = '/verynginx/audit?limit=' + shared.AUDIT_LIMIT;
         if (auditFilterUser.value) url += '&user=' + encodeURIComponent(auditFilterUser.value);
