@@ -447,7 +447,7 @@ window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
 
 | 动作 | 作用域 | 用途 |
 |------|--------|------|
-| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（308 个） |
+| `view('name', value)` | **shared 注册表 + Vue render scope** | 模板实际引用的绑定（349 个） |
 | `ctx('name', value)` | 仅 shared 注册表 | 跨模块内部共享，不进 render scope（如 `loadWafData`、`kbBucketHistory`） |
 
 **为什么分两种**：曾经 302 个导出全堆进 `setup()` 返回的 render scope，模板只需 275 个，其余 27 个纯内部值造成全局命名污染与未来碰撞隐患。现在 view 集合与模板绑定**严格相等**，由 `test/v2/dashboard_bindings.js`（静态提取模板绑定，零依赖）驱动两个 CI gate 校验：
@@ -472,7 +472,7 @@ window.VN.modules['vnadvanced'](shared)
 window.VN.modules['vnkb'](shared)
 ```
 
-最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 308 个绑定）。
+最终 `setup()` 返回 `Object.fromEntries(viewExports)` 供模板使用（仅 view 集合，共 349 个绑定）。
 
 ### 8.3 mount API
 
@@ -492,6 +492,7 @@ registerPoll('health', {
     active: () => page.value === 'config' && cfgTab.value === 'upstreams',
     interval: 10000,
     load: loadHealth,
+    pages: ['config'],   // 声明式：该 poller 覆盖的页面名，供 refreshBadge 判断
 });
 ```
 
@@ -499,13 +500,14 @@ registerPoll('health', {
 - 单一 `watch([page, dashTab, cfgTab], syncPolls)` 接管全部切换；登出走 `stopAllPolls()`；登录/首挂载走 `syncPolls()`（此时谓词已由当前 ref 状态决定）。
 - 新增轮询 = 加一行 `registerPoll`，无需再碰任何 watch；再也不会出现"新页面忘了清旧 timer"的分支遗漏。
 - `registerPoll` 对重名注册会 `console.error` + 记入 `window.VN._dups` 拒绝（由 dashboard_init_check 的 `_dups` 断言覆盖）。
+- **声明式 `pages` 字段**：每个 poller 在 spec 中声明 `pages: ['dashboard']` 或 `pages: ['config']`。`syncPolls()` 结束后自动调用 `refreshPollActivePages()`，读取所有活跃 poller 的 `pages` 汇总，徽章仅在声明过的页面显示。登录成功路径也走同一机制，避免首屏闪烁。
 
 ### 8.3c 共享基础设施（重构沉淀，全部 ctx/单一实现）
 
 | 设施 | 注册 | 用法 |
 |------|------|------|
 | `createStaleGuard()` | ctx | 快速切页时旧响应不得覆盖新状态：`const tok=g.mark(); …; if(!g.isCurrent(tok)) return;`。带 loading 标志的 loader 其 `finally` 也须受 isCurrent 保护（否则迟到旧响应提前熄灭新请求的 spinner） |
-| `createTableTools(ref)` | ctx | 客户端排序/过滤，每表一个 view 绑定 `t`：`v-model="t.state.filter"`、`v-for="r in t.rows"`、`th @click="t.sortBy('col')"`；仅作用于已加载行。**必须返回 `reactive({...})` 而非普通对象**：模板 ref 解包是浅层的（proxyRefs 只作用于 setup 顶层与 reactive 成员），普通对象里的 computed 不解包 → `v-for="r in t.rows"` 遍历 ref 实例自身，读 `r.id` 即抛错、整棵渲染子树白屏（曾致 WAF 面板整页白屏的回归）。脚本侧相应**直读 `.rows`**（无 `.value`）；行计算内置非对象条目过滤 |
+| `createTableTools(ref)` | ctx | 客户端排序/过滤，每表一个 view 绑定 `t`：`v-model="t.state.filter"`、`v-for="r in t.rows"`、`th @click="t.sortBy('col')"`；仅作用于已加载行。**必须返回 `reactive({...})` 而非普通对象**：模板 ref 解包是浅层的，普通对象里的 computed 不解包 → `v-for="r in t.rows"` 遍历 ref 实例自身，读 `r.id` 即抛错、整棵渲染子树白屏（曾致 WAF 面板整页白屏的回归）。脚本侧相应**直读 `.rows`**（无 `.value`）；行计算内置非对象条目过滤。**键盘 a11y**：所有 sortable `<th>` 自动获得 `tabindex="0"`、`:focus-visible` 焦点环；ArrowLeft/Right 在列间移动焦点，Enter/Space 委托 `@click` handler 排序（tools 来自模板闭包，零映射歧义），无需模块写任何 keydown 逻辑。 |
 | `bindModal(modal,{label,onClose,trackInput})` | ctx | Esc 关栈顶 + 打开聚焦首字段 + 关闭还原焦点 + Tab 圈闭；自动跟踪弹窗内 input/change 作脏标记；confirm 类传 `trackInput:false` |
 | `showConfirm` | ctx | **队列化**（FIFO），重入不再覆盖未决 resolve；关闭统一走 `closeConfirm` |
 | `showToast(msg,type,opts)` | ctx | 分级队列（上限5）：success 2.5s/info 3s/warn 6s/error 常驻手动关；`opts={actionLabel,onAction,duration}` 支持"撤销"按钮；连续重复去重；登出清空 |
@@ -513,6 +515,50 @@ registerPoll('health', {
 | hash 路由（app.js） | — | `#/page/tab/subtab`；**page 切换 push、tab 切换 replaceState**（防历史栈膨胀）；写回回声经 refs 等值 no-op 防循环；Node gate 无 location 整段跳过 |
 | `copyText(text)` | view+ctx | Clipboard API + execCommand 兜底 |
 | `runLogoutHooks()` | ctx | doLogout/会话过期(store.loggedIn watcher) 统一触发各模块清理钩子 |
+| `registerPoll(name, {active, interval, load, pages})` | ctx | 中央轮询注册表；`pages` 声明式页面列表，驱动徽章显示与登录首屏同步。 |
+| `refreshPollActivePages()` | ctx | 按活跃 poller 的 `pages` 重算徽章可见页集合；在 `syncPolls()` 末尾自动调用，保证 timer 状态稳定后执行。 |
+| `lastRefreshLabel` + `pollActivePages` | view+ctx | 顶栏刷新徽章。`lastRefreshLabel` 计算"刚刚更新 / 最后更新 N 秒前"；`pollActivePages` 仅在声明了 poller 的页面（dashboard / config）为真，其他页面（waf/kb/advanced 等）不渲染徽章，避免假状态。登录路径在 `syncPolls()` 后显式触发 `refreshPollActivePages()`，解决首屏 page 不变导致 watch 不火的问题。 |
+| 命令面板 (Ctrl+K) | view+ctx | `cmdPaletteOpen`、`cmdQuery`、`cmdFiltered`、`cmdIdx`、`cmdSelect`、`CMD_ACTIONS`、`KB_SHORTCUTS`、`openCmdPalette`、`closeCmdPalette`。`CMD_ACTIONS` 定义所有可搜索动作（含快捷键），支持 ↑↓/Enter 选择、Esc 关闭。 |
+| 快捷键帮助 (?) | view+ctx | `kbShortcutsOpen`、`KB_SHORTCUTS`（含 `←→` 表头导航、`Enter/Space` 排序）。模板渲染 `cmd-keys` 表格。 |
+
+### 8.3d 健康摘要双层模式（应用层 WAF + 内核封禁）
+
+`healthSummary` computed 读取两个独立模式字段：
+
+- **应用层 WAF**：`cfg.value.mode`（`'enforce'` | `'observe'`） → `wafNote`
+- **内核封禁**：`kb.effective.global_mode`（`'disabled'` | `'observe'` | `'enforce'`） → `kernelNote`
+
+两层分离显示，避免交叉误导：
+- 内核 disabled + 应用层 enforce 时，旧代码曾说"拦截规则已生效"（实际内核未拦截）
+- 内核 observe + 应用层 enforce 时，旧代码曾说"观察模式"（实际应用层在拦截）
+- `kbState === 'unknown'`（API 未回）时只显示 WAF 模式，避免首屏闪现错误内核文案
+
+### 8.3e WAF 趋势对比（当前小时 vs 上一小时）
+
+`overview.waf_hits` 与 `wafTrend`（prev/curr/pct/dir）在同一周期内采集：
+- `wafTrendSpark` SVG（viewBox 0 0 100 100，y=0 为顶）绘制 8 根柱，每柱 15 分钟
+- 公式 `5 + (1 - v/max) * 90` 保留 5% 上下 margin，填充锚点 y=95
+- 趋势文案显示"上一小时 X 次 → 本小时 Y 次"，dir 为 up/down/flat 决定颜色
+
+### 8.3f 审计日志客户端分页
+
+后端审计环形缓冲区上限 1000 条（`core/audit.lua RING_SIZE`）。前端：
+- `AUDIT_LIMIT=1000` 统一常量（`vn-common.js`），与后端对齐
+- `AUDIT_PAGE_SIZE=50`，`auditPage` 1-based ref
+- `auditPagedRows` computed：在已排序/过滤的 `auditTbl.rows` 上切片
+- 翻页按钮仅在 `auditTotalPages > 1` 显示
+- 服务端筛选（用户/操作/时间）→ `loadAudit()` → 自动 `auditPage=1`
+- 客户端筛选框（`auditTbl.state.filter`）→ watch 重置 `auditPage=1`
+- 表格行数固定 50，避免 1000 行全渲染导致的布局抖动
+
+### 8.3g 表格键盘可达性
+
+所有 23 处 `<th class="sortable">`：
+- `tabindex="0"` + `data-sort-col="colName"` → 可 Tab 聚焦
+- `:focus-visible` 焦点环（CSS 与 hover 同色）
+- `ArrowLeft/Right` 在列间循环移动焦点（DOM 顺序）
+- `Enter/Space` → `th.click()` 委托模板 `@click="tbl.sortBy(col)"`，tools 来自 Vue 闭包，零映射歧义
+- 逻辑集中在 `vn-common.js` 全局 delegated handler，模块零代码
 
 > **教训**：`onLogout(cb)` 是订阅函数——曾误用 `shared.onLogout()` 无参调用当触发器（恒 no-op）。触发必须走 `runLogoutHooks()`。
 > **教训**：Vue watch 异步 flush，同步置位/复位的 suppress 标志永远不被观察到（confirmSuppressWatch 死标志案例）；循环防护靠「写回后重入等值 no-op」结构保证。
