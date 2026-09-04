@@ -286,6 +286,9 @@
     view('clearAuditFilters', clearAuditFilters);
     view('setAuditSincePreset', setAuditSincePreset);
     view('auditActionClass', auditActionClass);
+    // Reset page to 1 whenever client-side filter changes (the filter box
+    // does not call loadAudit; it only filters the already-fetched rows).
+    watch(() => auditTbl.state.filter, () => { auditPage.value = 1; });
     view('fingerprints', fingerprints);
     view('fpCategories', fpCategories);
     view('fpError', fpError);
