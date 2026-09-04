@@ -253,7 +253,6 @@
         loadVersion();
         loadConfig();
         syncPolls();
-        refreshPollActivePages();
         // Hash routing may have restored a non-default view before mount; its
         // page-change watchers never fired, so run the per-page loaders once.
         if (shared.navigateTo) await shared.navigateTo(shared.page.value);
@@ -575,7 +574,6 @@
           loadVersion();
           loadConfig();
            syncPolls();
-           refreshPollActivePages();
            // Same as the restore path: land on the hash-restored view with data.
           if (shared.navigateTo) await shared.navigateTo(shared.page.value);
         } else {

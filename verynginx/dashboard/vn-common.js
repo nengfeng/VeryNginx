@@ -687,9 +687,7 @@
     const pollActivePages = ref([]);
     view('pollActivePages', pollActivePages);
     function refreshPollActivePages() {
-        // Use declared pages from poll specs — no dependence on timer state,
-        // no hard-coding of poll names. Returns a stable set so the badge
-        // stays visible as long as the user is on a page that has pollers.
+        // Read declared pages from poll specs for active timers.
         const result = new Set();
         for (const [, p] of polls) {
             if (p.timer !== null) {
@@ -698,8 +696,10 @@
         }
         pollActivePages.value = [...result];
     }
-    // Re-evaluate whenever the nowTick tickers fire (1s interval) or polls change state.
-    // Watch page/dashTab/cfgTab so navigation instantly updates the badge visibility.
+    // Re-evaluate on navigation so the badge reflects the current page
+    // regardless of watch-registration order (syncPolls may run before or
+    // after this watcher; calling refreshPollActivePages at the end of
+    // syncPolls is the canonical trigger point).
     watch([page, dashTab, cfgTab], refreshPollActivePages);
     function toggleAutoRefresh() {
         autoRefreshPaused.value = !autoRefreshPaused.value;
@@ -747,6 +747,7 @@
                 poll.timer = null;
             }
         }
+        refreshPollActivePages();
     }
 
     function runPollLoad(poll) {
@@ -1110,8 +1111,9 @@
               if (overlay) {
                 overlay.removeEventListener('input', entry.handlers.input);
                 overlay.removeEventListener('change', entry.handlers.change);
-              }
-            }
+        }
+        refreshPollActivePages();
+    }
             try {
               if (entry.prevFocus && document.body.contains(entry.prevFocus)) entry.prevFocus.focus();
             } catch (_) { /* detached element */ }
