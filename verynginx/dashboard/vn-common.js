@@ -899,8 +899,28 @@
     // sorting; nulls always sort last.
     // Keyboard: columns are focusable (tabindex=0 via CSS class), ArrowRight
     // / ArrowLeft walk the column list, Enter/Toggle sort by that column.
-    // Delegated keydown listener is installed once in this factory so modules
-    // don't have to wire it up individually.
+    // Each tools instance auto-registers itself on the next DOM tick so the
+    // global delegated handler can find it via table.__vnTools.
+    const _tableToolsRegistry = [];
+    function _bindTableTools(tools) {
+      // Defer until after Vue has flushed the DOM for this table's render.
+      Vue.nextTick(() => {
+        const tables = document.querySelectorAll('table');
+        for (const table of tables) {
+          const ths = table.querySelectorAll('th.sortable[tabindex="0"]');
+          if (!ths.length) continue;
+          // Only bind if not already bound to avoid double-wiring.
+          if (table.__vnTools) continue;
+          table.__vnTools = tools;
+          // Populate sortKeys from DOM order (stable across re-renders).
+          for (const th of ths) {
+            const col = th.getAttribute('data-sort-col');
+            if (col && !tools.sortKeys.includes(col)) tools.sortKeys.push(col);
+          }
+          _tableToolsRegistry.push({ tools, table });
+        }
+      });
+    }
     function createTableTools(sourceRef) {
       const state = reactive({ sortKey: '', sortDir: 1, filter: '' });
       const rows = computed(() => {
@@ -929,29 +949,23 @@
           state.sortDir = 1;
         }
       }
-      // Sort-by index. Delegated keydown handler routes by data-sort-col; the
-      // caller passes string keys from template while the handler steps through
-      // this array to honor ArrowRight/ArrowLeft travel.
+      // SortKeys is a plain array filled by _bindTableTools after render.
+      // Arrow-key traversal uses this array — it must be populated before
+      // the user can navigate with keys.
       const sortKeys = [];
-      // Collect focusable sortable TH cells for keyboard traversal. Indexed
-      // same order as DOM appearance so arrow keys move left/right naturally.
-      function focusableTh() {
-        return Array.from(document.querySelectorAll('th.sortable[tabindex="0"]'))
-                     .map(th => th.getAttribute('data-sort-col'));
-      }
       // MUST be reactive(): template ref-unwrapping is SHALLOW — a computed
       // inside a PLAIN returned object stays a ref, so v-for="r in t.rows"
       // iterates the ref instance itself and any r.id access throws,
       // white-screening the subtree (proxyRefs unwraps only setup() top-level
       // or reactive() members). reactive() unwraps `rows` to the array.
       // Consequence for script code: read `.rows` DIRECTLY (no .value).
-      return reactive({ state, rows, sortBy, sortKeys, focusableTh });
+      const tools = reactive({ state, rows, sortBy, sortKeys });
+      _bindTableTools(tools);
+      return tools;
     }
     ctx('createTableTools', createTableTools);
     // Global delegated listener for sortable-table keyboard interaction.
-    // Install once at module load so every createTableTools()-backed table
-    // responds without each module having to wire the handler itself.
-    // Guarded: document is undefined in Node.js test harness (dashboard_init_check.js).
+    // Reads table.__vnTools set by _bindTableTools on each DOM tick.
     if (typeof document !== 'undefined') {
       document.addEventListener('keydown', (e) => {
         const th = e.target.closest('th.sortable[tabindex="0"]');
@@ -959,8 +973,8 @@
         const col = th.getAttribute('data-sort-col');
         if (!col) return;
         const table = th.closest('table');
-        if (!table || !table.__vnTools) return;
-        const tools = table.__vnTools.value || table.__vnTools;
+        const tools = table && table.__vnTools;
+        if (!tools) return;
         const keys = tools.sortKeys || [];
         const idx = keys.indexOf(col);
         if (e.key === 'Enter' || e.key === ' ') {
@@ -968,11 +982,11 @@
           tools.sortBy(col);
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
-          const next = keys[(idx + 1) % keys.length];
+          const next = keys[(idx + 1) % Math.max(keys.length, 1)];
           if (next) document.querySelector(`th[data-sort-col="${CSS.escape(next)}"]`)?.focus();
         } else if (e.key === 'ArrowLeft') {
           e.preventDefault();
-          const prev = keys[(idx - 1 + keys.length) % keys.length];
+          const prev = keys[(idx - 1 + Math.max(keys.length, 1)) % Math.max(keys.length, 1)];
           if (prev) document.querySelector(`th[data-sort-col="${CSS.escape(prev)}"]`)?.focus();
         }
       });
