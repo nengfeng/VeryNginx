@@ -49,15 +49,18 @@ function _M.init(geodb_path)
         local dir = _geodb_path:match("^(.-)/[^/]+$")
         if dir and dir ~= "" then
             local lfs_ok, lfs = pcall(require, "lfs")
-            local parts = {}
-            local current = dir
-            while current and current ~= "" do
-                if lfs_ok and lfs.attributes(current, "mode") == "directory" then break end
-                table.insert(parts, 1, current)
-                current = current:match("^(.-)/[^/]+$")
-            end
-            for _, d in ipairs(parts) do
-                os.execute("mkdir -p -m 755 '" .. d .. "' 2>/dev/null")
+            if lfs_ok then
+                local parts = {}
+                local current = dir
+                while current and current ~= "" do
+                    if lfs.attributes(current, "mode") == "directory" then break end
+                    table.insert(parts, 1, current)
+                    current = current:match("^(.-)/[^/]+$")
+                end
+                for _, d in ipairs(parts) do
+                    lfs.mkdir(d)
+                    pcall(function() lfs.chmod(d, 755) end)
+                end
             end
         end
     end)

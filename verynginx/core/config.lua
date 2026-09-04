@@ -846,6 +846,15 @@ local function validate_config(config)
                     end
                 end
             end
+            -- geodb_path: reject shell metacharacters to prevent injection in
+            -- os.execute() calls (geoip.lua uses lfs.mkdir now, but validate
+            -- here for defense-in-depth and future-proofing).
+            local path = geoip_cfg.geodb_path
+            if type(path) == "string" and path ~= "" then
+                if path:match('[;&|`$()<>]') then
+                    return false, "geoip.geodb_path contains invalid characters"
+                end
+            end
         end
     end
 
