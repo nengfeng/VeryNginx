@@ -690,11 +690,11 @@
             <table>
                <thead><tr>
                  <th style="width:44px"><input type="checkbox" :checked="wafAllSelected" title="全选当前页" @change="wafToggleSelectAll"></th>
-                 <th style="width:76px" class="sortable" @click="wafRulesTbl.sortBy('enable')">启用 <span v-if="wafRulesTbl.state.sortKey==='enable'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" @click="wafRulesTbl.sortBy('name')">名称 <span v-if="wafRulesTbl.state.sortKey==='name'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th style="width:80px" class="sortable" @click="wafRulesTbl.sortBy('category')">分类 <span v-if="wafRulesTbl.state.sortKey==='category'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th style="width:100px" class="sortable" @click="wafRulesTbl.sortBy('severity')">严重级别 <span v-if="wafRulesTbl.state.sortKey==='severity'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                  <th style="width:70px" class="sortable" @click="wafRulesTbl.sortBy('hit_count')" title="该规则累计命中的请求数（包括所有动作：阻止/质询/记录）">命中 <span v-if="wafRulesTbl.state.sortKey==='hit_count'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th style="width:76px" class="sortable" tabindex="0" data-sort-col="enable" @click="wafRulesTbl.sortBy('enable')">启用 <span v-if="wafRulesTbl.state.sortKey==='enable'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" tabindex="0" data-sort-col="name" @click="wafRulesTbl.sortBy('name')">名称 <span v-if="wafRulesTbl.state.sortKey==='name'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th style="width:80px" class="sortable" tabindex="0" data-sort-col="category" @click="wafRulesTbl.sortBy('category')">分类 <span v-if="wafRulesTbl.state.sortKey==='category'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th style="width:100px" class="sortable" tabindex="0" data-sort-col="severity" @click="wafRulesTbl.sortBy('severity')">严重级别 <span v-if="wafRulesTbl.state.sortKey==='severity'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                  <th style="width:70px" class="sortable" tabindex="0" data-sort-col="hit_count" @click="wafRulesTbl.sortBy('hit_count')" title="该规则累计命中的请求数（包括所有动作：阻止/质询/记录）">命中 <span v-if="wafRulesTbl.state.sortKey==='hit_count'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                  <th style="width:130px">最后触发</th>
                  <th style="width:140px">操作</th>
                </tr></thead>
@@ -848,11 +848,11 @@
           <div style="overflow-x:auto">
             <table>
                <thead><tr>
-                 <th class="sortable" @click="wafHitsTbl.sortBy('time')">时间 <span v-if="wafHitsTbl.state.sortKey==='time'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" @click="wafHitsTbl.sortBy('rule_id')">规则 ID <span v-if="wafHitsTbl.state.sortKey==='rule_id'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" @click="wafHitsTbl.sortBy('method')">方法 <span v-if="wafHitsTbl.state.sortKey==='method'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" @click="wafHitsTbl.sortBy('uri')">URI <span v-if="wafHitsTbl.state.sortKey==='uri'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" @click="wafHitsTbl.sortBy('ip')">来源 IP <span v-if="wafHitsTbl.state.sortKey==='ip'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" tabindex="0" data-sort-col="time" @click="wafHitsTbl.sortBy('time')">时间 <span v-if="wafHitsTbl.state.sortKey==='time'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" tabindex="0" data-sort-col="rule_id" @click="wafHitsTbl.sortBy('rule_id')">规则 ID <span v-if="wafHitsTbl.state.sortKey==='rule_id'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" tabindex="0" data-sort-col="method" @click="wafHitsTbl.sortBy('method')">方法 <span v-if="wafHitsTbl.state.sortKey==='method'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" tabindex="0" data-sort-col="uri" @click="wafHitsTbl.sortBy('uri')">URI <span v-if="wafHitsTbl.state.sortKey==='uri'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th class="sortable" tabindex="0" data-sort-col="ip" @click="wafHitsTbl.sortBy('ip')">来源 IP <span v-if="wafHitsTbl.state.sortKey==='ip'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                </tr></thead>
               <tbody>
                 <tr v-for="(h, hi) in wafHitsTbl.rows" :key="(h.ring_idx || 0) + '|' + h.time + '|' + (h.rule_id || '') + '|' + (h.uri || '') + '|' + hi" @click="openHitDetail(h)" style="cursor:pointer">
@@ -1496,9 +1496,9 @@
         <div style="overflow-x:auto">
           <table>
             <thead><tr>
-              <th class="sortable" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-              <th class="sortable" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-              <th class="sortable" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th class="sortable" tabindex="0" data-sort-col="time" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th class="sortable" tabindex="0" data-sort-col="user" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th class="sortable" tabindex="0" data-sort-col="action" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
               <th>详情</th>
             </tr></thead>
             <tbody>
@@ -1783,11 +1783,11 @@
           <div v-else-if="!kbEntriesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
              <thead><tr>
-               <th class="sortable" @click="kbEntriesTbl.sortBy('ip')">IP <span v-if="kbEntriesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" @click="kbEntriesTbl.sortBy('list')" title="scanner=扫描器自动封禁，cc=CC攻击自动封禁，manual=管理员手动封禁">集合 <span v-if="kbEntriesTbl.state.sortKey==='list'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="ip" @click="kbEntriesTbl.sortBy('ip')">IP <span v-if="kbEntriesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="list" @click="kbEntriesTbl.sortBy('list')" title="scanner=扫描器自动封禁，cc=CC攻击自动封禁，manual=管理员手动封禁">集合 <span v-if="kbEntriesTbl.state.sortKey==='list'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th title="ipv4=IPv4 地址，ipv6=IPv6 地址">协议族</th><th title="manual=手动封禁，auto=自动晋升（scanner/cc）">来源</th><th title="ensure=确保存在，delete=确保移除">模式</th>
-               <th class="sortable" @click="kbEntriesTbl.sortBy('installed_at')">已安装 <span v-if="kbEntriesTbl.state.sortKey==='installed_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" @click="kbEntriesTbl.sortBy('expires_at')">过期 <span v-if="kbEntriesTbl.state.sortKey==='expires_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="installed_at" @click="kbEntriesTbl.sortBy('installed_at')">已安装 <span v-if="kbEntriesTbl.state.sortKey==='installed_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="expires_at" @click="kbEntriesTbl.sortBy('expires_at')">过期 <span v-if="kbEntriesTbl.state.sortKey==='expires_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th>内核</th><th>操作</th>
              </tr></thead>
             <tbody>
@@ -1824,9 +1824,9 @@
           <div v-else-if="!kbCandidatesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
              <thead><tr>
-               <th class="sortable" @click="kbCandidatesTbl.sortBy('ip')">IP <span v-if="kbCandidatesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" @click="kbCandidatesTbl.sortBy('policy')">策略 <span v-if="kbCandidatesTbl.state.sortKey==='policy'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" @click="kbCandidatesTbl.sortBy('state')">状态 <span v-if="kbCandidatesTbl.state.sortKey==='state'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="ip" @click="kbCandidatesTbl.sortBy('ip')">IP <span v-if="kbCandidatesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="policy" @click="kbCandidatesTbl.sortBy('policy')">策略 <span v-if="kbCandidatesTbl.state.sortKey==='policy'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="state" @click="kbCandidatesTbl.sortBy('state')">状态 <span v-if="kbCandidatesTbl.state.sortKey==='state'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th>证据</th><th>结果</th><th>操作</th>
              </tr></thead>
             <tbody>
@@ -1870,9 +1870,9 @@
           <div v-else-if="!kbTimelineTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
              <thead><tr>
-               <th class="sortable" @click="kbTimelineTbl.sortBy('time')">时间 <span v-if="kbTimelineTbl.state.sortKey==='time'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" @click="kbTimelineTbl.sortBy('user')">用户 <span v-if="kbTimelineTbl.state.sortKey==='user'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" @click="kbTimelineTbl.sortBy('action')">动作 <span v-if="kbTimelineTbl.state.sortKey==='action'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="time" @click="kbTimelineTbl.sortBy('time')">时间 <span v-if="kbTimelineTbl.state.sortKey==='time'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="user" @click="kbTimelineTbl.sortBy('user')">用户 <span v-if="kbTimelineTbl.state.sortKey==='user'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th class="sortable" tabindex="0" data-sort-col="action" @click="kbTimelineTbl.sortBy('action')">动作 <span v-if="kbTimelineTbl.state.sortKey==='action'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th>详情</th>
              </tr></thead>
             <tbody>

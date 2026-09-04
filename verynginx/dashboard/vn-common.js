@@ -501,7 +501,9 @@
       ['?', '显示快捷键帮助'],
       ['Esc', '关闭弹窗/面板'],
       ['1–6', '跳转到主导航项（仪表盘/WAF/内核封禁/配置/高级/关于）'],
-      ['⌘D', '切换深色/浅色主题'],
+      ['⌘D', '切换深色/浅色模式'],
+      ['↑↓', '在可排序表头间移动焦点'],
+      ['Enter / Space', '对聚焦的列切换排序方向'],
     ];
     view('KB_SHORTCUTS', KB_SHORTCUTS);
 
@@ -890,6 +892,10 @@
     // the template as: v-model="t.state.filter", v-for="r in t.rows",
     // th @click="t.sortBy('col')". A third click on the same column clears
     // sorting; nulls always sort last.
+    // Keyboard: columns are focusable (tabindex=0 via CSS class), ArrowRight
+    // / ArrowLeft walk the column list, Enter/Toggle sort by that column.
+    // Delegated keydown listener is installed once in this factory so modules
+    // don't have to wire it up individually.
     function createTableTools(sourceRef) {
       const state = reactive({ sortKey: '', sortDir: 1, filter: '' });
       const rows = computed(() => {
@@ -918,15 +924,54 @@
           state.sortDir = 1;
         }
       }
+      // Sort-by index. Delegated keydown handler routes by data-sort-col; the
+      // caller passes string keys from template while the handler steps through
+      // this array to honor ArrowRight/ArrowLeft travel.
+      const sortKeys = [];
+      // Collect focusable sortable TH cells for keyboard traversal. Indexed
+      // same order as DOM appearance so arrow keys move left/right naturally.
+      function focusableTh() {
+        return Array.from(document.querySelectorAll('th.sortable[tabindex="0"]'))
+                     .map(th => th.getAttribute('data-sort-col'));
+      }
       // MUST be reactive(): template ref-unwrapping is SHALLOW — a computed
       // inside a PLAIN returned object stays a ref, so v-for="r in t.rows"
       // iterates the ref instance itself and any r.id access throws,
       // white-screening the subtree (proxyRefs unwraps only setup() top-level
       // or reactive() members). reactive() unwraps `rows` to the array.
       // Consequence for script code: read `.rows` DIRECTLY (no .value).
-      return reactive({ state, rows, sortBy });
+      return reactive({ state, rows, sortBy, sortKeys, focusableTh });
     }
     ctx('createTableTools', createTableTools);
+    // Global delegated listener for sortable-table keyboard interaction.
+    // Install once at module load so every createTableTools()-backed table
+    // responds without each module having to wire the handler itself.
+    // Guarded: document is undefined in Node.js test harness (dashboard_init_check.js).
+    if (typeof document !== 'undefined') {
+      document.addEventListener('keydown', (e) => {
+        const th = e.target.closest('th.sortable[tabindex="0"]');
+        if (!th) return;
+        const col = th.getAttribute('data-sort-col');
+        if (!col) return;
+        const table = th.closest('table');
+        if (!table || !table.__vnTools) return;
+        const tools = table.__vnTools.value || table.__vnTools;
+        const keys = tools.sortKeys || [];
+        const idx = keys.indexOf(col);
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          tools.sortBy(col);
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const next = keys[(idx + 1) % keys.length];
+          if (next) document.querySelector(`th[data-sort-col="${CSS.escape(next)}"]`)?.focus();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const prev = keys[(idx - 1 + keys.length) % keys.length];
+          if (prev) document.querySelector(`th[data-sort-col="${CSS.escape(prev)}"]`)?.focus();
+        }
+      });
+    }
 
     // ---- Safe list coercion ----
     // API arrays must never hand null/undefined ITEMS to a v-for: a single

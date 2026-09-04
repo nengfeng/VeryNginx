@@ -19,7 +19,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
 th{font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
-th.sortable:hover{color:var(--text)}
+th.sortable:hover,th.sortable:focus-visible{color:var(--text);outline:2px solid var(--primary);outline-offset:-2px;border-radius:2px}
 .sort-ind{font-size:10px}
 .tbl-filter{max-width:240px;margin-bottom:8px}
 .refresh-badge{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;white-space:nowrap}

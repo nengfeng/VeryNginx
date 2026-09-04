@@ -52,6 +52,9 @@ global.document = {
     documentElement: { getAttribute: () => 'light', setAttribute: () => {} },
     cookie: '',
     createElement: () => ({ click() {} }),
+    addEventListener: () => {},
+    querySelector: () => null,
+    querySelectorAll: () => [],
 };
 global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 global.fetch = async () => ({
