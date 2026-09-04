@@ -907,9 +907,11 @@
     // sorting; nulls always sort last.
     // Keyboard: columns are focusable (tabindex=0 via CSS class), ArrowRight
     // / ArrowLeft walk the column list, Enter/Toggle sort by that column.
-    // Binding is lazy: the global keydown handler populates sortKeys on first
-    // interaction with a given table, so it works regardless of when the table
-    // enters the DOM (v-if pages, lazy-loaded modules, etc.).
+    // Each factory tools instance registers itself in _allTools. The global
+    // keydown handler lazily binds it to its <table> on first keystroke,
+    // populating sortKeys and attaching the real tools (with sortBy) to
+    // table.__vnTools. This works regardless of when the table enters the DOM.
+    const _allTools = [];
     function createTableTools(sourceRef) {
       const state = reactive({ sortKey: '', sortDir: 1, filter: '' });
       const rows = computed(() => {
@@ -939,20 +941,15 @@
         }
       }
       const sortKeys = [];
-      // MUST be reactive(): template ref-unwrapping is SHALLOW — a computed
-      // inside a PLAIN returned object stays a ref, so v-for="r in t.rows"
-      // iterates the ref instance itself and any r.id access throws,
-      // white-screening the subtree (proxyRefs unwraps only setup() top-level
-      // or reactive() members). reactive() unwraps `rows` to the array.
-      // Consequence for script code: read `.rows` DIRECTLY (no .value).
-      return reactive({ state, rows, sortBy, sortKeys });
+      const tools = reactive({ state, rows, sortBy, sortKeys, _bound: false });
+      _allTools.push(tools);
+      return tools;
     }
     ctx('createTableTools', createTableTools);
     // Global delegated listener for sortable-table keyboard interaction.
-    // Lazy-binds: on first keystroke against a table, scans its <th> elements
-    // to populate sortKeys. This avoids relying on any lifecycle hook and
-    // works correctly even when tables are created after module load (v-if
-    // page switches, dynamic content, etc.).
+    // Lazy-binds: on first keystroke against a table, finds the unbound
+    // factory tools, populates its sortKeys from the DOM, and attaches it
+    // to table.__vnTools so Enter/Space sorting works immediately.
     if (typeof document !== 'undefined') {
       document.addEventListener('keydown', (e) => {
         if (!e.target || !e.target.closest) return;
@@ -963,23 +960,34 @@
         const table = th.closest('table');
         if (!table) return;
         let tools = table.__vnTools;
-        // Lazy-bind: first time this table sees a keyboard event, populate
-        // sortKeys from the DOM so Arrow-key travel works immediately.
-        if (!tools) {
-          tools = { sortKeys: [] };
-          for (const t of table.querySelectorAll('th.sortable[tabindex="0"]')) {
-            const k = t.getAttribute('data-sort-col');
-            if (k && !tools.sortKeys.includes(k)) tools.sortKeys.push(k);
+        // Lazy-bind: if no tools yet, or only a stub (no sortBy), find the
+        // unbound factory tools and bind it to this table.
+        if (!tools || typeof tools.sortBy !== 'function') {
+          // Find an unbound factory tools instance.
+          const factoryTools = _allTools.find(t => t._bound === false);
+          if (factoryTools) {
+            // Populate its sortKeys from the DOM.
+            for (const t of table.querySelectorAll('th.sortable[tabindex="0"]')) {
+              const k = t.getAttribute('data-sort-col');
+              if (k && !factoryTools.sortKeys.includes(k)) factoryTools.sortKeys.push(k);
+            }
+            factoryTools._bound = true;
+            table.__vnTools = factoryTools;
+            tools = factoryTools;
+          } else {
+            // Fallback stub (should not happen if factory ran).
+            tools = { sortKeys: [] };
+            for (const t of table.querySelectorAll('th.sortable[tabindex="0"]')) {
+              const k = t.getAttribute('data-sort-col');
+              if (k && !tools.sortKeys.includes(k)) tools.sortKeys.push(k);
+            }
+            table.__vnTools = tools;
           }
-          table.__vnTools = tools;
         }
         const keys = tools.sortKeys || [];
         const idx = keys.indexOf(col);
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          // Click-compatible sort toggle: find the matching tools state from
-          // the factory; fall back to a no-op if this is a late-bound stub
-          // (only the lazy stub path, since real factory tools expose sortBy).
           if (typeof tools.sortBy === 'function') tools.sortBy(col);
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
