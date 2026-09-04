@@ -906,12 +906,7 @@
     // th @click="t.sortBy('col')". A third click on the same column clears
     // sorting; nulls always sort last.
     // Keyboard: columns are focusable (tabindex=0 via CSS class), ArrowRight
-    // / ArrowLeft walk the column list, Enter/Toggle sort by that column.
-    // Each factory tools instance registers itself in _allTools. The global
-    // keydown handler lazily binds it to its <table> on first keystroke,
-    // populating sortKeys and attaching the real tools (with sortBy) to
-    // table.__vnTools. This works regardless of when the table enters the DOM.
-    const _allTools = [];
+    // / ArrowLeft walk the column list; Enter/Space delegates to @click handler.
     function createTableTools(sourceRef) {
       const state = reactive({ sortKey: '', sortDir: 1, filter: '' });
       const rows = computed(() => {
