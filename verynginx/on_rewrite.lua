@@ -15,13 +15,21 @@ if math.random(100) == 1 then
     config.check_update()
 end
 
--- 2. Create request context
+-- 2. Re-entry guard: ngx.exec("@vn_proxy") triggers internal redirect which
+-- re-runs rewrite/access phases. ngx.ctx is preserved across internal redirects,
+-- so we can detect and skip re-processing.
+if ngx.ctx._vn_redirected then
+    return
+end
+
+-- 3. Create request context
 local ctx = context.new()
 
 -- Record start time for WAF latency tracking
 ctx.request.waf_start_time = ngx.now()
 
 ngx.ctx.vn_ctx = ctx
+ngx.ctx._vn_redirected = true
 
 -- 3. Execute rewrite-phase actions
 scheme_lock.run(ctx)
