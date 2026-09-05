@@ -390,11 +390,13 @@ function _M.evaluate()
 
     -- 2) False positive rate detection (challenge pass rate drop)
     for rule_id, stat in pairs(current_hits) do
-        local challenges = stat.challenge_count or 0
+        -- Use per-day challenge count as both threshold gate and denominator,
+        -- matching waf_stats.lua:422. A lifetime denominator made pass_rate
+        -- decay toward 0% over time (FP alert almost always fires).
+        local today = os.date("!%Y%m%d")
+        local challenges = tonumber(s:get("waf_rule_stats:" .. rule_id .. ":chal:" .. today) or 0)
         if challenges >= conf.fp_min_challenges then
-            -- per-day key (aligned with analytics pass-rate window)
-        local pass_key = "waf_rule_stats:" .. rule_id
-            .. ":cpass:" .. os.date("!%Y%m%d")
+            local pass_key = "waf_rule_stats:" .. rule_id .. ":cpass:" .. today
             local passes = tonumber(s:get(pass_key) or 0)
             local pass_rate = passes / challenges
             if pass_rate < conf.fp_pass_rate_threshold then
@@ -487,12 +489,10 @@ function _M.evaluate()
     }
     for rule_id, stat in pairs(current_hits) do
         new_state.prev_hits[rule_id] = stat.hit_count or 0
-        local challenges = stat.challenge_count or 0
+        local today = os.date("!%Y%m%d")
+        local challenges = tonumber(s:get("waf_rule_stats:" .. rule_id .. ":chal:" .. today) or 0)
         if challenges > 0 then
-            -- per-day key (aligned with analytics pass-rate window)
-        local pass_key = "waf_rule_stats:" .. rule_id
-            .. ":cpass:" .. os.date("!%Y%m%d")
-            local passes = tonumber(s:get(pass_key) or 0)
+            local passes = tonumber(s:get("waf_rule_stats:" .. rule_id .. ":cpass:" .. today) or 0)
             new_state.prev_pass_rate[rule_id] = passes / challenges
         end
     end
