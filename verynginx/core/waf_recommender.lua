@@ -161,15 +161,21 @@ function _M.analyze()
     local new_count = 0
     for pattern, info in pairs(patterns) do
         if info.count >= conf.min_hits and not existing_map[pattern] then
-            -- Check if multi-IP (not just a single IP hammering)
+            -- Require hits from multiple IPs — a single scanner can trigger
+            -- many URIs and would otherwise generate a large number of noise
+            -- suggestions.  ip_count >= min_patterns filters those out.
             local ip_count = 0
             for _ in pairs(info.ips) do
                 ip_count = ip_count + 1
+            end
+            if ip_count < conf.min_patterns then
+                goto continue
             end
 
             local suggestion = generate_suggestion(pattern, info)
             _M.add(suggestion)
             new_count = new_count + 1
+            ::continue::
         end
     end
 
