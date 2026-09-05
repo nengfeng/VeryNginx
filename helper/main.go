@@ -312,14 +312,10 @@ func isReservedOrSpecialIP(ipStr string) bool {
 		if ip.IsUnspecified() {
 			return true
 		}
-		// ULA fc00::/7.  The first two significant bytes must be fcxx or fdxX.
-		// When leading-zero compression produces ::fc00:xxxx the fc byte sits
-		// at a later offset — find the first non-zero byte first.
-		first := 0
-		for first < 16 && b[first] == 0 {
-			first++
-		}
-		if first < 15 && (b[first] == 0xfc || b[first] == 0xfd) {
+		// ULA fc00::/7 — first byte must be fc or fd.  Net.IP.To16() always
+		// gives us the canonical 16-byte form regardless of how the input
+		// was written (compressed ::, full-expanded, IPv4-mapped, etc.).
+		if b[0] == 0xfc || b[0] == 0xfd {
 			return true
 		}
 	}

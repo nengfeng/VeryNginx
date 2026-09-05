@@ -49,11 +49,10 @@ func TestIsReservedOrSpecialIP(t *testing.T) {
 		{"fc00::1", true, "ULA fc00::/7"},
 		{"fd00::1", true, "ULA fc00::/7"},
 		{"fdff:ffff::1", true, "ULA fc00::/7 (upper bound)"},
-		// Full-expanded ULA — net.ParseIP normalises it to ::fc00:xxxx;
-		// canonical form starts with ':' not 'f', so the pre-fix check
-		// MUST use ip.String(), not the raw input.
-		{"0000:0000:0000:0000:0000:0000:fc00:1234", true, "ULA full-expanded"},
-		{"0000:0000:0000:0000:0000:0000:fd00:1234", true, "ULA full-expanded fd"},
+		// Full-expanded forms normalize to ::fc00/::fd00 which are in ::/32,
+		// NOT fc00::/7.  Only addresses whose first byte is fc/fd are ULA.
+		{"0000:0000:0000:0000:0000:0000:fc00:1234", false, "::fc00 prefix — not ULA"},
+		{"0000:0000:0000:0000:0000:0000:fd00:1234", false, "::fd00 prefix — not ULA"},
 
 		// ---- IPv4 public (must NOT be rejected) ----
 		{"8.8.8.8", false, "public DNS"},
