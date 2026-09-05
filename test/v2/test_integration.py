@@ -10,6 +10,11 @@ import time
 import sys
 import os
 import traceback
+import threading
+import socket
+import http.server
+import urllib.request
+import urllib.error
 
 BASE_URL = os.environ.get("VN2_TEST_URL", "http://127.0.0.1:8080")
 USER = "verynginx"
@@ -409,6 +414,84 @@ def test_frequency():
     print(f"  [PASS] Freq template apply: login_bruteforce")
 
 
+def _free_port():
+    """Find a free TCP port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+
+class _ProxyBackend(http.server.BaseHTTPRequestHandler):
+    """Minimal HTTP server used as a VeryNginx upstream for proxy tests."""
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        body = json.dumps({"served_by": "proxy-backend", "path": self.path}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        pass  # suppress stdout noise
+
+
+def test_proxy_pass():
+    """Test proxy_pass plugin: route an upstream request through VeryNginx."""
+    cookies = get_shared_session()
+    backend_port = _free_port()
+    backend_url = f"http://127.0.0.1:{backend_port}"
+    backend_thread = threading.Thread(
+        target=http.server.HTTPServer(("127.0.0.1", backend_port), _ProxyBackend).serve_forever,
+        daemon=True,
+    )
+    backend_thread.start()
+    time.sleep(0.2)
+
+    # Get CSRF token
+    status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
+    csrf_token = json.loads(body).get("csrf_token", "")
+
+    # Configure a backend_upstream entry
+    status, body = curl("GET", "/verynginx/config", cookies=cookies)
+    cfg = json.loads(body)
+    cfg["backend_upstream"]["test_backend"] = {
+        "nodes": [{"host": "127.0.0.1", "port": backend_port}],
+    }
+    cfg["rule"]["proxy_pass"] = [
+        {
+            "name": "integration-proxy",
+            "matcher": {"URI": {"operator": "=", "value": "/verynginx/proxy-test"}},
+            "upstream": "test_backend",
+        }
+    ]
+    encoded = b64encode(json.dumps(cfg))
+    escaped = encoded.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D")
+    status, body = curl(
+        "POST", "/verynginx/config",
+        data=f"config={escaped}&csrf_token={csrf_token}",
+        cookies=cookies,
+    )
+    assert status == 200, f"Config POST failed: {status} {body[:200]}"
+
+    # Small wait for hot-reload
+    time.sleep(0.5)
+
+    # Hit the proxied path
+    status, body = curl("GET", "/verynginx/proxy-test")
+    assert status == 200, f"Proxy request failed: status={status}, body={body[:300]}"
+    resp = json.loads(body)
+    assert resp.get("served_by") == "proxy-backend", f"Response not from backend: {resp}"
+    print(f"  [PASS] Proxy pass: served by backend on :{backend_port}")
+
+    # Verify no redirect-loop 500: send the same request 3 more times.
+    for _ in range(3):
+        status, _ = curl("GET", "/verynginx/proxy-test")
+        assert status == 200, f"Redirect loop detected on retry: status={status}"
+    print(f"  [PASS] Proxy stable across repeated requests (no _vn_redirected loop)")
+
+
 def test_routes():
     """Test that all API routes respond correctly."""
     cookies = get_shared_session()
@@ -450,6 +533,7 @@ def main():
         ("Kernel Blocking", test_kernel_blocking),
         ("Reputation", test_reputation),
         ("Frequency", test_frequency),
+        ("Proxy Pass", test_proxy_pass),
         ("Route Coverage", test_routes),
     ]
 
