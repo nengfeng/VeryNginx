@@ -38,6 +38,13 @@ sock:settimeout(2)
 
 local function req(op, source, payload)
     local rid = 'req-' .. tostring(math.random(99999))
+    -- Validate request_id against Go-side regex before sending:
+    -- requestIDRe = ^[A-Za-z0-9._~-]+$ (validate.go:65), max 64 bytes.
+    -- The helper rejects invalid IDs with "invalid_request_id" before any
+    -- operation runs; this pre-check makes failures deterministic.
+    assert(rid:len() <= 64, 'request_id too long: ' .. rid)
+    assert(rid:match('^[A-Za-z0-9._~-]+$') ~= nil,
+        'request_id has invalid chars: ' .. rid)
     local framed = proto.encode_request(rid, op, source or 'automatic', payload or {})
     sock:send(framed)
     local hdr = assert(sock:receive(4))
@@ -77,17 +84,17 @@ local nft_check = io.popen('nft list set ip verynginx scanner_drop 2>&1'):read('
 assert(nft_check:find('203.0.113.10'), 'ip not found in nft: ' .. nft_check)
 print('  [PASS] nftables verified')
 
--- Test 6: replace_allow_snapshot
+-- Test 6: replace_allow_snapshot (use RFC 5737 IPs — private ranges rejected)
 r = req('replace_allow_snapshot', 'whitelist', { items = {
-    { ip = '10.0.0.1', family = 'ipv4' },
-    { ip = '10.0.0.2', family = 'ipv4' },
+    { ip = '203.0.113.51', family = 'ipv4' },
+    { ip = '203.0.113.52', family = 'ipv4' },
 } })
 assert(r.replaced == 2, 'expected 2 replaced')
 print('  [PASS] replace_allow_snapshot')
 
 -- Test 7: verify allow in nftables
 nft_check = io.popen('nft list set ip verynginx allow 2>&1'):read('*a')
-assert(nft_check:find('10.0.0.1'), 'allow ip not found in nft: ' .. nft_check)
+assert(nft_check:find('203.0.113.51'), 'allow ip not found in nft: ' .. nft_check)
 print('  [PASS] allow nftables verified')
 
 -- Test 8: health
