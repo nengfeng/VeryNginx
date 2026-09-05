@@ -7,6 +7,7 @@ local _M = {}
 
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local config = require "core.config"
+local random = require "core.random"
 
 local PREFIX = "waf_rec:"
 local INDEX_KEY = PREFIX .. "index"
@@ -185,15 +186,20 @@ end
 -- ---------------------------------------------------------------------------
 -- CRUD for rule suggestions
 -- ---------------------------------------------------------------------------
--- Atomic index mutation via spin-lock (TOCTOU-safe across workers).
+-- Atomic index mutation via spin-lock with token ownership (TOCTOU-safe across workers).
 local function with_index_lock(fn)
     local s = ngx.shared.vn_config
     if not s then return false end
     for _ = 1, 20 do
-        local ok = s:add(LOCK_KEY, 1, LOCK_TTL)
+        local token = random.bytes(8)
+        local ok = s:add(LOCK_KEY, token, LOCK_TTL)
         if ok then
             local result = { pcall(fn) }
-            s:delete(LOCK_KEY)
+            -- Only release the lock if we still hold it — prevents a stale
+            -- holder from deleting a new holder's lock after TTL expiry.
+            if s:get(LOCK_KEY) == token then
+                s:delete(LOCK_KEY)
+            end
             if result[1] then return true, result[2] end
             return false, result[2]
         end
