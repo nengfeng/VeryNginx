@@ -276,6 +276,44 @@ func isReservedOrSpecialIP(ipStr string) bool {
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return true
 	}
+	// Mirror core/kernel_blocking/promotion.lua:38-66 — private ranges
+	// must be rejected here too, because reconcile paths (reconcileFull,
+	// reconcileChunked) call this function directly, bypassing the Lua
+	// promote guard that validates IPs before they reach the helper.
+	if v4 := ip.To4(); v4 != nil {
+		if v4[0] == 10 {
+			return true // 10.0.0.0/8
+		}
+		if v4[0] == 172 && v4[1]&0xf0 == 0x10 {
+			return true // 172.16.0.0/12
+		}
+		if v4[0] == 192 && v4[1] == 168 {
+			return true // 192.168.0.0/16
+		}
+		if v4[0] == 100 && v4[1]&0xc0 == 0x40 {
+			return true // 100.64.0.0/10 CGNAT
+		}
+		if v4[0] == 255 {
+			return true // broadcast
+		}
+	} else {
+		lower := strings.ToLower(ipStr)
+		if lower == "::" || lower == "0000:0000:0000:0000:0000:0000:0000:0000" {
+			return true // unspecified
+		}
+		// fc00::/7 ULA (unique local addresses)
+		if len(ipStr) > 0 {
+			c := ipStr[0]
+			if c == 'f' || c == 'F' {
+				if len(ipStr) > 1 {
+					d := ipStr[1]
+					if d == 'c' || d == 'C' || d == 'd' || d == 'D' {
+						return true
+					}
+				}
+			}
+		}
+	}
 	return false
 }
 

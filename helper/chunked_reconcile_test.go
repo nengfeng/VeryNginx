@@ -23,9 +23,9 @@ func TestChunkedReconcileFinalChunkGating(t *testing.T) {
 		Source:    "automatic",
 		Payload: mustJSON(map[string]interface{}{
 			"items": []map[string]interface{}{
-				{"set": "scanner_drop", "family": "ipv4", "ip": "10.0.0.1", "ttl": 600},
-				{"set": "scanner_drop", "family": "ipv4", "ip": "10.0.0.2", "ttl": 600},
-				{"set": "scanner_drop", "family": "ipv4", "ip": "10.0.0.3", "ttl": 600},
+				{"set": "scanner_drop", "family": "ipv4", "ip": "203.0.113.1", "ttl": 600},
+				{"set": "scanner_drop", "family": "ipv4", "ip": "203.0.113.2", "ttl": 600},
+				{"set": "scanner_drop", "family": "ipv4", "ip": "203.0.113.3", "ttl": 600},
 			},
 			"binding": map[string]interface{}{
 				"helper_instance_id": backend.helperInstanceID,
@@ -46,11 +46,11 @@ func TestChunkedReconcileFinalChunkGating(t *testing.T) {
 		TotalDesired: 4,
 		TotalChunks:  2,
 		Desired: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.10", TTL: 300},
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.11", TTL: 300},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.10", TTL: 300},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.11", TTL: 300},
 		},
 		Remove: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.1"},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.1"},
 		},
 	}
 
@@ -66,9 +66,9 @@ func TestChunkedReconcileFinalChunkGating(t *testing.T) {
 	}
 
 	// After chunk 0: new entries added, but remove NOT applied yet.
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.10", true)
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.11", true)
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.1", true) // still present
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.10", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.11", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.1", true) // still present
 
 	// Verify chunk 0 response shows 0 removed.
 	r0 := resultToMap(resp0.Result)
@@ -84,11 +84,11 @@ func TestChunkedReconcileFinalChunkGating(t *testing.T) {
 		TotalDesired: 4,
 		TotalChunks:  2,
 		Desired: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.12", TTL: 300},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.12", TTL: 300},
 		},
 		Remove: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.1"},
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.2"},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.1"},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.2"},
 		},
 	}
 
@@ -104,10 +104,10 @@ func TestChunkedReconcileFinalChunkGating(t *testing.T) {
 	}
 
 	// After final chunk: new entries present, removes applied.
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.10", true)
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.12", true)
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.1", false) // removed
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.2", false) // removed
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.10", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.12", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.1", false) // removed
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.2", false) // removed
 }
 
 // TestChunkedReconcileIdempotent re-sends a chunk and verifies idempotency.
@@ -124,8 +124,8 @@ func TestChunkedReconcileIdempotent(t *testing.T) {
 		TotalDesired: 2,
 		TotalChunks:  1,
 		Desired: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.5", TTL: 300},
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.6", TTL: 300},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.5", TTL: 300},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.6", TTL: 300},
 		},
 	}
 
@@ -159,15 +159,15 @@ func TestChunkedReconcileIdempotent(t *testing.T) {
 	if r1["added"] != r2["added"] {
 		t.Errorf("added mismatch: first=%v second=%v", r1["added"], r2["added"])
 	}
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.5", true)
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.6", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.5", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.6", true)
 }
 
 func TestChunkedReconcileOutOfOrderFinalWaitsForAllChunks(t *testing.T) {
 	withSkipEnv(t)
 	backend := NewNFTBackend()
 	if _, err := backend.Add([]setEntry{
-		{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.20", TTL: 300},
+		{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.20", TTL: 300},
 	}); err != nil {
 		t.Fatalf("setup add failed: %v", err)
 	}
@@ -179,16 +179,16 @@ func TestChunkedReconcileOutOfOrderFinalWaitsForAllChunks(t *testing.T) {
 		TotalDesired: 2,
 		TotalChunks:  2,
 		Desired: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.22", TTL: 300},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.22", TTL: 300},
 		},
 		Remove: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.20"},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.20"},
 		},
 	}
 	if _, err := backend.Reconcile(final); err != nil {
 		t.Fatalf("out-of-order final chunk failed: %v", err)
 	}
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.20", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.20", true)
 
 	first := reconcileChunk{
 		SnapshotID:   "snap-out-of-order",
@@ -197,7 +197,7 @@ func TestChunkedReconcileOutOfOrderFinalWaitsForAllChunks(t *testing.T) {
 		TotalDesired: 2,
 		TotalChunks:  2,
 		Desired: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.21", TTL: 300},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.21", TTL: 300},
 		},
 	}
 	result, err := backend.Reconcile(first)
@@ -207,9 +207,9 @@ func TestChunkedReconcileOutOfOrderFinalWaitsForAllChunks(t *testing.T) {
 	if result["removed"] != 1 {
 		t.Fatalf("completion removed %v entries, want 1", result["removed"])
 	}
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.20", false)
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.21", true)
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.22", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.20", false)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.21", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.22", true)
 }
 
 func TestChunkedReconcileFailedDesiredChunkCanRetry(t *testing.T) {
@@ -225,7 +225,7 @@ func TestChunkedReconcileFailedDesiredChunkCanRetry(t *testing.T) {
 		TotalDesired: 2,
 		TotalChunks:  2,
 		Desired: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.30", TTL: 300},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.30", TTL: 300},
 		},
 	}
 	if _, err := backend.Reconcile(chunk); err == nil {
@@ -256,7 +256,7 @@ func TestChunkedReconcileRemovalFailureCanRetry(t *testing.T) {
 	withSkipEnv(t)
 	backend := NewNFTBackend()
 	if _, err := backend.Add([]setEntry{
-		{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.40", TTL: 300},
+		{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.40", TTL: 300},
 	}); err != nil {
 		t.Fatalf("setup add failed: %v", err)
 	}
@@ -270,13 +270,13 @@ func TestChunkedReconcileRemovalFailureCanRetry(t *testing.T) {
 		TotalDesired: 0,
 		TotalChunks:  1,
 		Remove: []setEntry{
-			{Set: "scanner_drop", Family: "ipv4", IP: "10.0.0.40"},
+			{Set: "scanner_drop", Family: "ipv4", IP: "203.0.113.40"},
 		},
 	}
 	if _, err := backend.Reconcile(final); err == nil {
 		t.Fatal("expected removal nft execution failure")
 	}
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.40", true)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.40", true)
 
 	snap := mustSnapshot(t, final.SnapshotID)
 	snap.mu.Lock()
@@ -295,7 +295,7 @@ func TestChunkedReconcileRemovalFailureCanRetry(t *testing.T) {
 	if result["removed"] != 1 {
 		t.Fatalf("removal retry removed %v entries, want 1", result["removed"])
 	}
-	assertContains(t, backend, "scanner_drop", "ipv4", "10.0.0.40", false)
+	assertContains(t, backend, "scanner_drop", "ipv4", "203.0.113.40", false)
 
 	snap.mu.Lock()
 	applied = snap.applied

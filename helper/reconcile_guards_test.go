@@ -22,7 +22,7 @@ func TestReconcileFull_AllowUpdatesAllowEntries(t *testing.T) {
 	b := newTestBackend(t)
 
 	snapshot := []setEntry{
-		{IP: "10.0.0.5", Family: "ipv4", Set: "allow"},
+		{IP: "203.0.113.5", Family: "ipv4", Set: "allow"},
 		{IP: "198.51.100.10", Family: "ipv4", Set: "scanner_drop", TTL: 60},
 	}
 	res, err := b.reconcileFull(snapshot)
@@ -33,12 +33,12 @@ func TestReconcileFull_AllowUpdatesAllowEntries(t *testing.T) {
 		t.Fatalf("expected added=2, got %v", res["added"])
 	}
 
-	if !b.allowEntries["10.0.0.5"] {
-		t.Fatalf("allowEntries missing reconciled allow entry 10.0.0.5: %v", b.allowEntries)
+	if !b.allowEntries["203.0.113.5"] {
+		t.Fatalf("allowEntries missing reconciled allow entry 203.0.113.5: %v", b.allowEntries)
 	}
 
 	// Add a drop for the allow-covered IP -> must be rejected.
-	_, err = b.Add([]setEntry{{IP: "10.0.0.5", Family: "ipv4", Set: "scanner_drop", TTL: 60}})
+	_, err = b.Add([]setEntry{{IP: "203.0.113.5", Family: "ipv4", Set: "scanner_drop", TTL: 60}})
 	if err == nil || err.Error() != "allow_covered" {
 		t.Fatalf("expected allow_covered, got err=%v", err)
 	}
@@ -73,15 +73,15 @@ func TestReconcileFull_SkipsAllowCovered(t *testing.T) {
 	b := newTestBackend(t)
 
 	// Single-IP allow via Add (populates allowEntries).
-	if _, err := b.Add([]setEntry{{IP: "10.0.8.50", Family: "ipv4", Set: "allow"}}); err != nil {
+	if _, err := b.Add([]setEntry{{IP: "203.0.113.50", Family: "ipv4", Set: "allow"}}); err != nil {
 		t.Fatalf("setup add allow err: %v", err)
 	}
 	// CIDR allow only enters via ReplaceAllowSnapshot; mimic it directly.
-	b.allowEntries["10.0.9.0/24"] = true
+	b.allowEntries["203.0.113.0/24"] = true
 
 	snapshot := []setEntry{
-		{IP: "10.0.8.50", Family: "ipv4", Set: "scanner_drop", TTL: 60},
-		{IP: "10.0.9.77", Family: "ipv4", Set: "cc_drop", TTL: 60},
+		{IP: "203.0.113.50", Family: "ipv4", Set: "scanner_drop", TTL: 60},
+		{IP: "203.0.113.77", Family: "ipv4", Set: "cc_drop", TTL: 60},
 	}
 	res, err := b.reconcileFull(snapshot)
 	if err != nil {
@@ -93,10 +93,10 @@ func TestReconcileFull_SkipsAllowCovered(t *testing.T) {
 	if res["failed"] != 2 {
 		t.Fatalf("expected failed=2, got %v", res["failed"])
 	}
-	if b.state["scanner_drop"]["ipv4"]["10.0.8.50"] != nil {
+	if b.state["scanner_drop"]["ipv4"]["203.0.113.50"] != nil {
 		t.Fatalf("allow-covered drop must not be installed")
 	}
-	if b.state["cc_drop"]["ipv4"]["10.0.9.77"] != nil {
+	if b.state["cc_drop"]["ipv4"]["203.0.113.77"] != nil {
 		t.Fatalf("allow-covered (CIDR) drop must not be installed")
 	}
 }
@@ -130,7 +130,7 @@ func TestReconcileChunked_AllowUpdatesAllowEntries(t *testing.T) {
 		FinalChunk:  true,
 		TotalChunks: 1,
 		Desired: []setEntry{
-			{IP: "10.0.0.6", Family: "ipv4", Set: "allow"},
+			{IP: "203.0.113.6", Family: "ipv4", Set: "allow"},
 			{IP: "198.51.100.11", Family: "ipv4", Set: "scanner_drop", TTL: 60},
 		},
 	}
@@ -143,11 +143,11 @@ func TestReconcileChunked_AllowUpdatesAllowEntries(t *testing.T) {
 	if res["added"] != 2 {
 		t.Fatalf("expected added=2, got %v", res["added"])
 	}
-	if !b.allowEntries["10.0.0.6"] {
-		t.Fatalf("allowEntries missing reconciled allow entry 10.0.0.6")
+	if !b.allowEntries["203.0.113.6"] {
+		t.Fatalf("allowEntries missing reconciled allow entry 203.0.113.6")
 	}
 
-	_, err = b.Add([]setEntry{{IP: "10.0.0.6", Family: "ipv4", Set: "scanner_drop", TTL: 60}})
+	_, err = b.Add([]setEntry{{IP: "203.0.113.6", Family: "ipv4", Set: "scanner_drop", TTL: 60}})
 	if err == nil || err.Error() != "allow_covered" {
 		t.Fatalf("expected allow_covered, got err=%v", err)
 	}
@@ -197,8 +197,8 @@ func TestReconcileChunked_SkipsAllowCoveredInBatch(t *testing.T) {
 		FinalChunk:  true,
 		TotalChunks: 1,
 		Desired: []setEntry{
-			{IP: "10.0.9.0/24", Family: "ipv4", Set: "allow"},
-			{IP: "10.0.9.77", Family: "ipv4", Set: "cc_drop", TTL: 60},
+			{IP: "203.0.113.0/24", Family: "ipv4", Set: "allow"},
+			{IP: "203.0.113.77", Family: "ipv4", Set: "cc_drop", TTL: 60},
 		},
 	}
 	res, err := b.reconcileChunked(payload, map[string]interface{}{
@@ -213,7 +213,7 @@ func TestReconcileChunked_SkipsAllowCoveredInBatch(t *testing.T) {
 	if res["failed"] != 1 {
 		t.Fatalf("expected failed=1 (allow-covered drop), got %v", res["failed"])
 	}
-	if b.state["cc_drop"]["ipv4"]["10.0.9.77"] != nil {
-		t.Fatalf("allow-covered drop 10.0.9.77 must not be installed")
+	if b.state["cc_drop"]["ipv4"]["203.0.113.77"] != nil {
+		t.Fatalf("allow-covered drop 203.0.113.77 must not be installed")
 	}
 }
