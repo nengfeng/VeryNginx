@@ -93,30 +93,15 @@ local function index_parse(s)
     return out
 end
 
---- Compact the index: drop entries whose timestamp is older than `now - max_age`.
---- Called under the lock; the filtered list is written back with the index TTL.
+--- Prune expired entries from the index and return the surviving map.
+--- MUST be called under the index lock — the caller performs a single
+--- read-modify-write to avoid overwriting concurrent appends (AGENTS §12.2).
 local function index_prune(s, now, max_age)
     local entries = index_parse(s)
     local kept = {}
-    local now_str = ""
     for k, ts in pairs(entries) do
         if now - ts <= max_age then
             kept[k] = ts
-        end
-    end
-    -- Rebuild: deterministic order avoids thrashing the string on each write.
-    local parts = {}
-    for k, ts in pairs(kept) do
-        parts[#parts + 1] = k .. ":" .. tostring(ts)
-    end
-    table.sort(parts)
-    if #parts == 0 then
-        s:delete(INDEX_KEY)
-    else
-        local ok, err = s:set(INDEX_KEY, table.concat(parts, "\n") .. "\n", INDEX_TTL)
-        if not ok then
-            ngx.log(ngx.WARN, "metrics: index prune write failed (", tostring(err),
-                ") — index may be inconsistent")
         end
     end
     return kept
@@ -129,10 +114,6 @@ end
 -- Index entries carry per-entry timestamps; every write prunes entries older
 -- than the data TTL, keeping the index bounded even under high label churn.
 local function index_add(s, key, data_ttl)
-    -- Prune expired entries before checking membership; this keeps the index
-    -- bounded and is cheap (string scan, no lock).
-    index_prune(s, ngx.time(), data_ttl > 0 and data_ttl or INDEX_TTL)
-    if index_contains(s, key) then return end
     local locks = ngx.shared.vn_locks
     if not locks then return end
     local token = get_random().bytes(8)
@@ -140,9 +121,6 @@ local function index_add(s, key, data_ttl)
     while not locks:add(INDEX_LOCK_KEY, token, INDEX_LOCK_TTL) do
         retries = retries + 1
         if retries > INDEX_LOCK_MAX_RETRIES then
-            -- The metric value was already written; only its index entry is
-            -- missing, which would make it invisible to the exporter. Surface
-            -- it loudly so the operator knows the metric may be missing.
             ngx.log(ngx.WARN, "metrics: index lock unavailable after ",
                 INDEX_LOCK_MAX_RETRIES, " retries; metric key may not be exported: ",
                 key)
@@ -150,15 +128,33 @@ local function index_add(s, key, data_ttl)
         end
         ngx.sleep(INDEX_LOCK_SLEEP)
     end
-    -- Re-check under the lock; a concurrent writer may have added it already.
-    if not index_contains(s, key) then
-        local ts = tostring(ngx.time())
-        local raw = s:get(INDEX_KEY) or ""
-        local ok_idx, err_idx = s:set(INDEX_KEY, raw .. key .. ":" .. ts .. "\n", INDEX_TTL)
-        if not ok_idx then
-            ngx.log(ngx.WARN, "metrics: index write failed (", tostring(err_idx),
-                ") for ", key, " — metric may not be exported")
-        end
+    -- Prune + re-check + append in one lock-held read-modify-write, so no
+    -- concurrent writer's append is silently overwritten (AGENTS §12.2).
+    local max_age = data_ttl > 0 and data_ttl or INDEX_TTL
+    local kept = index_prune(s, ngx.time(), max_age)
+    if kept[key] then
+        -- Member already present (or added by a concurrent writer); just renew
+        -- its timestamp so it stays in the index.
+        kept[key] = ngx.time()
+    elseif not index_contains(s, key) then
+        kept[key] = ngx.time()
+    end
+    -- Deterministic rewrite: sorted keys avoid thrashing the string on each
+    -- append, while the single write under lock is atomic.
+    local parts = {}
+    for k, ts in pairs(kept) do
+        parts[#parts + 1] = k .. ":" .. tostring(ts)
+    end
+    table.sort(parts)
+    local ok_idx, err_idx
+    if #parts == 0 then
+        ok_idx, err_idx = s:delete(INDEX_KEY), nil
+    else
+        ok_idx, err_idx = s:set(INDEX_KEY, table.concat(parts, "\n") .. "\n", INDEX_TTL)
+    end
+    if not ok_idx then
+        ngx.log(ngx.WARN, "metrics: index write failed (", tostring(err_idx),
+            ") — metric may not be exported")
     end
     if locks:get(INDEX_LOCK_KEY) == token then
         locks:delete(INDEX_LOCK_KEY)
