@@ -822,9 +822,10 @@ bash test/v2/phase0/test_go_helper_e2e.sh
 
 ### 11.8 reconcile 必须镜像 Add 的独立防御
 
-`Add` 在写 nft 前会执行三道独立防御：`isReservedOrSpecialIP`（拒环回/组播/未指定等）、`isAllowCoveredLocked`（拒 allow 覆盖的 drop）、容量与 DROP 速率限制。`reconcileFull` / `reconcileChunked` 是批量路径，**同样必须执行这些检查**，否则：
+`Add` 在写 nft 前会执行三道独立防御：`isReservedOrSpecialIP`（拒环回/组播/未指定/**私有段**/ULA 等）、`isAllowCoveredLocked`（拒 allow 覆盖的 drop）、容量与 DROP 速率限制。`reconcileFull` / `reconcileChunked` 是批量路径，**同样必须执行这些检查**，否则：
 
 - 绕过 reserved-IP 检查 → 可能把 `127.0.0.1` 等地址打入 drop 集合（H2）。
+- **漏 IPv4 私有段（10.x/172.16.x/192.168.x）和 IPv6 ULA（fc/fd）→ 这些地址本应被拦截；修复后 `isReservedOrSpecialIP` 显式检查这些范围，与 Lua 侧 `promotion.lua:38-66` 对齐。**
 - 绕过 allow-cover 检查 → allow 保护的 IP 仍被 drop。
 - 不更新 `b.allowEntries` → 后续 `Add` 的 `isAllowCoveredLocked` 因 map 陈旧而失效（H1）。
 
