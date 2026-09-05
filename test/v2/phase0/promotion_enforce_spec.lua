@@ -125,6 +125,34 @@ describe("Enforce promotion", function()
         assert.are.equal("scanner_drop", e.list)
     end)
 
+    it("set_desired failure rolls back executor.add and keeps candidate state", function()
+        -- Simulate shared dict full / index lock failure in set_desired.
+        local real_desired = require "core.kernel_blocking.desired_state"
+        local original_set = real_desired.set_desired
+        real_desired.set_desired = function()
+            return false, "shared dict full, entry not persisted"
+        end
+        -- Reload promotion so it picks up the patched desired_state.
+        package.loaded["core.kernel_blocking.promotion"] = nil
+        promotion = require "core.kernel_blocking.promotion"
+
+        mock_config.kernel_ip_blocking.mode = "enforce"
+        sm.upsert_candidate("203.0.113.10", "scanner", "observed",
+            {}, { block_hits = 10, flagged = true })
+        local ok = promotion.process_candidates(ngx.time())
+        assert.is_false(ok, "promotion must return false when set_desired fails")
+        -- Compensated: executor.add was rolled back via exec.delete.
+        local in_kernel = _mock_exec.contains("scanner_drop", "ipv4", "203.0.113.10")
+        assert.is_false(in_kernel, "IP must be removed from kernel after set_desired failure")
+        -- SM stays at candidate: no installed transition.
+        local e = sm.get("203.0.113.10")
+        assert.are.equal("candidate", e.state)
+        assert.are.equal("promoted", e.evidence.result or "promoted")
+        -- Restore for subsequent tests.
+        real_desired.set_desired = original_set
+        package.loaded["core.kernel_blocking.promotion"] = nil
+    end)
+
     it("enforce mode respects emergency_pause", function()
         mock_config.kernel_ip_blocking.mode = "enforce"
         mock_config.kernel_ip_blocking.emergency_pause = true
