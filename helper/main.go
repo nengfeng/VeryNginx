@@ -297,21 +297,30 @@ func isReservedOrSpecialIP(ipStr string) bool {
 			return true // broadcast
 		}
 	} else {
-		lower := strings.ToLower(ipStr)
-		if lower == "::" || lower == "0000:0000:0000:0000:0000:0000:0000:0000" {
-			return true // unspecified
+		b := ip.To16()
+		// Link-local fe80::/10 — first byte is 0xfe, second byte high nibble
+		// must be 10xx (8/b).  Net.IP.IsLinkLocalUnicast covers this but we
+		// do it explicitly for testability / traceability.
+		if b[0] == 0xfe && (b[1]&0xc0) == 0x80 {
+			return true
 		}
-		// fc00::/7 ULA (unique local addresses)
-		if len(ipStr) > 0 {
-			c := ipStr[0]
-			if c == 'f' || c == 'F' {
-				if len(ipStr) > 1 {
-					d := ipStr[1]
-					if d == 'c' || d == 'C' || d == 'd' || d == 'D' {
-						return true
-					}
-				}
-			}
+		// Multicast ff00::/8
+		if b[0] == 0xff {
+			return true
+		}
+		// Unspecified ::
+		if ip.IsUnspecified() {
+			return true
+		}
+		// ULA fc00::/7.  The first two significant bytes must be fcxx or fdxX.
+		// When leading-zero compression produces ::fc00:xxxx the fc byte sits
+		// at a later offset — find the first non-zero byte first.
+		first := 0
+		for first < 16 && b[first] == 0 {
+			first++
+		}
+		if first < 15 && (b[first] == 0xfc || b[first] == 0xfd) {
+			return true
 		}
 	}
 	return false
