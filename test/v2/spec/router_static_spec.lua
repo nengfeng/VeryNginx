@@ -87,8 +87,11 @@ describe("router 静态资源路径映射", function()
 
     it("穿越攻击仍然 403(剥离前已完成消毒)", function()
         router.on_access(make_ctx("/verynginx/static/../config.json"))
-        assert.equals(403, exited_with)
-        assert.is_nil(captured)
+        -- Must be set via ctx.set_action("block"), not ngx.exit (which would be
+        -- swallowed by the pcall wrapper in core/plugin.lua).
+        assert.is_not_nil(captured)
+        assert.equals("block", captured.type)
+        assert.equals(403, captured.data.code)
     end)
 
     it("非 base_uri 请求完全不处理", function()
