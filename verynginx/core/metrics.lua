@@ -67,17 +67,7 @@ local function record_drop(name, err)
     end
 end
 
---- Fast, lock-free membership probe. The index stores newline-separated
---- "key:timestamp" tokens; we search for an exact token to avoid substring
---- collisions between label sets.
-local function index_contains(s, key)
-    local raw = s:get(INDEX_KEY)
-    if not raw then return false end
-    return raw:find("\n" .. key .. ":", 1, true) ~= nil
-end
-
---- Parse the index string into {key=ts, ...}.  Returns empty table on any
---- decode error (caller treats it as "index absent").
+--- Prune expired entries from the index and return the surviving map.
 local function index_parse(s)
     local raw = s:get(INDEX_KEY)
     if not raw then return {} end
@@ -128,17 +118,16 @@ local function index_add(s, key, data_ttl)
         end
         ngx.sleep(INDEX_LOCK_SLEEP)
     end
-    -- Prune + re-check + append in one lock-held read-modify-write, so no
-    -- concurrent writer's append is silently overwritten (AGENTS §12.2).
+    -- Prune + renew in one lock-held read-modify-write, so no concurrent
+    -- writer's append is silently overwritten (AGENTS §12.2).
+    -- No re-check needed: index_prune's parse and this function's write share
+    -- the same lock, so there is no window where a concurrent writer could
+    -- append after prune but before our rewrite.  Unconditionally add/update
+    -- the key so even entries that straddled the TTL boundary get a fresh
+    -- timestamp (avoiding the "value re-created but index drops the key" bug).
     local max_age = data_ttl > 0 and data_ttl or INDEX_TTL
     local kept = index_prune(s, ngx.time(), max_age)
-    if kept[key] then
-        -- Member already present (or added by a concurrent writer); just renew
-        -- its timestamp so it stays in the index.
-        kept[key] = ngx.time()
-    elseif not index_contains(s, key) then
-        kept[key] = ngx.time()
-    end
+    kept[key] = ngx.time()
     -- Deterministic rewrite: sorted keys avoid thrashing the string on each
     -- append, while the single write under lock is atomic.
     local parts = {}
