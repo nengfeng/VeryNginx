@@ -13,6 +13,10 @@ local INDEX_LOCK_SLEEP = 0.002
 -- momentarily contended lock cannot silently drop a metric. A dropped index
 -- entry makes the metric invisible to the (index-only) exporter.
 local INDEX_LOCK_MAX_RETRIES = 500
+-- Index TTL: matched to LABELED_TTL so the whole index expires together in
+-- the rare case of a complete quiet period.  Pruning is done per-entry on
+-- every write, so this is only a safety net.
+local INDEX_TTL = 3600
 
 -- Low-cardinality core metrics live in the `metrics` dict. High-cardinality
 -- per-instance series (per-rule gauges, per-IP score) are routed to their own
@@ -63,22 +67,71 @@ local function record_drop(name, err)
     end
 end
 
---- Fast, lock-free membership probe. The index is a newline-joined list of
--- metric keys, so we search for a newline-delimited exact token to avoid
--- substring collisions between label sets.
+--- Fast, lock-free membership probe. The index stores newline-separated
+--- "key:timestamp" tokens; we search for an exact token to avoid substring
+--- collisions between label sets.
 local function index_contains(s, key)
     local raw = s:get(INDEX_KEY)
     if not raw then return false end
-    return raw:find("\n" .. key .. "\n", 1, true) ~= nil
+    return raw:find("\n" .. key .. ":", 1, true) ~= nil
+end
+
+--- Parse the index string into {key=ts, ...}.  Returns empty table on any
+--- decode error (caller treats it as "index absent").
+local function index_parse(s)
+    local raw = s:get(INDEX_KEY)
+    if not raw then return {} end
+    local out = {}
+    for line in raw:gmatch("[^\n]+") do
+        local eq = line:find(":", 1, true)
+        if eq then
+            local k = line:sub(1, eq - 1)
+            local t = tonumber(line:sub(eq + 1))
+            if k ~= "" and t then out[k] = t end
+        end
+    end
+    return out
+end
+
+--- Compact the index: drop entries whose timestamp is older than `now - max_age`.
+--- Called under the lock; the filtered list is written back with the index TTL.
+local function index_prune(s, now, max_age)
+    local entries = index_parse(s)
+    local kept = {}
+    local now_str = ""
+    for k, ts in pairs(entries) do
+        if now - ts <= max_age then
+            kept[k] = ts
+        end
+    end
+    -- Rebuild: deterministic order avoids thrashing the string on each write.
+    local parts = {}
+    for k, ts in pairs(kept) do
+        parts[#parts + 1] = k .. ":" .. tostring(ts)
+    end
+    table.sort(parts)
+    if #parts == 0 then
+        s:delete(INDEX_KEY)
+    else
+        local ok, err = s:set(INDEX_KEY, table.concat(parts, "\n") .. "\n", INDEX_TTL)
+        if not ok then
+            ngx.log(ngx.WARN, "metrics: index prune write failed (", tostring(err),
+                ") — index may be inconsistent")
+        end
+    end
+    return kept
 end
 
 --- Record a metric key in the index. get_keys(0)/get_keys(N) is capped at
 -- ~1024 entries, so per-rule gauges (3 keys per rule) would silently drop the
 -- tail for large rule sets. The index gives export_prometheus the full key
 -- list regardless of dict size. Only the rare "new key" path takes a lock.
--- The `idx_ttl` parameter must match the data TTL so index entries expire
--- alongside their values — otherwise the index grows without bound (no memory).
-local function index_add(s, key, idx_ttl)
+-- Index entries carry per-entry timestamps; every write prunes entries older
+-- than the data TTL, keeping the index bounded even under high label churn.
+local function index_add(s, key, data_ttl)
+    -- Prune expired entries before checking membership; this keeps the index
+    -- bounded and is cheap (string scan, no lock).
+    index_prune(s, ngx.time(), data_ttl)
     if index_contains(s, key) then return end
     local locks = ngx.shared.vn_locks
     if not locks then return end
@@ -99,8 +152,9 @@ local function index_add(s, key, idx_ttl)
     end
     -- Re-check under the lock; a concurrent writer may have added it already.
     if not index_contains(s, key) then
+        local ts = tostring(ngx.time())
         local raw = s:get(INDEX_KEY) or ""
-        local ok_idx, err_idx = s:set(INDEX_KEY, raw .. key .. "\n", idx_ttl)
+        local ok_idx, err_idx = s:set(INDEX_KEY, raw .. key .. ":" .. ts .. "\n", INDEX_TTL)
         if not ok_idx then
             ngx.log(ngx.WARN, "metrics: index write failed (", tostring(err_idx),
                 ") for ", key, " — metric may not be exported")
@@ -224,7 +278,11 @@ local function emit_dict(shared, seen_names, samples, emitted_keys)
     -- sync, so no get_keys union fallback is needed.
     local raw_idx = shared:get(INDEX_KEY)
     if raw_idx then
-        for key in raw_idx:gmatch("[^\n]+") do
+        for line in raw_idx:gmatch("[^\n]+") do
+            -- Index tokens are "key:timestamp"; strip the timestamp suffix.
+            local eq = line:find(":", 1, true)
+            if not eq then goto continue end
+            local key = line:sub(1, eq - 1)
             if not emitted_keys[key] then
                 emitted_keys[key] = true
                 local val = shared:get(key)
@@ -242,6 +300,7 @@ local function emit_dict(shared, seen_names, samples, emitted_keys)
                     table.insert(samples, name .. ls .. " " .. tostring(val) .. "\n")
                 end
             end
+            ::continue::
         end
     end
 end
