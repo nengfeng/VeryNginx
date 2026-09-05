@@ -147,8 +147,30 @@ describe("Enforce promotion", function()
         -- SM stays at candidate: no installed transition.
         local e = sm.get("203.0.113.10")
         assert.are.equal("candidate", e.state)
-        assert.are.equal("promoted", e.evidence.result or "promoted")
         -- Restore for subsequent tests.
+        real_desired.set_desired = original_set
+        package.loaded["core.kernel_blocking.promotion"] = nil
+    end)
+
+    it("CC set_desired failure rolls back executor.add and keeps candidate state", function()
+        local real_desired = require "core.kernel_blocking.desired_state"
+        local original_set = real_desired.set_desired
+        real_desired.set_desired = function()
+            return false, "no memory"
+        end
+        package.loaded["core.kernel_blocking.promotion"] = nil
+        promotion = require "core.kernel_blocking.promotion"
+
+        mock_config.kernel_ip_blocking.mode = "enforce"
+        mock_config.kernel_ip_blocking.cc.enforce_ready = true
+        sm.upsert_candidate("203.0.113.30", "cc", "observed",
+            {}, { rule_id = "freq_rule_1" })
+        local ok = promotion.process_candidates(ngx.time())
+        assert.is_false(ok)
+        local in_kernel = _mock_exec.contains("cc_drop", "ipv4", "203.0.113.30")
+        assert.is_false(in_kernel, "CC IP must be removed after set_desired failure")
+        local e = sm.get("203.0.113.30")
+        assert.are.equal("candidate", e.state)
         real_desired.set_desired = original_set
         package.loaded["core.kernel_blocking.promotion"] = nil
     end)
