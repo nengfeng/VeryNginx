@@ -17,7 +17,8 @@ function _M.on_access(ctx)
     local base_uri = (config and config.base_uri) or "/verynginx"
     local uri = ctx.request.uri
 
-    if uri:find(base_uri, 1, true) ~= 1 then
+    -- Exact match or prefix followed by / (prevent /verynginxconfig from matching)
+    if not (uri == base_uri or (uri:find(base_uri, 1, true) == 1 and uri:sub(#base_uri + 1, #base_uri + 1) == "/")) then
         return
     end
 
