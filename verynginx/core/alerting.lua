@@ -469,7 +469,7 @@ function _M.evaluate()
             if capacity > 0 then
                 local used_pct = math.floor(((capacity - free_space) / capacity) * 100)
                 if used_pct >= conf.shared_dict_alert_threshold then
-                    fire_alert("shared_dict_high_usage", nil, {
+                    fire_alert("shared_dict_high_usage", name, {
                         dict = name,
                         usage_pct = used_pct,
                         capacity_kb = math.floor(capacity / 1024),
