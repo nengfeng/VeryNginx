@@ -169,21 +169,31 @@ local function add_to_pending_index(ip)
     if not s then return end
     local ttl = cfg_val("pending_ttl")
     -- Fast path: an already-live per-IP key means the IP is already indexed.
-    -- Refresh the per-IP key TTL with a lock-free set (idempotent) and skip
-    -- the global index RMW + spin-lock entirely — this is the common case
-    -- (a pending IP being re-flagged / having its TTL renewed across many
-    -- requests). Only brand-new pending IPs contend on the global lock.
+    -- Refresh the per-IP key TTL with a lock-free set (idempotent) and ALSO
+    -- refresh the index TTL via json_index_add_unlocked(force_renew=true).
+    -- Without this the index TTL can lapse (see _collect_pending: index TTL
+    -- is math.max(pending_max_rem, 1) which drops to 1s as entries expire),
+    -- leaving the index absent while per-IP keys live — forcing the
+    -- get_keys(0) 1024-key fallback in pending_count / _collect_pending.
     local fresh = s:get(pending_index_key(ip)) == nil
     s:set(pending_index_key(ip), "1", ttl)
-    if not fresh then return end
-    with_index_lock(function()
-        -- Serialized: re-set_pending after expiry must refresh the index even
-        -- when a dead entry for this IP lingers in a sub-threshold list.
+    if fresh then
+        with_index_lock(function()
+            -- Serialized: re-set_pending after expiry must refresh the index even
+            -- when a dead entry for this IP lingers in a sub-threshold list.
+            json_index_add_unlocked(s, "ip_rep:pending_index", ip, ttl,
+                function(eip) return s:get(pending_index_key(eip)) ~= nil end,
+                true)
+        end)
+        s:incr("ip_rep:pi_version", 1, 0, 0)
+    else
+        -- Index already has this IP; refresh its TTL without the global lock.
+        -- json_index_add_unlocked with force_renew=true re-encodes and re-TTLs
+        -- the index, keeping it alive alongside the per-IP key.
         json_index_add_unlocked(s, "ip_rep:pending_index", ip, ttl,
             function(eip) return s:get(pending_index_key(eip)) ~= nil end,
             true)
-    end)
-    s:incr("ip_rep:pi_version", 1, 0, 0)
+    end
 end
 
 local function remove_from_pending_index(ip)
@@ -1010,7 +1020,10 @@ function _M.restore()
             end
         end
         if #pending_list > 0 then
-            s:set("ip_rep:pending_index", json.encode(pending_list), math.max(pending_max_rem, 1))
+            -- Index TTL must be at least pending_ttl so it outlives the last
+            -- pending entry; otherwise a 1-second TTL (from pending_max_rem=1)
+            -- expires the index before the next per-IP-key refresh revives it.
+            s:set("ip_rep:pending_index", json.encode(pending_list), math.max(pending_max_rem, ttl))
             s:incr("ip_rep:pi_version", 1, 0, 0)
         end
     end
