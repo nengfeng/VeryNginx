@@ -546,6 +546,7 @@ function _M.clear_ip(ip)
     s:delete("ip_rep:flagged:" .. ip)
     s:delete("ip_rep:cache:" .. ip)
     remove_from_flagged_index(ip)
+    clear_score(ip)
 end
 
 function _M.clear_score(ip)
