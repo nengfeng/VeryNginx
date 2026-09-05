@@ -131,7 +131,7 @@ end
 local function index_add(s, key, data_ttl)
     -- Prune expired entries before checking membership; this keeps the index
     -- bounded and is cheap (string scan, no lock).
-    index_prune(s, ngx.time(), data_ttl)
+    index_prune(s, ngx.time(), data_ttl > 0 and data_ttl or INDEX_TTL)
     if index_contains(s, key) then return end
     local locks = ngx.shared.vn_locks
     if not locks then return end
