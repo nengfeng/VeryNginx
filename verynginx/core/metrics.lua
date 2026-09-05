@@ -76,7 +76,9 @@ end
 -- ~1024 entries, so per-rule gauges (3 keys per rule) would silently drop the
 -- tail for large rule sets. The index gives export_prometheus the full key
 -- list regardless of dict size. Only the rare "new key" path takes a lock.
-local function index_add(s, key)
+-- The `idx_ttl` parameter must match the data TTL so index entries expire
+-- alongside their values — otherwise the index grows without bound (no memory).
+local function index_add(s, key, idx_ttl)
     if index_contains(s, key) then return end
     local locks = ngx.shared.vn_locks
     if not locks then return end
@@ -98,7 +100,7 @@ local function index_add(s, key)
     -- Re-check under the lock; a concurrent writer may have added it already.
     if not index_contains(s, key) then
         local raw = s:get(INDEX_KEY) or ""
-        local ok_idx, err_idx = s:set(INDEX_KEY, raw .. key .. "\n", 0)
+        local ok_idx, err_idx = s:set(INDEX_KEY, raw .. key .. "\n", idx_ttl)
         if not ok_idx then
             ngx.log(ngx.WARN, "metrics: index write failed (", tostring(err_idx),
                 ") for ", key, " — metric may not be exported")
@@ -137,7 +139,7 @@ function _M.incr(name, value, labels)
     local ttl = is_labeled(name) and LABELED_TTL or 0
     local ok, err = shared:incr(key, value or 1, 0, ttl)
     if not ok then record_drop(name, err) return end
-    index_add(shared, key)
+    index_add(shared, key, ttl)
 end
 
 function _M.observe(name, value, labels)
@@ -150,8 +152,8 @@ function _M.observe(name, value, labels)
     if not ok1 then record_drop(name .. "_count", err1) return end
     local ok2, err2 = shared:incr(sum_key, value, 0, ttl)
     if not ok2 then record_drop(name .. "_sum", err2) return end
-    index_add(shared, count_key)
-    index_add(shared, sum_key)
+    index_add(shared, count_key, ttl)
+    index_add(shared, sum_key, ttl)
 end
 
 function _M.gauge(name, value, labels)
@@ -161,7 +163,7 @@ function _M.gauge(name, value, labels)
     local ttl = is_labeled(name) and LABELED_TTL or 0
     local ok, err = shared:set(key, value, ttl)
     if not ok then record_drop(name, err) return end
-    index_add(shared, key)
+    index_add(shared, key, ttl)
 end
 
 --- Parse a Prometheus metric key back into name + labels.
