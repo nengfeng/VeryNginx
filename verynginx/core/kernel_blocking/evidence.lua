@@ -106,6 +106,7 @@ function _M.count_cc_violations(ip, window, max_slots)
 	-- Probe slots backward from current
 	for slot_offset = 0, max_slots - 1 do
 		local slot = current_slot - slot_offset
+		if slot < 0 then break end
 		local found = false
 		for _, rule_id in ipairs(rule_ids) do
 			local key = "fl:v2:kernel:violation:" .. rule_id .. ":" .. ip .. ":" .. slot
