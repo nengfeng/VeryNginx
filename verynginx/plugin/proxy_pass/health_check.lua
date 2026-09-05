@@ -20,7 +20,11 @@ end
 function _M.init()
     local interval = (config and config.proxy and config.proxy.health_check_interval) or 5
     ngx.timer.every(interval, function()
+        -- Only worker 0 runs health checks; other workers exit early.
+        -- Avoids N workers × N upstream nodes probe fan-out on multi-core.
+        if ngx.worker.id() ~= 0 then return false end
         _M.active_check_all()
+        return false
     end)
 end
 
