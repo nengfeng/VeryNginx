@@ -1,7 +1,7 @@
 local _M = {}
 
 local config = require "core.config"
-local bit = require "bit"
+local bit = require "core.bit_compat"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local wlg = require "core.kernel_blocking.whitelist_generation"
 local random = require "core.random"

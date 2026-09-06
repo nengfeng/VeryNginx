@@ -6,9 +6,9 @@
 local _M = {}
 local hmac = require "core.hmac"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
--- LuaJIT bit module — available in OpenResty; polyfill would be a fallback
--- but this codebase only runs under OpenResty so we require it directly.
-local bit = require "bit"
+-- Bitwise ops via bit_compat: LuaJIT bit on OpenResty, pure-Lua shim under
+-- stock Lua (CI unit tests) — see core/bit_compat.lua.
+local bit = require "core.bit_compat"
 local bor, bxor = bit.bor, bit.bxor
 
 -- ---------------------------------------------------------------------------
