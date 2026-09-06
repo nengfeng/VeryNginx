@@ -251,9 +251,14 @@ function _M.add(suggestion)
         index_append(suggestion.id)
     end)
     if not ok then
-        -- Entry written but index update failed — log and continue.
-        -- The orphaned entry will be skipped by list() (it just won't appear).
-        ngx.log(ngx.WARN, "waf_recommender: index append failed: ", tostring(err))
+        -- Entry-without-index is invisible to list() but still occupies dict
+        -- space until TTL expiry — a dangling record (§12.2: never leave a
+        -- record that the index cannot discover). Roll the entry back and
+        -- report failure instead of orphaning it.
+        s:delete(key)
+        ngx.log(ngx.WARN, "waf_recommender: index append failed, entry rolled back: ",
+            tostring(err))
+        return false, "index update failed: " .. tostring(err)
     end
     return true
 end
