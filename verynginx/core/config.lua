@@ -897,6 +897,18 @@ function _M.check_update()
     end
 end
 
+-- dkjson RAISES on malformed JSON instead of returning nil. Every decode of
+-- on-disk state must go through this wrapper: a corrupt config.json is handled
+-- by the fallback paths in load_from_file (retain previous in-memory config /
+-- shipped defaults / schema defaults), never by killing init_by_lua.
+local function decode_json(data)
+    local ok, result = pcall(json.decode, data)
+    if not ok then
+        return nil
+    end
+    return result
+end
+
 -- ---------------------------------------------------------------------------
 -- Load config from file
 -- ---------------------------------------------------------------------------
@@ -911,7 +923,7 @@ function _M.load_from_file()
     local data = file:read("*all")
     file:close()
 
-    local config = json.decode(data)
+    local config = decode_json(data)
     local file_corrupt = (config == nil)
 
     if not config then
@@ -933,7 +945,7 @@ function _M.load_from_file()
         if default_file then
             local default_data = default_file:read("*all")
             default_file:close()
-            config = json.decode(default_data)
+            config = decode_json(default_data)
         end
         if not config then
             ngx.log(ngx.ERR, "config.json and config.default.json both invalid, using schema defaults")
@@ -975,7 +987,7 @@ function _M.load_from_file()
                 if re_f then
                     local re_data = re_f:read("*all")
                     re_f:close()
-                    local re_config = json.decode(re_data)
+                    local re_config = decode_json(re_data)
                     if re_config and re_config.admin then
                         for _, a in ipairs(re_config.admin) do
                             if a.password_hash and a.password_hash ~= "" then
@@ -1001,7 +1013,7 @@ function _M.load_from_file()
             if re_f then
                 local re_data = re_f:read("*all")
                 re_f:close()
-                local re_config = json.decode(re_data)
+                local re_config = decode_json(re_data)
                 if re_config and re_config.admin then
                     for _, a in ipairs(re_config.admin) do
                         for _, ca in ipairs(config.admin) do
@@ -1429,7 +1441,7 @@ function _M.rollback(backup_path)
     end
     local data = file:read("*all")
     file:close()
-    local config = json.decode(data)
+    local config = decode_json(data)
     if not config then
         return false, "backup decode failed"
     end

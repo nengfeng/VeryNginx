@@ -320,8 +320,10 @@ function _M.restore()
     end
     local data = f:read("*all")
     f:close()
-    local decoded = json.decode(data)
-    if not decoded then
+    -- cjson/dkjson raise on malformed JSON; a corrupt stats file must not
+    -- kill init_worker — degrade to an empty slate instead.
+    local ok, decoded = pcall(json.decode, data)
+    if not ok or not decoded then
         return
     end
     local shared = ngx.shared.statistics
