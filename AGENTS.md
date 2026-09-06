@@ -16,6 +16,7 @@
 10. [安全](#10-安全)
 11. [Firewall Helper (Go)](#11-firewall-helper-go)
 12. [Kernel Blocking (Lua)](#12-kernel-blocking-lua)
+13. [审计修复沉淀（2026-09-06）](#13-审计修复沉淀2026-09-06)
 
 ---
 
@@ -186,6 +187,10 @@ shared:incr("counter:" .. key, 1, 0, ttl)
 - 标签指标原先 TTL=0（永不过期）。改为 `LABELED_TTL=3600`：不活跃系列自动回收，dict 不再被永久挤满；活跃系列由 observability 采集器在窗口内重写/刷新 TTL 而续命。索引 `_M.index_add` 的 `s:set` 失败也单独告警（避免索引条目静默丢失导致指标不可见）。
 
 > 若观察到 `vn_metrics_dropped_total` 持续上涨，说明 `metrics_labeled` 16m 容量不足或标签基数失控，应扩 dict 或收紧标签维度，而非靠重启缓解。
+>
+> **其他模块的 dict 写失败走 `core/dict_guard.lua`**（2026-09-06 起）：audit/alerting/ip_reputation/config/geoip/waf_recommender/statistics/geoip_updater 的 set/incr 全部经 `dict_guard.set/incr`（失败 30s 限频 WARN）或自行检查返回值（session.revoke 返回 `false, err`）。
+> 曾有 ~25 处调用丢弃返回值：dict 满时审计、告警状态、声誉索引、统计全部静默丢数据。
+> 另注意 audit.lua 的环形索引曾写 `(shared:incr(...) - 1)`——incr 失败返回 nil 时这是**算术崩溃**（fail-open 到 500），不是丢数据；凡 incr 参与算术必须先判 nil。
 
 ---
 
@@ -363,6 +368,12 @@ auto_whitelist = { type = "table", default = {
 - `RESULT` 表中包含 `CHALLENGE`
 - `TERMINAL_ACTIONS` 包含 `challenge = true`
 - 通过 `rule_engine.apply()` 执行，在 `pcall` 外部
+- `browser_verify` 同样遵守此契约（2026-09-06 修复）：插件命中且校验失败时**只设**
+  `ctx.set_action(ctx, "challenge", { cookie_verify = ... })` 并 return，
+  由 `apply` 的 CHALLENGE 分支在 pcall 外调用 `verifier.challenge(ctx)` + `ngx.exit(200)`。
+  此前插件直接 `challenge()`（仅 ngx.say）就 return，无 terminal action → 插件链继续，
+  proxy_pass 会带着已缓冲的挑战 HTML 转发上游。CHALLENGE 分支现在支持 
+  `data.cookie_verify`（优先）、`data.javascript_verify`、默认 js verifier 三层。
 
 ### 7.3 JS Challenge Cookie
 
@@ -613,6 +624,8 @@ busted --lpath='./verynginx/?.lua;./verynginx/lua_script/?.lua;./verynginx/lua_s
 > random 等多文件「集体误报失败」。这些失败是跑错的产物，不是 bug。
 > **phase0 spec 用 `package.preload["core.config"]` 注入 fake 后必须在 `after_each` 清理**（preload 与 package.loaded 都置 nil）——preload 是进程级的，不清会毒化后续所有需要真实 core.config 的 spec（webhook_ssrf/config_whitelist_validate 曾集体炸在无关断言上）。
 >
+> **2026-09-06 起 CI 增跑 phase0**（unit-tests job 第二步，**不带 --helper**、显式 --lpath）；`test/v2/phase0/.busted` 强制 `helper = nil`，从 phase0/ 目录内跑 busted 也不会继承 test/v2/.busted 的 spec_helper。
+> **CI 的 Lua 5.3 没有 LuaJIT 的 `bit` 库**：`core/session.lua`、`core/ip_reputation.lua` 一律经 `core/bit_compat.lua`（bit → bit32 → 纯 Lua 回退）取位运算，OpenResty 下就是 LuaJIT bit、零行为差异；顶层裸 `require "bit"` 会让相关 spec 在 CI 整文件崩。
 > phase0 中真实存在的唯一历史 bug 曾在 `ipc_spec.lua`：mock socket 用了
 > `settimeouts`/`receiveany` 而 `ipc_client.lua` 用的是真实 API
 > `settimeout`（单数）/`receive(n)` —— 已修复，mock 现改为字节流 `receive(n)`。
@@ -678,7 +691,10 @@ Content-Security-Policy: default-src 'self'; script-src 'self'; ...
 
 - 认证路由：60 req/60s（按用户）
 - 未认证路由：20 req/60s（按 IP）
-- `/config` POST：额外 30 req/60s
+- `/config` POST：额外 30 req/60s（可配 `security.rate_limit.config_save`）
+- 登录按 IP：30/min（可配 `security.rate_limit.login`，`api/helpers.parse_rate_limit` 解析 "N/m|h|s"；
+  配置缺失/不可解析回退硬编码值。2026-09-06 前这两个配置键是死的——schema 声明、default.json 里躺着、
+  但没有任何代码读取。接入后 default.json 的 login 已对齐历史行为 "30/m"，升级不会悄悄收紧
 
 ### 10.6 幂等性
 
@@ -728,7 +744,8 @@ GeoIP 数据库目录**禁止 777**。`install-lnmp.sh` 已设置 755 + chown ng
 
 `waf-rule-manager.validate_rule` 曾不检查 matcher 的 IP 条件值（只验证 matcher 是 string/table）。`POST /waf/rules` 可写入 `{"IP":{"value":"999.1.1.1"}}` 或 CIDR，规则静默不触发。现已对内联 matcher 和 string 引用 matcher（查 config.matcher）统一校验：拒绝非法 IP 和 CIDR（matcher 引擎仅做字符串相等/无 CIDR 语义），并 **pcall 编译校验全部 ≈/!≈ 的 value**——无效正则曾使 compare.match 走 raise 回退，critical 插件把评估到的请求打成 503 风暴（现 compile 失败一律"不匹配"；最小测试桩无 compile API 时降级 pcall 保护的 find）。
 
-**规则 id 格式约束**：客户端提供的 id 会进入 dict key、管道帧命中记录与换行分隔统计索引，必须匹配 `^[%w_-]+$` 且 ≤64 字符（Lua 模式无 `{n,m}` 量词，长度需单独判断——`^[%w_-]{1,64}$` 会静默不匹配任何输入）。
+**规则 id 格式约束**：客户端提供的 id 会进入 dict key、管道帧命中记录与换行分隔统计索引，必须匹配 `^[%w_-]+$` 且 ≤64 字符（Lua 模式无 `{n,m}` 量词，长度需单独判断——`^[%w_-]{1,64}$` 会静默不匹配任何输入）。**frequency 规则 id 同受此约束**（2026-09-06 起，`api/controllers/frequency.lua`），此前与 WAF 侧不对称；`api/init.lua` 的 `:id` 路由 capture 也在入口统一校验一次（覆盖全部 18 个消费点），非法 capture 返回 400——dispatch 在 pcall 内，必须用 `set_action` 而非 `ngx.exit`。
+**Composite matcher 必须递归校验**：`waf-rule-manager.validate_rule` 经 `validate_matcher_node` 递归遍历 `Composite.conditions`（AND/OR/NOT，任意嵌套），对每个 IP 条件做 CIDR/格式校验、对每个 ≈/!≈ 做编译校验。只查顶层 key 会漏掉 `{Composite={conditions=[{IP={value="10.0.0.0/8"}}]}}` → 规则持久化但 matcher 字符串相等引擎永不命中。
 
 > **IPv6 CIDR 白名单拒收（契约变更）**：`is_whitelisted()` 只做数值化 v4 数学 + 精确字符串相等，v6 CIDR 从不可能匹配——validate_whitelist_entry 现拒绝一切含 `/` 的 IPv6 条目（裸 v6 / mapped 裸地址仍收）。旧测试"接受干净 v6 CIDR"已随契约更新为拒绝；前端 `isValidIpLiteral(ip,true)` 同步收紧。
 
@@ -806,6 +823,7 @@ systemctl enable --now firewall-helper.socket
 
 ### 11.6 测试
 
+CI 的 `helper-tests` job 跑 `go test ./...`（不带 E2E；各测试自设 `VN_HELPER_SKIP_NFT=1`）。注意 `FlushOwned("all"/"detach")` 分支必须检查 skip 环境变量（与 "auto" 分支一致），否则无 nft 的机器（任何非 Linux 开发机/CI）上该测试必挂。
 ```bash
 # 单元 + e2e (需要 CAP_NET_ADMIN)
 cd helper && E2E=1 go test -v
@@ -840,7 +858,7 @@ bash test/v2/phase0/test_go_helper_e2e.sh
 
 `ipc_client.request_safe` 失败时是 fail-open（返回兜底 `result`）。原先 `health` 兜底返回 `state="degraded"`，导致 helper 进程挂掉 / 套接字不可达 与 helper 存活但自身 degraded **无法区分**——健康判定形同虚设。现 `request_safe` 在兜底响应里带回真实 `error`（connect_failed/read_timeout/...），`executor_ipc.health()` 检测到 `resp.error` 时返回 `state="unreachable"` + `ipc_error`，dashboard 据此区分「helper 挂了」与「helper 降级」。`kb.status()` 透传 `health.state`。
 
-- **`delete` / `flush_owned` / `replace_allow_snapshot` 同样必须过 `checkDropBinding`**：这三者改的是"封禁面"（删 drop / 清全部 / 刷新 allow），此前 dispatch 注释写"always allowed"且跳过 scope 校验——导致一个未 `ensure_base` 的连接即可缩小甚至一键关停内核封禁（`replace_allow_snapshot` 写入 `0.0.0.0/0` 这类 allow，因 allow 先于 drop 求值而放行全部流量）。现三者在 dispatch 都先 `checkDropBinding(sess,nil)`；Lua 侧 `executor_ipc.lua` 的 `_M.delete`/`replace_allow_snapshot`/`flush_owned` 也先 `ensure_drop_scope()`（与 `add`/`reconcile` 一致）。**allow 快照另有最小前缀限制**：`validate.go` 的 `validateAllowPrefix` 拒 `<= /8`(v4) 与 `<= /64`(v6) 的 CIDR（即 `0.0.0.0/0`、`::/0` 均被拒），防止"allow 一切"。回归测试见 `helper/guard_test.go`。
+- **`delete` / `flush_owned` / `replace_allow_snapshot` 同样必须过 `checkDropBinding`**：这三者改的是"封禁面"（删 drop / 清全部 / 刷新 allow），此前 dispatch 注释写"always allowed"且跳过 scope 校验——导致一个未 `ensure_base` 的连接即可缩小甚至一键关停内核封禁（`replace_allow_snapshot` 写入 `0.0.0.0/0` 这类 allow，因 allow 先于 drop 求值而放行全部流量）。现三者在 dispatch 都先 `checkDropBinding(sess,nil)`；Lua 侧 `executor_ipc.lua` 的 `_M.delete`/`replace_allow_snapshot`/`flush_owned` 也先 `ensure_drop_scope()`（与 `add`/`reconcile` 一致）。**allow 快照另有最小前缀限制**：`validate.go` 的 `validateAllowPrefix` 拒 `<= /8`(v4) 与 `<= /64`(v6) 的 CIDR（即 `0.0.0.0/0`、`::/0` 均被拒），防止"allow 一切"。**边界是闭的（`<=`）**——曾用 `<` 导致恰好 /8、/64 被放行，guard_test 固化过这个错误行为，已随契约更新。**Lua 侧白名单同门槛**：`ip_reputation.validate_whitelist_entry` 对 v4 CIDR 同样拒 `bits <= 8`（validateBatch 是一票否决整批，Lua 侧不拦会让一个 /8 白名单条目炸掉整个 replace_allow_snapshot 同步）。回归测试见 `helper/guard_test.go` 与 `regression_fixes_spec.lua`。
 
 - **`FlushOwned("auto")` 必须只删 scanner_drop + cc_drop**：`FlushOwned` 的 else 分支（scope="auto"）曾遍历全部 `b.owned` 并清空，连带删除 `manual_drop` 和 `allow`（白名单）条目，且重置全部 ownership。现用 `auto_sets` 过滤，仅移除自动集合，保留手动封禁和白名单，与 mock 执行器一致。回归测试见 `helper/flush_owned_scope_test.go`。
 
@@ -902,6 +920,7 @@ verynginx/core/kernel_blocking/
 - **mock `reconcile` expires_at→ttl 转换**：使用 `math.max(expires_at - now, 1)`，不允许负 TTL。
 - **dispatch_pending 也必须持久化**：promotion 在 `dispatch_pending` 时**尚未**写 desired（desired 在 executor.add 成功后写）。dispatch 窗口内崩溃，SM 条目既不持久化（persist 原本只滤 `installed`）、也不在 desired → 重启后丢失封禁意图，且 kernel 若已下发则成孤儿。修复：dispatch_pending upsert 带上 `expires_at = plan.expires_at`，persist 防御性扫描从单一 `installed` 状态扩展为 `{installed, dispatch_pending}` 两趟。
 - **错误消息串接要逐字段校验**：Go 端三级 Path 未取其值就拼 message 属于明显错误，但更广的教训是——在打印/校验前应先用 `strings.Contains` 等字段级检查，勿先拼字符串再误判“正常”。（被误报告为缺陷，实为历史遗留，#6/#11/#19 为真缺陷。）
+- **修复引入新调用时警惕 `_M.` 前缀**：528ab67 给 `clear_ip` 补 `clear_score(ip)` 调用时写成裸全局调用（定义是 `_M.clear_score`，无局部声明）→ `clear_ip` 必抛 `attempt to call a nil value`，admin 清除端点 100% 响 500，且从提交信息完全看不出异常。Lua 里 `_M.foo` 与 `foo` 是两个名字，补调用前 grep 局部声明。
 - **promote 记账失败必须补偿**：exec.add 成功后再写 desired/SM，两者任一失败（dict 满/索引锁超时，其自身按 §12.2 契约回滚记录）→ 若忽略即产生 actual-without-desired drift，下一轮 reconcile 会静默解封刚手工封禁的 IP。现补偿 exec.delete 并 500。
 - **pause 走 atomic_mutate**：report→edit→save 的读发生在拿锁之前，并发 POST /config 会被整份陈旧快照回滚（B4 同款 TOCTOU）。
 - **list 分页大小可配置，reconcile 用大页**：Go `List` 支持 payload 可选 `page_size`（默认 100，上限 4096，1 MiB 帧预算内 ~256KB JSON）；`executor_ipc.list` 透传该参数。`reconciliation.collect_actual` 用 `kb_cfg.reconcile_list_page_size`（默认 1000）——100k 条目从 1000+ 次 IPC 降到 ~100 次。mock 执行器默认 1000 与 Go 默认不一致，属预期（各自用各自默认）。schema 已声明 `reconcile_list_page_size`/`reconcile_chunk_size`（`kernel_ip_blocking` 是 `reject_unknown=true`，不声明会拒配）。
@@ -997,3 +1016,15 @@ test/
     ├── test_integration.py ← 集成测试 (Python/curl)
     └── docker-compose.yml  ← CI 测试环境
 ```
+
+---
+
+## 13. 审计修复沉淀（2026-09-06）
+
+本轮对 2026-09-05 审计报告（AUDIT_REPORT.md）的全部 35 项发现逐条修复，除下述条目外各修复详见对应 commit。**方法教训**：
+
+- **判定仓库 blob 字节必须用 `git cat-file blob`**：`git show HEAD:file` 在 Windows（core.autocrlf=true）会经 smudge 转换输出，把 LF blob 显示成 CRLF——H-4（SRI 白屏）的两次误判都栽在这里。实测结论：dashboard 五个 JS 的 blob 均为纯 LF、与 SRI pin 逐字节吻合；工作区的 CRLF 是 .gitattributes 生效前的陈旧检出，`rm + git checkout --` 强制重建即可。**"工作区字节" ≠ "仓库字节" ≠ "部署字节"**，三者只有 install.py 复制链路会一一对应，其余都要先辨明。
+- **修复提交自带回归**：528ab67（clear_ip 调 clear_score）引入裸全局调用必崩——修复者最容易在新调用的命名上翻车。
+- **挑战类动作的完整契约**见 §7.2；**supply-chain**：install.py 校验 OpenResty tarball sha256（`openresty_pkg_sha256`，`VN_SKIP_CHECKSUM=1` 逃生）、Dockerfile 校验 Go tarball（go.dev 官方 JSON 的值）、tools/upgrade.sh 固定 `VN_PINNED_COMMIT`（每次发布更新；`VN_UPGRADE_COMMIT` 可覆盖）。upgrade.sh 曾整文件 CRLF（Linux 下 `` 会让 bash 逐行报错），已归一化 LF。
+- **metrics 索引 TTL 契约**（b390669 + 后续修复）：labeled（TTL=3600）索引条目随数据 TTL prune；**core（TTL=0）永不 prune**（数据永不过期却按 INDEX_TTL 剪索引，会让低频 core 系列周期性从 /metrics 消失，直到下次写入）。`emit_dict` 对 data 已消失的索引条目跳过导出，core 索引常驻是有界且安全的。
+
