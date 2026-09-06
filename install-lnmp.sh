@@ -212,6 +212,19 @@ install_files() {
     echo "unknown" > "${VN_DIR}/COMMIT"
   fi
 
+  # Deploy the pinned upgrade helper with THIS install's commit baked in:
+  # the trust anchor for future upgrades is the installed copy, whose pin
+  # the repo's writers cannot retroactively change (see upgrade.sh header).
+  if [ -f "${src_dir}/tools/upgrade.sh" ]; then
+    mkdir -p "${VN_DIR}/tools"
+    local baked_commit="unknown"
+    [ -f "${VN_DIR}/COMMIT" ] && baked_commit="$(cat "${VN_DIR}/COMMIT" 2>/dev/null || echo unknown)"
+    sed "s/^VN_PINNED_COMMIT=.*/VN_PINNED_COMMIT=\"${baked_commit}\"/" \
+      "${src_dir}/tools/upgrade.sh" > "${VN_DIR}/tools/upgrade.sh"
+    chmod 750 "${VN_DIR}/tools/upgrade.sh"
+    info "Deployed pinned upgrade helper (anchor: ${baked_commit}) ✓"
+  fi
+
   # config.json from template
   local config_file="${VN_DIR}/configs/config.json"
   if [ ! -f "$config_file" ]; then

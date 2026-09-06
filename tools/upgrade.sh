@@ -77,23 +77,42 @@ info "备份完成于: ${BACKUP_DIR}"
 info "=== Step 3: 拉取最新代码 ==="
 # 升级必须固定到具体 commit：浮动分支意味着任何能改写 v2 指针的人
 # （包括被入侵的维护者账号）都能让所有跑升级脚本的机器直接部署恶意代码。
-# 每次发布时把 VN_PINNED_COMMIT 更新为当次审核通过的 commit；
-# 紧急覆盖可用 VN_UPGRADE_COMMIT=<sha> 覆盖。
-VN_PINNED_COMMIT="07d5919924effd0131e465f19fde1b1862202ca6"
+# ---- 供应链信任模型（务必理解后再改）----
+# 升级的信任锚是【安装时部署的本脚本副本】：其 VN_PINNED_COMMIT 在安装时
+# 被烘焙为当次安装对应的 commit，仓库分支被改写也影响不到已部署的锚
+# （git checkout <sha> 得到的内容由 git 对象模型保证，不可篡改）。
+# 注意：绝不要用 curl|bash 从分支上取本脚本再运行——那样 pin 就落在改写
+# 分支的人手里，等于没有 pin（这正是旧版 pin 被判为假修复的原因）。
+# 前进方式：查 release 说明确认目标 commit，显式 VN_UPGRADE_COMMIT=<sha>
+# 覆盖（脚本会大声警告）；升级部署的新代码会携带新的锚供下次使用。
+VN_PINNED_COMMIT="b2c0f5dd9d7adfa1632841a54d6847be7c86db2e"
 VN_UPGRADE_COMMIT="${VN_UPGRADE_COMMIT:-${VN_PINNED_COMMIT}}"
+if [ -n "${VN_UPGRADE_COMMIT:-}" ] && [ "${VN_UPGRADE_COMMIT}" != "${VN_PINNED_COMMIT}" ]; then
+    warn "=========================================================="
+    warn "VN_UPGRADE_COMMIT 覆盖生效: ${VN_UPGRADE_COMMIT}"
+    warn "内置 pin: ${VN_PINNED_COMMIT}"
+    warn "覆盖将绕过 supply-chain pin —— 请确认该 commit 来自可信渠道"
+    warn "=========================================================="
+fi
 git clone \
     "https://github.com/nengfeng/VeryNginx.git" \
     "${GIT_CLONE_DIR}" 2>&1 || {
+    error "克隆失败，请检查网络或 GitHub 访问"
+    rm -rf "${GIT_CLONE_DIR}"
+    exit 1
+}
 git -C "${GIT_CLONE_DIR}" checkout --quiet "${VN_UPGRADE_COMMIT}" 2>&1 || {
     error "checkout ${VN_UPGRADE_COMMIT} 失败：commit 不存在或仓库异常"
     rm -rf "${GIT_CLONE_DIR}"
     exit 1
 }
-    error "克隆失败，请检查网络或 GitHub 访问"
-    rm -rf "${GIT_CLONE_DIR}"
-    exit 1
-}
 info "代码拉取完成 (commit: $(cd ${GIT_CLONE_DIR} && git rev-parse --short HEAD))"
+# Staleness visibility: an installed anchor is expected to lag the branch;
+# make the gap explicit so "升级成功" never silently means "冻结在旧代码".
+PIN_BEHIND=$(git -C "${GIT_CLONE_DIR}" rev-list --count "${VN_UPGRADE_COMMIT}..origin/v2" 2>/dev/null || echo "?")
+if [ -n "${PIN_BEHIND}" ] && [ "${PIN_BEHIND}" != "0" ]; then
+    info "注意: 所用 commit 落后 v2 分支 ${PIN_BEHIND} 个提交；如需最新请查 release 说明后显式指定 VN_UPGRADE_COMMIT"
+fi
 
 # ---- 部署新代码（覆盖式，不影响 openresty/ 和 configs/ 中的用户数据） ----
 info "=== Step 4: 部署新代码 ==="

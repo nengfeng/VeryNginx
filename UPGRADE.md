@@ -15,18 +15,39 @@
 
 ## 自动升级（推荐）
 
+**信任模型（先读这段）**：升级的信任锚是**安装时部署在本机的脚本副本**
+`/opt/verynginx/tools/upgrade.sh`——它的 `VN_PINNED_COMMIT` 在安装时被烘焙为
+当次安装对应的 commit，升级时按它 checkout，仓库分支被改写也影响不到这个锚。
+
+**禁止 `curl … | bash` 从分支上取脚本运行**：那样脚本（连同其中的 pin）
+就落在改写分支的人手里，等于没有 pin。
+
 ```bash
 # 登录 VPS
 ssh user@your-vps
 
-# 下载并运行升级脚本
-curl -sSL https://raw.githubusercontent.com/nengfeng/VeryNginx/v2/tools/upgrade.sh | sudo bash
+# 运行【本机已部署】的升级脚本（不要从网上下载脚本本体）
+sudo /opt/verynginx/tools/upgrade.sh
 
 # 重启
 sudo systemctl restart openresty
 ```
 
-脚本自动处理：备份配置 → 拉取代码 → 替换 → 恢复配置 → 安装依赖。
+脚本自动处理：备份配置 → 按 pin checkout 代码 → 替换 → 恢复配置 → 安装依赖，
+并报告所用 commit 落后 v2 分支多少个提交。
+
+**升级到更新的版本**：pin 是刻意固定的——前进需要显式的信任决定。查 release
+说明确认目标 commit 后：
+
+```bash
+sudo VN_UPGRADE_COMMIT=<release 说明中的 commit> /opt/verynginx/tools/upgrade.sh
+```
+
+脚本会大声警告此次覆盖；升级部署的新代码会携带新锚供下次使用。
+
+**初始安装后的首次升级**：安装器（install.py / install-lnmp.sh）会把
+`tools/upgrade.sh` 连同安装时 commit 一起部署到 `/opt/verynginx/tools/`；
+旧版安装（无该文件）请先手动补一次：从 release 说明核对脚本内容后再放入。
 
 ## 手动升级
 
@@ -44,10 +65,11 @@ cp -r /opt/verynginx/configs/rule_history ~/rule_history.bak 2>/dev/null || true
 ### 2. 部署新代码
 
 ```bash
-# 拉取最新代码
+# 拉取代码并固定到 release 说明确认的 commit（不要浮动在分支上）
 cd /tmp
-git clone --depth 1 --branch v2 https://github.com/nengfeng/VeryNginx.git
+git clone https://github.com/nengfeng/VeryNginx.git
 cd VeryNginx
+git checkout <release 说明中的 commit>
 
 # 替换核心代码
 sudo rm -rf /opt/verynginx/verynginx/core

@@ -168,6 +168,27 @@ def install_verynginx():
     if not os.path.exists(backups_dir):
         os.makedirs(backups_dir)
 
+    # Deploy the pinned upgrade helper: bake THIS tree's commit as the pin.
+    # The trust anchor for future upgrades is the installed copy — repo
+    # writers cannot retroactively change a pin that shipped at install time.
+    tools_src = './tools/upgrade.sh'
+    if os.path.exists(tools_src):
+        if not os.path.isdir(VN_PREFIX + '/tools'):
+            os.makedirs(VN_PREFIX + '/tools')
+        pin = 'unknown'
+        try:
+            pin = os.popen('git rev-parse HEAD').read().strip() or 'unknown'
+        except Exception:
+            pass
+        with open(tools_src, 'r', encoding='utf-8') as f:
+            script = f.read()
+        script = re.sub(r'^VN_PINNED_COMMIT=.*$',
+                        'VN_PINNED_COMMIT="%s"' % pin, script, count=1, flags=re.M)
+        with open(VN_PREFIX + '/tools/upgrade.sh', 'w', encoding='utf-8') as f:
+            f.write(script)
+        exec_sys_cmd('chmod 750 ' + VN_PREFIX + '/tools/upgrade.sh')
+        print('### deployed pinned upgrade helper (anchor: %s)' % pin)
+
     # Copy nginx.conf to openresty (if openresty is installed and has default config)
     openresty_conf = VN_PREFIX + '/openresty/nginx/conf/nginx.conf'
     openresty_conf_default = VN_PREFIX + '/openresty/nginx/conf/nginx.conf.default'
