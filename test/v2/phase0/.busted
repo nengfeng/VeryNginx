@@ -1,0 +1,8 @@
+return {
+  default = {
+    -- phase0 specs are self-contained (own ngx stubs, real core.config).
+    -- Running busted from test/v2/ would inherit helper = "spec/spec_helper.lua"
+    -- from the parent .busted and poison every spec here (AGENTS.md §9.3).
+    helper = nil,
+  },
+}

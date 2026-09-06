@@ -160,9 +160,13 @@ function extractTemplateBindings(template) {
 // ---- view() exports across module files ----
 function extractViewExports(script) {
     const names = new Set();
-    const re = /view\(['"]([^'"]+)['"]/g;
+    // Match view('x') / view("x") AND view(`x`) — a backtick call was
+    // previously invisible to this gate, silently skipping its binding
+    // checks (audit L-8). Calls are `view('name', value)` or `view('name')`,
+    // so the closing quote must be followed by ',' or ')'.
+    const re = /view\((['"`])([^'"`]+)\1[,)]/g;
     let m;
-    while ((m = re.exec(script)) !== null) names.add(m[1]);
+    while ((m = re.exec(script)) !== null) names.add(m[2]);
     return names;
 }
 

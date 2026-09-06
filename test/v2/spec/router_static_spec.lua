@@ -10,7 +10,11 @@
 package.path = "verynginx/?.lua;verynginx/lua_script/?.lua;verynginx/lua_script/module/?.lua;" .. package.path
 
 if not _G.ngx then _G.ngx = {} end
-_G.ngx.unescape_uri = function(s) return s end
+-- Faithful unescape: encoded traversal (%2e%2e%2f) and null bytes (%00) must
+-- collapse to their raw bytes exactly like nginx does before the guard runs.
+_G.ngx.unescape_uri = function(s)
+    return (s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
+end
 local exited_with = nil
 _G.ngx.exit = function(code) exited_with = code; return nil end
 _G.ngx.status = 0
@@ -89,6 +93,20 @@ describe("router 静态资源路径映射", function()
         router.on_access(make_ctx("/verynginx/static/../config.json"))
         -- Must be set via ctx.set_action("block"), not ngx.exit (which would be
         -- swallowed by the pcall wrapper in core/plugin.lua).
+        assert.is_not_nil(captured)
+        assert.equals("block", captured.type)
+        assert.equals(403, captured.data.code)
+    end)
+
+    it("URL 编码的穿越 (%2e%2e%2f) 在 unescape 后同样 403", function()
+        router.on_access(make_ctx("/verynginx/static/%2e%2e%2fconfig.json"))
+        assert.is_not_nil(captured)
+        assert.equals("block", captured.type)
+        assert.equals(403, captured.data.code)
+    end)
+
+    it("null 字节 (%00) 同样 403", function()
+        router.on_access(make_ctx("/verynginx/static%00/etc/passwd"))
         assert.is_not_nil(captured)
         assert.equals("block", captured.type)
         assert.equals(403, captured.data.code)
