@@ -514,6 +514,10 @@ local BUCKET_HISTORY_KEY = "kb:bucket_history"
 local BUCKET_HISTORY_MAX = 288  -- 24h at 5min intervals
 
 function _M.sample_bucket_history()
+    -- Observation only — sample from worker 0 (§1.4). The 5-minute throttle
+    -- key is a first-writer-wins race, not a lock; N workers would otherwise
+    -- stampede it on every interval boundary and interleave partial writes.
+    if ngx.worker.id() ~= 0 then return end
     local locks = ngx.shared.vn_locks
     if not locks then return end
     -- Throttle: at most one sample per 5 minutes.
