@@ -558,6 +558,10 @@ function _M.clear_ip(ip)
     s:delete("ip_rep:cache:" .. ip)
     remove_from_flagged_index(ip)
     _M.clear_score(ip)
+    -- A full reputation reset must also drop pending challenge state — a
+    -- surviving ip_rep:pending:<ip> entry keeps the IP in the challenge
+    -- pipeline (and the pending index) after the admin asked to clear it.
+    _M.clear_pending(ip)
 end
 
 function _M.clear_score(ip)
