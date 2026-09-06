@@ -1161,7 +1161,9 @@ local function prune_backups(keep_count)
 end
 
 local function make_backup(final_path)
-    local timestamp = ngx and ngx.time() or os.time()
+    -- math.floor guards against a fractional ngx.time() leaking a '.' into
+    -- the backup filename (os.time is integral; keep both branches uniform).
+    local timestamp = math.floor(ngx and ngx.time() or os.time())
     local backup_dir = home_path() .. "configs/backups/"
     local backup_path = backup_dir .. "config." .. timestamp .. ".json"
     copy_file(final_path, backup_path)
