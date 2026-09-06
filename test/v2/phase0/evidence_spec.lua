@@ -151,7 +151,11 @@ describe("count_cc_violations", function()
     end)
 
     it("returns 0 when no CC rule ids are configured", function()
-        config.kernel_ip_blocking = { cc = { rule_ids = {} } }
+        -- config is readonly: re-save with an empty rule_ids list.
+        config.save({
+            version = "2.0", admin = {}, matcher = {}, rule = {},
+            kernel_ip_blocking = { cc = { rule_ids = {} } },
+        })
         assert.are.equal(0, ev.count_cc_violations("7.7.7.7", W, 10))
     end)
 end)
