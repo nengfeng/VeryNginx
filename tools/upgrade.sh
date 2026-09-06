@@ -127,6 +127,18 @@ fi
 cp -r -f "${GIT_CLONE_DIR}/verynginx/." "${VN_DIR}/"
 info "新代码已部署到 ${VN_DIR}"
 
+# 自更新升级脚本：checkout 过的（pin=本次 commit）脚本替换本机旧锚，
+# 下次升级的默认 pin 即本次版本——否则锚永远停在安装时版本，
+# 每次升级都得显式 VN_UPGRADE_COMMIT。脚本本体来自已验证的 checkout，信任链成立。
+if [ -f "${GIT_CLONE_DIR}/tools/upgrade.sh" ]; then
+    mkdir -p "${VN_DIR}/tools"
+    if cp "${GIT_CLONE_DIR}/tools/upgrade.sh" "${VN_DIR}/tools/upgrade.sh"         && chmod 750 "${VN_DIR}/tools/upgrade.sh"; then
+        info "本机升级脚本已随本次版本更新（下次升级默认锚 = 本次 commit）"
+    else
+        warn "升级脚本自更新失败——下次升级仍需显式 VN_UPGRADE_COMMIT"
+    fi
+fi
+
 # ---- Step 4c: Firewall Helper (Go) ----
 # helper 是独立编译的宿主二进制（/usr/local/bin/firewall-helper），上面的
 # verynginx/ 树覆盖不会带上它——reconcile 守卫、conn deadline、flush 范围
