@@ -51,7 +51,12 @@ function _M.revoke(token)
     if ttl <= 0 then
         return true
     end
-    shared:set(revoke_key(token), true, ttl)
+    -- A silent set failure would leave the "revoked" token fully usable while
+    -- the caller believes revocation succeeded — surface the failure.
+    local ok, err = shared:set(revoke_key(token), true, ttl)
+    if not ok then
+        return false, "revoke failed: " .. tostring(err)
+    end
     return true
 end
 
