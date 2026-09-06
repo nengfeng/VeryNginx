@@ -10,6 +10,7 @@ local session = require "core.session"
 local password_hash = require "core.password_hash"
 local rate_limit = require "api.rate_limit"
 local csrf = require "api.csrf"
+local helpers = require "api.helpers"
 local cookie = require "cookie"
 
 -- Fixed dummy PBKDF2 hash used to equalize login timing for non-existent
@@ -87,10 +88,17 @@ _M.strategies["session"] = {
         end
 
         -- Rate limit by client IP (trust nginx real_ip_from; do NOT
-        -- parse X-Forwarded-For directly — it can be forged by client)
+        -- parse X-Forwarded-For directly — it can be forged by client).
+        -- Limit is configurable via security.rate_limit.login ("N/m");
+        -- falls back to the historical 30/min when unset/unparsable.
         local client_ip = ngx.var.remote_addr or "unknown"
         local rl_key = "login:" .. client_ip
-        if not rate_limit.allow(rl_key, 30, 60) then
+        local sec = config and config.security and config.security.rate_limit
+        local ip_limit, ip_window = helpers.parse_rate_limit(sec and sec.login)
+        if not ip_limit then
+            ip_limit, ip_window = 30, 60
+        end
+        if not rate_limit.allow(rl_key, ip_limit, ip_window) then
             return false, "too_many_attempts"
         end
         -- Also rate-limit per username (prevents brute-force even with changing IPs)

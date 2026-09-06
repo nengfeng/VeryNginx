@@ -49,6 +49,17 @@ function _M.is_valid_ip(ip)
     return is_valid_ipv6(ip)
 end
 
+--- Parse a rate-limit spec from config.security.rate_limit ("30/m").
+-- @param spec string|nil: "<count>/<s|m|h>"
+-- @return limit number, window seconds — or nil when unparsable
+function _M.parse_rate_limit(spec)
+    if type(spec) ~= "string" then return nil end
+    local n, unit = spec:match("^(%d+)%s*/%s*([smh])$")
+    if not n then return nil end
+    local window = unit == "s" and 1 or (unit == "m" and 60 or 3600)
+    return tonumber(n), window
+end
+
 --- Read request args from a JSON body or fall back to POST form args.
 function _M.get_request_args()
     ngx.req.read_body()

@@ -10,6 +10,7 @@ local auth = require "api.auth"
 local json = require "dkjson"
 local audit = require "core.audit"
 local rate_limit = require "api.rate_limit"
+local helpers = require "api.helpers"
 
 -- Precomputed constants (avoids repeated table.concat / json.encode on hot path)
 local CSP_HEADER = "default-src 'self'; script-src 'self'; "
@@ -110,7 +111,10 @@ local function run_route(route, ctx, method, path)
         local rl_key = "api:" .. method .. ":" .. route.path .. ":" .. tostring(user)
         local limit, window = 60, 60
         if method == "POST" and path == "/config" then
-            limit, window = 30, 60
+            -- Configurable via security.rate_limit.config_save ("N/m");
+            -- falls back to the historical 30/min when unset/unparsable.
+            local sec = config and config.security and config.security.rate_limit
+            limit = helpers.parse_rate_limit(sec and sec.config_save) or 30
         end
         if not rate_limit.allow(rl_key, limit, window) then
             ngx.status = 429

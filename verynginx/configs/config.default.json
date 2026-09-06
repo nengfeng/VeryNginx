@@ -7,7 +7,7 @@
         "session_ttl": 28800,
         "csrf": true,
         "rate_limit": {
-            "login": "10/m",
+            "login": "30/m",
             "config_save": "30/m"
         }
     },

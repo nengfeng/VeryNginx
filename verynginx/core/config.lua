@@ -41,16 +41,16 @@ _M.schema = {
         -- security: top-level preserve; recursive-merge children
         security = {
             type = "object",
-            default = { session_ttl = 28800, csrf = true, rate_limit = { login = "10/m", config_save = "30/m" } },
+            default = { session_ttl = 28800, csrf = true, rate_limit = { login = "30/m", config_save = "30/m" } },
             children = {
                 session_ttl = leaf({ type = "integer", default = 28800, min = 60, max = 86400 * 30 }),
                 session_secret = leaf({ type = "string", default = "", min_length = 16 }),
                 csrf = leaf({ type = "boolean", default = true }),
                 rate_limit = {
                     type = "object",
-                    default = { login = "10/m", config_save = "30/m" },
+                    default = { login = "30/m", config_save = "30/m" },
                     children = {
-                        login = leaf({ type = "string", default = "10/m" }),
+                        login = leaf({ type = "string", default = "30/m" }),
                         config_save = leaf({ type = "string", default = "30/m" }),
                     },
                 },
