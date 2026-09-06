@@ -7,6 +7,7 @@ local _M = {}
 
 local json = require "dkjson"
 local metrics = require "core.metrics"
+local dict_guard = require "core.dict_guard"
 local audit = require "core.audit"
 
 -- Alert state persisted across timer ticks (prev period hit counts)
@@ -94,7 +95,9 @@ end
 local function save_state(state)
     local s = shared()
     if not s then return end
-    s:set(ALERT_STATE_KEY, json.encode(state), 86400 * 7)
+    -- A dropped state write resets alert evaluation history (last counts,
+    -- transitions); surface it instead of silently forgetting (§3.4).
+    dict_guard.set(s, "alerting.state", ALERT_STATE_KEY, json.encode(state), 86400 * 7)
 end
 
 local function is_cooldown(key)
@@ -107,7 +110,10 @@ end
 local function set_cooldown(key, ttl)
     local s = shared()
     if not s then return end
-    s:set(ALERT_COOLDOWN_KEY .. ":" .. key, ngx.time(), ttl or 3600)
+    -- If the cooldown marker is lost, the next evaluation re-fires the same
+    -- alert immediately; keep the loss visible.
+    dict_guard.set(s, "alerting.cooldown", ALERT_COOLDOWN_KEY .. ":" .. key,
+        ngx.time(), ttl or 3600)
 end
 
 -- ---------------------------------------------------------------

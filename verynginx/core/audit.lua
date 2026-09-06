@@ -1,5 +1,7 @@
 local _M = {}
 
+local dict_guard = require "core.dict_guard"
+
 local PREFIX = "audit:"
 local RING_SIZE = 1000
 
@@ -15,8 +17,15 @@ function _M.log(action, detail, user)
         (detail or ""):gsub("[|]", " "),
     }, "|")
 
-    local idx = (shared:incr(PREFIX .. "idx", 1, 0) - 1) % RING_SIZE + 1
-    shared:set(PREFIX .. idx, entry)
+    -- incr returns nil,err when the dict is full; subtracting from nil here
+    -- would crash the caller's request path, so bail out with a WARN.
+    local next_idx, incr_err = shared:incr(PREFIX .. "idx", 1, 0)
+    if not next_idx then
+        dict_guard.write_failed("audit", "incr", incr_err)
+        return
+    end
+    local idx = (next_idx - 1) % RING_SIZE + 1
+    dict_guard.set(shared, "audit", PREFIX .. idx, entry)
 
     ngx.log(ngx.NOTICE, "audit: user=", user, " action=", action, " detail=", (detail or ""))
 end

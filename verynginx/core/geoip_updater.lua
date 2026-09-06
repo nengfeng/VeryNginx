@@ -9,6 +9,7 @@ local geoip = require "core.geoip"
 local audit = require "core.audit"
 local config = require "core.config"
 local random = require "core.random"
+local dict_guard = require "core.dict_guard"
 
 local SHARED_DICT = "vn_config"
 local LOCK_KEY = "geoip_update_lock"
@@ -200,7 +201,7 @@ function _M.check_update(force)
 
     -- Update last check time
     local shared = ngx.shared[SHARED_DICT]
-    if shared then shared:set(LAST_CHECK_KEY, ngx.time()) end
+    if shared then dict_guard.set(shared, "geoip.check", LAST_CHECK_KEY, ngx.time()) end
 
     -- Acquire lock
     if not acquire_lock() then return false, "update already in progress" end
@@ -275,8 +276,8 @@ function _M.check_update(force)
 
             -- Update tracking
             if shared then
-                shared:set(ETAG_KEY, remote_etag or "")
-                shared:set(LAST_UPDATE_KEY, ngx.time())
+                dict_guard.set(shared, "geoip.update", ETAG_KEY, remote_etag or "")
+                dict_guard.set(shared, "geoip.update", LAST_UPDATE_KEY, ngx.time())
             end
 
             audit.log("geoip_auto_updated", "url=" .. url, "-")

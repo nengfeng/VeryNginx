@@ -5,6 +5,7 @@
 
 local _M = {}
 local config = require "core.config"
+local dict_guard = require "core.dict_guard"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
 -- Log request sample rate: 1-in-10 requests update shdict stats
@@ -35,7 +36,7 @@ local function lru_add(shared, index_key, uri, max_keys)
     while #list > max_keys do
         table.remove(list)
     end
-    shared:set(index_key, json.encode(list))
+    dict_guard.set(shared, "stats.lru", index_key, json.encode(list))
 end
 
 local function lru_list(shared, index_key)
@@ -130,11 +131,11 @@ function _M.log_request(_)
 
     local max_keys = (config and config.statistics and config.statistics.max_uri_keys) or 10000
     local key = "1m:" .. uri
-    shared:incr(key .. ":count", 1, 0)
-    shared:incr(key .. ":bytes", bytes, 0)
-    shared:incr(key .. ":time", time, 0)
+    dict_guard.incr(shared, "stats.1m", key .. ":count", 1, 0)
+    dict_guard.incr(shared, "stats.1m", key .. ":bytes", bytes, 0)
+    dict_guard.incr(shared, "stats.1m", key .. ":time", time, 0)
     local code_idx = status
-    shared:incr(key .. ":status_" .. code_idx, 1, 0)
+    dict_guard.incr(shared, "stats.1m", key .. ":status_" .. code_idx, 1, 0)
     -- Update LRU index on sampled requests
     lru_add(shared, "index:1m", uri, max_keys)
 end
@@ -198,15 +199,15 @@ function _M._flush_bucket(src_bucket, dst_bucket)
 
         if count > 0 then
             local dst_key = dst_bucket .. ":" .. uri
-            shared:incr(dst_key .. ":count", count, 0)
-            shared:incr(dst_key .. ":bytes", bytes, 0)
-            shared:incr(dst_key .. ":time", time, 0)
+            dict_guard.incr(shared, "stats.rollup", dst_key .. ":count", count, 0)
+            dict_guard.incr(shared, "stats.rollup", dst_key .. ":bytes", bytes, 0)
+            dict_guard.incr(shared, "stats.rollup", dst_key .. ":time", time, 0)
             lru_add(shared, "index:" .. dst_bucket, uri, max_keys)
             -- Merge status codes (only codes that were actually recorded)
             for _, c in ipairs(codes) do
                 local sc = shared:get(src_key .. ":status_" .. c)
                 if sc and sc > 0 then
-                    shared:incr(dst_key .. ":status_" .. c, sc, 0)
+                    dict_guard.incr(shared, "stats.rollup", dst_key .. ":status_" .. c, sc, 0)
                 end
             end
         end
@@ -339,12 +340,12 @@ function _M.restore()
     for uri, entry in pairs(decoded) do
         local key = "all:" .. uri
         if not shared:get(key .. ":count") then
-            shared:set(key .. ":count", entry.count or 0)
-            shared:set(key .. ":bytes", entry.bytes or 0)
-            shared:set(key .. ":time", entry.time or 0)
+            dict_guard.set(shared, "stats.restore", key .. ":count", entry.count or 0)
+            dict_guard.set(shared, "stats.restore", key .. ":bytes", entry.bytes or 0)
+            dict_guard.set(shared, "stats.restore", key .. ":time", entry.time or 0)
             if entry.status then
                 for code, count in pairs(entry.status) do
-                    shared:set(key .. ":status_" .. code, count)
+                    dict_guard.set(shared, "stats.restore", key .. ":status_" .. code, count)
                 end
             end
         end
@@ -353,7 +354,7 @@ function _M.restore()
             indexed[uri] = true
         end
     end
-    shared:set("index:all", json.encode(restored_uris))
+    dict_guard.set(shared, "stats.restore", "index:all", json.encode(restored_uris))
 end
 
 function _M._json_path()

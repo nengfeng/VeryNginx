@@ -6,6 +6,7 @@
 local _M = {}
 
 local config = require "core.config"
+local dict_guard = require "core.dict_guard"
 
 -- Load maxminddb module lazily (may not be installed)
 local maxminddb
@@ -312,7 +313,10 @@ function _M.track(ip, shared_dict, geo)
     end
     if cc then
         local key = "geo_ip:cc:" .. cc
-        pcall(function() shared_dict:incr(key, 1, 0, 86400) end)
+        local ok_incr, err_incr = shared_dict:incr(key, 1, 0, 86400)
+        if not ok_incr then
+            dict_guard.write_failed("geoip.cc", "incr", err_incr)
+        end
     end
 end
 

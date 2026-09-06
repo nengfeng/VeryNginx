@@ -5,6 +5,7 @@ local bit = require "bit"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local wlg = require "core.kernel_blocking.whitelist_generation"
 local random = require "core.random"
+local dict_guard = require "core.dict_guard"
 local DEFAULTS = {
     slot_size = 60,
     window_size = 300,
@@ -136,7 +137,7 @@ local function json_index_add_unlocked(s, index_key, ip, ttl, is_live, force_ren
         end
     end
     table.insert(list, ip)
-    s:set(index_key, json.encode(list), ttl)
+    dict_guard.set(s, "ip_rep.index", index_key, json.encode(list), ttl)
     return true
 end
 
@@ -153,7 +154,7 @@ local function json_index_remove_unlocked(s, index_key, ip, ttl)
     if #filtered > 0 then
         -- Write back with the class TTL so the index keeps auto-expiring
         -- (a nil TTL here would make the key immortal until next add).
-        s:set(index_key, json.encode(filtered), ttl)
+        dict_guard.set(s, "ip_rep.index", index_key, json.encode(filtered), ttl)
     else
         s:delete(index_key)
     end
@@ -176,7 +177,7 @@ local function add_to_pending_index(ip)
     -- leaving the index absent while per-IP keys live — forcing the
     -- get_keys(0) 1024-key fallback in pending_count / _collect_pending.
     local fresh = s:get(pending_index_key(ip)) == nil
-    s:set(pending_index_key(ip), "1", ttl)
+    dict_guard.set(s, "ip_rep.pending_index", pending_index_key(ip), "1", ttl)
     if fresh then
         with_index_lock(function()
             -- Serialized: re-set_pending after expiry must refresh the index even
@@ -365,7 +366,7 @@ function _M.get_score(ip)
         -- Adaptive TTL: clean IPs (well below threshold) cache longer
         local threshold = cfg_val("threshold")
         local ttl = (result < threshold * 0.5) and 10 or SCORE_CACHE_TTL
-        s:set("ip_rep:score_cache:" .. ip, result, ttl)
+        dict_guard.set(s, "ip_rep.score_cache", "ip_rep:score_cache:" .. ip, result, ttl)
     end
     return result
 end
@@ -374,7 +375,7 @@ function _M.set_pending(ip)
     local s = shared()
     if not s then return end
     local ttl = cfg_val("pending_ttl")
-    s:set("ip_rep:pending:" .. ip, ngx.time(), ttl)
+    dict_guard.set(s, "ip_rep.pending", "ip_rep:pending:" .. ip, ngx.time(), ttl)
     add_to_pending_index(ip)
 end
 
@@ -426,23 +427,23 @@ function _M.record_challenge_pass(ip)
         end
         if existing then
             -- Already whitelisted: refresh index TTL only, keep live key as-is.
-            s:set(AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
+            dict_guard.set(s, "ip_rep.awl_index", AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
             return false
         end
         if #compacted >= awl.max_entries then
             -- Cap reached: never publish the live key for an IP that is not in
             -- the index, or the app layer (is_whitelisted) and the kernel allow
             -- snapshot (index-driven) would diverge.
-            s:set(AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
+            dict_guard.set(s, "ip_rep.awl_index", AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
             return false
         end
         -- Publish live key + index in the same critical section so no window
         -- exists where is_whitelisted (reads the live key) disagrees with the
         -- allow snapshot (reads the index).
         compacted[#compacted + 1] = ip
-        s:set("ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
-        s:set("ip_rep:awl_ttl:" .. ip, awl.ttl, awl.ttl)
-        s:set(AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
+        dict_guard.set(s, "ip_rep.awl", "ip_rep:awl:" .. ip, ngx.time(), awl.ttl)
+        dict_guard.set(s, "ip_rep.awl", "ip_rep:awl_ttl:" .. ip, awl.ttl, awl.ttl)
+        dict_guard.set(s, "ip_rep.awl_index", AWL_INDEX_KEY, json.encode(compacted), awl.ttl)
         return true
     end)
 
@@ -464,8 +465,8 @@ local function add_to_flagged_index(ip, ttl, now)
     -- first concurrent caller after expiry observes already == nil.
     return with_index_lock(function()
         local already = s:get("ip_rep:flagged:" .. ip) ~= nil
-        s:set("ip_rep:flagged:" .. ip, now, ttl)
-        s:set(flagged_idx_key(ip), tostring(now + ttl), ttl)
+        dict_guard.set(s, "ip_rep.flagged", "ip_rep:flagged:" .. ip, now, ttl)
+        dict_guard.set(s, "ip_rep.flagged_index", flagged_idx_key(ip), tostring(now + ttl), ttl)
         local added = json_index_add_unlocked(s, "ip_rep:flagged_index", ip, ttl,
             function(eip) return s:get(flagged_idx_key(eip)) ~= nil end,
             not already)
@@ -516,7 +517,7 @@ function _M.is_flagged(ip, opts)
     local flagged = s:get("ip_rep:flagged:" .. ip)
     if flagged ~= nil then
         if not no_cache then
-            s:set("ip_rep:cache:" .. ip, 1, CACHE_TTL)
+            dict_guard.set(s, "ip_rep.cache", "ip_rep:cache:" .. ip, 1, CACHE_TTL)
         end
         return true
     end

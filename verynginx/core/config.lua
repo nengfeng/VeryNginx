@@ -5,6 +5,7 @@
 
 local _M = {}
 local json = require "dkjson"
+local dict_guard = require "core.dict_guard"
 local random = require "core.random"
 local helpers = require "api.helpers"
 
@@ -1048,7 +1049,7 @@ function _M.load_from_file()
     -- corrupt on-disk file is intentionally NOT overwritten (kept for repair).
     local shared = ngx.shared.vn_config
     if shared then
-        shared:set("config_hash", _M.local_hash)
+        dict_guard.set(shared, "config.hash", "config_hash", _M.local_hash)
     end
 
     return true
@@ -1350,8 +1351,8 @@ function _M.save(config, opts)
     set_config_store(compiled)
     _M.local_hash = new_hash
     if shared then
-        shared:set("config_backup_latest", final_path .. ".bak")
-        shared:set("config_hash", new_hash)
+        dict_guard.set(shared, "config.hash", "config_backup_latest", final_path .. ".bak")
+        dict_guard.set(shared, "config.hash", "config_hash", new_hash)
     end
 
     -- Post-activation: kernel blocking lifecycle transitions (Design §10.5).

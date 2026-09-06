@@ -8,6 +8,7 @@ local _M = {}
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local config = require "core.config"
 local random = require "core.random"
+local dict_guard = require "core.dict_guard"
 
 local PREFIX = "waf_rec:"
 local INDEX_KEY = PREFIX .. "index"
@@ -221,7 +222,7 @@ local function index_append(id)
         if v == id then return end
     end
     table.insert(index, id)
-    s:set(INDEX_KEY, json.encode(index), 86400 * 7)
+    dict_guard.set(s, "waf_rec.index", INDEX_KEY, json.encode(index), 86400 * 7)
 end
 
 local function index_remove(id)
@@ -236,7 +237,7 @@ local function index_remove(id)
     for _, v in ipairs(index) do
         if v ~= id then table.insert(filtered, v) end
     end
-    s:set(INDEX_KEY, json.encode(filtered), 86400 * 7)
+    dict_guard.set(s, "waf_rec.index", INDEX_KEY, json.encode(filtered), 86400 * 7)
 end
 
 function _M.add(suggestion)
@@ -244,7 +245,7 @@ function _M.add(suggestion)
     if not s then return false end
 
     local key = PREFIX .. suggestion.id
-    s:set(key, json.encode(suggestion), 86400 * 7)
+    dict_guard.set(s, "waf_rec.entry", key, json.encode(suggestion), 86400 * 7)
 
     -- Atomic index update (TOCTOU-safe across workers)
     local ok, err = with_index_lock(function()
