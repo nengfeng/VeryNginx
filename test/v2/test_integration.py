@@ -510,6 +510,19 @@ def test_proxy_pass():
         if status == 200:
             break
         last_err = f"host={host}: status={status}, body={body[:200]}"
+        # Pull the container's error log (error_log -> /dev/stdout) so the
+        # actual Lua-level failure lands in the CI output, not just the
+        # generic nginx error page.
+        try:
+            logs = subprocess.run(
+                ["docker", "compose", "-f", "docker-compose.yml", "logs", "--tail", "40", "verynginx"],
+                capture_output=True, text=True, timeout=15,
+            ).stdout
+            print(f"  [DEBUG] container log tail after failure with host={host}:")
+            for line in logs.splitlines()[-25:]:
+                print("    " + line)
+        except Exception as log_exc:
+            print(f"  [DEBUG] could not fetch container logs: {log_exc}")
     else:
         raise AssertionError(f"Proxy request failed for every candidate host; last: {last_err}")
 
