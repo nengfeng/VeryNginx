@@ -9,6 +9,9 @@ import sys
 import getopt
 import filecmp
 import shutil
+import hashlib
+import base64
+import re
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -24,6 +27,32 @@ work_path = os.getcwd()
 # ---------------------------------------------------------------------------
 # Path substitution: replace default prefix with custom one in installed files
 # ---------------------------------------------------------------------------
+
+def verify_dashboard_sri():
+    """Drift check: index.html pins vue.global.prod.js by SHA-384 over the raw
+    bytes. A checkout with CRLF line endings (files checked out before
+    .gitattributes declared eol=lf, e.g. on Windows) breaks the hash and the
+    browser silently blocks the script — the dashboard white-screens with no
+    error text. install.py deploys the working tree byte-for-byte, so catch
+    the drift here (same check install-lnmp.sh runs)."""
+    dashboard = VN_PREFIX + '/dashboard'
+    index_path = dashboard + '/index.html'
+    vue_path = dashboard + '/vue.global.prod.js'
+    if not (os.path.exists(index_path) and os.path.exists(vue_path)):
+        return
+    with open(index_path, 'r', encoding='utf-8', errors='replace') as f:
+        index_html = f.read()
+    m = re.search(r'vue\.global\.prod\.js" integrity="sha384-([^"]+)', index_html)
+    if not m:
+        return
+    digest = hashlib.sha384(open(vue_path, 'rb').read()).digest()
+    actual = base64.b64encode(digest).decode()
+    if actual != m.group(1):
+        print('### WARNING: index.html SRI pin != installed vue.global.prod.js')
+        print('###   The dashboard will white-screen (browser blocks the script).')
+        print('###   Fix in the source tree, then reinstall:')
+        print('###     git checkout -- verynginx/dashboard/vue.global.prod.js')
+
 
 def fix_prefix(path):
     if VN_PREFIX == '/opt/verynginx':
@@ -99,6 +128,7 @@ def install_verynginx():
 
     # Copy v2 source code (configs/config.json is gitignored, not overwritten)
     exec_sys_cmd('cp -r -f ./verynginx/. ' + VN_PREFIX + '/')
+    verify_dashboard_sri()
 
     # Fix hardcoded /opt/verynginx paths if prefix is custom
     if VN_PREFIX != '/opt/verynginx':
