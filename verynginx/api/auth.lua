@@ -93,8 +93,8 @@ _M.strategies["session"] = {
         -- falls back to the historical 30/min when unset/unparsable.
         local client_ip = ngx.var.remote_addr or "unknown"
         local rl_key = "login:" .. client_ip
-        local sec = config and config.security and config.security.rate_limit
-        local ip_limit, ip_window = helpers.parse_rate_limit(sec and sec.login)
+        local rl = config and config.security and config.security.rate_limit
+        local ip_limit, ip_window = helpers.parse_rate_limit(rl and rl.login)
         if not ip_limit then
             ip_limit, ip_window = 30, 60
         end
