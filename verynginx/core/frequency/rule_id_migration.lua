@@ -290,9 +290,9 @@ local function _migrate(skip_write)
     end
 
     -- Phase 5: Persist via config.save()
-    local ok, err = config.save(current)
-    if not ok then
-        return { ok = false, reason = "save failed: " .. tostring(err) }
+    local save_ok, save_err = config.save(current)
+    if not save_ok then
+        return { ok = false, reason = "save failed: " .. tostring(save_err) }
     end
 
     -- Bump config generation so workers re-evaluate is_v2_active()
