@@ -1145,16 +1145,15 @@ local function prune_backups(keep_count)
             end
         end
     else
-        local cmd = 'ls -1t "' .. backup_dir .. '" 2>/dev/null'
-        local p = io.popen(cmd, "r")
-        if not p then return end
-        for f in p:lines() do
-            if f:match("^config%.") then
-                table.insert(files, f)
-            end
-        end
-        p:close()
+        -- No lfs → no directory listing. The previous io.popen("ls -1t ...")
+        -- fallback was a shell-injection surface keyed on the install prefix
+        -- and silently misbehaved on exotic paths. Skipping the prune only
+        -- means backups accumulate until a lfs-capable run prunes them.
+        ngx.log(ngx.WARN, "config: lfs unavailable, skipping backup prune (backups may accumulate)")
+        return
     end
+    -- Epoch-second timestamps are fixed-width until 2286, so lexical order
+    -- equals numeric order; newest (largest) first.
     table.sort(files, function(a, b) return a > b end)
     for i = keep_count + 1, #files do
         os.remove(backup_dir .. files[i])
