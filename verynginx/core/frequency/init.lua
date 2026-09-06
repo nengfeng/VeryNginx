@@ -6,6 +6,7 @@
 local _M = {}
 
 local config = require "core.config"
+local random = require "core.random"
 
 -- ---------------------------------------------------------------------------
 -- Returns a stable ID for a frequency rule by its array index.
@@ -63,7 +64,11 @@ function _M.get_migration_status()
         local cfg_mod = require "core.config"
         for _, rule in ipairs(rules) do
             if rule and type(rule) == "table" and (not rule.id or rule.id == "") then
-                rule.id = "freq_" .. tostring(ngx.time()) .. "_" .. tostring(math.random(1000, 9999))
+                -- Same generator as the save path (api/controllers/frequency.lua):
+                -- two shapes for one semantic invites format drift, and the old
+                -- second-precision + 9000-value scheme could collide when two
+                -- rules migrated within the same second.
+                rule.id = "freq_" .. tostring(ngx.time()) .. "_" .. random.hex(6)
                 ids[#ids + 1] = rule.id
             end
         end
