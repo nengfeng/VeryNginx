@@ -27,11 +27,24 @@ _G.ngx.shared = setmetatable({_cache = {}}, {
 
 local json = require "dkjson"
 
-package.loaded["core.config"] = {
-    waf_recommender = {
-        enabled = true, min_hits = 10, window_size = 3600, min_patterns = 3,
-    },
-}
+-- Inject the fake config BEFORE each test and clear EVERY fake in
+-- after_each (preload AND package.loaded) — a leaked package.loaded entry
+-- poisons every later spec file in the same busted process (AGENTS 9.3;
+-- this spec was the historical offender).
+before_each(function()
+    package.loaded["core.config"] = {
+        waf_recommender = {
+            enabled = true, min_hits = 10, window_size = 3600, min_patterns = 3,
+        },
+    }
+end)
+
+after_each(function()
+    package.loaded["core.config"] = nil
+    package.loaded["core.waf_recommender"] = nil
+    package.loaded["waf-rule-manager"] = nil
+    package.preload["waf-rule-manager"] = nil
+end)
 
 describe("waf_recommender index atomicity", function()
     before_each(function()
@@ -130,6 +143,9 @@ describe("waf_recommender.apply() saves the WAF rule table", function()
     end)
 
     after_each(function()
+        package.loaded["core.config"] = nil
+        package.loaded["core.waf_recommender"] = nil
+        package.loaded["waf-rule-manager"] = nil
         package.preload["waf-rule-manager"] = nil
     end)
 
