@@ -196,8 +196,8 @@ function _M.apply(name, overrides)
             return nil, "invalid empty path"
         end
         if rule.matcherJson ~= nil then
-            local decoded = json.decode(rule.matcherJson)
-            if not decoded then return nil, "invalid matcherJson" end
+            local dec_ok, decoded = pcall(json.decode, rule.matcherJson)
+            if not dec_ok or not decoded then return nil, "invalid matcherJson" end
         end
     end
     -- Always regenerate id if overridden or to avoid collisions.

@@ -181,8 +181,8 @@ end
 -- ---------------------------------------------------------------------------
 local function _migrate(skip_write)
     local cfg = config.report()
-    local current = json.decode(cfg)
-    if not current then
+    local ok, current = pcall(json.decode, cfg)
+    if not ok or not current then
         return { ok = false, reason = "cannot decode current config" }
     end
     -- frequency rules live under rule.frequency_limit

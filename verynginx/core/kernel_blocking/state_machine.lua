@@ -88,6 +88,17 @@ local function index_unlock(token)
 end
 
 -- Build composite key from IP and policy.
+-- dkjson RAISES on malformed JSON. Stored entries are self-written, but a
+-- truncated/corrupt dict value must read as "no entry" (nil) — the get()
+-- callers already tolerate nil, whereas a raise 500s the API list endpoints
+-- and aborts promotion paths that only partially guard.
+local function decode_entry(raw)
+    if not raw then return nil end
+    local ok, entry = pcall(json.decode, raw)
+    if not ok then return nil end
+    return entry
+end
+
 local function entry_key(ip, policy)
     return CANDIDATE_KEY_PREFIX .. ip .. ":" .. policy
 end
@@ -250,13 +261,13 @@ function _M.get(ip, policy)
     if policy then
         local raw = s:get(entry_key(ip, policy))
         if not raw then return nil end
-        return json.decode(raw)
+        return decode_entry(raw)
     end
     -- No policy specified: find highest-priority installed entry
     for _, p in ipairs({ "scanner", "cc", "manual" }) do
         local raw = s:get(entry_key(ip, p))
         if raw then
-            local entry = json.decode(raw)
+            local entry = decode_entry(raw)
             if entry and entry.state == "installed" then
                 return entry
             end
@@ -266,7 +277,7 @@ function _M.get(ip, policy)
     for _, p in ipairs({ "scanner", "cc", "manual" }) do
         local raw = s:get(entry_key(ip, p))
         if raw then
-            return json.decode(raw)
+            return decode_entry(raw)
         end
     end
     return nil
@@ -280,7 +291,7 @@ function _M.get_policy(ip, policy)
     if not s then return nil end
     local raw = s:get(entry_key(ip, policy))
     if not raw then return nil end
-    return json.decode(raw)
+    return decode_entry(raw)
 end
 
 -- ---------------------------------------------------------------------------

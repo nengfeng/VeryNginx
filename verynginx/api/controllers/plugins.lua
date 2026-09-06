@@ -50,7 +50,11 @@ local function handle_toggle_plugin()
     end
     -- Build a plain save table from config.report(): avoids metatable /
     -- __pairs edge cases in some LuaJIT builds.
-    local save_tbl = json.decode(config_mod.report())
+    local dec_ok, save_tbl = pcall(json.decode, config_mod.report())
+    if not dec_ok or type(save_tbl) ~= "table" then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = "config report decode failed" })
+    end
     save_tbl.plugin = save_tbl.plugin or {}
     save_tbl.plugin[name] = save_tbl.plugin[name] or {}
     save_tbl.plugin[name].enable = not current

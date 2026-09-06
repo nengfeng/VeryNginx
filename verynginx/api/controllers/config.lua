@@ -36,14 +36,18 @@ local function handle_set_config()
 
     -- Support both JSON body and form-encoded + base64
     if content_type:lower():find("application/json", 1, true) then
-        new_config = json.decode(raw_body)
+        -- dkjson raises on malformed JSON: without the pcall a bad body
+        -- 500s via the dispatch handler instead of reaching the 400 below.
+        local ok, decoded = pcall(json.decode, raw_body)
+        if ok then new_config = decoded end
     else
         local args = ngx.req.get_post_args()
         if args and args.config then
             local decoded = ngx.decode_base64(args.config)
             if decoded then
                 local unescaped = ngx.unescape_uri(decoded)
-                new_config = json.decode(unescaped)
+                local ok2, parsed = pcall(json.decode, unescaped)
+                if ok2 then new_config = parsed end
             end
         end
     end
