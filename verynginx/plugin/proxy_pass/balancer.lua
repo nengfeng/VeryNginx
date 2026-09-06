@@ -170,11 +170,11 @@ function _M.run()
         return ngx.exit(502)
     end
 
-    -- Set Host header from proxy config (fallback in case @vn_proxy's
-    -- proxy_set_header doesn't pick up the variable after ngx.exec)
-    if target.proxy_host then
-        ngx.req.set_header("Host", target.proxy_host)
-    end
+    -- NOTE: no ngx.req.set_header here — ngx.req.* is DISABLED in the
+    -- balancer_by_lua context and throws "API disabled", turning every
+    -- proxied request into a raw nginx 500. The Host header is already
+    -- set by @vn_proxy's proxy_set_header Host $vn_proxy_host; the
+    -- variable is assigned before ngx.exec fires.
 end
 
 return _M
