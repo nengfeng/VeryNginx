@@ -19,8 +19,12 @@ else
         _M = bit
     else
         local function bitop(a, b, op)
+            -- bits 0..31: exactly 32 bits. A 0..30 loop silently dropped the
+            -- sign bit, so e.g. band(0x80000001, 0x80000001) returned
+            -- 0x00000001 — fine for byte-sized callers, a trap for any future
+            -- 32-bit use.
             local r, p = 0, 1
-            for _ = 0, 30 do
+            for _ = 0, 31 do
                 local ab, bb = a % 2, b % 2
                 local rb
                 if op == "and" then

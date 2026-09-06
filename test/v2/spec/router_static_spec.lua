@@ -105,6 +105,26 @@ describe("router 静态资源路径映射", function()
         assert.equals(403, captured.data.code)
     end)
 
+    it("混合编码 (%2e./) 在 unescape 后同样 403", function()
+        -- Partially encoded: one unescape pass yields the literal '../'.
+        router.on_access(make_ctx("/verynginx/static/%2e./config.json"))
+        assert.is_not_nil(captured)
+        assert.equals("block", captured.type)
+        assert.equals(403, captured.data.code)
+    end)
+
+    it("双重编码 (%252e%252e%252f) 单次解码后是字面量文件名，不构成穿越", function()
+        -- %25 -> '%': one decode pass yields the FLAT literal name
+        -- '%2e%2e%2fconfig.json'. The guard does not fire (no '..'), and the
+        -- mapped path must stay a flat name inside the dashboard root —
+        -- double-encoding cannot traverse in this single-decode layer.
+        router.on_access(make_ctx("/verynginx/static/%252e%252e%252fconfig.json"))
+        assert.equals("static", captured.type)
+        local path = captured.data.path
+        assert.falsy(path:find("..", 1, true))
+        assert.falsy(path:sub(1, 1) == "/")
+    end)
+
     it("null 字节 (%00) 同样 403", function()
         router.on_access(make_ctx("/verynginx/static%00/etc/passwd"))
         assert.is_not_nil(captured)
