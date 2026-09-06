@@ -127,6 +127,83 @@ fi
 cp -r -f "${GIT_CLONE_DIR}/verynginx/." "${VN_DIR}/"
 info "新代码已部署到 ${VN_DIR}"
 
+# ---- Step 4c: Firewall Helper (Go) ----
+# helper 是独立编译的宿主二进制（/usr/local/bin/firewall-helper），上面的
+# verynginx/ 树覆盖不会带上它——reconcile 守卫、conn deadline、flush 范围
+# 等 §11 修复都在 helper 里。已装机器必须在这里重建换装，否则升级后 Lua
+# 与 helper 版本脱节（ observe/enforce 行为与文档不符）。
+info "=== Step 4c: Firewall Helper ==="
+FIREWALL_HELPER_BIN="/usr/local/bin/firewall-helper"
+HELPER_INSTALLED=false
+[ -x "$FIREWALL_HELPER_BIN" ] && HELPER_INSTALLED=true
+
+if [ ! -d "${GIT_CLONE_DIR}/helper" ]; then
+    info "checkout 中无 helper/ 源码，跳过 helper 重建"
+elif [ "$HELPER_INSTALLED" != true ]; then
+    info "本机未安装 helper（/usr/local/bin/firewall-helper 不存在），跳过重建"
+else
+    GO_CMD=""
+    if command -v go >/dev/null 2>&1; then
+        GO_CMD="$(command -v go)"
+    elif [ -x /usr/local/go/bin/go ]; then
+        GO_CMD="/usr/local/go/bin/go"
+    fi
+
+    if [ -z "$GO_CMD" ]; then
+        warn "Go 未安装——helper 二进制未更新，本轮 helper 修复（reconcile 守卫/conn deadline/flush 范围）未生效"
+        warn "手动重建: 安装 Go 1.21+ 后 cd ${GIT_CLONE_DIR}/helper && go build -o ${FIREWALL_HELPER_BIN} . && systemctl try-restart firewall-helper.service"
+    else
+        info "重建 firewall-helper (go: $GO_CMD)..."
+        if (cd "${GIT_CLONE_DIR}/helper" && "$GO_CMD" build -o "${GIT_CLONE_DIR}/helper/firewall-helper" . 2>&1); then
+            # 无变化则不重启：二进制一致时保持现状
+            if cmp -s "${GIT_CLONE_DIR}/helper/firewall-helper" "$FIREWALL_HELPER_BIN"; then
+                info "helper 二进制无变化，跳过换装"
+            else
+                # ETXTBSY：运行中的旧二进制不能被 cp 覆盖——先停单元，
+                # 再 tmp+rename 原子换装（与 install-lnmp.sh 同约定）
+                _HELPER_WAS_ACTIVE=0
+                if command -v systemctl >/dev/null 2>&1; then
+                    if systemctl is-active --quiet firewall-helper.service 2>/dev/null; then
+                        _HELPER_WAS_ACTIVE=1
+                        systemctl stop firewall-helper.socket 2>/dev/null || true
+                        systemctl stop firewall-helper.service 2>/dev/null || true
+                    fi
+                fi
+                _HELPER_TMP="${FIREWALL_HELPER_BIN}.upgrade.$$"
+                if cp "${GIT_CLONE_DIR}/helper/firewall-helper" "$_HELPER_TMP" \
+                    && chmod 755 "$_HELPER_TMP" \
+                    && mv -f "$_HELPER_TMP" "$FIREWALL_HELPER_BIN"; then
+                    info "helper 已换装: $FIREWALL_HELPER_BIN ✓"
+                else
+                    warn "helper 换装失败（旧二进制保持原样）；手动: cd ${GIT_CLONE_DIR}/helper && go build -o ${FIREWALL_HELPER_BIN} ."
+                fi
+                mkdir -p /run/verynginx && chmod 755 /run/verynginx 2>/dev/null || true
+                # systemd 单元如有变化一并部署
+                for _unit in firewall-helper.socket firewall-helper.service; do
+                    if [ -f "${GIT_CLONE_DIR}/helper/${_unit}" ]; then
+                        if ! cmp -s "${GIT_CLONE_DIR}/helper/${_unit}" "/etc/systemd/system/${_unit}" 2>/dev/null; then
+                            cp "${GIT_CLONE_DIR}/helper/${_unit}" "/etc/systemd/system/${_unit}" \
+                                && _UNITS_CHANGED=1 \
+                                && info "已更新 systemd 单元: ${_unit}" \
+                                || warn "systemd 单元 ${_unit} 更新失败"
+                        fi
+                    fi
+                done
+                if command -v systemctl >/dev/null 2>&1; then
+                    [ "${_UNITS_CHANGED:-0}" = 1 ] && systemctl daemon-reload 2>/dev/null || true
+                    if [ "${_HELPER_WAS_ACTIVE}" = 1 ]; then
+                        systemctl start firewall-helper.socket 2>/dev/null \
+                            && info "firewall-helper.socket 已重新启动 ✓" \
+                            || warn "firewall-helper.socket 启动失败，请手动检查: systemctl status firewall-helper.socket"
+                    fi
+                fi
+            fi
+        else
+            warn "helper 构建失败（旧二进制保持原样）；手动: cd ${GIT_CLONE_DIR}/helper && go build -o ${FIREWALL_HELPER_BIN} ."
+        fi
+    fi
+fi
+
 # ---- 检查并自动修补 nginx.conf ----
 # 新版本将 lua_package_path 移到了 in_http_block.conf（http 上下文）
 # 旧 nginx.conf 可能只引用了 in_external.conf（main 上下文），缺少 http 块引用
