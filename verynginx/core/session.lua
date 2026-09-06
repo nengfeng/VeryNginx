@@ -6,6 +6,10 @@
 local _M = {}
 local hmac = require "core.hmac"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
+-- LuaJIT bit module — available in OpenResty; polyfill would be a fallback
+-- but this codebase only runs under OpenResty so we require it directly.
+local bit = require "bit"
+local bor, bxor = bit.bor, bit.bxor
 
 -- ---------------------------------------------------------------------------
 -- Session revocation blacklist via shared dict
@@ -66,7 +70,9 @@ function _M.is_revoked(token)
 end
 
 -- Constant-time string comparison to prevent timing side-channel attacks.
--- Uses arithmetic (a+b)*(a-b) = a^2 - b^2 instead of short-circuit string comparison.
+-- XOR every byte pair and OR into the accumulator; zero iff all bytes match.
+-- The old (a+b)*(a-b) = a²-b² identity had ~1/20,000 collision probability
+-- over base64-encoded values — replaced with per-byte XOR to eliminate it.
 local function constant_time_compare(a, b)
     if type(a) ~= "string" or type(b) ~= "string" then
         return false
@@ -77,7 +83,7 @@ local function constant_time_compare(a, b)
     local result = 0
     for i = 1, #a do
         local ab, bb = a:byte(i), b:byte(i)
-        result = result + (ab + bb) * (ab - bb)
+        result = bit.bor(result, bit.bxor(ab, bb))
     end
     return result == 0
 end

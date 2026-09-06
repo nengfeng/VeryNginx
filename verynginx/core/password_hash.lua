@@ -34,6 +34,10 @@ local DEFAULT_ITERATIONS = 600000
 local SALT_BYTES = 16
 
 --- Constant-time string comparison to prevent timing attacks.
+--- XOR every byte pair and OR the result into an accumulator; the final
+--- accumulator is zero iff all bytes matched.  No short-circuit on the
+--- first differing byte, and no algebraic collision (unlike the old
+--- (a+b)*(a-b) = a²-b² identity which only checks sum-of-squares).
 local function constant_time_compare(a, b)
     if type(a) ~= "string" or type(b) ~= "string" then
         return false
@@ -44,7 +48,7 @@ local function constant_time_compare(a, b)
     local result = 0
     for i = 1, #a do
         local ab, bb = a:byte(i), b:byte(i)
-        result = result + (ab + bb) * (ab - bb)
+        result = bit.bor(result, bxor(ab, bb))
     end
     return result == 0
 end
