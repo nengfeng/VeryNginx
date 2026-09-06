@@ -265,6 +265,28 @@ function _M.dispatch(ctx)
         if route.method == method and route._param_pattern then
             local capture = path:match("^" .. route._param_pattern .. "$")
             if capture then
+                -- The capture flows into 18 consumers across 6 controllers —
+                -- dict keys ("waf_rule_stats:" .. id), newline-delimited
+                -- indexes and audit lines. Constrain it once, here, so a
+                -- crafted URL segment ("%0A", "|", overlong ids) cannot forge
+                -- dict keys or inject into line-oriented state downstream.
+                -- Route ids are [A-Za-z0-9_-]{1,64} everywhere (§10.13).
+                if #capture > 64 or not capture:match("^[%w_-]+$") then
+                    -- dispatch() runs inside the router plugin's on_access,
+                    -- which plugin.execute_access wraps in pcall — ngx.exit
+                    -- here would be swallowed (§1.1). Signal via terminal
+                    -- action instead; rule_engine.apply emits it outside.
+                    ngx.status = 400
+                    ctx.set_action(ctx, "response", {
+                        code = 400,
+                        response = {
+                            code = 400,
+                            content_type = "application/json; charset=utf-8",
+                            body = json.encode({ ret = "failed", message = "invalid id in path" })
+                        }
+                    })
+                    return
+                end
                 ngx.ctx.waf_rule_id = capture
                 return run_route(route, ctx, method, path)
             end
