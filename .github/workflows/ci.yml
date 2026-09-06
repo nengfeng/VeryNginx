@@ -42,11 +42,29 @@ jobs:
           luarocks --local install busted
           echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
       - name: Run unit tests
-        run: busted --helper=test/v2/spec/spec_helper.lua test/v2/spec
+        run: busted --helper=test/v2/spec/spec_helper.lua --lpath='./verynginx/?.lua;./verynginx/lua_script/?.lua;./verynginx/lua_script/module/?.lua' test/v2/spec
+      - name: Run phase0 integration specs
+        # MUST run WITHOUT spec_helper.lua: it preloads a fake core.config
+        # that would poison the self-contained phase0 specs (AGENTS.md §9.3).
+        run: busted --lpath='./verynginx/?.lua;./verynginx/lua_script/?.lua;./verynginx/lua_script/module/?.lua' test/v2/phase0
+
+  helper-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Run firewall helper tests
+        working-directory: helper
+        # E2E=1 is intentionally absent: those cases need nftables
+        # CAP_NET_ADMIN. The unit suites set VN_HELPER_SKIP_NFT=1 themselves
+        # and exercise the mock backend.
+        run: go test -v ./...
 
   integration-tests:
     runs-on: ubuntu-latest
-    needs: unit-tests
+    needs: [unit-tests, helper-tests]
     steps:
       - uses: actions/checkout@v4
       - name: Generate config.json with default credentials
