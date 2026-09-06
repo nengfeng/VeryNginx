@@ -15,7 +15,9 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 # Install Go 1.21+ (Design §11 helper requirement; go:build syntax needs Go 1.17+)
+# sha256 pinned against the official go.dev download listing (mode=json).
 RUN wget -q https://go.dev/dl/go1.21.13.linux-amd64.tar.gz -O /tmp/go.tar.gz \
+  && echo "502fc16d5910562461e6a6631fb6377de2322aad7304bf2bcd23500ba9dab4a7  /tmp/go.tar.gz" | sha256sum -c - \
   && tar -C /usr/local -xzf /tmp/go.tar.gz \
   && rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"

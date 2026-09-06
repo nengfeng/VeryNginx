@@ -19,6 +19,10 @@ import re
 
 openresty_pkg_url = 'https://openresty.org/download/openresty-1.31.1.1.tar.gz'
 openresty_pkg = 'openresty-1.31.1.1.tar.gz'
+# sha256 of the tarball, computed over the artifact served by
+# openresty.org at pin time (gzip integrity verified). Supply-chain
+# guard: a tampered or truncated tarball must abort the install.
+openresty_pkg_sha256 = '65b78baadd3f0984055de89bf13f4a1932e5bfe9c31932037a134ea2b1a0ce42'
 
 VN_PREFIX = '/opt/verynginx'
 
@@ -94,6 +98,17 @@ def install_openresty():
         exec_sys_cmd('wget ' + openresty_pkg_url)
     else:
         print('### use local openresty package...')
+
+    # Supply-chain check: verify the tarball before it is built as root.
+    # VN_SKIP_CHECKSUM=1 overrides (air-gapped mirrors etc.) — at your own risk.
+    expected = openresty_pkg_sha256
+    digest = hashlib.sha256(open('./' + openresty_pkg, 'rb').read()).hexdigest()
+    if digest != expected and os.environ.get('VN_SKIP_CHECKSUM') != '1':
+        print('### ERROR: openresty tarball sha256 mismatch')
+        print('###   expected: ' + expected)
+        print('###   actual  : ' + digest)
+        print('###   The download may be tampered with or truncated. Aborting.')
+        sys.exit(1)
 
     print('### release the package ...')
     exec_sys_cmd('tar -xzf ' + openresty_pkg)

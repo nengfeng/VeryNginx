@@ -75,9 +75,20 @@ info "备份完成于: ${BACKUP_DIR}"
 
 # ---- 拉取最新代码 ----
 info "=== Step 3: 拉取最新代码 ==="
-git clone --depth 1 --branch v2 \
+# 升级必须固定到具体 commit：浮动分支意味着任何能改写 v2 指针的人
+# （包括被入侵的维护者账号）都能让所有跑升级脚本的机器直接部署恶意代码。
+# 每次发布时把 VN_PINNED_COMMIT 更新为当次审核通过的 commit；
+# 紧急覆盖可用 VN_UPGRADE_COMMIT=<sha> 覆盖。
+VN_PINNED_COMMIT="07d5919924effd0131e465f19fde1b1862202ca6"
+VN_UPGRADE_COMMIT="${VN_UPGRADE_COMMIT:-${VN_PINNED_COMMIT}}"
+git clone \
     "https://github.com/nengfeng/VeryNginx.git" \
     "${GIT_CLONE_DIR}" 2>&1 || {
+git -C "${GIT_CLONE_DIR}" checkout --quiet "${VN_UPGRADE_COMMIT}" 2>&1 || {
+    error "checkout ${VN_UPGRADE_COMMIT} 失败：commit 不存在或仓库异常"
+    rm -rf "${GIT_CLONE_DIR}"
+    exit 1
+}
     error "克隆失败，请检查网络或 GitHub 访问"
     rm -rf "${GIT_CLONE_DIR}"
     exit 1
