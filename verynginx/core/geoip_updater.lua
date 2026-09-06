@@ -8,6 +8,7 @@ local _M = {}
 local geoip = require "core.geoip"
 local audit = require "core.audit"
 local config = require "core.config"
+local random = require "core.random"
 
 local SHARED_DICT = "vn_config"
 local LOCK_KEY = "geoip_update_lock"
@@ -131,18 +132,36 @@ local function get_remote_etag(url)
     return res.headers["ETag"] or res.headers["Last-Modified"]
 end
 
--- Acquire update lock
+-- Acquire update lock. Token = random bytes (NOT ngx.time(): same-second
+-- callers were indistinguishable). Stored module-locally so release_lock()
+-- can verify ownership before deleting — an expired lock that another worker
+-- re-acquired must never be deleted by the stale holder (AGENTS.md §12.2),
+-- otherwise two workers download into the same .mmdb concurrently and the
+-- database corrupts.
+local lock_token = nil
+
 local function acquire_lock(ttl)
     local shared = ngx.shared[SHARED_DICT]
     if not shared then return true end
-    local ok, _ = shared:add(LOCK_KEY, ngx.time(), ttl or 300)
+    local token = random.bytes(8)
+    local ok, _ = shared:add(LOCK_KEY, token, ttl or 300)
+    if ok then
+        lock_token = token
+    end
     return ok
 end
 
--- Release update lock
+-- Release update lock (only if we still own it)
 local function release_lock()
     local shared = ngx.shared[SHARED_DICT]
-    if shared then shared:delete(LOCK_KEY) end
+    if not shared then
+        lock_token = nil
+        return
+    end
+    if lock_token and shared:get(LOCK_KEY) == lock_token then
+        shared:delete(LOCK_KEY)
+    end
+    lock_token = nil
 end
 
 -- Get update configuration
