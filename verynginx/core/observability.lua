@@ -7,6 +7,12 @@ local _M = {}
 local json = require "dkjson"
 
 function _M.init()
+    -- Collect from worker 0 only (§1.4): init() runs in every worker, and
+    -- without this guard an N-worker deployment ran the same 60s stats
+    -- collection N times in parallel (shared-dict reads + disk I/O).
+    if ngx.worker.id() ~= 0 then
+        return
+    end
     -- Register worker-level state collection timer (every 60 seconds)
     ngx.timer.every(60, function()
         _M._collect_worker_stats()
