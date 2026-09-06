@@ -886,14 +886,18 @@ function _M.check_update()
     end
     local remote_hash = shared:get("config_hash")
     if remote_hash and remote_hash ~= _M.local_hash and remote_hash ~= _M.attempted_hash then
-        -- Only attempt a given remote hash once. If load_from_file fails
+        -- Only attempt a given remote hash once: if load_from_file fails
         -- (e.g. corrupt config.json that we deliberately keep serving the
         -- previous in-memory config for), we must not loop re-reading it on
-        -- every sampled request — that would be an I/O storm.
-        _M.attempted_hash = remote_hash
+        -- every sampled request — that would be an I/O storm. A held save
+        -- lock is NOT such a failure — it is a transient "save in flight",
+        -- so the attempt must stay retryable: burning attempted_hash here
+        -- would permanently skip this hash on this worker and leave it
+        -- serving stale config until the NEXT save bumps the hash.
         if shared:get("config_save_lock") then
             return
         end
+        _M.attempted_hash = remote_hash
         _M.load_from_file()
     end
 end

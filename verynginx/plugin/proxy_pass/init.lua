@@ -13,6 +13,7 @@ _M.critical = true
 local config = require "core.config"
 local matcher = require "matcher.init"
 local balancer = require "plugin.proxy_pass.balancer"
+local health_check = require "plugin.proxy_pass.health_check"
 local dns_cache = require "plugin.proxy_pass.dns_cache"
 
 local function is_ip(host)
@@ -70,14 +71,27 @@ function _M.on_access(ctx)
             local upstream = config.backend_upstream[rule.upstream]
             if not upstream then
                 ngx.log(ngx.ERR, "proxy_pass: upstream '", rule.upstream, "' not found")
-                ctx.set_action(ctx, "block", { code = 503, response = "Upstream not found" })
+                -- Inline TABLE, not a string: response.resolve treats a string
+                -- as a template NAME, so the literal message never reached the
+                -- client (every upstream failure read "response template not found").
+                ctx.set_action(ctx, "block", { code = 503,
+                    response = { body = "Upstream not found: " .. tostring(rule.upstream) } })
                 return
             end
 
             local node = balancer.select_healthy(upstream, rule.upstream)
             if not node then
                 ngx.log(ngx.WARN, "proxy_pass: no healthy node in upstream '", rule.upstream, "'")
-                ctx.set_action(ctx, "block", { code = 503, response = "No healthy upstream" })
+                -- node is nil here (selection failed); surface the most
+                -- recent probe error across the upstream's nodes instead.
+                local probe_err
+                for _, nd in ipairs(upstream.nodes or {}) do
+                    probe_err = health_check.last_error(rule.upstream, nd)
+                    if probe_err then break end
+                end
+                ctx.set_action(ctx, "block", { code = 503,
+                    response = { body = "No healthy upstream: " .. tostring(rule.upstream)
+                        .. (probe_err and (" (last probe error: " .. tostring(probe_err) .. ")") or "") } })
                 return
             end
 
