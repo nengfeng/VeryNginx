@@ -4,8 +4,13 @@
 
 [English](readme.md) | [安装手册](docs/INSTALL_zh.md) | [使用手册](docs/USAGE_zh.md) | [架构设计](docs/DESIGN_V2.md)
 
-## v2.2 亮点（2026-08-25）
+## v2.2 亮点（2026-09-06）
 
+- **安全审计清零（35 项发现全部闭环）**：会话/密码常量时间比较重写（旧代数恒等式可按约 1/20,000 概率伪造 admin 会话）；代理上游 TLS 校验开启（自签后端需显式指定 CA）；`configs/` 权限加固——`session_secret` 不再全局可读；代理链路崩溃与内部重定向循环修复（该链路此前从未被端到端执行过）；请求期 JSON 加固——`POST /config` 畸形 body 返回 400 而非 500
+- **契约收紧**：proxy 规则必须声明 `action`；白名单 ≤/8 的 CIDR 拒收（会中和内核拦截）；频率规则 id 校验；Composite（AND/OR/NOT）matcher 递归校验；systemd helper 修复（reconcile 守卫、conn deadline、flush 范围、allow-prefix 下限）
+- **升级信任模型**：`upgrade.sh` 固定部署 commit（锚定于安装时、经已验证 checkout 自更新）、报告对分支的落后量、升级时重建 firewall helper，并封禁了让分支写者控制 pin 的 `curl | bash` 流程
+- **供应链**：OpenResty/Go 下载校验和固定；基础镜像迁移 bookworm（bullseye EOL）；安装器权限修复
+- **质量门禁**：luacheck 覆盖全部 Lua（含生命周期入口文件），busted spec + phase0 套件与 Go helper 测试进入 CI（216 spec / 329 phase0 用例、10 个 Go 测试文件全绿），安装期 SRI 自检，面板版本元数据修复（不再显示 dev）
 - **启动可靠性**：webhook DNS 校验的 init 阶段守卫（域形态 webhook 不再 brick nginx 启动）；静态文件字节保真输出（`ngx.print` 替代带换行的 `ngx.say`）
 - **安装器加固**：cosocket DNS 的 resolver 注入、出站 TLS 的 `lua_ssl_trusted_certificate`、SRI 钉值 vs 实际服务内容漂移比对、重装盲区清理、自检 000 端口归因
 - **安全**：SSRF 对 IPv6 括号/映射字形的防护、空 `session_secret` fail-closed 覆盖、审计遗留清偿批次

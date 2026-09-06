@@ -4,8 +4,13 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 
 [中文文档](readme_zh.md) | [Installation Guide](docs/INSTALL_zh.md) | [Usage Manual](docs/USAGE_zh.md) | [Architecture Design](docs/DESIGN_V2.md)
 
-## v2.2 Highlights (2026-08-25)
+## v2.2 Highlights (2026-09-06)
 
+- **Security audit remediation (35 findings closed)**: session/password constant-time compare rewritten (the old algebraic identity allowed admin-session forgery at ~1/20,000 per try); upstream TLS verification for proxied backends (self-signed upstreams need an explicit CA); `configs/` permission hardening — no more world-readable `session_secret`; proxy-path crash and internal-redirect-loop fixes (the proxy chain had never been end-to-end exercised); request-time JSON hardening — malformed `POST /config` bodies now 400, not 500
+- **Stricter contracts**: proxy rules must declare `action`; whitelist CIDRs at or below /8 rejected (they neutralize kernel blocking); frequency rule ids validated; composite (AND/OR/NOT) matchers validated recursively; systemd-helper fixes (reconcile guards, conn deadline, flush scope, allow-prefix floor)
+- **Upgrade trust model**: `upgrade.sh` pins the deployed commit (anchored at install time, self-updates from verified checkouts), reports staleness against the branch, rebuilds the firewall helper on upgrade, and forbids the `curl | bash` flow that let branch writers control the pin
+- **Supply chain**: checksum-pinned OpenResty/Go downloads; Debian base moved to bookworm (bullseye EOL); installer privilege fixes
+- **Quality gates**: luacheck over every Lua file (incl. lifecycle entry points), busted spec + phase0 suites and Go helper tests now run in CI (216 spec / 329 phase0 cases, 10 Go test files green), install-time SRI self-check, dashboard version metadata fixed (`dev` no more)
 - **Boot reliability**: init-phase guard for webhook DNS validation (a domain-shaped webhook no longer bricks nginx startup via cosocket-in-init), static file serving is byte-faithful (`ngx.print`, not `ngx.say` + stray newline)
 - **Installer hardening**: resolver injection for cosocket DNS, `lua_ssl_trusted_certificate` for outbound TLS, SRI pin-vs-served drift detection, reinstall blind-spot cleanup, self-check port-000 attribution
 - **Security**: SSRF guards for IPv6 bracket/mapped literal forms, fail-closed coverage for empty `session_secret`, audit-leftover cleanup batch
