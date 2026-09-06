@@ -1,4 +1,6 @@
-FROM debian:bullseye-slim
+# bookworm (current stable): bullseye LTS ended 2026-08-31 and its
+# security pool is being decommissioned — package versions 404 mid-build.
+FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     build-essential \
