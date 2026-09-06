@@ -125,8 +125,18 @@ local function index_add(s, key, data_ttl)
     -- append after prune but before our rewrite.  Unconditionally add/update
     -- the key so even entries that straddled the TTL boundary get a fresh
     -- timestamp (avoiding the "value re-created but index drops the key" bug).
-    local max_age = data_ttl > 0 and data_ttl or INDEX_TTL
-    local kept = index_prune(s, ngx.time(), max_age)
+    -- data_ttl == 0 marks CORE (low-cardinality) metrics whose data never
+    -- expires: their index entries must not age out either — pruning them
+    -- after INDEX_TTL idle would hide a live series from export_prometheus
+    -- until its next write (emit_dict already skips entries whose data key is
+    -- gone, so keeping them costs nothing and stays bounded by core
+    -- cardinality). Only labeled (per-rule / per-IP) entries expire.
+    local kept
+    if data_ttl > 0 then
+        kept = index_prune(s, ngx.time(), data_ttl)
+    else
+        kept = index_parse(s)
+    end
     kept[key] = ngx.time()
     -- Deterministic rewrite: sorted keys avoid thrashing the string on each
     -- append, while the single write under lock is atomic.
