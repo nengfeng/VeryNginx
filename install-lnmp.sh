@@ -470,6 +470,23 @@ patch_nginx_conf() {
     fi
   fi
 
+  # 1e) @vn_proxy upstream TLS verification. in_server_block.conf ships with
+  # proxy_ssl_verify on + the Debian CA bundle path; realign it with this
+  # host: point the directive at the detected bundle, or fall back to
+  # verification off with a loud warning (nginx refuses to start on a
+  # missing trusted-certificate file, so guessing a path is not an option).
+  local vn_proxy_conf="${VN_DIR}/nginx_conf/in_server_block.conf"
+  if [ -f "$vn_proxy_conf" ] && grep -q 'proxy_ssl_trusted_certificate' "$vn_proxy_conf" 2>/dev/null; then
+    if [ -n "$vn_ca" ]; then
+      sed -i "s#proxy_ssl_trusted_certificate .*;#proxy_ssl_trusted_certificate ${vn_ca};#" "$vn_proxy_conf"
+      info "@vn_proxy upstream verification pinned to CA bundle: ${vn_ca} ✓"
+    else
+      sed -i "s/proxy_ssl_verify on;/proxy_ssl_verify off;/" "$vn_proxy_conf"
+      warn "No CA bundle found — @vn_proxy upstream TLS verification disabled"
+      echo "    Fix: apt-get install -y ca-certificates (or yum install -y ca-certificates), then re-run this installer."
+    fi
+  fi
+
   # 2) add VeryNginx paths to existing lua_package_path inside http block
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"

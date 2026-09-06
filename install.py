@@ -138,11 +138,16 @@ def install_verynginx():
     else:
         print('### openresty not found, so not copying nginx.conf')
 
-    # Set permissions for config storage
-    exec_sys_cmd('chmod -R 755 ' + VN_PREFIX + '/configs')
-
+    # Set permissions for config storage. configs/ holds config.json with
+    # security.session_secret (HMAC key for admin sessions) and
+    # admin[].password_hash — world-readable (755) lets ANY local user forge
+    # admin sessions offline. Mirror install-lnmp.sh: 750/640, owned by the
+    # nginx user so only the service (and root) can read them.
     print('### create nginx user/group if not exist')
     exec_sys_cmd('id -u nginx > /dev/null 2>&1 || useradd -r -s /sbin/nologin nginx', accept_failed=True)
+    exec_sys_cmd('chown -R nginx:nginx ' + VN_PREFIX + '/configs')
+    exec_sys_cmd('chmod 750 ' + VN_PREFIX + '/configs')
+    exec_sys_cmd('find ' + VN_PREFIX + '/configs -type f -exec chmod 640 {} +')
 
 def update_verynginx():
     print('### WARNING: update will keep existing config.json')
