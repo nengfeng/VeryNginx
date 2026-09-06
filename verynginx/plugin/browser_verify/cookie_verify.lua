@@ -123,7 +123,10 @@ function _M.challenge(ctx)
     ngx.header["Expires"] = "0"
     ngx.header["X-Content-Type-Options"] = "nosniff"
     ngx.say(html)
-    -- ngx.exit(200) is called by rule_engine.apply() outside pcall
+    -- Never call ngx.exit() here: challenge() runs inside pcall-wrapped plugin
+    -- code (AGENTS.md 1.1). Callers set the terminal "challenge" action via
+    -- ctx.set_action(ctx, "challenge", { cookie_verify = ... }); rule_engine.apply()
+    -- invokes this function and then ngx.exit(200) outside pcall.
 end
 
 return _M

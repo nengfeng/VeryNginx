@@ -39,13 +39,20 @@ function _M.on_access(ctx)
                 if vtype == "cookie" then
                     cookie_ok = cookie_verify.check(ctx)
                     if not cookie_ok then
-                        cookie_verify.challenge(ctx)
+                        -- Set a TERMINAL challenge action and return. Never issue
+                        -- the challenge page here and return without an action:
+                        -- this on_access runs inside pcall, and without a terminal
+                        -- action the plugin chain (proxy_pass, ...) would continue
+                        -- past the challenge, serving the protected resource to
+                        -- non-browsers. rule_engine.apply() invokes challenge()
+                        -- and ngx.exit(200) outside pcall.
+                        ctx.set_action(ctx, "challenge", { cookie_verify = cookie_verify })
                         return
                     end
                 elseif vtype == "javascript" then
                     js_ok = javascript_verify.check(ctx)
                     if not js_ok then
-                        javascript_verify.challenge(ctx)
+                        ctx.set_action(ctx, "challenge", { javascript_verify = javascript_verify })
                         return
                     end
                 end

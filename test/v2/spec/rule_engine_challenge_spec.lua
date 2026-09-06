@@ -48,4 +48,36 @@ describe("rule_engine challenge action", function()
         assert.equals("challenge", rule_engine.RESULT.CHALLENGE)
     end)
 
+    it("apply prefers cookie_verify when the action provides one", function()
+        local cookie_called = false
+        local cookie_verify = {
+            challenge = function(ctx)
+                cookie_called = true
+                assert.is_not_nil(ctx)
+            end
+        }
+
+        local ctx = {
+            action_result = {
+                type = "challenge",
+                data = { cookie_verify = cookie_verify }
+            },
+            request = {
+                scheme = "http",
+                uri = "/test",
+                remote_addr = "127.0.0.1",
+            }
+        }
+
+        ngx.header = {}
+        ngx.say = function() end
+        ngx.exit = function(code)
+            assert.equals(200, code)
+        end
+
+        rule_engine.apply(ctx, "access")
+
+        assert.is_true(cookie_called)
+    end)
+
 end)
