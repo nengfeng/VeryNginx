@@ -289,8 +289,12 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 	if not ok_ds or not ds_ok then
 		ngx.log(ngx.ERR, "kernel_blocking: desired.set_desired failed for scanner ", ip,
 			": ", tostring(ds_err or ds_ok))
-		-- Compensate: roll back executor add
+		-- Compensate: roll back executor add and return the candidate to the
+		-- retriable pool. dispatch_pending is transient — the evaluator only
+		-- iterates candidate/installed, so leaving the entry here would wedge
+		-- it permanently (never retried, never reconciled).
 		pcall(function() exec.delete("scanner_drop", family, ip) end)
+		sm.upsert(ip, "scanner", "candidate", evidence_tbl, {})
 		return false
 	end
 	-- scanner supersedes cc desired entry
@@ -334,6 +338,7 @@ end
 -- In enforce mode: actually installs passing candidates into kernel nftables via the executor.
 -- ---------------------------------------------------------------------------
 local function evaluate_scanner_candidates()
+    local failed = false
     local seen = {}
     local work = {}
 
@@ -407,7 +412,9 @@ local function evaluate_scanner_candidates()
             -- Enforce mode: install when strict. enforce_promote_scanner
             -- consumes the enforce token; if bucket empty, marks rate_limited.
             if strict then
-                enforce_promote_scanner(ip, block_hits, flagged)
+                if enforce_promote_scanner(ip, block_hits, flagged) == false then
+                    failed = true
+                end
             else
                 -- Keep installed entries as-is when evidence cooled off.
                 local cur = sm.get_policy(ip, "scanner")
@@ -432,6 +439,7 @@ local function evaluate_scanner_candidates()
 
         ::continue::
     end
+    return not failed
 end
 
 -- ---------------------------------------------------------------------------
@@ -559,8 +567,10 @@ local function enforce_promote_cc(ip, violation_count)
 	if not ok_ds or not ds_ok then
 		ngx.log(ngx.ERR, "kernel_blocking: desired.set_desired failed for CC ", ip,
 			": ", tostring(ds_err or ds_ok))
-		-- Compensate: roll back executor add
+		-- Compensate: roll back executor add and return the candidate to the
+		-- retriable pool (dispatch_pending is transient, see scanner path).
 		pcall(function() exec.delete("cc_drop", family, ip) end)
+		sm.upsert(ip, "cc", "candidate", ev_tbl, {})
 		return false
 	end
 	sm.upsert(ip, "cc", "installed", ev_tbl, {
@@ -598,6 +608,7 @@ local function evaluate_cc_candidates()
 	local seen = {}
 	local work = {}
 
+	local failed = false
 	-- Iterate ALL cc candidates (not just first page) to avoid starvation of new IPs.
 	sm.iterate_all(function(c)
 		if c.policy == "cc" and c.ip and not seen[c.ip] then
@@ -667,7 +678,9 @@ local function evaluate_cc_candidates()
         local strict_ready = violations >= min_windows and has_cf
         if cc_enforce and strict_ready then
             -- CC enforce: enforce_promote_cc consumes the enforce token
-            enforce_promote_cc(ip, violations)
+            if enforce_promote_cc(ip, violations) == false then
+                failed = true
+            end
         elseif violations >= min_windows and not has_cf then
             sm.upsert(ip, "cc", "candidate", {
                 violation_count = violations,
@@ -694,6 +707,7 @@ local function evaluate_cc_candidates()
 
 		::continue::
 	end
+	return not failed
 end
 
 -- ---------------------------------------------------------------------------
@@ -704,13 +718,19 @@ function _M.evaluate(_now)
 	local kb_cfg = config.kernel_ip_blocking
 	if not kb_cfg then return end
 
+	local ok_all = true
 	if kb_cfg.scanner and kb_cfg.scanner.enabled then
-		evaluate_scanner_candidates()
+		if evaluate_scanner_candidates() == false then
+			ok_all = false
+		end
 	end
 
 	if kb_cfg.cc and kb_cfg.cc.enabled then
-		evaluate_cc_candidates()
+		if evaluate_cc_candidates() == false then
+			ok_all = false
+		end
 	end
+	return ok_all
 end
 
 -- ---------------------------------------------------------------------------
@@ -732,7 +752,7 @@ function _M.process_candidates(now)
     if config.kernel_ip_blocking.mode == "enforce" then
         token_bucket.refill_enforce()
     end
-    _M.evaluate(now)
+    return _M.evaluate(now)
 end
 
 return _M

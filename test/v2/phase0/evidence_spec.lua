@@ -118,7 +118,12 @@ describe("count_cc_violations", function()
 
     before_each(function()
         setup_ngx()
-        config.kernel_ip_blocking = { cc = { rule_ids = { "r1", "r2" } } }
+        -- config is readonly (use config.save()): the recursive schema fills
+        -- every other kernel_ip_blocking field from its defaults.
+        config.save({
+            version = "2.0", admin = {}, matcher = {}, rule = {},
+            kernel_ip_blocking = { cc = { rule_ids = { "r1", "r2" } } },
+        })
         _G.ngx.shared.frequency_limit:flush_all()
         package.loaded["core.kernel_blocking.evidence"] = nil
         ev = require "core.kernel_blocking.evidence"

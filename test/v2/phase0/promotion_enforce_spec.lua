@@ -135,6 +135,12 @@ describe("Enforce promotion", function()
         -- Reload promotion so it picks up the patched desired_state.
         package.loaded["core.kernel_blocking.promotion"] = nil
         promotion = require "core.kernel_blocking.promotion"
+        -- Restore even when an assertion fails: a leaked patch poisons every
+        -- later test in this file (set_desired would keep failing).
+        finally(function()
+            real_desired.set_desired = original_set
+            package.loaded["core.kernel_blocking.promotion"] = nil
+        end)
 
         mock_config.kernel_ip_blocking.mode = "enforce"
         sm.upsert_candidate("203.0.113.10", "scanner", "observed",
@@ -147,9 +153,6 @@ describe("Enforce promotion", function()
         -- SM stays at candidate: no installed transition.
         local e = sm.get("203.0.113.10")
         assert.are.equal("candidate", e.state)
-        -- Restore for subsequent tests.
-        real_desired.set_desired = original_set
-        package.loaded["core.kernel_blocking.promotion"] = nil
     end)
 
     it("CC set_desired failure rolls back executor.add and keeps candidate state", function()
@@ -160,6 +163,10 @@ describe("Enforce promotion", function()
         end
         package.loaded["core.kernel_blocking.promotion"] = nil
         promotion = require "core.kernel_blocking.promotion"
+        finally(function()
+            real_desired.set_desired = original_set
+            package.loaded["core.kernel_blocking.promotion"] = nil
+        end)
 
         mock_config.kernel_ip_blocking.mode = "enforce"
         mock_config.kernel_ip_blocking.cc.enforce_ready = true
@@ -171,8 +178,6 @@ describe("Enforce promotion", function()
         assert.is_false(in_kernel, "CC IP must be removed after set_desired failure")
         local e = sm.get("203.0.113.30")
         assert.are.equal("candidate", e.state)
-        real_desired.set_desired = original_set
-        package.loaded["core.kernel_blocking.promotion"] = nil
     end)
 
     it("enforce mode respects emergency_pause", function()

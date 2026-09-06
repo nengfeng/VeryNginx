@@ -112,9 +112,17 @@ describe("config whitelist entry validation", function()
         assert.is_true(ok, "valid IP must be accepted: " .. tostring(err))
     end)
 
-    it("accepts valid CIDR 10.0.0.0/8", function()
-        local ok, err = config.validate_config(with_whitelist({ "10.0.0.0/8" }))
+    it("accepts a routable v4 CIDR", function()
+        local ok, err = config.validate_config(with_whitelist({ "10.0.0.0/12" }))
         assert.is_true(ok, "valid CIDR must be accepted: " .. tostring(err))
+    end)
+
+    it("rejects /8-and-broader v4 CIDR (Section 11.8b inclusive floor)", function()
+        -- A /8 whitelist sits in front of kernel drops and would neutralize
+        -- the blocking surface for the whole range; the Go helper rejects
+        -- <= /8, and a persisted entry would break allow-snapshot sync.
+        local ok, err = config.validate_config(with_whitelist({ "10.0.0.0/8" }))
+        assert.is_false(ok, "/8 whitelist must be rejected: " .. tostring(err))
     end)
 
     it("accepts empty whitelist", function()

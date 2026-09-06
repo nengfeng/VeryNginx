@@ -97,17 +97,15 @@ describe("waf_recommender index atomicity", function()
         assert.are.equal(2, #items)
     end)
 
-    it("index lock held causes operation to fail gracefully", function()
+    it("index lock held fails closed without orphaning the entry", function()
         local rec = require "core.waf_recommender"
         -- Pre-acquire the lock so with_index_lock cannot get it.
         ngx.shared.vn_config:set("waf_rec:index_lock", 1, 10)
-        -- add() should still return true (entry written), but log a warning.
+        -- Contract (Section 12.2, audit M-17): no entry-without-index - add()
+        -- rolls the dict write back and reports failure instead of orphaning.
         local ok = rec.add({ id = "rule_x", pattern = "px" })
-        assert.is_true(ok)
-        -- Entry is in dict even though index update failed.
-        local item = rec.get("rule_x")
-        assert.truthy(item)
-        assert.are.equal("px", item.pattern)
+        assert.is_false(ok)
+        assert.is_nil(rec.get("rule_x"))
     end)
 end)
 

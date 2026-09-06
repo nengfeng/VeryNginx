@@ -117,15 +117,15 @@ describe("Whitelist publish path", function()
     end)
 
     it("add_whitelist does not duplicate existing entry", function()
-        assert.is_true(config.save(fresh_ip_rep({ "10.0.0.0/8" })))
-        ir.add_whitelist("10.0.0.0/8")
+        assert.is_true(config.save(fresh_ip_rep({ "10.0.0.0/12" })))
+        ir.add_whitelist("10.0.0.0/12")
         local wl = config.ip_reputation.whitelist
         assert.are.equal(1, #wl)
     end)
 
     it("remove_whitelist removes existing entry", function()
-        assert.is_true(config.save(fresh_ip_rep({ "10.0.0.0/8", "192.168.0.0/16" })))
-        ir.remove_whitelist("10.0.0.0/8")
+        assert.is_true(config.save(fresh_ip_rep({ "10.0.0.0/12", "192.168.0.0/16" })))
+        ir.remove_whitelist("10.0.0.0/12")
         local wl = config.ip_reputation.whitelist
         assert.are.equal(1, #wl)
         assert.are.equal("192.168.0.0/16", wl[1])

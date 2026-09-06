@@ -378,8 +378,8 @@ describe("metrics index renewal (audit M-1/N-2 regressions)", function()
         -- the data TTL (timestamp far in the past), then the key is written
         -- again. The renewal must survive the prune.
         local s = ngx.shared.metrics
-        local idx = json.decode(s:get("__metrics_index"))
-        for _, entry in ipairs(idx) do
+        -- The index is newline-delimited "key:ts" lines, NOT JSON.
+        for entry in s:get("__metrics_index"):gmatch("[^\n]+") do
             local key = entry:match("^(.+):%d+$")
             if key == "vn_test_counter{k=\"v\"}" then
                 -- rewrite the entry with an ancient timestamp
