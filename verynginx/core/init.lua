@@ -102,6 +102,10 @@ function _M.init_worker()
     local health_check = require "plugin.proxy_pass.health_check"
     local waf_manager = require "waf-rule-manager"
 
+    -- Re-seed the legacy PRNG per worker (force): the module-load seed ran in
+    -- init_by_lua, so every forked worker starts from an identical state.
+    require("core.random").seed(true)
+
     metrics.init()
     observability.init()
     statistics.init()

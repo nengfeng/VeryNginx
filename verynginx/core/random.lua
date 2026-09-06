@@ -44,8 +44,13 @@ do
     end
 end
 
-local function seed_prng()
-    if seeded then return end
+--- Seed the legacy math.random PRNG.
+-- @param force boolean|nil: re-seed even when already seeded. Required in
+--   init_worker: the module-load seed runs once in init_by_lua and every
+--   forked worker inherits the IDENTICAL PRNG state (worker_id is still 0
+--   there), so each worker must force a re-seed with its own PID/worker_id.
+local function seed_prng(force)
+    if seeded and not force then return end
     seeded = true
     -- Gather entropy from multiple time/worker sources.
     local worker_id = (ngx and ngx.worker and ngx.worker.id) and ngx.worker.id() or 0
@@ -107,6 +112,9 @@ end
 -- (statistics sampling, balancer jitter, snapshot jitter, etc.) produces an
 -- identical sequence in every worker on every restart. seed_prng() is a no-op
 -- once already seeded, so calling it here is cheap and idempotent.
+-- NOTE: this alone is NOT worker-safe — init_by_lua runs once in the master
+-- and workers fork with identical PRNG state. core/init.lua's init_worker
+-- calls _M.seed(true) per worker to re-seed with the real PID/worker_id.
 if ngx ~= nil then
     seed_prng()
 end
