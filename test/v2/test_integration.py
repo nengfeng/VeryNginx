@@ -458,6 +458,9 @@ def test_proxy_pass():
     cfg = json.loads(body)
     cfg["backend_upstream"]["test_backend"] = {
         "nodes": [{"host": "127.0.0.1", "port": backend_port}],
+        "health_check": {"enabled": True, "interval": 2},
+        "tls": {"verify": False},
+        "timeout": {"connect": 3, "read": 5, "send": 5},
     }
     cfg["rule"]["proxy_pass"] = [
         {

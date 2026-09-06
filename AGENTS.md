@@ -325,6 +325,14 @@ Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enfor
 
 使用率指标 `shared_dict_usage_pct` 同时通过 Prometheus `/metrics` 暴露（来自 `observability.lua`）。
 
+### 6.8 空 dict 段的 JSON 往返（dkjson 把空表编码为 `[]`）
+
+dkjson 把空 Lua table 编码为 `[]`，除非该表挂了 `__jsontype = "object"` 元表。`config.lua` 的 `mark_dict_sections()` 在 **save 编码前 / load 解码后 / report() 输出前** 对字典型顶层段（`matcher`/`response`/`backend_upstream`/`rule`/`plugin`）的空表打标记：
+
+- 没有它，**首次 GET /config** 就会把 `backend_upstream:{}` 变成 `[]`，POST 保存后永久固化——`config.backend_upstream[name]`、`config.matcher[ref]`（WAF 规则字符串引用校验）等全部静默失效，集成测试的 proxy_pass 用例即因此崩溃。
+- 已被写成 `[]` 的旧 config.json 在下次 load 时自动痊愈（空表两种 JSON 形态解码后不可区分，统一按 dict 处理）。
+- 新增字典型顶层段时必须同步加进 `DICT_SECTIONS`；list 型段（如 `rule.*` 组本身）不要加——空列表编码为 `[]` 是正确的。
+
 ### 6.8 新增 config section
 
 ```lua

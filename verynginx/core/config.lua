@@ -910,6 +910,29 @@ local function decode_json(data)
     return result
 end
 
+-- Empty Lua tables are ambiguous in JSON: dkjson encodes them as `[]`, so a
+-- single GET/POST /config round-trip turns every empty dict-shaped section
+-- into an array — after which dict lookups (config.backend_upstream[name],
+-- config.matcher[ref], config.backend_upstream[rule.upstream] in validation)
+-- silently stop working and downstream writers see the wrong shape. Tag the
+-- known dict-shaped sections so they encode as {} (dkjson __jsontype) and so
+-- files previously corrupted to [] heal on the next load.
+local DICT_SECTIONS = { matcher = true, response = true, backend_upstream = true, rule = true, plugin = true }
+local OBJECT_META = { __jsontype = "object" }
+
+local function mark_dict_sections(cfg)
+    if type(cfg) ~= "table" then
+        return cfg
+    end
+    for name in pairs(DICT_SECTIONS) do
+        local t = cfg[name]
+        if type(t) == "table" and next(t) == nil and getmetatable(t) == nil then
+            setmetatable(t, OBJECT_META)
+        end
+    end
+    return cfg
+end
+
 -- ---------------------------------------------------------------------------
 -- Load config from file
 -- ---------------------------------------------------------------------------
@@ -926,6 +949,9 @@ function _M.load_from_file()
 
     local config = decode_json(data)
     local file_corrupt = (config == nil)
+    if config then
+        mark_dict_sections(config)
+    end
 
     if not config then
         ngx.log(ngx.ERR, "config.json decode error at ", path,
@@ -1003,6 +1029,7 @@ function _M.load_from_file()
         end
 
         if do_write and not file_corrupt then
+            mark_dict_sections(config)
             local encoded = json.encode(config, { indent = true })
             if atomic_write_json(path, encoded) then
                 data = encoded
@@ -1323,6 +1350,7 @@ function _M.save(config, opts)
     local compiled = compile_runtime_snapshot(normalized)
 
     -- encode and hash
+    mark_dict_sections(normalized)
     local ok_enc, encoded = pcall(json.encode, normalized, { indent = true })
     if not ok_enc then
         release_save_lock(lock_key, lock_token)
@@ -1454,6 +1482,7 @@ end
 -- Report current config as JSON string
 -- ---------------------------------------------------------------------------
 function _M.report()
+    mark_dict_sections(config_data)
     return json.encode(config_data)
 end
 
