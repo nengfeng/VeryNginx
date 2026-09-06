@@ -52,7 +52,10 @@ local function is_reserved_address(ip, family)
             if o1 == 100 and o2 >= 64 and o2 <= 127 then return true, "private" end
         end
         if o1 and o1 >= 224 and o1 <= 239 then return true, "multicast" end
-        if ip == "255.255.255.255" then return true, "broadcast" end
+        -- The whole 255.0.0.0/8 is reserved (broadcast/experimental) — align
+        -- with the Go helper's isReservedOrSpecialIP, which rejects the range,
+        -- not just the literal 255.255.255.255.
+        if o1 == 255 then return true, "broadcast" end
     else
         local lower = ip:lower()
         if lower == "::" then return true, "unspecified" end
