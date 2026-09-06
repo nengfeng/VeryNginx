@@ -86,4 +86,46 @@ describe("shared_dict_high_usage alert", function()
         end
         assert.is_true(found)
     end)
+
+    -- Cooldown regression (audit M-20): fire_alert sets cd_key
+    -- "<type>:<rule_id>" with ttl = window_seconds * 2; a second evaluation
+    -- inside the window must be suppressed, while a DIFFERENT dict gets its
+    -- own cooldown key and still fires.
+    it("suppresses repeat alerts inside the cooldown window", function()
+        local dict = ngx.shared.vn_config
+        dict.capacity = function() return 1000000 end
+        dict.free_space = function() return 100000 end  -- 90% used
+
+        local alert_count = 0
+        package.loaded["core.metrics"].incr = function(name, _, labels)
+            if name == "alert_fired_total" and labels and labels.type == "shared_dict_high_usage" then
+                alert_count = alert_count + 1
+            end
+        end
+
+        local alerting = require "core.alerting"
+        alerting.evaluate()
+        alerting.evaluate()  -- immediately again — must be cooled down
+        assert.are.equal(1, alert_count)
+    end)
+
+    it("keeps per-dict cooldowns independent", function()
+        local alert_count = 0
+        package.loaded["core.metrics"].incr = function(name, _, labels)
+            if name == "alert_fired_total" and labels and labels.type == "shared_dict_high_usage" then
+                alert_count = alert_count + 1
+            end
+        end
+        local alerting = require "core.alerting"
+
+        local vn_config = ngx.shared.vn_config
+        local metrics_dict = ngx.shared.metrics
+        for _, d in ipairs({ vn_config, metrics_dict }) do
+            d.capacity = function() return 1000000 end
+            d.free_space = function() return 100000 end  -- 90% used
+        end
+
+        alerting.evaluate()
+        assert.are.equal(2, alert_count)  -- one per distinct dict
+    end)
 end)

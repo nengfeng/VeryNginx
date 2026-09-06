@@ -323,3 +323,88 @@ describe("perf #2: already-pending IP skips the global index lock (dedup preserv
         assert.are.equal(1, n)
     end)
 end)
+describe("waf_recommender analyze() honours min_patterns (audit M-20)", function()
+    before_each(function()
+        ngx.shared.vn_config:flush_all()
+        package.loaded["core.waf_recommender"] = nil
+        package.loaded["core.config"] = {
+            waf_recommender = {
+                enabled = true, min_hits = 1, window_size = 3600, min_patterns = 3,
+            },
+        }
+    end)
+
+    local function put_hit(ri, uri, ip)
+        local json = require "dkjson"
+        ngx.shared.vn_config:set("waf_recent_hits:data:" .. ri,
+            json.encode({ action = "block", uri = uri, timestamp = ngx.time(), ip = ip }))
+    end
+
+    it("filters patterns seen from fewer distinct source IPs than min_patterns", function()
+        -- /single: 2 distinct IPs (< min_patterns=3) → suppressed even though
+        -- it clears min_hits=1.
+        put_hit(1, "/single", "10.1.0.1")
+        put_hit(2, "/single", "10.1.0.2")
+        -- /multi: 3 distinct IPs (>= min_patterns) → suggested.
+        put_hit(3, "/multi", "10.2.0.1")
+        put_hit(4, "/multi", "10.2.0.2")
+        put_hit(5, "/multi", "10.2.0.3")
+
+        local rec = require "core.waf_recommender"
+        rec.analyze()
+        local items = rec.list()
+
+        local patterns = {}
+        for _, it in ipairs(items) do patterns[it.pattern] = true end
+        assert.falsy(patterns["/single"])
+        assert.truthy(patterns["/multi"])
+    end)
+end)
+
+describe("metrics index renewal (audit M-1/N-2 regressions)", function()
+    before_each(function()
+        package.loaded["core.metrics"] = nil
+        ngx.shared.metrics:flush_all()
+        ngx.shared.metrics_labeled:flush_all()
+        local m = require "core.metrics"
+        m.init()
+    end)
+
+    it("keeps a labeled series in the index when rewritten after prune window", function()
+        local metrics = require "core.metrics"
+        local json = require "dkjson"
+        metrics.incr("vn_test_counter", 1, { k = "v" })
+        -- Simulate the failure mode from b390669: the index entry aged past
+        -- the data TTL (timestamp far in the past), then the key is written
+        -- again. The renewal must survive the prune.
+        local s = ngx.shared.metrics
+        local idx = json.decode(s:get("__metrics_index"))
+        for _, entry in ipairs(idx) do
+            local key = entry:match("^(.+):%d+$")
+            if key == "vn_test_counter{k=\"v\"}" then
+                -- rewrite the entry with an ancient timestamp
+                local aged = key .. ":1"
+                s:set("__metrics_index", aged .. "\n")
+            end
+        end
+        metrics.incr("vn_test_counter", 1, { k = "v" })
+        local buf = metrics.export_prometheus()
+        assert.truthy(buf:find("vn_test_counter{k=\"v\"}", 1, true))
+    end)
+
+    it("does not age core (TTL=0) series out of the index", function()
+        local metrics = require "core.metrics"
+        metrics.incr("vn_core_metric", 1)
+        -- Core data never expires (TTL=0); its index entry must not be
+        -- pruned even when artificially aged far beyond INDEX_TTL (3600).
+        local s = ngx.shared.metrics
+        local key = "vn_core_metric"
+        s:set("__metrics_index", key .. ":1\n")
+        -- A write to ANY core metric re-parses the index; the aged entry
+        -- must survive because core series carry no expiry.
+        metrics.incr("vn_other_core", 1)
+        local raw = s:get("__metrics_index")
+        assert.truthy(raw:find("vn_core_metric:", 1, true))
+        assert.truthy(raw:find("vn_other_core:", 1, true))
+    end)
+end)

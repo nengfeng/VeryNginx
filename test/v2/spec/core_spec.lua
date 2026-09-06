@@ -93,4 +93,11 @@ describe("constant_time_compare", function()
     it("returns false for different length strings", function()
         assert.is_false(ct("short", "longer"))
     end)
+
+    -- Regression (audit H-1): the old (a+b)*(a-b) = a²-b² identity returned
+    -- TRUE for any pair with equal sum-of-squares — this input is the minimal
+    -- counterexample (equal length, same byte multiset). It must never verify.
+    it("returns false for the sum-of-squares collision pair", function()
+        assert.is_false(ct("\x03\x01", "\x01\x03"))
+    end)
 end)

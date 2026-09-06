@@ -622,4 +622,37 @@ describe("ip_reputation", function()
 
     end)
 
+    -- Regression (audit M-3 / commit 528ab67): clear_ip once crashed on a
+    -- bare `clear_score(ip)` global call (no _M. prefix, no local decl), so
+    -- the admin clear endpoint 500'd forever. It must clear the signal
+    -- slots, the score cache and the pending state in one shot.
+    describe("clear_ip() full reset", function()
+        it("clears signal slots, score, cache and pending state", function()
+            local ip = "10.9.9.9"
+            rep.record_signal(ip, "waf_block")
+            rep.record_signal(ip, "waf_challenge")
+            rep.set_pending(ip)
+            assert.not_equals(0, rep.get_score(ip))
+
+            rep.clear_ip(ip)
+
+            -- Scan BEFORE get_score(): get_score itself re-writes the score
+            -- cache key (with value 0), which is expected post-clear behavior.
+            for _, key in ipairs(ngx.shared.ip_reputation:get_keys()) do
+                assert.falsy(key:find(ip, 1, true))
+            end
+            assert.equals(0, rep.get_score(ip))
+        end)
+
+        it("re-marking after clear_ip starts a fresh score", function()
+            local ip = "10.9.9.10"
+            rep.record_signal(ip, "waf_block")
+            rep.clear_ip(ip)
+            rep.record_signal(ip, "waf_challenge")
+            -- signals: waf_challenge = 3 only — a stale waf_block (5) would
+            -- make this 8 and silently re-flag the "cleared" IP.
+            assert.equals(3, rep.get_score(ip))
+        end)
+    end)
+
 end)

@@ -105,3 +105,48 @@ describe("Scanner evidence", function()
         assert.are.equal(0, ev.sum_scanner_blocks("1.2.3.4"))
     end)
 end)
+
+-- CC evidence counting: distinct violation slots across all configured rule
+-- ids, probing slots backward from the current one. Zero coverage historically
+-- (audit M-20); it gates CC enforce readiness (§4.5 auto_ready).
+describe("count_cc_violations", function()
+    local W = 60
+
+    local function vkey(rule, ip, slot)
+        return "fl:v2:kernel:violation:" .. rule .. ":" .. ip .. ":" .. slot
+    end
+
+    before_each(function()
+        setup_ngx()
+        config.kernel_ip_blocking = { cc = { rule_ids = { "r1", "r2" } } }
+        _G.ngx.shared.frequency_limit:flush_all()
+        package.loaded["core.kernel_blocking.evidence"] = nil
+        ev = require "core.kernel_blocking.evidence"
+    end)
+
+    it("counts distinct slots across all CC rule ids, per IP", function()
+        local cur = math.floor(ngx.time() / W)
+        local s = _G.ngx.shared.frequency_limit
+        s:set(vkey("r1", "9.9.9.9", cur), true)
+        s:set(vkey("r1", "9.9.9.9", cur - 1), true)
+        s:set(vkey("r1", "9.9.9.9", cur - 2), true)
+        s:set(vkey("r2", "9.9.9.9", cur), true)      -- same slot as r1#1: not distinct
+        s:set(vkey("r1", "other-ip", cur), true)     -- different IP: not counted
+        assert.are.equal(3, ev.count_cc_violations("9.9.9.9", W, 10))
+    end)
+
+    it("breaks at slot < 0 instead of probing negative slots", function()
+        local s = _G.ngx.shared.frequency_limit
+        -- window = 2 * ngx.time() → current_slot == 0. A violation at slot 0
+        -- counts; a planted key for slot -1 must NOT (AGENTS §12.2
+        -- negative-slot guard: probe loop breaks, never reads negative slots).
+        s:set(vkey("r1", "8.8.8.8", 0), true)
+        s:set(vkey("r1", "8.8.8.8", -1), true)
+        assert.are.equal(1, ev.count_cc_violations("8.8.8.8", ngx.time() * 2, 10))
+    end)
+
+    it("returns 0 when no CC rule ids are configured", function()
+        config.kernel_ip_blocking = { cc = { rule_ids = {} } }
+        assert.are.equal(0, ev.count_cc_violations("7.7.7.7", W, 10))
+    end)
+end)
