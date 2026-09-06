@@ -152,6 +152,28 @@ def install_verynginx():
                 if f.endswith('.conf') or f.endswith('.lua'):
                     fix_prefix(os.path.join(root, f))
 
+    # Write version metadata for the dashboard: core/version.lua reads
+    # <prefix>/VERSION and <prefix>/COMMIT (this layout has core/ directly
+    # under VN_PREFIX). With git the values are exact; without it (tarball,
+    # Docker build context) fall back to the release files in the source
+    # tree — COMMIT is refreshed per release, see AGENTS.md section 13.
+    git_ver = None
+    git_commit = None
+    if os.path.isdir(os.path.join(work_path, '.git')):
+        try:
+            git_ver = os.popen('git -C "' + work_path + '" describe --tags --always 2>/dev/null').read().strip() or None
+            git_commit = os.popen('git -C "' + work_path + '" rev-parse HEAD 2>/dev/null').read().strip() or None
+        except Exception:
+            pass
+    if git_ver:
+        open(VN_PREFIX + '/VERSION', 'w').write(git_ver + '\n')
+    elif os.path.exists('./VERSION'):
+        shutil.copyfile('./VERSION', VN_PREFIX + '/VERSION')
+    if git_commit:
+        open(VN_PREFIX + '/COMMIT', 'w').write(git_commit + '\n')
+    elif os.path.exists('./COMMIT'):
+        shutil.copyfile('./COMMIT', VN_PREFIX + '/COMMIT')
+
     # Bootstrap config: create config.json from template if not exists
     config_json = VN_PREFIX + '/configs/config.json'
     config_default = VN_PREFIX + '/configs/config.default.json'
