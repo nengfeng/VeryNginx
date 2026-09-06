@@ -443,7 +443,7 @@ def test_proxy_pass():
     backend_port = _free_port()
     backend_url = f"http://127.0.0.1:{backend_port}"
     backend_thread = threading.Thread(
-        target=http.server.HTTPServer(("127.0.0.1", backend_port), _ProxyBackend).serve_forever,
+        target=http.server.HTTPServer(("", backend_port), _ProxyBackend).serve_forever,
         daemon=True,
     )
     backend_thread.start()
@@ -453,41 +453,69 @@ def test_proxy_pass():
     status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
     csrf_token = json.loads(body).get("csrf_token", "")
 
-    # Configure a backend_upstream entry
+    # Configure a backend_upstream entry and a proxy_pass rule, then verify
+    # the proxied request end to end. The proxy executes INSIDE the container,
+    # so the upstream host must be an address the container can use to reach
+    # the backend bound on the runner: try the docker0 gateway, then the
+    # compose host-gateway alias, then loopback (host-networking setups).
+    def _gateway_candidates():
+        cands = ["172.17.0.1"]
+        try:
+            out = subprocess.run(
+                ["docker", "compose", "-f", "docker-compose.yml", "exec", "-T",
+                 "verynginx", "getent", "hosts", "host.docker.internal"],
+                capture_output=True, text=True, timeout=15,
+            ).stdout
+            ip = out.split()[0] if out.split() else None
+            if ip and ip not in cands:
+                cands.insert(0, ip)
+        except Exception:
+            pass
+        cands.append("127.0.0.1")
+        return cands
+
     status, body = curl("GET", "/verynginx/config", cookies=cookies)
     cfg = json.loads(body)
-    cfg["backend_upstream"]["test_backend"] = {
-        "nodes": [{"host": "127.0.0.1", "port": backend_port}],
-        "health_check": {"enabled": True, "interval": 2},
-        "tls": {"verify": False},
-        "timeout": {"connect": 3, "read": 5, "send": 5},
-    }
-    cfg["rule"]["proxy_pass"] = [
-        {
-            "name": "integration-proxy",
-            "action": "proxy",
-            "matcher": {"URI": {"operator": "=", "value": "/verynginx/proxy-test"}},
-            "upstream": "test_backend",
+
+    last_err = "no candidate tried"
+    for host in _gateway_candidates():
+        cfg["backend_upstream"]["test_backend"] = {
+            "nodes": [{"host": host, "port": backend_port}],
+            "health_check": {"enabled": True, "interval": 2},
+            "tls": {"verify": False},
+            "timeout": {"connect": 3, "read": 5, "send": 5},
         }
-    ]
-    encoded = b64encode(json.dumps(cfg))
-    escaped = encoded.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D")
-    status, body = curl(
-        "POST", "/verynginx/config",
-        data=f"config={escaped}&csrf_token={csrf_token}",
-        cookies=cookies,
-    )
-    assert status == 200, f"Config POST failed: {status} {body[:200]}"
+        cfg["rule"]["proxy_pass"] = [
+            {
+                "name": "integration-proxy",
+                "action": "proxy",
+                "matcher": {"URI": {"operator": "=", "value": "/verynginx/proxy-test"}},
+                "upstream": "test_backend",
+            }
+        ]
+        encoded = b64encode(json.dumps(cfg))
+        escaped = encoded.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D")
+        status, body = curl(
+            "POST", "/verynginx/config",
+            data=f"config={escaped}&csrf_token={csrf_token}",
+            cookies=cookies,
+        )
+        assert status == 200, f"Config POST failed: {status} {body[:200]}"
 
-    # Small wait for hot-reload
-    time.sleep(0.5)
+        # Small wait for hot-reload
+        time.sleep(0.5)
 
-    # Hit the proxied path
-    status, body = curl("GET", "/verynginx/proxy-test")
-    assert status == 200, f"Proxy request failed: status={status}, body={body[:300]}"
+        # Hit the proxied path
+        status, body = curl("GET", "/verynginx/proxy-test")
+        if status == 200:
+            break
+        last_err = f"host={host}: status={status}, body={body[:200]}"
+    else:
+        raise AssertionError(f"Proxy request failed for every candidate host; last: {last_err}")
+
     resp = json.loads(body)
     assert resp.get("served_by") == "proxy-backend", f"Response not from backend: {resp}"
-    print(f"  [PASS] Proxy pass: served by backend on :{backend_port}")
+    print(f"  [PASS] Proxy pass: served by backend on :{backend_port} via {host}")
 
     # Verify no redirect-loop 500: send the same request 3 more times.
     for _ in range(3):

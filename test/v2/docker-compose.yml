@@ -7,6 +7,10 @@ services:
       - ../../verynginx:/opt/verynginx
       - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
       - kb-socket:/run/verynginx
+    extra_hosts:
+      # Lets the container reach services bound on the runner host
+      # (integration tests bind upstream backends on the runner).
+      - "host.docker.internal:host-gateway"
     environment:
       - TEST_MODE=1
     healthcheck:
