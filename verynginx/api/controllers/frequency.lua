@@ -83,6 +83,17 @@ local function handle_frequency_rule_save()
     if not rule.id or rule.id == "" then
         local random = require "core.random"
         rule.id = "freq_" .. tostring(ngx.time()) .. "_" .. random.hex(6)
+    else
+        -- Client-supplied ids flow into the v2 counter dict keys
+        -- ("fl:v2:count:" .. enc_id .. ":" .. enc_dim) and the
+        -- newline-delimited evidence index. A ":" shifts the key segments, a
+        -- "\n" forges index entries, an overlong id bloats keys — mirror the
+        -- WAF rule id constraint (§10.13): [A-Za-z0-9_-]{1,64}.
+        if type(rule.id) ~= "string" or #rule.id > 64 or not rule.id:match("^[%w_-]+$") then
+            ngx.status = 400
+            return json.encode({ ret = "failed",
+                message = "id must be 1-64 chars of [A-Za-z0-9_-]" })
+        end
     end
     if not config.rule then config.rule = {} end
     local rules = config.rule.frequency_limit or {}
