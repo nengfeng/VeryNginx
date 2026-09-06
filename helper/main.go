@@ -1276,7 +1276,6 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 
 	skipNFT := os.Getenv("VN_HELPER_SKIP_NFT") == "1"
 	var sb strings.Builder
-	seen := map[string]bool{}
 	type pendingEntry struct {
 		entry  setEntry
 		family string
@@ -1297,9 +1296,6 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 		if family == "ipv6" {
 			tf = "ip6"
 		}
-		key := entry.Set + ":" + family + ":" + entry.IP
-		seen[key] = true
-
 		if entry.Set == "allow" {
 			batchAllow[entry.IP] = true
 		} else if isReservedOrSpecialIP(entry.IP) || b.allowCoveredLocked(entry.IP, batchAllow) {
