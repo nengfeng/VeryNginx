@@ -17,11 +17,13 @@ const (
 	MaxRequestIDLen = 64
 	// MaxSeenRequestIDs is the per-connection replay window size.
 	MaxSeenRequestIDs = 256
-	// MinAllowPrefixV4/MinAllowPrefixV6: minimum CIDR prefix for allow-set
-	// entries. A bare 0.0.0.0/0 (or ::/0) allow would accept ALL traffic and
-	// silently disable kernel blocking (the allow set is evaluated before the
-	// drop set). Reject prefixes broader than /8 (v4) and /64 (v6); the
-	// narrowest legitimate whitelist (a whole org block) is far smaller.
+	// MinAllowPrefixV4/MinAllowPrefixV6: allow-set CIDR prefixes at or below
+	// these values are too broad and are rejected by validateAllowPrefix
+	// (inclusive boundary — see AGENTS.md §11.8b). A bare 0.0.0.0/0 (or ::/0)
+	// allow would accept ALL traffic and silently disable kernel blocking
+	// (the allow set is evaluated before the drop set). Reject prefixes
+	// /8-and-broader (v4) and /64-and-broader (v6); the narrowest legitimate
+	// whitelist (a whole org block) is far smaller.
 	MinAllowPrefixV4 = 8
 	MinAllowPrefixV6 = 64
 )
@@ -142,8 +144,11 @@ func validateTTL(ttl int) error {
 }
 
 // validateAllowPrefix rejects allow-set CIDR entries that are broad enough to
-// effectively disable kernel blocking (e.g. 0.0.0.0/0). Bare IPs (/32, /128)
-// are always permitted.
+// effectively disable kernel blocking. Per the documented contract (AGENTS.md
+// §11.8b) the boundary is inclusive: prefixes <= /8 (v4) and <= /64 (v6) are
+// rejected — an allow of 10.0.0.0/8 or 2001:db8::/64 covers entire provider
+// allocations and, being evaluated before drop, would neutralize most of the
+// blocking surface. Bare IPs (/32, /128) are always permitted.
 func validateAllowPrefix(s string) error {
 	if !strings.Contains(s, "/") {
 		return nil
@@ -153,10 +158,10 @@ func validateAllowPrefix(s string) error {
 		return fmt.Errorf("invalid_address")
 	}
 	ones, bits := ipnet.Mask.Size()
-	if bits == 32 && ones < MinAllowPrefixV4 {
+	if bits == 32 && ones <= MinAllowPrefixV4 {
 		return fmt.Errorf("allow_prefix_too_broad")
 	}
-	if bits == 128 && ones < MinAllowPrefixV6 {
+	if bits == 128 && ones <= MinAllowPrefixV6 {
 		return fmt.Errorf("allow_prefix_too_broad")
 	}
 	return nil

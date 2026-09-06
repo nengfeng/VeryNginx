@@ -22,14 +22,18 @@ func newGuardBackend() *NFTBackend {
 
 // TestAllowPrefixTooBroadRejected ensures an allow snapshot cannot contain a
 // CIDR broad enough to accept all traffic (which would silently disable
-// kernel blocking, since the allow set is evaluated before drop).
+// kernel blocking, since the allow set is evaluated before drop). The
+// boundary is inclusive per AGENTS.md §11.8b: /8 (v4) and /64 (v6) are
+// rejected too.
 func TestAllowPrefixTooBroadRejected(t *testing.T) {
 	tooBroad := []setEntry{
 		{Set: "allow", Family: "ipv4", IP: "0.0.0.0/0"},
 		{Set: "allow", Family: "ipv6", IP: "::/0"},
 		{Set: "allow", Family: "ipv4", IP: "0.0.0.0/1"},
 		{Set: "allow", Family: "ipv4", IP: "10.0.0.0/4"},
+		{Set: "allow", Family: "ipv4", IP: "10.0.0.0/8"},
 		{Set: "allow", Family: "ipv6", IP: "::/8"},
+		{Set: "allow", Family: "ipv6", IP: "2001:db8::/64"},
 	}
 	for _, e := range tooBroad {
 		err := validateBatch([]setEntry{e}, true)
@@ -39,10 +43,10 @@ func TestAllowPrefixTooBroadRejected(t *testing.T) {
 	}
 	// Sane whitelists are still accepted.
 	ok := []setEntry{
-		{Set: "allow", Family: "ipv4", IP: "10.0.0.0/8"},
+		{Set: "allow", Family: "ipv4", IP: "10.0.0.0/9"},
 		{Set: "allow", Family: "ipv4", IP: "192.168.1.0/24"},
 		{Set: "allow", Family: "ipv4", IP: "10.0.0.1"},
-		{Set: "allow", Family: "ipv6", IP: "2001:db8::/64"},
+		{Set: "allow", Family: "ipv6", IP: "2001:db8::/65"},
 		{Set: "allow", Family: "ipv6", IP: "2001:db8::1"},
 	}
 	for _, e := range ok {

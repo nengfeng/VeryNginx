@@ -127,6 +127,15 @@ describe("ip_reputation.validate_whitelist_entry (#14)", function()
         assert.is_false(rep.validate_whitelist_entry("0.0.0.0/0"))
         assert.is_true(rep.validate_whitelist_entry("10.0.0.0/32"))
     end)
+    it("enforces the inclusive /8 allow-prefix floor (mirrors Go §11.8b)", function()
+        local rep = require "core.ip_reputation"
+        -- A whole-class-A whitelist sits in front of kernel drops and would
+        -- neutralize the blocking surface; the Go helper rejects <= /8, so
+        -- config-time validation must reject it too (otherwise a persisted
+        -- /8 entry makes every replace_allow_snapshot batch fail wholesale).
+        assert.is_false(rep.validate_whitelist_entry("10.0.0.0/8"))
+        assert.is_true(rep.validate_whitelist_entry("10.0.0.0/9"))
+    end)
     it("accepts a bare IPv6", function()
         local rep = require "core.ip_reputation"
         assert.is_true(rep.validate_whitelist_entry("2001:db8::1"))

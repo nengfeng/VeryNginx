@@ -704,6 +704,12 @@ function _M.validate_whitelist_entry(entry)
         local subnet = entry:sub(1, pos - 1)
         local bits = tonumber(entry:sub(pos + 1))
         if not subnet or not bits or bits < 1 or bits > 32 then return false end
+        -- Mirror the Go helper's allow-prefix floor (§11.8b, inclusive): a
+        -- /8-and-broader whitelist is evaluated before kernel drops and would
+        -- neutralize the blocking surface for the whole range. Rejecting here
+        -- (config/import/save time) instead of at snapshot sync time also
+        -- keeps replace_allow_snapshot batches from failing wholesale.
+        if bits <= 8 then return false end
         local num = parse_ipv4(subnet)
         if not num or not ok_octets(subnet) then return false end
         -- Reject host-bits-set CIDR (e.g. 1.2.3.4/24 is ambiguous)
