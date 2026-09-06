@@ -598,29 +598,52 @@ function _M.validate_rule(rule)
             local cfg = require("core.config")
             matcher_def = cfg.matcher and cfg.matcher[matcher_def]
         end
-        if type(matcher_def) == "table" and type(matcher_def.IP) == "table" then
-            local ip_ok, ip_err = check_ip_condition(matcher_def.IP)
-            if not ip_ok then
-                return false, ip_err
+        -- Walk the matcher tree: top-level fields AND Composite (AND/OR/NOT)
+        -- sub-conditions. The previous check only inspected top-level keys, so
+        -- {Composite={operator="AND", conditions=[{IP={value="10.0.0.0/8"}}]}}
+        -- sailed through validation while matcher/ip.lua's string-equality
+        -- engine would never match it — a silently dead rule (§10.13).
+        local function validate_matcher_node(node, path)
+            if type(node) ~= "table" then
+                return true
             end
-        end
-        -- Compile-check every regex matcher value ("≈"/"!≈"). An invalid
-        -- pattern stored here used to turn each evaluated request into a 503
-        -- (compare.match's compile failure path). Reject at save time instead.
-        -- Skipped where ngx.re.compile is absent (minimal unit-test rigs).
-        if type(matcher_def) == "table"
-            and type(ngx.re) == "table" and type(ngx.re.compile) == "function" then
-            for cond_key, cond in pairs(matcher_def) do
-                if type(cond) == "table" and type(cond.operator) == "string"
-                    and (cond.operator == "≈" or cond.operator == "!≈")
-                    and type(cond.value) == "string" and cond.value ~= "" then
-                    local cok, cres = pcall(ngx.re.compile, cond.value, "isjo")
-                    if not cok or not cres then
-                        return false, "invalid regex in matcher." .. tostring(cond_key) .. ": " .. tostring(cond.value)
+            for cond_key, cond in pairs(node) do
+                if cond_key == "Composite" and type(cond) == "table" then
+                    local subs = cond.conditions
+                    if type(subs) == "table" then
+                        for i, sub in ipairs(subs) do
+                            local ok, err = validate_matcher_node(sub, path .. ".Composite[" .. i .. "]")
+                            if not ok then
+                                return false, err
+                            end
+                        end
+                    end
+                elseif type(cond) == "table" then
+                    if cond_key == "IP" then
+                        local ip_ok, ip_err = check_ip_condition(cond)
+                        if not ip_ok then
+                            return false, ip_err
+                        end
+                    end
+                    -- Compile-check every regex matcher value ("≈"/"!≈"). An
+                    -- invalid pattern stored here used to turn each evaluated
+                    -- request into a 503 (compare.match's compile failure path).
+                    -- Skipped where ngx.re.compile is absent (minimal rigs).
+                    local op = cond.operator
+                    if type(ngx.re) == "table" and type(ngx.re.compile) == "function"
+                        and (op == "≈" or op == "!≈")
+                        and type(cond.value) == "string" and cond.value ~= "" then
+                        local cok, cres = pcall(ngx.re.compile, cond.value, "isjo")
+                        if not cok or not cres then
+                            return false, "invalid regex in matcher." .. path .. "."
+                                .. tostring(cond_key) .. ": " .. tostring(cond.value)
+                        end
                     end
                 end
             end
+            return true
         end
+        return validate_matcher_node(matcher_def, "")
     end
     if rule.code ~= nil then
         if type(rule.code) ~= "number" or rule.code < 200 or rule.code > 599 then

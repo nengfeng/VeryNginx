@@ -514,4 +514,96 @@ describe("waf-rule-manager", function()
         end)
     end)
 
+    -----------------------------------------------------------------------
+    -- Composite matcher validation (audit M-6)
+    -- validate_rule must walk Composite (AND/OR/NOT) sub-conditions: a CIDR
+    -- or malformed IP nested there used to pass validation while the
+    -- string-equality IP matcher would silently never fire.
+    -----------------------------------------------------------------------
+    describe("validate_rule() Composite matcher", function()
+        local function r(matcher)
+            return {
+                name = "Composite Test",
+                category = "sqli",
+                severity = "critical",
+                action = "block",
+                matcher = matcher,
+            }
+        end
+
+        it("rejects a CIDR nested in Composite conditions", function()
+            local ok, err = waf.validate_rule(r({
+                Composite = {
+                    operator = "AND",
+                    conditions = {
+                        { URI = { operator = "=", value = "/admin" } },
+                        { IP = { operator = "=", value = "10.0.0.0/8" } },
+                    },
+                },
+            }))
+            assert.is.falsy(ok)
+            assert.matches("CIDR", err)
+        end)
+
+        it("rejects a malformed IP nested in Composite conditions", function()
+            local ok, err = waf.validate_rule(r({
+                Composite = {
+                    operator = "OR",
+                    conditions = {
+                        { IP = { operator = "=", value = "999.1.1.1" } },
+                    },
+                },
+            }))
+            assert.is.falsy(ok)
+            assert.matches("invalid IP", err)
+        end)
+
+        it("rejects a CIDR nested in a NOT composite", function()
+            local ok, err = waf.validate_rule(r({
+                Composite = {
+                    operator = "NOT",
+                    conditions = {
+                        { IP = { operator = "=", value = "192.168.0.0/16" } },
+                    },
+                },
+            }))
+            assert.is.falsy(ok)
+            assert.matches("CIDR", err)
+        end)
+
+        it("accepts a Composite with valid sub-conditions", function()
+            local ok, err = waf.validate_rule(r({
+                Composite = {
+                    operator = "AND",
+                    conditions = {
+                        { URI = { operator = "=", value = "/admin" } },
+                        { IP = { operator = "=", value = "10.1.2.3" } },
+                    },
+                },
+            }))
+            assert.is.truthy(ok, "Expected valid composite to pass, got: " .. tostring(err))
+        end)
+
+        it("accepts a nested Composite containing another Composite", function()
+            local ok, err = waf.validate_rule(r({
+                Composite = {
+                    operator = "OR",
+                    conditions = {
+                        {
+                            Composite = {
+                                operator = "AND",
+                                conditions = {
+                                    { URI = { operator = "=", value = "/a" } },
+                                    { IP = { operator = "=", value = "10.1.2.3" } },
+                                },
+                            },
+                        },
+                        { URI = { operator = "=", value = "/b" } },
+                    },
+                },
+            }))
+            assert.is.truthy(ok, "Expected nested composite to pass, got: " .. tostring(err))
+        end)
+    end)
+
 end)
