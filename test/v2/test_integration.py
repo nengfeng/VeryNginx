@@ -465,6 +465,7 @@ def test_proxy_pass():
     cfg["rule"]["proxy_pass"] = [
         {
             "name": "integration-proxy",
+            "action": "proxy",
             "matcher": {"URI": {"operator": "=", "value": "/verynginx/proxy-test"}},
             "upstream": "test_backend",
         }
