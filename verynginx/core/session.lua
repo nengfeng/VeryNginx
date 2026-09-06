@@ -9,7 +9,6 @@ local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 -- Bitwise ops via bit_compat: LuaJIT bit on OpenResty, pure-Lua shim under
 -- stock Lua (CI unit tests) — see core/bit_compat.lua.
 local bit = require "core.bit_compat"
-local bor, bxor = bit.bor, bit.bxor
 
 -- ---------------------------------------------------------------------------
 -- Session revocation blacklist via shared dict
@@ -53,9 +52,9 @@ function _M.revoke(token)
     end
     -- A silent set failure would leave the "revoked" token fully usable while
     -- the caller believes revocation succeeded — surface the failure.
-    local ok, err = shared:set(revoke_key(token), true, ttl)
-    if not ok then
-        return false, "revoke failed: " .. tostring(err)
+    local set_ok, set_err = shared:set(revoke_key(token), true, ttl)
+    if not set_ok then
+        return false, "revoke failed: " .. tostring(set_err)
     end
     return true
 end

@@ -288,7 +288,7 @@ local function enforce_promote_scanner(ip, block_hits, flagged)
 	end)
 	if not ok_ds or not ds_ok then
 		ngx.log(ngx.ERR, "kernel_blocking: desired.set_desired failed for scanner ", ip,
-			": ", tostring(ds_err or err_ds))
+			": ", tostring(ds_err or ds_ok))
 		-- Compensate: roll back executor add
 		pcall(function() exec.delete("scanner_drop", family, ip) end)
 		return false
@@ -558,7 +558,7 @@ local function enforce_promote_cc(ip, violation_count)
 	end)
 	if not ok_ds or not ds_ok then
 		ngx.log(ngx.ERR, "kernel_blocking: desired.set_desired failed for CC ", ip,
-			": ", tostring(ds_err or err_ds))
+			": ", tostring(ds_err or ds_ok))
 		-- Compensate: roll back executor add
 		pcall(function() exec.delete("cc_drop", family, ip) end)
 		return false

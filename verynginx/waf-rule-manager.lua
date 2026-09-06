@@ -643,7 +643,10 @@ function _M.validate_rule(rule)
             end
             return true
         end
-        return validate_matcher_node(matcher_def, "")
+        local matcher_ok, matcher_err = validate_matcher_node(matcher_def, "")
+        if not matcher_ok then
+            return false, matcher_err
+        end
     end
     if rule.code ~= nil then
         if type(rule.code) ~= "number" or rule.code < 200 or rule.code > 599 then

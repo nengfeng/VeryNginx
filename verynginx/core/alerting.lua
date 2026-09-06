@@ -395,7 +395,7 @@ function _M.evaluate()
     end
 
     -- 2) False positive rate detection (challenge pass rate drop)
-    for rule_id, stat in pairs(current_hits) do
+    for rule_id, _ in pairs(current_hits) do
         -- Use per-day challenge count as both threshold gate and denominator,
         -- matching waf_stats.lua:422. A lifetime denominator made pass_rate
         -- decay toward 0% over time (FP alert almost always fires).

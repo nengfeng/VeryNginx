@@ -1030,7 +1030,7 @@ function _M.restore()
             -- Index TTL must be at least pending_ttl so it outlives the last
             -- pending entry; otherwise a 1-second TTL (from pending_max_rem=1)
             -- expires the index before the next per-IP-key refresh revives it.
-            s:set("ip_rep:pending_index", json.encode(pending_list), math.max(pending_max_rem, ttl))
+            s:set("ip_rep:pending_index", json.encode(pending_list), math.max(pending_max_rem, cfg_val("pending_ttl") or 0))
             s:incr("ip_rep:pi_version", 1, 0, 0)
         end
     end
