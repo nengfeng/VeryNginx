@@ -1548,8 +1548,13 @@ func (b *NFTBackend) FlushOwned(scope string) (map[string]interface{}, error) {
 			fmt.Fprintf(&sb, "flush set ip verynginx %s\n", s)
 			fmt.Fprintf(&sb, "flush set ip6 verynginx %s\n", s)
 		}
-		if _, err := b.execNFT(sb.String()); err != nil {
-			return nil, err
+		// Honor the mock-backend test env exactly like the "auto" branch
+		// below — without this, unit tests without nft installed (any
+		// non-Linux CI/dev box) fail here even with VN_HELPER_SKIP_NFT=1.
+		if os.Getenv("VN_HELPER_SKIP_NFT") != "1" {
+			if _, err := b.execNFT(sb.String()); err != nil {
+				return nil, err
+			}
 		}
 		count = len(b.owned)
 		b.state = map[string]map[string]map[string]*setEntry{}
