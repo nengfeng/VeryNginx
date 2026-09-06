@@ -93,21 +93,26 @@ function _M.apply(ctx, phase)
             ngx.log(ngx.ERR, "rule_engine: proxy action missing host data")
             return _no_backend_error()
         end
-        ngx.ctx.vn_proxy_target = {
-            host       = action.data.host,
-            port       = action.data.port or "80",
-            scheme     = action.data.scheme or "http",
-            proxy_host = action.data.proxy_host or action.data.host,
-            sni        = action.data.sni or action.data.host or "",
-            websocket  = action.data.websocket == true,
-        }
-        -- Set nginx variables for @vn_proxy location (proxy_set_header, etc.)
+        -- Set nginx variables for @vn_proxy location (proxy_set_header +
+        -- the balancer). Variables survive ngx.exec unconditionally; do NOT
+        -- carry the target in ngx.ctx — the internal redirect may re-run
+        -- phases with fresh ctx state, losing it (peer would fall back to
+        -- the upstream's 0.0.0.1 dummy server).
         pcall(function()
-            ngx.var.vn_proxy_host   = action.data.proxy_host or action.data.host
+            ngx.var.vn_proxy_host   = action.data.host
             ngx.var.vn_proxy_port   = action.data.port or "80"
             ngx.var.vn_proxy_scheme = action.data.scheme or "http"
             ngx.var.vn_proxy_sni    = action.data.sni or action.data.host or ""
         end)
+        -- Break the exec loop: if we already redirected once, the @vn_proxy
+        -- iteration must fall through to its content phase (which proxies),
+        -- not ngx.exec again — nginx aborts with 'internal redirection
+        -- cycle' after 10 uri_changes otherwise.
+        local in_exec_ok, in_exec = pcall(function() return ngx.var.vn_in_exec end)
+        if in_exec_ok and in_exec == "1" then
+            return
+        end
+        pcall(function() ngx.var.vn_in_exec = "1" end)
         return ngx.exec("@vn_proxy")
     elseif action.type == RESULT.STATIC then
         if not static_file or not static_file.serve then

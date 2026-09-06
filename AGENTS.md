@@ -1033,6 +1033,7 @@ test/
 
 - **判定仓库 blob 字节必须用 `git cat-file blob`**：`git show HEAD:file` 在 Windows（core.autocrlf=true）会经 smudge 转换输出，把 LF blob 显示成 CRLF——H-4（SRI 白屏）的两次误判都栽在这里。实测结论：dashboard 五个 JS 的 blob 均为纯 LF、与 SRI pin 逐字节吻合；工作区的 CRLF 是 .gitattributes 生效前的陈旧检出，`rm + git checkout --` 强制重建即可。**"工作区字节" ≠ "仓库字节" ≠ "部署字节"**，三者只有 install.py 复制链路会一一对应，其余都要先辨明。
 - **修复提交自带回归**：528ab67（clear_ip 调 clear_score）引入裸全局调用必崩——修复者最容易在新调用的命名上翻车。
+- **`ngx.exec` 防环与代理目标必须用请求变量，不能依赖 `ngx.ctx`**（2026-09-06 运行时实证）：容器运行时中 `ngx.exec` 触发的内部重定向会带着**全新状态**重跑 rewrite/access（`ngx.ctx._vn_redirected` 守卫不生效、`ngx.ctx.vn_proxy_target` 丢失）——proxy_pass 规则反复重匹配导致 nginx 以 `internal redirection cycle` 500。现行契约：`$vn_in_exec` 变量在 exec 前置位（in_server_block.conf 声明），`rule_engine.apply` 的 PROXY 分支见该标记直接 return；代理目标经 `$vn_proxy_host/port/scheme/sni` 变量传给 `@vn_proxy` 的 balancer（balancer 只读变量）。任何"跨 exec 传递状态"的新代码一律走请求变量。
 - **挑战类动作的完整契约**见 §7.2；**supply-chain**：install.py 校验 OpenResty tarball sha256（`openresty_pkg_sha256`，`VN_SKIP_CHECKSUM=1` 逃生）、Dockerfile 校验 Go tarball（go.dev 官方 JSON 的值）、tools/upgrade.sh 固定 `VN_PINNED_COMMIT`（每次发布更新；`VN_UPGRADE_COMMIT` 可覆盖）。upgrade.sh 曾整文件 CRLF（Linux 下 `` 会让 bash 逐行报错），已归一化 LF。
 - **metrics 索引 TTL 契约**（b390669 + 后续修复）：labeled（TTL=3600）索引条目随数据 TTL prune；**core（TTL=0）永不 prune**（数据永不过期却按 INDEX_TTL 剪索引，会让低频 core 系列周期性从 /metrics 消失，直到下次写入）。`emit_dict` 对 data 已消失的索引条目跳过导出，core 索引常驻是有界且安全的。
 

@@ -149,19 +149,14 @@ end
 -- balancer_by_lua phase: read pre-selected target and set peer
 -- ---------------------------------------------------------------------------
 function _M.run()
-    local target = ngx.ctx.vn_proxy_target
-    if not target then
-        return
-    end
-
-    local host = target.host
-    local port = tonumber(target.port)
+    -- The target travels in REQUEST VARIABLES set by rule_engine before
+    -- ngx.exec — variables survive internal redirects unconditionally,
+    -- unlike ngx.ctx (observed lost across exec in the container runtime).
+    local host = ngx.var.vn_proxy_host
     if not host or host == "" then
         return
     end
-    if not port then
-        port = 80
-    end
+    local port = tonumber(ngx.var.vn_proxy_port) or 80
 
     local ngx_balancer = require "ngx.balancer"
     local ok, err = ngx_balancer.set_current_peer(host, port)
