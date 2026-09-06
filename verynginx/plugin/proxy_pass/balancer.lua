@@ -68,7 +68,7 @@ function _M.select_healthy(upstream, upstream_name)
     local healthy_nodes = {}
     local circuit_open_nodes = {}
     for _, node in ipairs(upstream.nodes) do
-        if health_check.is_healthy(upstream, node) then
+        if health_check.is_healthy(upstream_name, node) then
             if _M._is_circuit_open(upstream_name, node) then
                 table.insert(circuit_open_nodes, node)
             else

@@ -50,7 +50,10 @@ function _M.handle_error(plugin, ctx, phase, err)
     if critical and ctx then
         ctx.set_action(ctx, "block", {
             code = plugin.fail_code or 503,
-            response = "Service Unavailable"
+            -- Inline TABLE: a literal string is looked up as a template NAME
+            -- by response.resolve, so the crash's identity never reached the
+            -- client (every critical-plugin failure read the same masked body).
+            response = { body = "Service Unavailable (" .. tostring(plugin.name) .. ")" },
         })
     end
 end
