@@ -65,10 +65,31 @@ end
 -- Cross-cutting middleware + handler execution for a matched route.
 -- ---------------------------------------------------------------------------
 local function run_route(route, ctx, method, path)
+    -- Security headers on EVERY response (§10.4) — including the early
+    -- rejects below (401/429/409), which previously returned before the
+    -- header block and leaked header-less error responses.
+    ngx.header.content_type = "application/json; charset=utf-8"
+    ngx.header["X-Content-Type-Options"] = "nosniff"
+    ngx.header["X-Frame-Options"] = "SAMEORIGIN"
+    ngx.header["X-XSS-Protection"] = "1; mode=block"
+    ngx.header["Content-Security-Policy"] = CSP_HEADER
+
+    -- Mutating requests are audited on every outcome, including early
+    -- rejects: unauthorized access attempts, rate-limit trips and idempotency
+    -- conflicts are exactly the events an audit trail must capture.
+    local function audit_reject(status)
+        if method == "GET" or method == "HEAD" or method == "OPTIONS" then
+            return
+        end
+        local user = ctx and ctx.get_data and ctx.get_data(ctx, "auth:user") or "-"
+        audit.log(method, path .. " status=" .. tostring(status), user)
+    end
+
     -- Auth check
     if route.auth_required then
         if not auth.middleware(ctx) then
             ngx.status = 401
+            audit_reject(401)
             ctx.set_action(ctx, "response", {
                 code = 401,
                 response = {
@@ -93,6 +114,7 @@ local function run_route(route, ctx, method, path)
         end
         if not rate_limit.allow(rl_key, limit, window) then
             ngx.status = 429
+            audit_reject(429)
             ctx.set_action(ctx, "response", {
                 code = 429,
                 response = {
@@ -111,6 +133,7 @@ local function run_route(route, ctx, method, path)
         local rl_key = "api:" .. method .. ":" .. route.path .. ":" .. client_ip
         if not rate_limit.allow(rl_key, 20, 60) then
             ngx.status = 429
+            audit_reject(429)
             ctx.set_action(ctx, "response", {
                 code = 429,
                 response = {
@@ -138,6 +161,7 @@ local function run_route(route, ctx, method, path)
                 local claimed = shared:add(cache_key, "processing", 3600)
                 if not claimed then
                     ngx.status = 409
+                    audit_reject(409)
                     ctx.set_action(ctx, "response", {
                         code = 409,
                         response = {
@@ -153,14 +177,8 @@ local function run_route(route, ctx, method, path)
     end
 
     -- Reset status so a previous route's 404 doesn't leak through
+    -- (security headers were already set at the top of run_route)
     ngx.status = 200
-
-    -- Security headers
-    ngx.header.content_type = "application/json; charset=utf-8"
-    ngx.header["X-Content-Type-Options"] = "nosniff"
-    ngx.header["X-Frame-Options"] = "SAMEORIGIN"
-    ngx.header["X-XSS-Protection"] = "1; mode=block"
-    ngx.header["Content-Security-Policy"] = CSP_HEADER
 
     local ok, response = pcall(route.handler)
     if not ok then
