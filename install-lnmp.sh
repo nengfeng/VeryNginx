@@ -606,8 +606,16 @@ patch_nginx_conf() {
   # verynginx/nginx_conf/in_http_block.conf (note: metrics_labeled was also
   # missing from this installer block entirely).
   inject_after_http() {
-    sed -i "/^http[ \t]*{/a\\
-$1" "$NGINX_CONF"
+    # Append $1 (single- or multi-line) verbatim after the `http {` line, one
+    # line per line. sed's `r` (read-file) keeps multi-line text intact; the
+    # old `a\` form mis-parsed each extra line as a new sed command, and the
+    # single-line line-continuation convention turned `# ...` multi-line
+    # blocks into one line where the `#` commented out the whole directive.
+    local vn_tf
+    vn_tf=$(mktemp "${TMPDIR:-/tmp}/vn_httpinj.XXXXXX")
+    printf '%s\n' "$1" > "$vn_tf"
+    sed -i "/^http[ \t]*{/r $vn_tf" "$NGINX_CONF"
+    rm -f "$vn_tf"
   }
   local dentry dname dsize added_dicts=""
   for dentry in \
@@ -630,30 +638,34 @@ $1" "$NGINX_CONF"
     inject_after_http "    lua_code_cache on;"
     info "Added lua_code_cache ✓"
   fi
-  if ! directive_file 'init_by_lua_block'; then
-    inject_after_http "\
-    # VeryNginx v2 - main process initialization\
-    init_by_lua_block {\
-        require(\"core.init\").init()\
-    }"
-    info "Added init_by_lua_block ✓"
-  fi
-  if ! directive_file 'init_worker_by_lua_block'; then
-    inject_after_http "\
-    # VeryNginx v2 - worker-level timers\
-    init_worker_by_lua_block {\
-        require(\"core.init\").init_worker()\
-    }"
-    info "Added init_worker_by_lua_block ✓"
-  fi
+   # Self-heal: an earlier (buggy) installer build injected init_by_lua_block
+   # as a one-line `# ...` comment (the `#` commented out the directive).
+   # directive_file would treat that line as "present" and skip the re-inject,
+   # leaving a broken install. Delete that exact broken line first so a plain
+   # re-run of this fixed script repairs the install non-destructively.
+   sed -i '/^[[:space:]]*#.*init_by_lua_block[[:space:]]*{.*require(/d' "$NGINX_CONF"
+   if ! directive_file 'init_by_lua_block'; then
+     inject_after_http "    # VeryNginx v2 - main process initialization
+     init_by_lua_block {
+         require(\"core.init\").init()
+     }"
+     info "Added init_by_lua_block ✓"
+   fi
+   sed -i '/^[[:space:]]*#.*init_worker_by_lua_block[[:space:]]*{.*require(/d' "$NGINX_CONF"
+   if ! directive_file 'init_worker_by_lua_block'; then
+     inject_after_http "    # VeryNginx v2 - worker-level timers
+     init_worker_by_lua_block {
+         require(\"core.init\").init_worker()
+     }"
+     info "Added init_worker_by_lua_block ✓"
+   fi
 
   # WebSocket connection upgrade (map must live at http level)
   if ! directive_file 'map[[:space:]]+\$http_upgrade'; then
-    inject_after_http "\\
-    # VeryNginx v2 - WebSocket connection upgrade\\
-    map \\$http_upgrade \\$connection_upgrade {\\
-        default upgrade;\\
-        '' close;\\
+    inject_after_http "    # VeryNginx v2 - WebSocket connection upgrade
+    map \$http_upgrade \$connection_upgrade {
+        default upgrade;
+        '' close;
     }"
     info "Added WebSocket upgrade map ✓"
   fi
