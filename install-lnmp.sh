@@ -570,7 +570,11 @@ patch_nginx_conf() {
           }
           if (out != "") out = out ";"
         }
-        $0 = pre " \"" out vn ";;\" # vn2-managed"
+        # The original directive terminating semicolon lived AFTER the closing
+        # quote, so it was chopped off with the pre extraction. Re-emit it,
+        # else nginx treats the NEXT line as a continuation of this directive
+        # (invalid number of arguments in lua_package_path).
+        $0 = pre " \"" out vn ";;\"; # vn2-managed"
         done = 1
       }
       { print }
