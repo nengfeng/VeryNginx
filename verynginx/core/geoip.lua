@@ -90,6 +90,18 @@ function _M.reload()
     local ok, result = pcall(maxminddb.new, maxminddb, path)
     if not ok then
         geoip_mark_failed()
+        -- ffi.load failures inside pcall are often masked as a plain string
+        -- ("libmaxminddb.so: cannot open shared object file ..."). Detect
+        -- the missing-library case and surface the actionable install hint
+        -- instead of the raw FFI error, which the operator has no way to
+        -- act on from the dashboard alone.
+        if tostring(result):find("libmaxminddb", 1, true) then
+            return false, "libmaxminddb not loadable — install it "
+                .. "(Debian/Ubuntu: apt install libmaxminddb-dev; "
+                .. "RHEL/Fedora: dnf install libmaxminddb-devel; "
+                .. "or set LD_LIBRARY_PATH to the directory containing the .so) "
+                .. "then restart nginx"
+        end
         return false, "reload failed: " .. tostring(result)
     end
     if not result then

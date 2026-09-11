@@ -20,6 +20,19 @@ local ffi_str = ffi.string
 local ffi_cast = ffi.cast
 local ffi_gc = ffi.gc
 
+-- ffi.load('libmaxminddb') resolves via the process dlopen path:
+-- LD_LIBRARY_PATH, then /etc/ld.so.cache, then the standard dirs. A
+-- versioned libmaxminddb.so.0 registered via ldconfig is NOT enough —
+-- the literal soname 'libmaxminddb.so' must be findable. Try the known
+-- version-suffixed candidates first so an env without the unversioned
+-- symlink still works.
+local MAXMINDDB_CANDIDATES = {
+  'libmaxminddb',          -- unversioned dev symlink (preferred)
+  'libmaxminddb.so.0',    -- Debian/Ubuntu versioned soname
+  'libmaxminddb.so.1',    -- some distros bump the ABI
+  'maxminddb',            -- FreeBSD-style short name
+}
+
 local tab_isarray
 local tab_nkeys
 do
@@ -223,7 +236,31 @@ function _M.init(profiles)
   for profile, location in pairs(profiles) do
 
     _D[profile] = {}
-    _D[profile].maxm = ffi.load('libmaxminddb')
+    local ok_lib, lib_or_err = pcall(ffi.load, ffi, MAXMINDDB_CANDIDATES[1])
+    if not ok_lib then
+      -- Try the versioned candidates before giving up; the unversioned
+      -- 'libmaxminddb' name may not exist in a minimal env even when the
+      -- versioned .so.0 is present in ld.so.cache.
+      local tried = { MAXMINDDB_CANDIDATES[1] .. " (unversioned not found)" }
+      for i = 2, #MAXMINDDB_CANDIDATES do
+        local ok_try, lib = pcall(ffi.load, ffi, MAXMINDDB_CANDIDATES[i])
+        if ok_try and lib then
+          ok_lib, lib_or_err = true, lib
+          break
+        end
+        tried[#tried + 1] = MAXMINDDB_CANDIDATES[i]
+      end
+    else
+      local lib = lib_or_err
+      lib_or_err = lib
+    end
+    if not ok_lib then
+      local hint = table.concat(tried, ", ")
+      return nil, "libmaxminddb.so not loadable via ffi (tried: " .. hint
+        .. "). Install libmaxminddb (Debian/Ubuntu: apt install libmaxminddb-dev; "
+        .. "packaging: dnf install libmaxminddb-devel) or set LD_LIBRARY_PATH to the directory containing it."
+    end
+    _D[profile].maxm = lib_or_err
     _D[profile].mmdb = ffi_new('MMDB_s')
     local maxmind_ready = _D[profile].maxm.MMDB_open(location, 0, _D[profile].mmdb)
 
