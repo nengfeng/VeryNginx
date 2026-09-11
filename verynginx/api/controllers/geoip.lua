@@ -20,7 +20,7 @@ local function handle_geoip_lookup()
         -- failing to reload) from "IP absent from DB" — otherwise the
         -- operator gets "IP not found" when the real cause is a missing /
         -- unreadable .mmdb file, and has no hint to look at /geoip/status.
-        local available, avail_err = geoip_mod.is_available()
+        local available, avail_err = geoip_mod.is_available(true)
         if not available then
             local cfg = require "core.config"
             local gc = cfg.geoip or {}

@@ -108,14 +108,17 @@ function _M.get_geodb_path()
 end
 
 -- Check if GeoIP is available (DB loaded in memory)
+-- @param force boolean|nil: bypass the 60s negative cache and force a real
+--   reload attempt. The lookup controller passes force=true on its first
+--   probe so the operator gets the real cause, not "retry in 49s".
 -- @return ok boolean, err string|nil: reason when ok==false
-function _M.is_available()
+function _M.is_available(force)
     if _db ~= nil then
         return true
     end
     -- Negative cache: if a recent (re)load failed, skip the per-request file
-    -- open + WARN storm until the cooldown elapses.
-    if geoip_cooldown_active() then
+    -- open + WARN storm until the cooldown elapses — unless force.
+    if not force and geoip_cooldown_active() then
         return false, "cooldown active after recent load failure (retrying in "
             .. tostring(math.max(0, math.floor(GEOIP_RETRY_INTERVAL - (ngx.now() - _db_failed_at)))) .. "s)"
     end
