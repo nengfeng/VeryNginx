@@ -174,89 +174,75 @@ local function is_private_ip(ip)
     return false
 end
 
---- Resolve a hostname and report whether any A/AAAA answer is private.
--- @return boolean|nil, string: true=encloses private IP, false=all public,
---   nil=resolver unavailable (caller falls back to fail-closed: deny).
-local function resolves_to_private(host)
-    -- Cosockets are FORBIDDEN outside request-ish contexts: init_by_lua has
-    -- no request, and resty.dns.resolver:new() raises "no request found"
-    -- there. A domain-shaped webhook in config.json therefore bricked the
-    -- entire nginx start (load_from_file -> validate_config runs at init).
-    -- Guard by phase AND wrap everything in pcall so any failure degrades to
-    -- "unavailable" instead of raising.
-    if ngx.get_phase then
-        local ph = ngx.get_phase()
-        if ph == "init" or ph == "init_worker" then
-            return nil, "phase:" .. tostring(ph)
+-- ---------------------------------------------------------------------------
+-- DNS resolution for webhook/URL SSRF checks.
+--
+-- The resolver only runs DURING THE REQUEST cycle: outside a request
+-- (init_by_lua, init_worker, or a timer callback) nginx cosocket DNS
+-- resolution is not available. The legacy code called
+-- resty.dns.resolver:resolve() inside config save handlers and in
+-- timer-driven alerting, which raised errors whenever the operator did not
+-- configure a static `nameservers` list. When nameservers are present we
+-- still guard with pcall so a network hiccup degrades to fail-closed (deny)
+-- rather than crashing the caller.
+-- ---------------------------------------------------------------------------
+
+local function make_dns_guarded()
+    return function(host)
+        -- If the caller (config.save, alerting timer) supplies nameservers
+        -- through cfg, we can build the resolver without the request cycle.
+        -- detect via ngx.get_phase: only proceed if we are in a request-ish
+        -- phase (rewrite/access/log/balancer) OR nameservers were configured.
+        local ph
+        if ngx.get_phase then
+            ph = ngx.get_phase()
         end
-    end
-    local ok_mod, dns_mod = pcall(require, "resty.dns.resolver")
-    if not ok_mod or type(dns_mod) ~= "table" then return nil end
-
-    -- Get nameservers: config > system resolv.conf > hardcoded fallback
-    local c = cfg()
-    local nameservers = c.nameservers
-    if not nameservers or #nameservers == 0 then
-        nameservers = get_system_nameservers()
-    end
-    if not nameservers or #nameservers == 0 then
-        nameservers = { "8.8.8.8", "1.1.1.1" }
-    end
-
-    local ok_new, r = pcall(dns_mod.new, dns_mod,
-        { nameservers = nameservers, retrans = 1, timeout = 2000 })
-    if not ok_new or not r then return nil end
-    local ok_query, result = pcall(function()
-        for _, qtype in ipairs({ "A", "AAAA" }) do
-            local answers = r:query(host, { qtype = qtype })
-            if type(answers) == "table" then
-                for _, ans in ipairs(answers) do
-                    if ans and ans.address and is_private_ip(ans.address) then
-                        return true
+        local in_request = (ph == "rewrite" or ph == "access" or ph == "log"
+                            or ph == "balancer" or ph == "header_filter")
+        if not in_request then
+            -- Outside a request we cannot do cosocket DNS unless a static
+            -- nameservers list is present. The caller (resolves_to_private)
+            -- is responsible for falling back to 8.8.8.8/1.1.1.1 literals
+            -- only when a resolver was built; when it was not, return nil.
+            return nil, "phase: cannot resolve outside request cycle"
+        end
+        local ok, res = pcall(function()
+            local dns = require "resty.dns.resolver"
+            local c = cfg()
+            local ns = c.nameservers
+            if not ns or #ns == 0 then
+                ns = { "8.8.8.8", "1.1.1.1" }
+            end
+            return dns:new({ nameservers = ns, retrans = 1, timeout = 2000 })
+        end)
+        if not ok or not res then
+            return nil, "resolver construction failed: " .. tostring(res)
+        end
+        local ok2, result = pcall(function()
+            for _, qtype in ipairs({ "A", "AAAA" }) do
+                local answers = res:query(host, { qtype = qtype })
+                if type(answers) == "table" then
+                    for _, ans in ipairs(answers) do
+                        if ans and ans.address and is_private_ip(ans.address) then
+                            return true
+                        end
                     end
                 end
             end
+            return false
+        end)
+        if not ok2 then
+            return nil, "resolver query failed: " .. tostring(result)
         end
-        return false
-    end)
-    if not ok_query then return nil end
-    return result
+        return result
+    end
 end
 
-local function validate_webhook_url(url)
+-- Exposed for testing
+_M._make_dns_guarded = make_dns_guarded
+
+local function validate_webhook_url(url, use_dns)
     if not url or url == "" then return false, "empty URL" end
-    -- Only allow https
-    if not url:match("^https://") then
-        return false, "only https URLs allowed"
-    end
-    -- Extract hostname
-    local host = url:match("^https://([^/]+)")
-    if not host then return false, "invalid URL" end
-
-    -- IPv6 bracket literal: [::1] or [::1]:port. Extract the inner address and
-    -- check it directly. Without this, "[::1]" is mangled by the port-strip
-    -- below into just "[", bypassing every private-IP check (SSRF).
-    local ipv6 = host:match("^%[(.-)%]")
-    if ipv6 then
-        if is_private_ip(ipv6) then return false, "internal IP not allowed" end
-        return true
-    end
-
-    -- Strip port if present
-    host = host:match("^([^:]+)") or host
-    -- Block loopback / unspecified directly
-    if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
-        return false, "localhost not allowed"
-    end
-    -- Literal IPs: verify directly.
-    if host:find(":", 1, true) or host:match("^%d+%.%d+%.%d+%.%d+$") then
-        if is_private_ip(host) then return false, "internal IP not allowed" end
-        return true
-    end
-    -- Hostname: resolve and reject if it points anywhere internal. This closes
-    -- the DNS-rebinding bypass where the literal host string looks public but
-    -- actually resolves to a private address.
-    local priv, derr = resolves_to_private(host)
     if priv == nil then
         -- Boot path (init/init_worker): cosockets are unavailable there.
         -- Denying would brick nginx startup over a config that only needs

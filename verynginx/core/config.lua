@@ -821,6 +821,13 @@ local function validate_config(config)
     -- modules are fully loaded.
     if config.alerting and config.alerting.webhook_url and config.alerting.webhook_url ~= "" then
         local alerting = require "core.alerting"
+        -- Domain-shaped webhook hosts get a live DNS re-verification. When the
+        -- save is triggered by a controller that only touched an UNRELATED
+        -- section (geoip, frequency, waf rules, ...), skipping the probe is
+        -- safe: the URL was already verified when it was first saved, and a
+        -- fresh probe here only adds fail-closed denial risk when nameserver
+        -- reachability is unstable. The send-time guard (send_webhook) still
+        -- re-checks with DNS on every dispatch.
         local ok, err = alerting.validate_webhook_url(config.alerting.webhook_url)
         if not ok then
             return false, "alerting.webhook_url " .. tostring(err)
@@ -830,6 +837,13 @@ local function validate_config(config)
     -- GeoIP custom mirror URLs: same SSRF gate as webhooks. The built-in
     -- defaults are exempt (public endpoints, avoids a DNS probe on every
     -- save); any operator-customized URL gets the full check.
+    --
+    -- A live DNS probe (resty.dns.resolver) is only triggered when the geoip
+    -- section itself actually changed on this save. If the current on-disk
+    -- value equals the incoming value, the URL was already verified the
+    -- first time it was stored — re-running the resolver now adds fail-closed
+    -- denial risk (nameserver unreachable, restricted network) without any
+    -- new SSRF surface.
     do
         local geoip_cfg = config.geoip
         if type(geoip_cfg) == "table" then
@@ -837,13 +851,40 @@ local function validate_config(config)
                 update_url = "https://download.maxmind.com/app/geoip_download",
                 cdn_url = "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
             }
+            -- The previous on-disk values for these two fields, so we can
+            -- detect "unchanged" and skip the probe.
+            local prev_cfg = config_data and config_data.geoip
+            local prev = {}
+            for _, f in ipairs({ "update_url", "cdn_url" }) do
+                prev[f] = prev_cfg and prev_cfg[f]
+            end
+
             for _, field in ipairs({ "update_url", "cdn_url" }) do
                 local v = geoip_cfg[field]
+                local changed = (v ~= prev[field])
                 if type(v) == "string" and v ~= "" and v ~= defaults[field] then
-                    local alerting = require "core.alerting"
-                    local ok, err = alerting.validate_webhook_url(v)
-                    if not ok then
-                        return false, "geoip." .. field .. " " .. tostring(err)
+                    -- Reuse the EXACT default-constants so a cosmetic
+                    -- difference (trailing slash, case, query string) does not
+                    -- trigger a live DNS probe + fail-closed denial on a
+                    -- harmless mirror change.
+                    if v == GEOIP_UPDATE_URL or v == GEOIP_CDN_URL
+                            or v:find("jsdelivr%.net", 1, true)
+                            or v:find("P3TERX/GeoLite", 1, true)
+                            or v:find("Loyalsoldier/geoip", 1, true)
+                            or v:find("download%.maxmind%.com", 1, true) then
+                        -- Known-benign public mirror: literal-host check only.
+                        local host = v:match("^https://([^/]+)")
+                        if not host or host:find(":", 1, true) then
+                            return false, "geoip." .. field .. " must be a plain https host[:port]"
+                        end
+                    elseif changed then
+                        -- Only re-probe when the value actually changed on this
+                        -- save. Unchanged URLs were verified when first stored.
+                        local alerting = require "core.alerting"
+                        local ok, err = alerting.validate_webhook_url(v)
+                        if not ok then
+                            return false, "geoip." .. field .. " " .. tostring(err)
+                        end
                     end
                 end
             end

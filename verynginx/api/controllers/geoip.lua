@@ -46,6 +46,11 @@ local function handle_geoip_config_set()
     end
     local c = require "core.config"
     local cfg_data = c.report and json.decode(c.report()) or {}
+    -- Merge the submitted section over the current full config so unset keys
+    -- keep their current values. save() validates the WHOLE config; a partial
+    -- body validated on its own rejects valid current values (e.g. a domain
+    -- alerting.webhook_url needs DNS re-verification at save time, which a
+    -- geoip-only save must not re-trigger).
     cfg_data.geoip = new_config
     local cfg_mod = require "core.config"
     local saved, save_err = cfg_mod.save(cfg_data)
