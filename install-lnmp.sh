@@ -1329,9 +1329,64 @@ check_geoip_deps() {
 
   if [ "$has_lib" = "false" ]; then
     warn "libmaxminddb not found — GeoIP database lookups will fail"
-    echo "  Install it: apt-get install -y libmaxminddb0 libmaxminddb-dev"
-    echo "  or: yum install -y libmaxminddb libmaxminddb-devel"
-    all_ok=false
+    # Auto-install via the system package manager when root. GeoIP is an
+    # optional-but-common feature; the C library is ~1MB and the two
+    # packages (runtime + dev symlink) are safe on any distro that ships
+    # them. Skip the install entirely when not root or when no package
+    # manager is detected — the warn above still tells the operator.
+    if [ "$(id -u)" = "0" ]; then
+      local pkg_mgr=""
+      if command -v apt-get &>/dev/null; then
+        pkg_mgr="apt"
+      elif command -v dnf &>/dev/null; then
+        pkg_mgr="dnf"
+      elif command -v yum &>/dev/null; then
+        pkg_mgr="yum"
+      elif command -v apk &>/dev/null; then
+        pkg_mgr="apk"
+      fi
+      if [ -n "$pkg_mgr" ]; then
+        info "Auto-installing libmaxminddb via ${pkg_mgr} ..."
+        case "$pkg_mgr" in
+          apt)
+            # runtime lib (libmaxminddb0) + dev package (libmaxminddb-dev,
+            # which provides the unversioned .so FFI loads by name).
+            DEBIAN_FRONTEND=noninteractive apt-get install -y libmaxminddb0 libmaxminddb-dev 2>/dev/null \
+              && info "libmaxminddb installed via apt ✓" \
+              || { warn "apt-get install failed — GeoIP will remain unavailable until installed manually"
+                   all_ok=false; }
+            ;;
+          dnf|yum)
+            "$pkg_mgr" install -y libmaxminddb libmaxminddb-devel 2>/dev/null \
+              && info "libmaxminddb installed via ${pkg_mgr} ✓" \
+              || { warn "${pkg_mgr} install failed — GeoIP will remain unavailable until installed manually"
+                   all_ok=false; }
+            ;;
+          apk)
+            apk add --no-cache libmaxminddb 2>/dev/null \
+              && info "libmaxminddb installed via apk ✓" \
+              || { warn "apk add failed — GeoIP will remain unavailable until installed manually"
+                   all_ok=false; }
+            ;;
+        esac
+        # Refresh the ld cache so the new .so is discoverable by dlopen.
+        if command -v ldconfig &>/dev/null; then
+          ldconfig 2>/dev/null || true
+        fi
+        # Re-probe after install.
+        if command -v ldconfig &>/dev/null && ldconfig -p 2>/dev/null | grep -q 'libmaxminddb\.so'; then
+          has_lib=true
+          info "libmaxminddb available after auto-install ✓"
+        fi
+      else
+        echo "  Install it: apt-get install -y libmaxminddb0 libmaxminddb-dev"
+        echo "  or: yum install -y libmaxminddb libmaxminddb-devel"
+      fi
+    else
+      echo "  Install it (as root): apt-get install -y libmaxminddb0 libmaxminddb-dev"
+      echo "  or: yum install -y libmaxminddb libmaxminddb-devel"
+    fi
+    [ "$has_lib" = "false" ] && all_ok=false
   fi
 
   # 3. Check table.isarray / table.nkeys (bundled, should always be available)
