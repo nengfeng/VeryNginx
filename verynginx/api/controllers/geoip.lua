@@ -16,6 +16,18 @@ local function handle_geoip_lookup()
     local geoip_mod = require "core.geoip"
     local result = geoip_mod.lookup(ip)
     if not result then
+        -- Distinguish "DB not loaded" (lookup silently returns nil after
+        -- failing to reload) from "IP absent from DB" — otherwise the
+        -- operator gets "IP not found" when the real cause is a missing /
+        -- unreadable .mmdb file, and has no hint to look at /geoip/status.
+        local available, avail_err = geoip_mod.is_available()
+        if not available then
+            return json.encode({
+                ret = "failed",
+                message = "GeoIP database not available (" .. tostring(avail_err or "unknown")
+                    .. ") — run POST /geoip/update to download it, or check geodb_path"
+            })
+        end
         return json.encode({ ret = "success", data = nil, message = "IP not found in GeoIP database" })
     end
     return json.encode({ ret = "success", data = result })
@@ -58,11 +70,16 @@ local function handle_geoip_config_set()
         ngx.status = 500
         return json.encode({ ret = "failed", message = "config save failed: " .. tostring(save_err or "unknown") })
     end
-    -- Reload GeoIP DB with new config (path may have changed)
+    -- Reload the GeoIP DB with the NEW config (path / license may have
+    -- changed). config.save() above already hot-reloaded config into
+    -- config_data, so geoip_mod.reload() — which falls back to
+    -- config.geoip.geodb_path when _geodb_path is nil/empty — picks up the
+    -- new path without us having to thread it through init() (init(nil)
+    -- would overwrite _geodb_path with nil and break every future lookup
+    -- until the next restart, even though the DB was downloaded fine).
     pcall(function()
         local geoip_mod = require "core.geoip"
-        local new_path = (new_config.geodb_path ~= "" and new_config.geodb_path) or nil
-        geoip_mod.init(new_path)
+        geoip_mod.reload()
     end)
     return json.encode({ ret = "success", message = "GeoIP config updated" })
 end
