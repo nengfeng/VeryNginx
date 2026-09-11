@@ -87,6 +87,24 @@ function _M.reload()
         geoip_mark_failed()
         return false, "no geodb_path configured"
     end
+    -- Cheap sanity check: the MaxMind DB binary format starts with the
+    -- magic bytes 0xB1 0x08 0x04 0x13 0x73 0x0A. A file that fails this
+    -- check is almost certainly an HTTP error page or HTML saved under a
+    -- .mmdb name (a misconfigured CDN / mirror path). Catching it here
+    -- produces a much more actionable message than the FFI layer's
+    -- "MMDB_BAD_NODE_TYPE_ERROR".
+    do
+        local f = io.open(path, "rb")
+        if f then
+            local first = f:read(1)
+            f:close()
+            if first and first:byte() ~= 0xB1 then
+                geoip_mark_failed()
+                return false, "not a valid MaxMind DB file (missing 0xB1 magic byte at "
+                    .. path .. " — likely an HTTP error page; re-download via POST /geoip/update)"
+            end
+        end
+    end
     local ok, result = pcall(maxminddb.new, maxminddb, path)
     if not ok then
         geoip_mark_failed()

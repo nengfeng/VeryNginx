@@ -265,7 +265,24 @@ function _M.init(profiles)
       mmdb_strerror(_D[profile].maxm, maxmind_ready), "MMDB lib version:", ffi_str(_D[profile].maxm.MMDB_lib_version()))
 
     if maxmind_ready ~= MMDB_SUCCESS then
-      return nil, mmdb_strerror(_D[profile].maxm, maxmind_ready)
+      -- MMDB_open failures swallow the strerror by returning the int code;
+      -- surface it here so callers can distinguish "file not found" from
+      -- "corrupt / not-a-mmdb" from "I/O error".
+      local msg = mmdb_strerror(_D[profile].maxm, maxmind_ready)
+      -- Translate common codes to actionable hints.
+      local hints = {
+        [1]  = " (MMDB_INVALID_ARGUMENT — bad path or null)",
+        [3]  = " (MMDB_NODE_TYPE_ERROR — node type mismatch, likely corrupt file)",
+        [4]  = " (MMDB_BAD_NODE_TYPE_ERROR — bad node type)",
+        [5]  = " (MMDB_DUPLICATE_RECORD_ERROR — duplicate record)",
+        [6]  = " (MMDB_INVALID_LOOKUP_TYPE — unsupported lookup type)",
+        [7]  = " (MMDB_NODE_TYPE_ERROR / corrupt MMDB structure — the file is likely not a valid MaxMind DB)",
+      }
+      local hint = hints[maxmind_ready] or ""
+      if maxmind_ready == 4 then
+        hint = " (MMDB_BAD_NODE_TYPE_ERROR — file is not a valid MaxMind DB)"
+      end
+      return nil, msg .. hint .. " at " .. location
     end
 
     -- Set up garbage collection for each profile
