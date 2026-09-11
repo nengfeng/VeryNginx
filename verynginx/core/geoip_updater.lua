@@ -199,6 +199,16 @@ function _M.check_update(force)
     if not ucfg.auto_update then return false, "auto_update disabled" end
     if not is_update_due(ucfg.interval_hours, force) then return false, "not due yet" end
 
+    -- Auto-detect fallback: an empty geodb_path (operator never set it in the
+    -- dashboard) has nowhere to land the download. Derive the same
+    -- prefix/geoip/GeoLite2-City.mmdb that core/init.lua uses at startup,
+    -- so POST /geoip/update still works out of the box.
+    if not ucfg.geodb_path or ucfg.geodb_path == "" then
+        local prefix = debug.getinfo(1, "S").source:match("^@(.+)/core/") or "/opt/verynginx"
+        ucfg.geodb_path = prefix .. "/geoip/GeoLite2-City.mmdb"
+        ngx.log(ngx.WARN, "geoip_updater: geodb_path empty, auto-detecting ", ucfg.geodb_path)
+    end
+
     -- Update last check time
     local shared = ngx.shared[SHARED_DICT]
     if shared then dict_guard.set(shared, "geoip.check", LAST_CHECK_KEY, ngx.time()) end

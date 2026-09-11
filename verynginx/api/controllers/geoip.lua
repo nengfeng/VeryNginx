@@ -22,10 +22,14 @@ local function handle_geoip_lookup()
         -- unreadable .mmdb file, and has no hint to look at /geoip/status.
         local available, avail_err = geoip_mod.is_available()
         if not available then
+            local cfg = require "core.config"
+            local gc = cfg.geoip or {}
+            local eff_path = (geoip_mod.get_geodb_path and geoip_mod.get_geodb_path())
+                or gc.geodb_path or ""
             return json.encode({
                 ret = "failed",
-                message = "GeoIP database not available (" .. tostring(avail_err or "unknown")
-                    .. ") — run POST /geoip/update to download it, or check geodb_path"
+                message = "GeoIP database not available: " .. tostring(avail_err or "unknown")
+                    .. " | effective geodb_path = " .. (eff_path == "" and "(empty — auto-detect or updater)" or eff_path)
             })
         end
         return json.encode({ ret = "success", data = nil, message = "IP not found in GeoIP database" })

@@ -108,6 +108,7 @@ function _M.get_geodb_path()
 end
 
 -- Check if GeoIP is available (DB loaded in memory)
+-- @return ok boolean, err string|nil: reason when ok==false
 function _M.is_available()
     if _db ~= nil then
         return true
@@ -115,7 +116,8 @@ function _M.is_available()
     -- Negative cache: if a recent (re)load failed, skip the per-request file
     -- open + WARN storm until the cooldown elapses.
     if geoip_cooldown_active() then
-        return false
+        return false, "cooldown active after recent load failure (retrying in "
+            .. tostring(math.max(0, math.floor(GEOIP_RETRY_INTERVAL - (ngx.now() - _db_failed_at)))) .. "s)"
     end
     -- Try reload if DB file was downloaded after startup
     local path = (_geodb_path and _geodb_path ~= "" and _geodb_path)
@@ -124,13 +126,13 @@ function _M.is_available()
     if path == "" then
         ngx.log(ngx.WARN, "geoip: is_available() — no geodb_path configured")
         geoip_mark_failed()
-        return false
+        return false, "no geodb_path configured (set geoip.geodb_path or run the updater)"
     end
     local f = io.open(path, "rb")
     if not f then
         ngx.log(ngx.WARN, "geoip: is_available() — DB file not found at ", path)
         geoip_mark_failed()
-        return false
+        return false, "DB file not found at " .. path
     end
     f:close()
     ngx.log(ngx.WARN, "geoip: is_available() — DB file found, attempting reload from ", path)
@@ -140,7 +142,7 @@ function _M.is_available()
         return true
     end
     ngx.log(ngx.WARN, "geoip: is_available() — reload failed: ", tostring(err))
-    return false
+    return false, "reload failed from " .. path .. ": " .. tostring(err)
 end
 
 --- Lookup GeoIP data for an IP address.
