@@ -237,11 +237,11 @@ function _M.init(profiles)
 
     _D[profile] = {}
     local ok_lib, lib_or_err = pcall(ffi.load, ffi, MAXMINDDB_CANDIDATES[1])
+    local tried = { MAXMINDDB_CANDIDATES[1] .. " (unversioned not found)" }
     if not ok_lib then
       -- Try the versioned candidates before giving up; the unversioned
       -- 'libmaxminddb' name may not exist in a minimal env even when the
       -- versioned .so.0 is present in ld.so.cache.
-      local tried = { MAXMINDDB_CANDIDATES[1] .. " (unversioned not found)" }
       for i = 2, #MAXMINDDB_CANDIDATES do
         local ok_try, lib = pcall(ffi.load, ffi, MAXMINDDB_CANDIDATES[i])
         if ok_try and lib then
@@ -250,9 +250,6 @@ function _M.init(profiles)
         end
         tried[#tried + 1] = MAXMINDDB_CANDIDATES[i]
       end
-    else
-      local lib = lib_or_err
-      lib_or_err = lib
     end
     if not ok_lib then
       local hint = table.concat(tried, ", ")
