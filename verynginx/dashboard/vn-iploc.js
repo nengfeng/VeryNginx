@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vniploc'] = function createvniplocModule(shared) {
-        const { ctx, view, api, isValidIpLiteral, showToast, showConfirm } = shared;
+        const { ctx, view, api, isValidIpLiteral, showToast } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -153,14 +153,10 @@
     const geoipUpdating = ref(false);
     async function triggerGeoIPUpdate() {
       if (geoipUpdating.value) return;
-      if (!await showConfirm({
-        title: '更新 GeoIP 数据库',
-        message: '立即从数据源下载并替换 GeoIP 数据库？现有 .mmdb 将被覆盖。',
-        type: 'danger',
-        requireInput: true,
-        inputLabel: '请输入 "UPDATE" 确认',
-        inputExpected: 'UPDATE',
-      })) return;
+      // No confirmation gate: the update is non-destructive by design — the
+      // candidate file is openability-probed before it can replace the live
+      // DB, and a failed download rolls back. A typed "UPDATE" dialog only
+      // added friction (and the .mmdb is re-downloadable anyway).
       geoipUpdating.value = true;
       try {
         const d = await api('POST', '/verynginx/geoip/update');
