@@ -23,11 +23,11 @@ function _M.init()
     local geoip = require "core.geoip"
     local geoip_cfg = config.geoip or {}
     if not geoip_cfg.geodb_path or geoip_cfg.geodb_path == "" then
-        -- Auto-detect: derive VN_PREFIX from this module's path
-        -- module path is @/VN_PREFIX/core/init.lua
-        local prefix = debug.getinfo(1, "S").source:match("^@(.+)/core/")
-            or "/opt/verynginx"
-        geoip_cfg.geodb_path = prefix .. "/geoip/GeoLite2-City.mmdb"
+        -- Auto-detect: use MODULE_ROOT (resolved at config load time) to
+        -- derive the default DB location, instead of stack-frame matching
+        -- (debug.getinfo) which is fragile when called from a different
+        -- module's context.
+        geoip_cfg.geodb_path = config.resolve_path() .. "geoip/GeoLite2-City.mmdb"
     end
     geoip.init(geoip_cfg.geodb_path)
 

@@ -71,11 +71,46 @@ local function geoip_mark_ok()
     _db_failed_at = 0
 end
 
+-- Validate MMDB file.
+--
+-- A MaxMind DB binary has NO header magic — the file starts directly with
+-- the binary search tree. Per the MaxMind-DB spec, the ONLY format marker is
+-- the sequence "\xAB\xCD\xEFMaxMind.com" in the metadata section near the END
+-- of the file. The last occurrence of that marker must be followed by
+-- "MaxMind". This check catches HTML/JSON/CDN error pages saved under a
+-- .mmdb name.
+--
+-- Exported as _M.validate_mmdb for reuse by the updater (before it replaces
+-- the live DB with a downloaded candidate).
+function _M.validate_mmdb(path)
+    local f = io.open(path, "rb")
+    if not f then return false, "cannot open file" end
+    local size = f:seek("end")
+    if size < 1024 then
+        f:close()
+        return false, "file too small (" .. size .. " bytes)"
+    end
+    local scan_size = math.min(size, 128 * 1024)
+    f:seek("set", size - scan_size)
+    local tail = f:read(scan_size)
+    f:close()
+    if not tail then return false, "cannot read file tail" end
+    local idx
+    repeat
+        local start = (idx and idx + 1) or 1
+        idx = tail:find("\xAB\xCD\xEF", start, true)
+    until idx == nil
+    if not idx then
+        return false, "invalid MMDB (no \\xAB\\xCD\\xEF marker in the final 128KiB — not a MaxMind DB)"
+    end
+    return true
+end
+
 -- Initialize GeoIP database
 function _M.init(geodb_path)
-    local mm0, mm0_err = get_maxminddb()
-    if not mm0 then
-        return false, "lua-resty-maxminddb module not loadable: " .. tostring(mm0_err)
+    local mm, mm_err = get_maxminddb()
+    if not mm then
+        return false, "lua-resty-maxminddb module not loadable: " .. tostring(mm_err)
     end
     _geodb_path = geodb_path
     -- Ensure parent directory exists
@@ -98,11 +133,6 @@ function _M.init(geodb_path)
             end
         end
     end)
-    local mm, mm_err = get_maxminddb()
-    if not mm then
-        return false, "failed to load GeoIP DB: maxminddb module not loadable: "
-            .. tostring(mm_err)
-    end
     local ok, result, new_err = pcall(mm.new, mm, _geodb_path)
     if not ok then
         return false, "failed to load GeoIP DB: " .. tostring(result)
@@ -129,35 +159,21 @@ function _M.reload()
         geoip_mark_failed()
         return false, "no geodb_path configured"
     end
-    -- Cheap sanity check: a MaxMind DB binary has NO header magic — the file
-    -- starts directly with the binary search tree. The only format marker is
-    -- the tail sequence "\xAB\xCD\xEFMaxMind.com" in the metadata section
-    -- (per the MaxMind-DB spec). A file that lacks this marker near its
-    -- end is an HTTP error page / HTML saved under a .mmdb name. Catching it
-    -- here gives an actionable message instead of the FFI layer's opaque
-    -- "maxminddb:new returned nil".
-    do
-        local f = io.open(path, "rb")
-        if f then
-            local size = f:seek("end")
-            if size then
-                local scan = math.min(size, 4096)
-                f:seek("set", size - scan)
-                local tail = f:read(scan)
-                f:close()
-                if tail and not tail:find("\xAB\xCD\xEF", 1, true) then
-                    geoip_mark_failed()
-                    return false, "not a valid MaxMind DB file (no \\xAB\\xCD\\xEF marker in tail of "
-                        .. path .. " — likely an HTTP error page; re-download via POST /geoip/update)"
-                end
-            end
-        end
+    -- Cheap sanity check: use the shared validate_mmdb (same logic as the
+    -- updater pre-download gate) to catch HTML/JSON error pages saved under
+    -- a .mmdb name. The tail-marker check alone is not sufficient to catch
+    -- every unloadable format (v2ray builds, etc.) — the actual FFI open
+    -- below is the authority; this just gives a clear early error message.
+    local valid, valid_err = _M.validate_mmdb(path)
+    if not valid then
+        geoip_mark_failed()
+        return false, valid_err .. " — re-download via POST /geoip/update"
     end
     -- pcall(maxminddb.new, ...) returns (true, nil, <reason>) when the
     -- wrapper's init fails: the third value carries MMDB_strerror + hint +
     -- path. Discarding it reduced every open failure to "returned nil",
     -- which told the operator nothing.
-    local ok, result, new_err = pcall(maxminddb.new, maxminddb, path)
+    local ok, result, new_err = pcall(mm.new, mm, path)
     if not ok then
         geoip_mark_failed()
         -- ffi.load failures inside pcall are often masked as a plain string

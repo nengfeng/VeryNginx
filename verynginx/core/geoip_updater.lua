@@ -97,42 +97,12 @@ local MIRRORS = {
     "https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb",
 }
 
--- Validate MMDB file.
---
--- A MaxMind DB binary has NO header magic — the file starts directly with
--- the binary search tree. Per the MaxMind-DB spec, the ONLY format marker is
--- the sequence "\xAB\xCD\xEFMaxMind.com" in the metadata section, located
--- near the END of the file ("the last occurrence of this string marks the
--- end of the data section"). So the meaningful check is the tail marker: it
--- catches HTML/JSON/CDN error pages saved under a .mmdb name. (A file with
--- the marker but a non-Standard tree — e.g. a v2ray-format build — still
--- fails at MMDB_open; validate_mmdb only gates on the marker, the actual
--- open is what enforces format compatibility.)
+-- Validate MMDB file (tail-marker check shared with geoip.reload()).
+-- The actual MMDB_open (probe_mmdb_openable) is the authority for format
+-- compatibility; this catches HTML/JSON/CDN error pages saved under a
+-- .mmdb name. Single source of truth: core/geoip.lua _M.validate_mmdb.
 local function validate_mmdb(path)
-    local f = io.open(path, "rb")
-    if not f then return false, "cannot open file" end
-    local size = f:seek("end")
-    if size < 1024 then
-        f:close()
-        return false, "file too small (" .. size .. " bytes)"
-    end
-    -- Tail marker: last \xAB\xCD\xEF within the final 128KiB (the max
-    -- metadata section size per spec) must be followed by "MaxMind".
-    local scan_size = math.min(size, 128 * 1024)
-    f:seek("set", size - scan_size)
-    local tail = f:read(scan_size)
-    f:close()
-    if not tail then return false, "cannot read file tail" end
-    local idx
-    repeat
-        local start = (idx and idx + 1) or 1
-        idx = tail:find("\xAB\xCD\xEF", start, true)
-    until idx == nil
-    -- `idx` now holds the LAST occurrence (or nil if absent).
-    if not idx then
-        return false, "invalid MMDB (no \\xAB\\xCD\\xEF marker in the final 128KiB — not a MaxMind DB)"
-    end
-    return true
+    return geoip.validate_mmdb(path)
 end
 
 -- Download file from URL (resty.http only — curl fallback removed to prevent command injection)
@@ -311,11 +281,13 @@ function _M.check_update(force)
 
     -- Auto-detect fallback: an empty geodb_path (operator never set it in the
     -- dashboard) has nowhere to land the download. Derive the same
-    -- prefix/geoip/GeoLite2-City.mmdb that core/init.lua uses at startup,
-    -- so POST /geoip/update still works out of the box.
+    -- prefix/geoip/GeoLite2-City.mmdb that core/init.lua uses at startup.
+    -- Use config.resolve_path() (MODULE_ROOT, stable at load time) instead of
+    -- debug.getinfo stack-frame matching, which gives the wrong result when
+    -- this function is called from another module's context.
     if not ucfg.geodb_path or ucfg.geodb_path == "" then
-        local prefix = debug.getinfo(1, "S").source:match("^@(.+)/core/") or "/opt/verynginx"
-        ucfg.geodb_path = prefix .. "/geoip/GeoLite2-City.mmdb"
+        local prefix = config.resolve_path()
+        ucfg.geodb_path = prefix .. "geoip/GeoLite2-City.mmdb"
         ngx.log(ngx.WARN, "geoip_updater: geodb_path empty, auto-detecting ", ucfg.geodb_path)
     end
 
