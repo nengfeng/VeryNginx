@@ -274,6 +274,8 @@ Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enfor
 
 面板 IP 查询的富化模块：ip-api.com 免费端点（45 req/min、仅 http、无 key），解析出 IP 类型（机房/代理/住宅/移动）、ISP/AS、rDNS、区域/时区。缓存键 `ipq:<ip>`（24h）+ 负缓存 `ipq:err:<ip>`（60s，防配额打爆）；保留/内网地址（v4 私网/CGNAT/回环 + v6 ULA/链路本地/::ffff: 映射）**本地判定不外发**；查询入口先过格式检查（缓存 key 注入防线），控制器侧再过 `helpers.is_valid_ip`（§2.4）。面板分两级渲染：本地 MaxMind 结果即时显示，quality 块异步填充、失败降级为灰字。`use_cdn`/镜像选择与本模块无关。
 
+**可选富化源**（geoip 配置，面板密码框）：`abuseipdb_key` → 滥用置信分/举报数/Tor 标记（失败仅降级不失败，WARN 5 分钟限频）；`ipinfo_token` → ip-api 失败（限速/明文 HTTP 被禁）时的 **HTTPS 回退提供方**（免费档无类型标记，ip_type=unknown）。缓存条目带 keys 指纹——**增删 key 自动失效旧缓存**（否则配了 key 后 24h 内仍是无风险分的旧结果）。
+
 ---
 
 ## 6. 配置系统
