@@ -10,11 +10,37 @@ local dict_guard = require "core.dict_guard"
 
 -- Load maxminddb module lazily (may not be installed)
 local maxminddb
+local maxminddb_require_err
 do
     local ok, mod = pcall(require, "resty.maxminddb")
     if ok then
         maxminddb = mod
+    else
+        -- Never swallow this: the module is plain Lua shipped with the tree,
+        -- so a failure here means "module not found" (broken deploy), a cdef
+        -- conflict, or a syntax error — each needs a DIFFERENT remedy, and
+        -- caching the nil forever turned every lookup into an opaque
+        -- "maxminddb not installed".
+        maxminddb_require_err = tostring(mod)
+        ngx.log(ngx.ERR, "geoip: loading resty.maxminddb failed: ", maxminddb_require_err)
     end
+end
+
+--- Fetch the resty.maxminddb module, retrying the require when the
+--- module-load failed earlier (e.g. before a fix was deployed). The module
+--- is plain Lua and always present in a deployed tree, so a failure is
+--- environmental and re-probing is cheap.
+local function get_maxminddb()
+    if maxminddb then return maxminddb end
+    local ok, mod = pcall(require, "resty.maxminddb")
+    if ok then
+        maxminddb = mod
+        maxminddb_require_err = nil
+        return mod
+    end
+    maxminddb_require_err = tostring(mod)
+    ngx.log(ngx.ERR, "geoip: loading resty.maxminddb failed: ", maxminddb_require_err)
+    return nil, maxminddb_require_err
 end
 
 local _db = nil
@@ -41,8 +67,9 @@ end
 
 -- Initialize GeoIP database
 function _M.init(geodb_path)
-    if not maxminddb then
-        return false, "lua-resty-maxminddb not installed"
+    local mm0, mm0_err = get_maxminddb()
+    if not mm0 then
+        return false, "lua-resty-maxminddb module not loadable: " .. tostring(mm0_err)
     end
     _geodb_path = geodb_path
     -- Ensure parent directory exists
@@ -65,12 +92,18 @@ function _M.init(geodb_path)
             end
         end
     end)
-    local ok, result = pcall(maxminddb.new, maxminddb, _geodb_path)
+    local mm, mm_err = get_maxminddb()
+    if not mm then
+        return false, "failed to load GeoIP DB: maxminddb module not loadable: "
+            .. tostring(mm_err)
+    end
+    local ok, result, new_err = pcall(mm.new, mm, _geodb_path)
     if not ok then
         return false, "failed to load GeoIP DB: " .. tostring(result)
     end
     if not result then
-        return false, "failed to load GeoIP DB: maxminddb:new returned nil"
+        return false, "failed to load GeoIP DB: maxminddb open failed: "
+            .. tostring(new_err or "unknown reason")
     end
     _db = result
     ngx.log(ngx.DEBUG, "geoip: loaded DB from ", _geodb_path)
@@ -79,7 +112,10 @@ end
 
 -- Reload GeoIP database (after auto-update)
 function _M.reload()
-    if not maxminddb then return false, "maxminddb not installed" end
+    local mm, mm_err = get_maxminddb()
+    if not mm then
+        return false, "maxminddb module not loadable: " .. tostring(mm_err)
+    end
     local path = (_geodb_path and _geodb_path ~= "" and _geodb_path)
         or (config.geoip and config.geoip.geodb_path and config.geoip.geodb_path ~= "" and config.geoip.geodb_path)
         or ""
