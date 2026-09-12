@@ -16,6 +16,51 @@ local LOCK_KEY = "geoip_update_lock"
 local ETAG_KEY = "geoip_remote_etag"
 local LAST_CHECK_KEY = "geoip_last_check"
 local LAST_UPDATE_KEY = "geoip_last_update"
+local LAST_SOURCE_KEY = "geoip_last_source"
+
+-- Probe <path> with libmaxminddb directly (MMDB_open + MMDB_strerror).
+-- validate_mmdb's tail marker cannot tell a file libmaxminddb can actually
+-- parse from a v2ray-format build that passes the marker but fails
+-- MMDB_open — and the probe must run BEFORE the download replaces the live
+-- database.
+-- @return true (openable) | false, err (rejected) | nil (cannot probe here:
+--   ffi or the library is unavailable; the reload path remains the authority)
+local function probe_mmdb_openable(path)
+    local ok, verdict, err = pcall(function()
+        local ffi = require "ffi"
+        local mmmod = require "resty.maxminddb"
+        if not mmmod.MAXMINDDB_CANDIDATES or not mmmod.mmdb_strerror then
+            return nil
+        end
+        local lib
+        for _, name in ipairs(mmmod.MAXMINDDB_CANDIDATES) do
+            local okl, l = pcall(ffi.load, name)
+            if okl and l then
+                lib = l
+                break
+            end
+        end
+        if not lib then
+            return nil
+        end
+        local mmdb = ffi.new("MMDB_s")
+        local rc = lib.MMDB_open(path, 0, mmdb)
+        if rc == 0 then
+            lib.MMDB_close(mmdb)
+            return true
+        end
+        return false, mmmod.mmdb_strerror(lib, rc)
+    end)
+    if not ok then
+        -- A probe crash (cdef mismatch etc.) must not fail the update; the
+        -- reload path stays the authority.
+        ngx.log(ngx.WARN, "geoip: mmdb probe unavailable: ", tostring(verdict))
+        return nil
+    end
+    if verdict == true then return true end
+    if verdict == false then return false, err end
+    return nil
+end
 
 -- Ensure a directory exists, creating all parent directories as needed
 -- Uses lfs.mkdir (Lua-native) for reliability in nginx worker context
@@ -329,25 +374,56 @@ function _M.check_update(force)
                 goto next_mirror
             end
 
-            -- Atomic replace
+            -- Openability gate: reject files the local libmaxminddb cannot
+            -- open BEFORE they replace the live DB (the tail-marker check
+            -- passes for v2ray-format builds that MMDB_open then rejects).
+            local gate_ok, gate_err = probe_mmdb_openable(tmp_path)
+            if gate_ok == false then
+                os.remove(tmp_path)
+                last_err = "mirror " .. i .. " rejected by libmaxminddb: " .. tostring(gate_err)
+                ngx.log(ngx.WARN, "geoip: ", last_err)
+                goto next_mirror
+            end
+
+            -- Atomic replace with rollback: keep the previous DB around so a
+            -- reload failure does not leave an unloadable database installed
+            -- while the update still reports success (that exact sequence is
+            -- how an installed machine ended up with a DB that could not
+            -- open at all).
+            local prev_path = geodb_path .. ".prev"
+            os.remove(prev_path)
+            local had_prev = os.rename(geodb_path, prev_path)
             local rename_ok, rename_err = os.rename(tmp_path, geodb_path)
             if not rename_ok then
                 os.remove(tmp_path)
+                if had_prev then os.rename(prev_path, geodb_path) end
                 last_err = "rename failed: " .. tostring(rename_err)
                 ngx.log(ngx.WARN, "geoip: ", last_err)
                 goto next_mirror
             end
 
-            -- Reload GeoIP DB
+            -- Reload GeoIP DB; on failure roll back to the previous file and
+            -- report the update as FAILED (it used to report success with an
+            -- unloadable DB installed).
             local reload_ok, reload_err = geoip.reload()
             if not reload_ok then
-                ngx.log(ngx.WARN, "geoip: DB replaced but reload failed: ", reload_err)
+                os.remove(geodb_path)
+                if had_prev then
+                    os.rename(prev_path, geodb_path)
+                    pcall(function() geoip.reload() end)
+                end
+                last_err = "mirror " .. i .. " replaced DB but reload failed (rolled back): "
+                    .. tostring(reload_err)
+                ngx.log(ngx.WARN, "geoip: ", last_err)
+                goto next_mirror
             end
+            os.remove(prev_path)
 
             -- Update tracking
             if shared then
                 dict_guard.set(shared, "geoip.update", ETAG_KEY, remote_etag or "")
                 dict_guard.set(shared, "geoip.update", LAST_UPDATE_KEY, ngx.time())
+                dict_guard.set(shared, "geoip.update", LAST_SOURCE_KEY, url)
             end
 
             audit.log("geoip_auto_updated", "url=" .. url, "-")
@@ -391,6 +467,7 @@ function _M.get_status()
         geodb_path = ucfg.geodb_path,
         last_check = tonumber(shared:get(LAST_CHECK_KEY) or 0),
         last_update = tonumber(shared:get(LAST_UPDATE_KEY) or 0),
+        last_source = shared:get(LAST_SOURCE_KEY) or "",
         remote_etag = shared:get(ETAG_KEY) or "",
     }
     -- Merge with DB file info (path, available, size, mtime)

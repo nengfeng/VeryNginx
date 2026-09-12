@@ -111,7 +111,11 @@ function _M.reload()
             end
         end
     end
-    local ok, result = pcall(maxminddb.new, maxminddb, path)
+    -- pcall(maxminddb.new, ...) returns (true, nil, <reason>) when the
+    -- wrapper's init fails: the third value carries MMDB_strerror + hint +
+    -- path. Discarding it reduced every open failure to "returned nil",
+    -- which told the operator nothing.
+    local ok, result, new_err = pcall(maxminddb.new, maxminddb, path)
     if not ok then
         geoip_mark_failed()
         -- ffi.load failures inside pcall are often masked as a plain string
@@ -130,7 +134,7 @@ function _M.reload()
     end
     if not result then
         geoip_mark_failed()
-        return false, "reload failed: maxminddb:new returned nil"
+        return false, "maxminddb open failed: " .. tostring(new_err or "unknown reason")
     end
     _db = result
     _geodb_path = path

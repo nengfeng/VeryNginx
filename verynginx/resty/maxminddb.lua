@@ -32,6 +32,9 @@ local MAXMINDDB_CANDIDATES = {
   'libmaxminddb.so.1',    -- some distros bump the ABI
   'maxminddb',            -- FreeBSD-style short name
 }
+-- Exported so the updater can probe candidate files with the same FFI
+-- library (MMDB_open + MMDB_strerror) BEFORE replacing the live database.
+_M.MAXMINDDB_CANDIDATES = MAXMINDDB_CANDIDATES
 
 local tab_isarray
 local tab_nkeys
@@ -220,6 +223,8 @@ local initted = false
 local function mmdb_strerror(lib, rc)
   return ffi_str(lib.MMDB_strerror(rc))
 end
+
+_M.mmdb_strerror = mmdb_strerror
 
 local function gai_strerror(lib, rc)
   return ffi_str(lib.gai_strerror(rc))
