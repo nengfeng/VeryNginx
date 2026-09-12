@@ -1326,7 +1326,7 @@
               <label style="font-size:11px;color:#6b7280">IP 地址</label>
               <input v-model="geoipLookupIP" placeholder="8.8.8.8" style="width:150px" @keyup.enter="lookupGeoIP" title="输入 IP 地址查询其地理位置信息（国家/城市/ASN），用于验证 GeoIP 配置是否生效">
             </div>
-            <button class="primary small" @click="lookupGeoIP">查询</button>
+            <button class="primary" @click="lookupGeoIP">查询</button>
           </div>
           <div v-if="geoipLookupResult" style="margin-top:12px;font-size:13px">
             <div v-if="geoipLookupResult.data">
