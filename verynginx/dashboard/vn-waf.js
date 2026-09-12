@@ -838,7 +838,7 @@
         type: 'danger',
         requireInput: true,
         inputLabel: `请输入版本号 ${version} 确认`,
-        inputExpected: version,
+        inputExpected: String(version),
       })) return;
       wafRolling.value = true;
       try {

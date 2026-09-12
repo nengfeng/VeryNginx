@@ -288,7 +288,10 @@
       confirmModal.type = o.type || 'danger';
       confirmModal.requireInput = !!o.requireInput;
       confirmModal.inputLabel = o.inputLabel || '';
-      confirmModal.inputExpected = o.inputExpected || '';
+      // String()-normalize: callers pass numbers too (e.g. a rule version),
+      // and the confirm path calls .trim() on this field.
+      confirmModal.inputExpected = (o.inputExpected === undefined || o.inputExpected === null)
+          ? '' : String(o.inputExpected);
       confirmModal.inputValue = '';
       confirmModal.show = true;
     }

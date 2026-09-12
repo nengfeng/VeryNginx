@@ -52,7 +52,7 @@
         type: 'danger',
         requireInput: true,
         inputLabel: `请输入 IP 地址 ${ip} 确认`,
-        inputExpected: ip,
+        inputExpected: String(ip),
       })) return;
       repClearBusy.value[ip] = true;
       try {
