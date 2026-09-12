@@ -270,6 +270,12 @@ Dashboard 检测到 `auto_ready` 后显示蓝色横幅 + 一键 "Enable CC enfor
 
 ---
 
+### 5.5 IP 质量增强（core/ip_quality.lua）
+
+面板 IP 查询的富化模块：ip-api.com 免费端点（45 req/min、仅 http、无 key），解析出 IP 类型（机房/代理/住宅/移动）、ISP/AS、rDNS、区域/时区。缓存键 `ipq:<ip>`（24h）+ 负缓存 `ipq:err:<ip>`（60s，防配额打爆）；保留/内网地址（v4 私网/CGNAT/回环 + v6 ULA/链路本地/::ffff: 映射）**本地判定不外发**；查询入口先过格式检查（缓存 key 注入防线），控制器侧再过 `helpers.is_valid_ip`（§2.4）。面板分两级渲染：本地 MaxMind 结果即时显示，quality 块异步填充、失败降级为灰字。`use_cdn`/镜像选择与本模块无关。
+
+---
+
 ## 6. 配置系统
 
 ### 6.1 Schema 默认值保证 `plugin` 永远是 table
