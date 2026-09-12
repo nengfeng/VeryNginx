@@ -759,6 +759,88 @@ end
 -- ---------------------------------------------------------------------------
 -- delete_rule  — delete a rule
 -- ---------------------------------------------------------------------------
+--- Locate the shipped factory rule set (deployed with the verynginx tree).
+local function default_rules_path()
+    return ensure_writable_dir() .. "waf-rules.default.json"
+end
+
+--- Pure merge: append factory rules whose id is missing from the current
+--- set. Existing rules (factory or custom, modified or not) are untouched;
+--- default-file order is preserved for the appended tail.
+--- Exported as _M._merge_missing for unit tests.
+local function merge_missing(current, defaults)
+    local by_id = {}
+    for _, r in ipairs(current) do
+        if type(r) == "table" and r.id then by_id[r.id] = true end
+    end
+    local merged = current
+    local restored_ids = {}
+    for _, dr in ipairs(defaults) do
+        if type(dr) == "table" and dr.id and not by_id[dr.id] then
+            by_id[dr.id] = true
+            merged[#merged + 1] = deep_copy(dr)
+            restored_ids[#restored_ids + 1] = dr.id
+        end
+    end
+    return merged, restored_ids
+end
+_M._merge_missing = merge_missing
+
+--- Restore missing factory rules from configs/waf-rules.default.json by id.
+--- Additive only: rules already present (whatever their current content) and
+--- custom rules are never touched, so a misbehaving default file cannot
+--- overwrite operator work.
+-- @return result table or nil + err
+function _M.restore_defaults()
+    local f = io.open(default_rules_path(), "r")
+    if not f then
+        return nil, "default rules file not found: " .. default_rules_path()
+    end
+    local content = f:read("*all")
+    f:close()
+    local ok, data = pcall(json.decode, content)
+    if not ok or type(data) ~= "table" or type(data.rules) ~= "table" or #data.rules == 0 then
+        return nil, "default rules file invalid"
+    end
+
+    -- Validate candidates up front; an invalid factory rule is reported as
+    -- skipped instead of aborting the whole restore.
+    local valid_defaults, skipped = {}, {}
+    for _, dr in ipairs(data.rules) do
+        if type(dr) == "table" and dr.id then
+            local okv, verr = _M.validate_rule(dr)
+            if okv then
+                valid_defaults[#valid_defaults + 1] = dr
+            else
+                skipped[#skipped + 1] = dr.id .. " (" .. tostring(verr) .. ")"
+            end
+        end
+    end
+
+    local rules_obj = _M.load_rules()
+    local current = (rules_obj and rules_obj.rules) or {}
+    local merged, restored_ids = merge_missing(current, valid_defaults)
+
+    local result = {
+        restored = #restored_ids,
+        restored_ids = restored_ids,
+        present = #current,
+        skipped = skipped,
+    }
+    if #restored_ids == 0 then
+        -- Nothing missing: do not bump the version or write a history entry.
+        result.message = "没有缺失的出厂规则"
+        return result
+    end
+
+    local ok, err = _M.save_rules(merged, "restore_defaults",
+        rules_obj and rules_obj.version)
+    if not ok then
+        return nil, "save failed: " .. tostring(err)
+    end
+    return result
+end
+
 function _M.delete_rule(rule_id)
     local rules_obj = _M.load_rules()
     local rules = (rules_obj and rules_obj.rules) or {}
