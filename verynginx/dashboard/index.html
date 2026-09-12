@@ -6,11 +6,11 @@
 <title>VeryNginx v2 管理面板</title>
 <!-- Theme bootstrap: sets data-theme from localStorage before first paint so
      dark-theme users don't get a light FOUC. Must precede the stylesheet. -->
-<script src="/verynginx/static/theme-init.js"></script>
+<script src="/verynginx/static/theme-init.js?v=2.2.1-2"></script>
 <!-- Vue 3: vendored local copy with SRI (no CDN fallback - would be blocked by the
      page CSP script-src 'self' and is an unnecessary supply-chain surface) -->
-<script src="/verynginx/static/vue.global.prod.js" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="/verynginx/static/style.css">
+<script src="/verynginx/static/vue.global.prod.js?v=2.2.1-2" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.2.1-2">
 </head>
 <body>
 
@@ -2402,15 +2402,16 @@
 
 </template>
 </div>
-  <script src="/verynginx/static/vn-common.js"></script>
-  <script src="/verynginx/static/vn-dashboard.js"></script>
-  <script src="/verynginx/static/vn-config.js"></script>
-  <script src="/verynginx/static/vn-waf.js"></script>
-  <script src="/verynginx/static/vn-frequency.js"></script>
-  <script src="/verynginx/static/vn-iploc.js"></script>
-  <script src="/verynginx/static/vn-reputation.js"></script>
-  <script src="/verynginx/static/vn-advanced.js"></script>
-  <script src="/verynginx/static/vn-kb.js"></script>
-  <script src="/verynginx/static/app.js"></script>
+  <script src="/verynginx/static/vn-common.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-dashboard.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-config.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-waf.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-frequency.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-iploc.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-reputation.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-advanced.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-kb.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/app.js?v=2.2.1-2"></script>
+  <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->
 </body>
 </html>
