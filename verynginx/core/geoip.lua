@@ -32,6 +32,12 @@ end
 --- environmental and re-probing is cheap.
 local function get_maxminddb()
     if maxminddb then return maxminddb end
+    -- LuaJIT caches a FAILED require as a sentinel in package.loaded, and
+    -- every subsequent require then raises 'loop or previous error' instead
+    -- of the original reason. Clear the sentinel so the retry re-runs the
+    -- real loader: it either succeeds (transient cause, e.g. a file replaced
+    -- mid-deploy) or surfaces the ORIGINAL error again.
+    pcall(function() package.loaded["resty.maxminddb"] = nil end)
     local ok, mod = pcall(require, "resty.maxminddb")
     if ok then
         maxminddb = mod
