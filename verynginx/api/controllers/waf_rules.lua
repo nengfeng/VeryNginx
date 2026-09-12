@@ -557,6 +557,23 @@ local function handle_list_pending_rules()
     return json.encode({ ret = "success", data = result })
 end
 
+--- POST /waf/rules/restore-defaults - re-add missing factory rules by id.
+--- Additive only: present rules (factory or custom) are untouched, so a
+--- corrupt default file cannot overwrite operator work.
+local function handle_restore_defaults()
+    local result, err = waf_manager.restore_defaults()
+    if not result then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    audit.log("waf_rules_defaults_restored", "restored=" .. tostring(result.restored), "-")
+    local msg = "已恢复 " .. tostring(result.restored) .. " 条默认规则"
+    if result.restored == 0 then
+        msg = result.message or "没有缺失的出厂规则"
+    end
+    return json.encode({ ret = "success", data = result, message = msg })
+end
+
 function _M.register(api)
     api.register("GET",    "/waf/rules",              handle_list_waf_rules,     true)
     api.register("POST",   "/waf/rules",              handle_create_waf_rule,    true)
@@ -566,6 +583,7 @@ function _M.register(api)
     api.register("GET",    "/waf/rules/:id",          handle_get_waf_rule,       true)
     api.register("PUT",    "/waf/rules/:id",          handle_update_waf_rule,    true)
     api.register("DELETE", "/waf/rules/:id",          handle_delete_waf_rule,    true)
+    api.register("POST",   "/waf/rules/restore-defaults", handle_restore_defaults, true)
     api.register("POST",   "/waf/rules/:id/enable",   handle_enable_waf_rule,    true)
     api.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,   true)
     api.register("POST",   "/waf/rules/:id/stage",    handle_stage_waf_rule,     true)

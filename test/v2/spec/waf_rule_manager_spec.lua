@@ -606,4 +606,52 @@ describe("waf-rule-manager", function()
         end)
     end)
 
+    -----------------------------------------------------------------------
+    -- _merge_missing (restore-defaults support)
+    -- Pure id-based merge: missing factory rules are appended in file
+    -- order; existing rules (factory or custom) are never touched.
+    -----------------------------------------------------------------------
+    describe("_merge_missing()", function()
+        local merge = waf._merge_missing
+        assert.truthy(merge, "_merge_missing must be exported")
+
+        it("appends missing factory rules after the current ones", function()
+            local current = { { id = "custom_1", name = "custom" } }
+            local defaults = {
+                { id = "vn_sqli_0001", name = "sqli" },
+                { id = "vn_xss_0004", name = "xss" },
+            }
+            local merged, restored = merge(current, defaults)
+            assert.are.equal(3, #merged)
+            assert.are.equal("custom_1", merged[1].id)
+            assert.are.equal("vn_sqli_0001", merged[2].id)
+            assert.are.equal("vn_xss_0004", merged[3].id)
+            assert.are.equal(2, #restored)
+        end)
+
+        it("does not duplicate rules that already exist", function()
+            local current = {
+                { id = "vn_sqli_0001", name = "modified by operator" },
+                { id = "custom_1", name = "custom" },
+            }
+            local merged, restored = merge(current, { { id = "vn_sqli_0001", name = "sqli" } })
+            assert.are.equal(2, #merged)
+            assert.are.equal("modified by operator", merged[1].name)
+            assert.are.equal(0, #restored)
+        end)
+
+        it("returns the current set unchanged when nothing is missing", function()
+            local current = { { id = "a" }, { id = "b" } }
+            local merged, restored = merge(current, { { id = "a" } })
+            assert.are.equal(2, #merged)
+            assert.are.equal(0, #restored)
+        end)
+
+        it("skips malformed default entries", function()
+            local merged, restored = merge({}, { "not-a-table", { name = "no id" }, { id = "ok" } })
+            assert.are.equal(1, #merged)
+            assert.are.equal(1, #restored)
+        end)
+    end)
+
 end)

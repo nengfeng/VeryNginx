@@ -553,6 +553,27 @@ def test_proxy_pass():
     print(f"  [PASS] Proxy stable across repeated requests (no _vn_redirected loop)")
 
 
+def test_waf_restore_defaults():
+    """Restore-defaults endpoint re-adds missing factory rules by id.
+
+    Runs AFTER test_waf_rules (whose cleanup deletes its rule), so the
+    factory set is expected to be missing and get restored in full."""
+    cookies = get_shared_session()
+    status, body = curl("POST", "/verynginx/waf/rules/restore-defaults",
+                        data="{}", cookies=cookies)
+    assert status == 200, f"restore-defaults failed: {status} {body[:200]}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"restore response: {body[:300]}"
+    data = resp.get("data") or {}
+    restored = data.get("restored", 0)
+    assert restored >= 20, f"expected >= 20 factory rules restored, got: {body[:200]}"
+    status, body = curl("GET", "/verynginx/waf/rules", cookies=cookies)
+    rules = json.loads(body).get("data", {}).get("rules", [])
+    ids = {r.get("id") for r in rules}
+    assert "vn_sqli_0001" in ids, "factory rule vn_sqli_0001 must be present after restore"
+    print(f"  [PASS] Restore defaults: {restored} factory rules re-added")
+
+
 def test_routes():
     """Test that all API routes respond correctly."""
     cookies = get_shared_session()
@@ -589,6 +610,7 @@ def main():
         ("Config CRUD", test_config),
         ("Status", test_status),
         ("WAF Rules", test_waf_rules),
+        ("WAF Restore Defaults", test_waf_restore_defaults),
         ("GeoIP", test_geoip),
         ("Fingerprints", test_fingerprints),
         ("Kernel Blocking", test_kernel_blocking),

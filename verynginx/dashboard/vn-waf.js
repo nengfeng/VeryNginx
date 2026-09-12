@@ -831,6 +831,30 @@
       }
     }
 
+    async function wafRestoreDefaults() {
+      if (!await showConfirm({
+        title: '恢复默认规则',
+        message: '将按 id 补回缺失的出厂规则（当前已有规则和自定义规则不受影响）。继续？',
+        type: 'warning',
+      })) return;
+      wafRolling.value = true;
+      try {
+        const d = await api('POST', '/verynginx/waf/rules/restore-defaults', {});
+        if (d.ret === 'success') {
+          const r = d.data || {};
+          const skippedNote = r.skipped && r.skipped.length ? `，跳过 ${r.skipped.length} 条无效规则` : '';
+          showToast(`已恢复 ${r.restored} 条默认规则${skippedNote}`, 'success');
+          await loadWafData();
+        } else {
+          showToast(d.message || '恢复失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message || '恢复失败', 'error');
+      } finally {
+        wafRolling.value = false;
+      }
+    }
+
     async function wafRollback(version) {
       if (!await showConfirm({
         title: '回滚规则版本',
@@ -1079,6 +1103,7 @@
     view('applyRec', applyRec);
     view('dismissRec', dismissRec);
     view('wafRollback', wafRollback);
+    view('wafRestoreDefaults', wafRestoreDefaults);
     view('wafDeleteRule', wafDeleteRule);
     view('wafToggleRule', wafToggleRule);
     view('wafPage', wafPage);

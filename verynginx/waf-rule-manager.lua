@@ -127,6 +127,29 @@ _M.CATEGORIES      = {
 local _writable_base
 local WRIATBLE_DIR_KEY = "waf_rules:writable_dir"
 
+-- Recursive mkdir via lfs -- the Lua tree must not shell out (the audit
+-- removed every os.execute; these interpolated paths were the last shell
+-- surface in this module).
+local function mkdir_recursive(path)
+    if not path or path == "" then return end
+    local ok_lfs, lfs = pcall(require, "lfs")
+    if not ok_lfs then
+        ngx.log(ngx.ERR, "waf-rule-manager: lfs required for directory creation")
+        return
+    end
+    local parts = {}
+    local current = path
+    while current and current ~= "" do
+        if lfs.attributes(current, "mode") == "directory" then break end
+        table.insert(parts, 1, current)
+        current = current:match("^(.-)/[^/]+$")
+    end
+    for _, d in ipairs(parts) do
+        lfs.mkdir(d)
+        pcall(function() lfs.chmod(d, 755) end)
+    end
+end
+
 local function ensure_writable_dir()
     if _writable_base then return _writable_base end
 
@@ -136,18 +159,18 @@ local function ensure_writable_dir()
         local cached = shared:get(WRIATBLE_DIR_KEY)
         if cached and cached ~= "" then
             _writable_base = cached
-            os.execute("mkdir -p '" .. cached .. "' 2>/dev/null")
+            mkdir_recursive(cached)
             return _writable_base
         end
     end
 
     local primary = config.resolve_path() .. "configs/"
-    os.execute("mkdir -p '" .. primary .. "' 2>/dev/null")
+    mkdir_recursive(primary)
     local f = io.open(primary .. ".waf_write_test", "w")
     if f then f:close(); os.remove(primary .. ".waf_write_test") _writable_base = primary
     else
         local fallback = "/tmp/verynginx/configs/"
-        os.execute("mkdir -p '" .. fallback .. "' 2>/dev/null")
+        mkdir_recursive(fallback)
         _writable_base = fallback
     end
 
