@@ -32,9 +32,6 @@ local MAXMINDDB_CANDIDATES = {
   'libmaxminddb.so.1',    -- some distros bump the ABI
   'maxminddb',            -- FreeBSD-style short name
 }
--- Exported so the updater can probe candidate files with the same FFI
--- library (MMDB_open + MMDB_strerror) BEFORE replacing the live database.
-_M.MAXMINDDB_CANDIDATES = MAXMINDDB_CANDIDATES
 
 local tab_isarray
 local tab_nkeys
@@ -223,8 +220,6 @@ local initted = false
 local function mmdb_strerror(lib, rc)
   return ffi_str(lib.MMDB_strerror(rc))
 end
-
-_M.mmdb_strerror = mmdb_strerror
 
 local function gai_strerror(lib, rc)
   return ffi_str(lib.gai_strerror(rc))
@@ -540,5 +535,13 @@ end
 
 -- copy from https://github.com/lilien1010/lua-resty-maxminddb/blob/master/resty/maxminddb.lua#L208
 -- https://www.maxmind.com/en/geoip2-databases  you should download  the mmdb file from maxmind
+
+-- Exports for the geoip updater: it probes candidate files with the same
+-- FFI library (MMDB_open + MMDB_strerror) BEFORE replacing the live
+-- database. Kept at the END of the module -- _M and these locals only
+-- exist here; placing them near the top (before `local _M = {}`) makes
+-- the whole module fail to load with 'attempt to index global _M'.
+_M.MAXMINDDB_CANDIDATES = MAXMINDDB_CANDIDATES
+_M.mmdb_strerror = mmdb_strerror
 
 return _M;
