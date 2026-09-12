@@ -236,23 +236,33 @@ function _M.init(profiles)
   for profile, location in pairs(profiles) do
 
     _D[profile] = {}
-    local ok_lib, lib_or_err = pcall(ffi.load, ffi, MAXMINDDB_CANDIDATES[1])
-    local tried = { MAXMINDDB_CANDIDATES[1] .. " (unversioned not found)" }
+    -- ffi.load(library [,global]): the LIBRARY NAME is the first argument.
+    -- The previous call passed the ffi TABLE as the library and the name as
+    -- the global flag, so dlopen never once ran against a real soname —
+    -- libmaxminddb was unloadable even when correctly installed.
+    local function try_load(name)
+      local okl, l = pcall(ffi.load, name)
+      if okl and l then return l end
+      return nil, tostring(l)
+    end
+    local ok_lib, lib_or_err = try_load(MAXMINDDB_CANDIDATES[1])
+    local tried = { MAXMINDDB_CANDIDATES[1] .. " (" .. tostring(lib_or_err or "?") .. ")" }
     if not ok_lib then
       -- Try the versioned candidates before giving up; the unversioned
       -- 'libmaxminddb' name may not exist in a minimal env even when the
-      -- versioned .so.0 is present in ld.so.cache.
+      -- versioned .so.0 is present in ld.so.cache (dlopen does not append
+      -- the .so suffix by itself).
       for i = 2, #MAXMINDDB_CANDIDATES do
-        local ok_try, lib = pcall(ffi.load, ffi, MAXMINDDB_CANDIDATES[i])
-        if ok_try and lib then
-          ok_lib, lib_or_err = true, lib
+        lib_or_err = try_load(MAXMINDDB_CANDIDATES[i])
+        if lib_or_err then
+          ok_lib = true
           break
         end
-        tried[#tried + 1] = MAXMINDDB_CANDIDATES[i]
+        tried[#tried + 1] = MAXMINDDB_CANDIDATES[i] .. " (" .. tostring(lib_or_err) .. ")"
       end
     end
     if not ok_lib then
-      local hint = table.concat(tried, ", ")
+      local hint = table.concat(tried, "; ")
       return nil, "libmaxminddb.so not loadable via ffi (tried: " .. hint
         .. "). Install libmaxminddb (Debian/Ubuntu: apt install libmaxminddb-dev; "
         .. "packaging: dnf install libmaxminddb-devel) or set LD_LIBRARY_PATH to the directory containing it."
