@@ -1340,6 +1340,29 @@
             </div>
             <div v-else style="color:#6b7280">{{ geoipLookupResult.message || '未找到' }}</div>
           </div>
+          <div v-if="geoipLookupResult && geoipLookupResult.data" style="margin-top:10px;font-size:13px">
+            <div v-if="geoipQualityLoading" style="color:#6b7280;font-size:12px">IP 质量查询中（ip-api.com）…</div>
+            <table v-else-if="geoipQuality && !geoipQuality.unavailable">
+              <tr><td style="width:70px">IP 类型</td><td>
+                <code>{{ geoipQuality.ip_type_label }}</code>
+                <span v-if="geoipQuality.proxy" style="color:#b45309;margin-left:6px">⚠ 代理</span>
+                <span v-if="geoipQuality.hosting" style="color:#6b7280;margin-left:6px">机房</span>
+                <span v-if="geoipQuality.mobile" style="color:#6b7280;margin-left:6px">移动网络</span>
+              </td></tr>
+              <tr><td>ISP</td><td>{{ geoipQuality.isp || '-' }}</td></tr>
+              <tr><td>组织</td><td>{{ geoipQuality.org || '-' }}</td></tr>
+              <tr><td>AS</td><td>{{ geoipQuality.as || '-' }}</td></tr>
+              <tr><td>rDNS</td><td>{{ geoipQuality.reverse || '-' }}</td></tr>
+              <tr><td>区域</td><td>{{ geoipQuality.region || '-' }} {{ geoipQuality.city || '' }} {{ geoipQuality.zip || '' }}</td></tr>
+              <tr><td>时区</td><td>{{ geoipQuality.timezone || '-' }}</td></tr>
+            </table>
+            <div v-else-if="geoipQuality && geoipQuality.unavailable" style="color:#9ca3af;font-size:12px">
+              质量数据暂不可用：{{ geoipQuality.unavailable }}
+            </div>
+            <div v-if="geoipQuality && !geoipQuality.unavailable" style="color:#9ca3af;font-size:11px;margin-top:2px">
+              数据源 ip-api.com（结果缓存 24 小时；保留/内网地址本地判定，不外发）
+            </div>
+          </div>
         </div>
         <!-- Stats -->
         <div class="card" style="padding:16px;margin-bottom:16px">

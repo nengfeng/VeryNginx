@@ -105,8 +105,33 @@ local function handle_geoip_update()
     return json.encode({ ret = "failed", message = tostring(err) })
 end
 
+-- IP quality enrichment (ip-api.com, cached in core/ip_quality). Separate
+-- from /geoip/lookup so the instant local MaxMind result renders first and
+-- a slow/rate-limited third-party call cannot delay it.
+local function handle_geoip_quality()
+    local ip = ngx.var.arg_ip
+    if not ip or ip == "" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ip parameter required" })
+    end
+    local helpers = require "api.helpers"
+    if not helpers.is_valid_ip(ip) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid IP" })
+    end
+    local ipq = require "core.ip_quality"
+    local entry, err = ipq.lookup(ip)
+    if not entry then
+        -- 200 with ret=failed: the base lookup already rendered; the panel
+        -- shows this as a muted "quality unavailable" line.
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    return json.encode({ ret = "success", data = entry })
+end
+
 function _M.register(api)
     api.register("GET",  "/geoip/lookup", handle_geoip_lookup,     true)
+    api.register("GET",  "/geoip/quality", handle_geoip_quality,   true)
     api.register("GET",  "/geoip/stats",  handle_geoip_stats,      true)
     api.register("GET",  "/geoip/config", handle_geoip_config,     true)
     api.register("PUT",  "/geoip/config", handle_geoip_config_set, true)

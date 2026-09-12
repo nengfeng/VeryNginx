@@ -28,6 +28,32 @@
     const geoipLoading = ref(false);
     const geoipError = ref('');
 
+    // IP quality enrichment (ip-api.com via /geoip/quality). Chained after
+    // the instant local lookup so a slow third-party call never delays it.
+    const IP_TYPE_LABELS = { proxy: '代理', hosting: '机房', mobile: '移动', residential: '住宅', reserved: '保留/内网' };
+    const geoipQuality = ref(null);
+    const geoipQualityLoading = ref(false);
+    async function fetchGeoIPQuality(ip) {
+      geoipQuality.value = null;
+      geoipQualityLoading.value = true;
+      try {
+        const q = await api('GET', '/verynginx/geoip/quality?ip=' + encodeURIComponent(ip));
+        if (q.ret === 'success' && q.data) {
+          const d = q.data;
+          d.ip_type_label = IP_TYPE_LABELS[d.ip_type] || d.ip_type;
+          geoipQuality.value = d;
+        } else {
+          geoipQuality.value = { unavailable: (q.message || '查询失败').slice(0, 120) };
+        }
+      } catch (e) {
+        if (e.message !== 'session_expired') {
+          geoipQuality.value = { unavailable: (e.message || '查询失败').slice(0, 120) };
+        }
+      } finally {
+        geoipQualityLoading.value = false;
+      }
+    }
+
     // Stale-response guard for the geoip data loader.
     const gGeoip = shared.createStaleGuard();
 
@@ -98,7 +124,13 @@
       try {
         const d = await api('GET', '/verynginx/geoip/lookup?ip=' + encodeURIComponent(ip));
         geoipLookupResult.value = d;
+        if (d.ret === 'success') {
+          await fetchGeoIPQuality(ip);
+        } else {
+          geoipQuality.value = null;
+        }
       } catch (e) {
+        geoipQuality.value = null;
         showToast(e.message || '查询失败', 'error');
       }
     }
@@ -187,6 +219,8 @@
     view('geoipLoading', geoipLoading);
     view('geoipUpdating', geoipUpdating);
     view('geoipError', geoipError);
+    view('geoipQuality', geoipQuality);
+    view('geoipQualityLoading', geoipQualityLoading);
     ctx('loadGeoIPStatus', loadGeoIPStatus);
     view('loadGeoIP', loadGeoIP);
     view('lookupGeoIP', lookupGeoIP);
@@ -201,6 +235,7 @@
       geoipStatus.value = { available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' };
       geoipError.value = '';
       geoipStatusError.value = '';
+      geoipQuality.value = null;
       geoipConfig.value = { enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', blockContinentsStr: '', use_cdn: false, auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' };
     });
 
