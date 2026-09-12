@@ -87,21 +87,27 @@ function _M.reload()
         geoip_mark_failed()
         return false, "no geodb_path configured"
     end
-    -- Cheap sanity check: the MaxMind DB binary format starts with the
-    -- magic bytes 0xB1 0x08 0x04 0x13 0x73 0x0A. A file that fails this
-    -- check is almost certainly an HTTP error page or HTML saved under a
-    -- .mmdb name (a misconfigured CDN / mirror path). Catching it here
-    -- produces a much more actionable message than the FFI layer's
-    -- "MMDB_BAD_NODE_TYPE_ERROR".
+    -- Cheap sanity check: a MaxMind DB binary has NO header magic — the file
+    -- starts directly with the binary search tree. The only format marker is
+    -- the tail sequence "\xAB\xCD\xEFMaxMind.com" in the metadata section
+    -- (per the MaxMind-DB spec). A file that lacks this marker near its
+    -- end is an HTTP error page / HTML saved under a .mmdb name. Catching it
+    -- here gives an actionable message instead of the FFI layer's opaque
+    -- "maxminddb:new returned nil".
     do
         local f = io.open(path, "rb")
         if f then
-            local first = f:read(1)
-            f:close()
-            if first and first:byte() ~= 0xB1 then
-                geoip_mark_failed()
-                return false, "not a valid MaxMind DB file (missing 0xB1 magic byte at "
-                    .. path .. " — likely an HTTP error page; re-download via POST /geoip/update)"
+            local size = f:seek("end")
+            if size then
+                local scan = math.min(size, 4096)
+                f:seek("set", size - scan)
+                local tail = f:read(scan)
+                f:close()
+                if tail and not tail:find("\xAB\xCD\xEF", 1, true) then
+                    geoip_mark_failed()
+                    return false, "not a valid MaxMind DB file (no \\xAB\\xCD\\xEF marker in tail of "
+                        .. path .. " — likely an HTTP error page; re-download via POST /geoip/update)"
+                end
             end
         end
     end

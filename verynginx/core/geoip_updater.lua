@@ -54,51 +54,38 @@ local MIRRORS = {
 
 -- Validate MMDB file.
 --
--- Two independent checks:
---   1. Header magic: a genuine MaxMind DB binary starts with the bytes
---      \xB1\x08\x04\x13\x73\x0A (version 2). libmaxminddb's MMDB_open
---      rejects anything that does not start with \xB1 with a generic
---      "maxminddb:new returned nil" error. The P3TERX / Loyalsoldier
---      "GeoIP" files start with \x00\x00\x01... — a v2ray custom
---      chunked format, NOT a MaxMind DB. Without this header check they
---      pass the tail-magic check below (their files do carry a
---      \xAB\xCD\xEF "MaxMind" marker for v2ray compatibility) and get
---      written to disk, then silently break every lookup.
---   2. Tail marker: \xAB\xCD\xEF followed by "MaxMind" near end-of-file.
---      Catches HTML/JSON error pages saved as .mmdb.
+-- A MaxMind DB binary has NO header magic — the file starts directly with
+-- the binary search tree. Per the MaxMind-DB spec, the ONLY format marker is
+-- the sequence "\xAB\xCD\xEFMaxMind.com" in the metadata section, located
+-- near the END of the file ("the last occurrence of this string marks the
+-- end of the data section"). So the meaningful check is the tail marker: it
+-- catches HTML/JSON/CDN error pages saved under a .mmdb name. (A file with
+-- the marker but a non-Standard tree — e.g. a v2ray-format build — still
+-- fails at MMDB_open; validate_mmdb only gates on the marker, the actual
+-- open is what enforces format compatibility.)
 local function validate_mmdb(path)
     local f = io.open(path, "rb")
     if not f then return false, "cannot open file" end
     local size = f:seek("end")
-    f:seek("set", 0)
-    -- Header check
-    local header = f:read(4)
-    if not header then
-        f:close()
-        return false, "cannot read file header"
-    end
-    f:close()
     if size < 1024 then
+        f:close()
         return false, "file too small (" .. size .. " bytes)"
     end
-    if header:byte(1) ~= 0xB1 then
-        return false, string.format(
-            "not a MaxMind DB (first byte 0x%02X, expected 0xB1) — this is likely "
-            .. "a v2ray custom GeoIP format or a CDN error page, which libmaxminddb "
-            .. "cannot read. Use a real MaxMind GeoLite2 .mmdb (set geoip.license_key "
-            .. "in the dashboard, or point cdn_url/update_url at a standard GeoLite2 download).",
-            header:byte(1))
-    end
-    -- Tail marker check
-    local f2 = io.open(path, "rb")
-    local scan_size = math.min(size, 1024)
-    f2:seek("set", size - scan_size)
-    local tail = f2:read(scan_size)
-    f2:close()
+    -- Tail marker: last \xAB\xCD\xEF within the final 128KiB (the max
+    -- metadata section size per spec) must be followed by "MaxMind".
+    local scan_size = math.min(size, 128 * 1024)
+    f:seek("set", size - scan_size)
+    local tail = f:read(scan_size)
+    f:close()
     if not tail then return false, "cannot read file tail" end
-    local idx = tail:find("\xAB\xCD\xEF", 1, true)
+    local idx
+    repeat
+        local start = (idx and idx + 1) or 1
+        idx = tail:find("\xAB\xCD\xEF", start, true)
+    until idx == nil
+    -- `idx` now holds the LAST occurrence (or nil if absent).
     if not idx then
-        return false, "invalid MMDB magic (no \\xAB\\xCD\\xEF marker found in tail)"
+        return false, "invalid MMDB (no \\xAB\\xCD\\xEF marker in the final 128KiB — not a MaxMind DB)"
     end
     return true
 end
@@ -259,8 +246,8 @@ function _M.check_update(force)
         -- The MaxMind official endpoint (download.maxmind.com) requires a
         -- license_key query param. When set, build the canonical download URL
         -- for GeoLite2-City (the .mmdb suffix so no tar extraction needed).
-        -- This produces a genuine MaxMind DB (\xB1 header) that libmaxminddb
-        -- can actually read — unlike the v2ray-format community mirrors.
+        -- This produces a genuine MaxMind DB that libmaxminddb can read,
+        -- unlike the v2ray-format community mirrors.
         if license_key and license_key ~= "" and license_key ~= "(redacted)" then
             local edition = "GeoLite2-City"
             local official = "https://download.maxmind.com/app/geoip_download"
