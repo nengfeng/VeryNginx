@@ -197,8 +197,18 @@ local function make_dns_guarded()
         if ngx.get_phase then
             ph = ngx.get_phase()
         end
+        -- Boot phases: cosockets are unavailable at init/init_worker. Callers
+        -- distinguish this from other unresolvable phases by the "phase: init"
+        -- marker — validate_webhook_url defers enforcement to send time
+        -- (send_webhook re-validates WITH DNS on every dispatch).
+        if ph == "init" or ph == "init_worker" then
+            return nil, "phase: init (cosockets unavailable — defer to send time)"
+        end
+        -- timer MUST be listed: send_webhook's send-time DNS validation runs
+        -- in a timer context, where cosockets are fully available.
         local in_request = (ph == "rewrite" or ph == "access" or ph == "log"
-                            or ph == "balancer" or ph == "header_filter")
+                            or ph == "balancer" or ph == "header_filter"
+                            or ph == "content" or ph == "timer")
         if not in_request then
             -- Outside a request we cannot do cosocket DNS unless a static
             -- nameservers list is present. The caller (resolves_to_private)
@@ -211,7 +221,9 @@ local function make_dns_guarded()
             local c = cfg()
             local ns = c.nameservers
             if not ns or #ns == 0 then
-                ns = { "8.8.8.8", "1.1.1.1" }
+                -- Prefer the host's own resolver configuration; the public
+                -- literals are the last resort.
+                ns = get_system_nameservers() or { "8.8.8.8", "1.1.1.1" }
             end
             return dns:new({ nameservers = ns, retrans = 1, timeout = 2000 })
         end)
@@ -241,14 +253,47 @@ end
 -- Exposed for testing
 _M._make_dns_guarded = make_dns_guarded
 
-local function validate_webhook_url(url, use_dns)
+local function validate_webhook_url(url)
     if not url or url == "" then return false, "empty URL" end
+    -- Only allow https
+    if not url:match("^https://") then
+        return false, "only https URLs allowed"
+    end
+    -- Extract hostname
+    local host = url:match("^https://([^/]+)")
+    if not host then return false, "invalid URL" end
+
+    -- IPv6 bracket literal: [::1] or [::1]:port. Extract the inner address and
+    -- check it directly. Without this, "[::1]" is mangled by the port-strip
+    -- below into just "[", bypassing every private-IP check (SSRF).
+    local ipv6 = host:match("^%[(.-)%]")
+    if ipv6 then
+        if is_private_ip(ipv6) then return false, "internal IP not allowed" end
+        return true
+    end
+
+    -- Strip port if present
+    host = host:match("^([^:]+)") or host
+    -- Block loopback / unspecified directly
+    if host == "localhost" or host == "127.0.0.1" or host:match("^127%.") then
+        return false, "localhost not allowed"
+    end
+    -- Literal IPs: verify directly.
+    if host:find(":", 1, true) or host:match("^%d+%.%d+%.%d+%.%d+$") then
+        if is_private_ip(host) then return false, "internal IP not allowed" end
+        return true
+    end
+    -- Hostname: phase-aware DNS resolution. make_dns_guarded's inner function
+    -- returns (priv, derr):
+    --   priv == true   -> resolves private: deny (SSRF)
+    --   priv == false  -> public: allow
+    --   priv == nil    -> unresolvable HERE; boot phases (derr starts with
+    --                     "phase: init") defer enforcement to send_webhook,
+    --                     which re-validates WITH DNS on every dispatch;
+    --                     anything else fails closed.
+    local priv, derr = make_dns_guarded()(host)
     if priv == nil then
-        -- Boot path (init/init_worker): cosockets are unavailable there.
-        -- Denying would brick nginx startup over a config that only needs
-        -- enforcement at SEND time — send_webhook() re-validates WITH DNS
-        -- on every dispatch, so defer to that moment.
-        if derr and derr:find("phase:", 1, true) then
+        if derr and derr:find("phase: init", 1, true) then
             return true
         end
         -- Resolver unavailable (e.g. restricted network / unit test): fail-closed.
