@@ -23,14 +23,14 @@
     const geoipLookupResult = ref(null);
     const geoipStats = ref([]);
     const geoipMaxCount = computed(() => (geoipStats.value.length ? geoipStats.value[0].count : 0));
-    const geoipConfig = ref({ enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', blockContinentsStr: '', use_cdn: false, auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' });
+    const geoipConfig = ref({ enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', blockContinentsStr: '', use_cdn: false, auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '', abuseipdb_key: '', ipinfo_token: '' });
     const geoipStatus = ref({ available: false, size: 0, last_check: 0, last_update: 0, geodb_path: '' });
     const geoipLoading = ref(false);
     const geoipError = ref('');
 
     // IP quality enrichment (ip-api.com via /geoip/quality). Chained after
     // the instant local lookup so a slow third-party call never delays it.
-    const IP_TYPE_LABELS = { proxy: '代理', hosting: '机房', mobile: '移动', residential: '住宅', reserved: '保留/内网' };
+    const IP_TYPE_LABELS = { proxy: '代理', hosting: '机房', mobile: '移动', residential: '住宅', reserved: '保留/内网', unknown: '未知' };
     const geoipQuality = ref(null);
     const geoipQualityLoading = ref(false);
     async function fetchGeoIPQuality(ip) {
@@ -102,6 +102,8 @@
             update_interval_hours: cfg.update_interval_hours || 168,
             mirror, custom_mirror_url,
             license_key: cfg.license_key || '',
+            abuseipdb_key: cfg.abuseipdb_key || '',
+            ipinfo_token: cfg.ipinfo_token || '',
           };
         } else {
           geoipError.value = cfgRes.message || 'GeoIP 配置加载失败';
@@ -167,6 +169,8 @@
             update_interval_hours: geoipConfig.value.update_interval_hours || 168,
             cdn_url, update_url,
             license_key: geoipConfig.value.license_key || '',
+            abuseipdb_key: geoipConfig.value.abuseipdb_key || '',
+            ipinfo_token: geoipConfig.value.ipinfo_token || '',
           };
           const d = await api('PUT', '/verynginx/geoip/config', cfg);
           if (d.ret === 'success') showToast('GeoIP 配置已保存', 'success');
@@ -236,7 +240,7 @@
       geoipError.value = '';
       geoipStatusError.value = '';
       geoipQuality.value = null;
-      geoipConfig.value = { enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', blockContinentsStr: '', use_cdn: false, auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '' };
+      geoipConfig.value = { enable: false, geodb_path: '', whitelistStr: '', blocklistStr: '', blockContinentsStr: '', use_cdn: false, auto_update: true, update_interval_hours: 168, mirror: 'auto', custom_mirror_url: '', license_key: '', abuseipdb_key: '', ipinfo_token: '' };
     });
 
         // Module initialization (if any)

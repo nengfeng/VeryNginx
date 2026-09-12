@@ -8,6 +8,7 @@ local _M = {}
 
 local json = require "dkjson"
 local dict_guard = require "core.dict_guard"
+local config = require "core.config"
 
 -- ip-api.com free tier: 45 req/min per source IP, HTTP only (no TLS on the
 -- free endpoint — the queried IP is not sensitive data), all fields used
@@ -21,6 +22,30 @@ local ERR_PREFIX = "ipq:err:"
 local CACHE_TTL = 86400   -- IP metadata changes rarely; refresh daily
 local ERR_TTL = 60        -- negative cache: rate limit / network failures
 local HTTP_TIMEOUT = 5    -- seconds
+
+-- Fingerprint of the currently configured enrichment keys. Cached entries
+-- store it; adding/changing a key invalidates stale entries that were
+-- fetched without (or with different) keys.
+local function keys_fingerprint()
+    local g = config.geoip or {}
+    local raw = (g.abuseipdb_key or "") .. "|" .. (g.ipinfo_token or "")
+    if raw == "|" then return "" end
+    return ngx.md5(raw)
+end
+
+-- Enrichment keys from the live config (never cached at module scope: the
+-- config hot-reloads). "(redacted)" placeholders count as absent.
+local function get_keys()
+    local g = config.geoip or {}
+    return {
+        abuseipdb = (g.abuseipdb_key and g.abuseipdb_key ~= ""
+            and g.abuseipdb_key ~= "(redacted)") and g.abuseipdb_key or nil,
+        ipinfo = (g.ipinfo_token and g.ipinfo_token ~= ""
+            and g.ipinfo_token ~= "(redacted)") and g.ipinfo_token or nil,
+    }
+end
+
+local last_abuse_warn = 0
 
 local function shared()
     return ngx.shared.vn_config
@@ -95,6 +120,82 @@ end
 
 -- Fetch the raw JSON body for one IP. Exported for unit tests (the spec
 -- stubs resty.http instead of this function).
+--- AbuseIPDB risk enrichment (free tier: 1000 checks/day with a key).
+-- @return risk table or nil + reason
+local function fetch_abuse(ip, key)
+    local ok_http, http = pcall(require, "resty.http")
+    if not ok_http then
+        return nil, "resty.http not available"
+    end
+    local httpc = http.new()
+    httpc:set_timeout(HTTP_TIMEOUT * 1000)
+    local res, err = httpc:request_uri(
+        "https://api.abuseipdb.com/api/v2/check?ipAddress=" .. ip .. "&maxAgeInDays=90", {
+        method = "GET",
+        headers = { ["Key"] = key, ["Accept"] = "application/json" },
+    })
+    if not res then return nil, "request failed: " .. tostring(err) end
+    if res.status == 401 or res.status == 402 then return nil, "invalid or expired AbuseIPDB key" end
+    if res.status == 429 then return nil, "AbuseIPDB rate limited (free: 1000/day)" end
+    if res.status ~= 200 then return nil, "HTTP " .. res.status end
+    local ok, data = pcall(json.decode, res.body)
+    if not ok or type(data) ~= "table" or type(data.data) ~= "table" then
+        return nil, "invalid JSON from AbuseIPDB"
+    end
+    local d = data.data
+    return {
+        score = tonumber(d.abuseConfidenceScore) or 0,
+        reports = tonumber(d.totalReports) or 0,
+        tor = d.isTor == true,
+        usage = d.usageType,
+    }
+end
+
+--- ipinfo.io fallback provider (free token: 50k req/month, HTTPS) — used
+--- when the ip-api call fails: rate limit, plain-HTTP blocked, etc.
+-- @return base-entry fields or nil + reason
+local function fetch_ipinfo(ip, token)
+    local ok_http, http = pcall(require, "resty.http")
+    if not ok_http then
+        return nil, "resty.http not available"
+    end
+    local httpc = http.new()
+    httpc:set_timeout(HTTP_TIMEOUT * 1000)
+    local res, err = httpc:request_uri(
+        "https://ipinfo.io/" .. ip .. "/json?token=" .. token, {
+        method = "GET",
+        headers = { ["User-Agent"] = "VeryNginx-IPQuality/1.0" },
+    })
+    if not res then return nil, "request failed: " .. tostring(err) end
+    if res.status == 401 or res.status == 403 then return nil, "invalid ipinfo token" end
+    if res.status == 429 then return nil, "ipinfo rate limited" end
+    if res.status ~= 200 then return nil, "HTTP " .. res.status end
+    local ok, data = pcall(json.decode, res.body)
+    if not ok or type(data) ~= "table" then
+        return nil, "invalid JSON from ipinfo"
+    end
+    if data.error then
+        return nil, tostring(data.error.title or data.error.message or "ipinfo error")
+    end
+    -- org is "AS15169 Google LLC" - split the AS number for the panel.
+    local as_num, as_name = data.org and data.org:match("^(AS%d+)%s+(.+)$")
+    return {
+        source = "ipinfo.io",
+        queried = ip,
+        country_code = data.country,
+        region = data.region,
+        city = data.city,
+        zip = data.postal,
+        timezone = data.timezone,
+        org = data.org,
+        as = as_num or data.org,
+        asname = as_name,
+        reverse = data.hostname,
+        -- free ipinfo has no type flags; the panel shows the unknown label
+        ip_type = "unknown",
+    }
+end
+
 local function fetch(ip)
     local ok_http, http = pcall(require, "resty.http")
     if not ok_http then
@@ -123,14 +224,23 @@ function _M.lookup(ip)
         return nil, "invalid ip"
     end
 
+    local keys = get_keys()
+    local fp = keys_fingerprint()
     local s = shared()
     if s then
         local raw = s:get(CACHE_PREFIX .. ip)
         if raw then
             local ok, entry = pcall(json.decode, raw)
             if ok and type(entry) == "table" then
-                entry.cached = true
-                return entry
+                if (entry.keys_fp or "") == fp then
+                    entry.cached = true
+                    return entry
+                end
+                -- Stale: fetched with different/no enrichment keys. Fall
+                -- through to a fresh fetch (the entry is replaced below).
+            else
+                -- Unparseable cache entry: drop it.
+                s:delete(CACHE_PREFIX .. ip)
             end
         end
         local err_cached = s:get(ERR_PREFIX .. ip)
@@ -146,6 +256,7 @@ function _M.lookup(ip)
             queried = ip,
             ip_type = "reserved",
             reserved = true,
+            keys_fp = fp,
         }
         if s then
             dict_guard.set(s, "ipq", CACHE_PREFIX .. ip, json.encode(entry), 300)
@@ -153,16 +264,40 @@ function _M.lookup(ip)
         return entry
     end
 
+    -- Provider chain: ip-api (no key, type flags) -> ipinfo (token, when
+    -- ip-api failed) -> AbuseIPDB risk enrichment (key, independent of the
+    -- base provider).
+    local entry
     local body, err = fetch(ip)
-    if not body then
+    if body then
+        entry, err = _M.parse_response(body)
+        if not entry and keys.ipinfo then
+            entry = fetch_ipinfo(ip, keys.ipinfo)
+        end
+    elseif keys.ipinfo then
+        entry = fetch_ipinfo(ip, keys.ipinfo)
+    end
+    if not entry then
         if s then dict_guard.set(s, "ipq.err", ERR_PREFIX .. ip, tostring(err), ERR_TTL) end
         return nil, err
     end
+    entry.keys_fp = fp
 
-    local entry, perr = _M.parse_response(body)
-    if not entry then
-        if s then dict_guard.set(s, "ipq.err", ERR_PREFIX .. ip, tostring(perr), ERR_TTL) end
-        return nil, perr
+    -- AbuseIPDB risk enrichment: independent of the base provider. A failure
+    -- here degrades the entry (no risk block) instead of failing the lookup.
+    if keys.abuseipdb then
+        local risk, aerr = fetch_abuse(ip, keys.abuseipdb)
+        if risk then
+            entry.risk = risk
+        else
+            -- Throttle the WARN: this fires per lookup while the key/quota
+            -- is broken, and repeated identical lines are noise.
+            local now = ngx.now()
+            if now - last_abuse_warn > 300 then
+                last_abuse_warn = now
+                ngx.log(ngx.WARN, "ip_quality: AbuseIPDB enrichment failed: ", tostring(aerr))
+            end
+        end
     end
 
     if s then

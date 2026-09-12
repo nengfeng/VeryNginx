@@ -1349,6 +1349,12 @@
                 <span v-if="geoipQuality.hosting" style="color:#6b7280;margin-left:6px">机房</span>
                 <span v-if="geoipQuality.mobile" style="color:#6b7280;margin-left:6px">移动网络</span>
               </td></tr>
+              <tr v-if="geoipQuality.risk"><td>滥用风险</td><td>
+                <code :style="{ color: geoipQuality.risk.score >= 50 ? '#b91c1c' : 'inherit' }">{{ geoipQuality.risk.score }}%</code>
+                <span style="color:#6b7280;margin-left:6px">90 天内被举报 {{ geoipQuality.risk.reports }} 次</span>
+                <span v-if="geoipQuality.risk.tor" style="color:#b45309;margin-left:6px">Tor 出口</span>
+                <span style="color:#9ca3af;font-size:11px;margin-left:6px">AbuseIPDB</span>
+              </td></tr>
               <tr><td>ISP</td><td>{{ geoipQuality.isp || '-' }}</td></tr>
               <tr><td>组织</td><td>{{ geoipQuality.org || '-' }}</td></tr>
               <tr><td>AS</td><td>{{ geoipQuality.as || '-' }}</td></tr>
@@ -1409,6 +1415,8 @@
           <table>
             <tr><td>启用自动更新</td><td><input type="checkbox" v-model="geoipConfig.auto_update" @change="saveGeoIPConfig"></td></tr>
             <tr><td>更新间隔 (小时)</td><td><input v-model.number="geoipConfig.update_interval_hours" type="number" min="1" max="720" style="width:100px" @change="saveGeoIPConfig"></td></tr>
+             <tr><td>AbuseIPDB Key</td><td><input type="password" v-model="geoipConfig.abuseipdb_key" placeholder="可选：滥用风险评分（免费 1000 次/天）" style="width:350px" @change="saveGeoIPConfig" autocomplete="off"></td></tr>
+             <tr><td>ipinfo Token</td><td><input type="password" v-model="geoipConfig.ipinfo_token" placeholder="可选：ip-api 限速/网络受限时的回退源" style="width:350px" @change="saveGeoIPConfig" autocomplete="off"></td></tr>
              <tr><td>下载源</td><td>
                <select v-model="geoipConfig.mirror" @change="saveGeoIPConfig" style="width:350px">
                  <option value="auto">自动 (依次尝试社区镜像)</option>

@@ -160,6 +160,11 @@ _M.schema = {
                 auto_update         = leaf({ type = "boolean", default = true }),
                 update_interval_hours = leaf({ type = "integer", default = 168, min = 1, max = 720 }),
                 license_key         = leaf({ type = "string", default = "" }),
+                -- Optional IP-quality enrichment keys (core/ip_quality.lua):
+                -- plain storage, password-masked in the dashboard; no key =
+                -- the related source is skipped (graceful degradation).
+                abuseipdb_key       = leaf({ type = "string", default = "" }),
+                ipinfo_token        = leaf({ type = "string", default = "" }),
                 -- Defaults are EMPTY: the legacy GEOIP_CDN_URL (jsdelivr)
                 -- has always 404'd (the npm package only ships the .gz), and
                 -- a filled cdn_url used to exclude the working mirrors from
