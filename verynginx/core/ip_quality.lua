@@ -178,7 +178,10 @@ local function fetch_ipinfo(ip, token)
         return nil, tostring(data.error.title or data.error.message or "ipinfo error")
     end
     -- org is "AS15169 Google LLC" - split the AS number for the panel.
-    local as_num, as_name = data.org and data.org:match("^(AS%d+)%s+(.+)$")
+    local as_num, as_name
+    if data.org then
+        as_num, as_name = data.org:match("^(AS%d+)%s+(.+)$")
+    end
     return {
         source = "ipinfo.io",
         queried = ip,

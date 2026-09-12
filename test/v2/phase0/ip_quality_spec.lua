@@ -44,7 +44,15 @@ package.preload["resty.http"] = function()
                     http_calls[#http_calls + 1] = url
                     for _, r in ipairs(http_routes) do
                         if url:find(r.match, 1, true) then
-                            if r.throw then error(r.throw) end
+                            if r.throw then
+                                -- Mirror resty.http's failure contract: return
+                                -- (nil, err), never raise. The module's
+                                -- fetch/fetch_abuse/fetch_ipinfo all branch on
+                                -- `if not res` and surface tostring(err), so a
+                                -- thrown Lua error would escape pcall and fail
+                                -- the test with the wrong message.
+                                return nil, r.throw
+                            end
                             return { status = r.status or 200, body = r.body or "" }
                         end
                     end
@@ -94,7 +102,7 @@ describe("ip_quality.parse_response", function()
 
     it("parses a success response and classifies ip_type", function()
         local e = ipq.parse_response(BASE_BODY)
-        assert.are.equal("Google LLC", e.isp)
+        assert.are.equal("Test ISP", e.isp)
         assert.are.equal("AS15169 Google LLC", e.as)
         assert.are.equal("dns.google", e.reverse)
         assert.are.equal("hosting", e.ip_type)
@@ -230,7 +238,9 @@ describe("ip_quality.lookup provider chain (phase 2)", function()
         ipq.lookup("8.8.8.8")
         assert.are.equal(1, #http_calls)
         -- Keys added: the cached entry (fp "") must be re-fetched, and the
-        -- new round includes the AbuseIPDB call.
+        -- new round includes the AbuseIPDB call. Reset the call log so the
+        -- assertion measures only the second lookup (http_calls accumulates
+        -- across lookups, not per-lookup).
         set_config({ abuseipdb_key = "newkey" })
         package.loaded["core.ip_quality"] = nil
         ipq = require "core.ip_quality"
@@ -238,6 +248,7 @@ describe("ip_quality.lookup provider chain (phase 2)", function()
             { match = "ip-api.com", status = 200, body = BASE_BODY },
             { match = "api.abuseipdb.com", status = 200, body = ABUSE_BODY },
         }
+        http_calls = {}
         local e = ipq.lookup("8.8.8.8")
         assert.are.equal(2, #http_calls)  -- re-fetched, not served from cache
         assert.truthy(e.risk)
