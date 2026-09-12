@@ -584,10 +584,12 @@
 
       <!-- WAF -->
       <div v-if="page==='waf'">
-        <div class="flex flex-between mb-16">
-          <h2 class="page-title" style="margin-bottom:0">WAF 规则管理</h2>
-          <div class="page-desc" style="margin-bottom:0;align-self:center">Web 应用防火墙，根据请求特征（SQL 注入、XSS、路径穿越、扫描器等）拦截恶意流量，保护后端服务。建议先查看「分析」页了解当前规则效果，再用「推荐」自动生成规则。</div>
-          <div class="flex gap-8">
+        <div class="flex flex-between" style="align-items:flex-start" >
+          <div>
+            <h2 class="page-title" style="margin-bottom:0">WAF 规则管理</h2>
+            <div class="page-desc" style="margin-bottom:0">Web 应用防火墙，根据请求特征（SQL 注入、XSS、路径穿越、扫描器等）拦截恶意流量，保护后端服务。建议先查看「分析」页了解当前规则效果，再用「推荐」自动生成规则。</div>
+          </div>
+          <div class="flex gap-8" style="align-items:flex-start">
             <button class="outline small" @click="wafRefreshAll">刷新</button>
             <button class="primary small" @click="wafOpenCreate">+ 新建规则</button>
           </div>
