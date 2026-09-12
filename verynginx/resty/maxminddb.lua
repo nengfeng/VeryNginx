@@ -245,29 +245,30 @@ function _M.init(profiles)
       if okl and l then return l end
       return nil, tostring(l)
     end
-    local ok_lib, lib_or_err = try_load(MAXMINDDB_CANDIDATES[1])
-    local tried = { MAXMINDDB_CANDIDATES[1] .. " (" .. tostring(lib_or_err or "?") .. ")" }
-    if not ok_lib then
+    -- try_load returns (lib) on success and (nil, err) on failure; keep the
+    -- LIBRARY in the first variable on every path — the previous rewrite
+    -- carried it in a second variable named ok_lib while assigning the
+    -- nil first value to the field actually used for MMDB_open.
+    local lib, load_err = try_load(MAXMINDDB_CANDIDATES[1])
+    local tried = { MAXMINDDB_CANDIDATES[1] .. " (" .. tostring(load_err or "?") .. ")" }
+    if not lib then
       -- Try the versioned candidates before giving up; the unversioned
       -- 'libmaxminddb' name may not exist in a minimal env even when the
       -- versioned .so.0 is present in ld.so.cache (dlopen does not append
       -- the .so suffix by itself).
       for i = 2, #MAXMINDDB_CANDIDATES do
-        lib_or_err = try_load(MAXMINDDB_CANDIDATES[i])
-        if lib_or_err then
-          ok_lib = true
-          break
-        end
-        tried[#tried + 1] = MAXMINDDB_CANDIDATES[i] .. " (" .. tostring(lib_or_err) .. ")"
+        lib, load_err = try_load(MAXMINDDB_CANDIDATES[i])
+        if lib then break end
+        tried[#tried + 1] = MAXMINDDB_CANDIDATES[i] .. " (" .. tostring(load_err) .. ")"
       end
     end
-    if not ok_lib then
+    if not lib then
       local hint = table.concat(tried, "; ")
       return nil, "libmaxminddb.so not loadable via ffi (tried: " .. hint
         .. "). Install libmaxminddb (Debian/Ubuntu: apt install libmaxminddb-dev; "
         .. "packaging: dnf install libmaxminddb-devel) or set LD_LIBRARY_PATH to the directory containing it."
     end
-    _D[profile].maxm = lib_or_err
+    _D[profile].maxm = lib
     _D[profile].mmdb = ffi_new('MMDB_s')
     local maxmind_ready = _D[profile].maxm.MMDB_open(location, 0, _D[profile].mmdb)
 
