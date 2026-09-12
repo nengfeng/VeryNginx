@@ -142,8 +142,12 @@ _M.schema = {
                 auto_update = true,
                 update_interval_hours = 168,
                 license_key = "",
-                update_url = "https://download.maxmind.com/app/geoip_download",
-                cdn_url = "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
+                update_url = "",
+                -- Legacy default pointed at a jsdelivr URL that has always
+                -- 404'd (the npm package only ships the .gz). New installs
+                -- leave both URLs empty and use the built-in mirrors; saved
+                -- configs carrying the dead URL are filtered at update time.
+                cdn_url = "",
                 use_cdn = false,
                 tls_verify = true,
             },
@@ -156,8 +160,13 @@ _M.schema = {
                 auto_update         = leaf({ type = "boolean", default = true }),
                 update_interval_hours = leaf({ type = "integer", default = 168, min = 1, max = 720 }),
                 license_key         = leaf({ type = "string", default = "" }),
-                update_url          = leaf({ type = "string", default = GEOIP_UPDATE_URL }),
-                cdn_url             = leaf({ type = "string", default = GEOIP_CDN_URL }),
+                -- Defaults are EMPTY: the legacy GEOIP_CDN_URL (jsdelivr)
+                -- has always 404'd (the npm package only ships the .gz), and
+                -- a filled cdn_url used to exclude the working mirrors from
+                -- the candidate list. New installs use the built-in mirrors;
+                -- the constants survive only in the benign-host allowlist.
+                update_url          = leaf({ type = "string", default = "" }),
+                cdn_url             = leaf({ type = "string", default = "" }),
                 use_cdn             = leaf({ type = "boolean", default = false }),
                 tls_verify          = leaf({ type = "boolean", default = true }),
             },

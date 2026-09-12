@@ -194,6 +194,55 @@ local function get_update_config()
     }
 end
 
+-- Known-dead legacy default: the npm package ships ONLY the .gz variant, so
+-- the bare .mmdb URL has always 404'd. Configs saved while this was the
+-- schema default carry it forever (normalize only fills MISSING keys), so
+-- filter it instead of letting one dead URL fail the whole update.
+local DEAD_URLS = {
+    "https://cdn.jsdelivr.net/npm/geolite2-city@latest/GeoLite2-City.mmdb",
+}
+
+--- Build the ordered candidate URL list for one update round.
+-- Order: MaxMind official (when a license key is set) -> user-configured
+-- URLs -> built-in community mirrors ALWAYS appended as the last resort.
+-- Before this function existed, a non-empty cdn_url/update_url EXCLUDED the
+-- mirrors entirely, so one dead configured URL (e.g. the legacy jsdelivr
+-- default, which 404s) failed every update forever.
+-- Exported as _M._build_url_list for unit tests.
+local function build_url_list(ucfg, license_key)
+    local urls = {}
+    local seen = {}
+    local function add(u)
+        if not u or u == "" or seen[u] then return end
+        for _, dead in ipairs(DEAD_URLS) do
+            if u == dead then return end
+        end
+        seen[u] = true
+        urls[#urls + 1] = u
+    end
+    -- The MaxMind official endpoint requires the license_key query param.
+    -- This yields a genuine MaxMind DB readable by libmaxminddb, unlike the
+    -- v2ray-format community mirrors.
+    if license_key and license_key ~= "" and license_key ~= "(redacted)" then
+        add("https://download.maxmind.com/app/geoip_download"
+            .. "?edition_id=geolite2-city"
+            .. "&license_key=" .. license_key
+            .. "&suffix=mmdb")
+    end
+    -- cdn_url (a mirror selector in the UI) and update_url (a custom direct
+    -- link) both apply whenever set. use_cdn is intentionally NOT consulted:
+    -- the dashboard keeps the toggle and the mirror dropdown independent, and
+    -- gating here would silently drop a selected mirror when the toggle is
+    -- off (the toggle itself remains display-only dead config — see AGENTS).
+    add(ucfg.cdn_url)
+    add(ucfg.update_url)
+    for _, m in ipairs(MIRRORS) do
+        add(m)
+    end
+    return urls
+end
+_M._build_url_list = build_url_list
+
 -- Check if update is due
 local function is_update_due(interval_hours, force)
     if force then return true end
@@ -240,32 +289,11 @@ function _M.check_update(force)
         -- Ensure parent directory exists
         ensure_dir(geodb_path:match("^(.-)/[^/]+$"))
 
-        -- Try each URL (user-configured first, then mirrors)
-        local urls = {}
-        local license_key = cfg.license_key
-        -- The MaxMind official endpoint (download.maxmind.com) requires a
-        -- license_key query param. When set, build the canonical download URL
-        -- for GeoLite2-City (the .mmdb suffix so no tar extraction needed).
-        -- This produces a genuine MaxMind DB that libmaxminddb can read,
-        -- unlike the v2ray-format community mirrors.
-        if license_key and license_key ~= "" and license_key ~= "(redacted)" then
-            local edition = "GeoLite2-City"
-            local official = "https://download.maxmind.com/app/geoip_download"
-                .. "?edition_id=" .. string.lower(edition)
-                .. "&license_key=" .. license_key
-                .. "&suffix=mmdb"
-            table.insert(urls, official)
-        end
-        if ucfg.cdn_url and ucfg.cdn_url ~= "" then
-            table.insert(urls, ucfg.cdn_url)
-        elseif ucfg.update_url and ucfg.update_url ~= "" then
-            table.insert(urls, ucfg.update_url)
-        end
-        if #urls == 0 then
-            for _, m in ipairs(MIRRORS) do
-                table.insert(urls, m)
-            end
-        end
+        -- Candidate list: official (if licensed) -> user-configured ->
+        -- community mirrors ALWAYS appended (a dead configured URL must not
+        -- exclude them — that bug made every update fail while the legacy
+        -- jsdelivr default was in effect).
+        local urls = build_url_list(ucfg, cfg.license_key)
 
         local last_err = "no URLs configured"
         local success = false
