@@ -559,8 +559,13 @@ def test_waf_restore_defaults():
     Runs AFTER test_waf_rules (whose cleanup deletes its rule), so the
     factory set is expected to be missing and get restored in full."""
     cookies = get_shared_session()
+    # Mutating request: CSRF token required (header form, like test_waf_rules)
+    status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
+    assert status == 200, f"GET CSRF failed: {status}"
+    csrf_token = json.loads(body).get("csrf_token", "")
     status, body = curl("POST", "/verynginx/waf/rules/restore-defaults",
-                        data="{}", cookies=cookies)
+                        data="{}", cookies=cookies,
+                        headers={"X-CSRF-Token": csrf_token})
     assert status == 200, f"restore-defaults failed: {status} {body[:200]}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"restore response: {body[:300]}"
