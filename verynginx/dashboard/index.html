@@ -912,15 +912,18 @@
                   <td>
                     <button v-if="wafRollbackBtn(idx) && wafRollbackBtn(idx).version !== null"
                             class="outline small"
-                            @click="wafRollback(wafRollbackBtn(idx).version)"
+                            @click="wafRollback(wafRollbackBtn(idx))"
                             :disabled="wafRolling"
-                            :title="h.action === 'delete' ? '撤销这次删除：恢复到删除前的规则集' : '恢复到该版本的规则集'">
+                            :title="wafRollbackBtn(idx).title">
                       {{ wafRollbackBtn(idx).label }}
                     </button>
                   </td>
                 </tr>
               </tbody>
             </table>
+            <div style="color:#9ca3af;font-size:12px;margin-top:4px">
+              每行是当次保存后的完整备份。「撤销此变更」= 把规则恢复到该次修改之前（其后的修改一并回退）；「恢复此版本」= 恢复到该次保存完成时的状态。
+            </div>
           </div>
           <div v-else style="color:var(--muted)">无可用历史。<div style="font-size:12px;color:var(--muted);margin-top:4px">规则变更后才会产生历史记录，每次保存会生成一个版本，可随时回滚。</div></div>
         </div>

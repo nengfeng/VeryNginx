@@ -855,14 +855,15 @@
       }
     }
 
-    async function wafRollback(version) {
+    async function wafRollback(btn) {
+      if (!btn || !btn.version) return;
       if (!await showConfirm({
-        title: '回滚规则版本',
-        message: `回滚到版本 ${version}? 这将替换所有当前规则。`,
+        title: btn.label === '撤销此变更' ? '撤销此变更' : '恢复规则版本',
+        message: `全部规则将恢复到版本 ${btn.version} 的状态，其后的修改会一并回退。`,
         type: 'danger',
         requireInput: true,
-        inputLabel: `请输入版本号 ${version} 确认`,
-        inputExpected: String(version),
+        inputLabel: `请输入版本号 ${btn.version} 确认`,
+        inputExpected: String(btn.version),
       })) return;
       wafRolling.value = true;
       try {
@@ -1105,21 +1106,26 @@
     view('wafRollback', wafRollback);
     view('wafRestoreDefaults', wafRestoreDefaults);
 
-    // Per-row rollback target in the history tab. Rolling back TO a record
-    // restores the state AS OF after that record's action — for a 删除 row
-    // that means the deleted rule stays gone, which reads as "回滚没效果".
-    // User intent on that row is UNDO: restore the PREVIOUS record's state
-    // (the world before the deletion). The oldest record has no previous
-    // state in history — its button is hidden with a hint.
+    // History rows are per-save snapshots ("state after this change").
+    // Clicking a row's button = UNDO that change: restore the PREVIOUS
+    // record's state (which includes what the change removed/modified).
+    // Everything recorded after it is rolled back together — snapshot
+    // versioning cannot undo a middle change in isolation. The oldest row
+    // has no earlier state, so it offers a plain restore of itself.
     function wafRollbackBtn(idx) {
       const h = wafHistory.value[idx];
       if (!h) return null;
-      if (h.action === 'delete' && idx > 0) {
+      if (idx > 0) {
         const prev = wafHistory.value[idx - 1];
-        if (prev && prev.rule_data) return { version: prev.version, label: '撤销删除' };
-        return { version: null, label: '回滚' };
+        if (prev && prev.rule_data) {
+          return {
+            version: prev.version,
+            label: '撤销此变更',
+            title: `撤销「${h.action}」：规则恢复到该次修改之前的状态（其后的修改一并回退）`,
+          };
+        }
       }
-      return { version: h.version, label: '回滚' };
+      return { version: h.version, label: '恢复此版本', title: '最早的记录：恢复到该版本保存完成时的规则集' };
     }
     view('wafRollbackBtn', wafRollbackBtn);
     view('wafDeleteRule', wafDeleteRule);
