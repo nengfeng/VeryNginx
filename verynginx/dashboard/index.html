@@ -56,27 +56,27 @@
   </div>
   <!-- Login -->
   <div id="login-page" v-if="!store.loggedIn">
-    <div class="login-box">
+    <form class="login-box" @submit.prevent="doLogin">
       <h1>VeryNginx</h1>
       <p class="sub">v2.0 — WAF 与反向代理管理</p>
       <div class="error" v-if="sessionExpiredNotice">登录已过期，请重新登录</div>
       <div class="error" v-if="loginError">{{ loginError }}</div>
       <div class="field">
         <label>用户名</label>
-        <input v-model.trim="loginUser" type="text" placeholder="管理员用户名" @keyup.enter="doLogin">
+        <input v-model.trim="loginUser" type="text" placeholder="管理员用户名" autocomplete="username">
       </div>
       <div class="field">
         <label>密码</label>
         <div class="pass-wrap">
-          <input v-model="loginPass" :type="loginPassVisible ? 'text' : 'password'" placeholder="输入密码" @keyup.enter="doLogin"
+          <input v-model="loginPass" :type="loginPassVisible ? 'text' : 'password'" placeholder="输入密码" autocomplete="current-password"
                  @keyup="loginCapsLock = !!(($event.getModifierState) && $event.getModifierState('CapsLock'))"
                  @blur="loginCapsLock = false">
           <button type="button" class="outline small pass-toggle" @click="loginPassVisible = !loginPassVisible">{{ loginPassVisible ? '隐藏' : '显示' }}</button>
         </div>
         <div v-if="loginCapsLock" class="caps-warn">⚠ 大写锁定（Caps Lock）已开启</div>
       </div>
-      <button class="primary" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
-    </div>
+      <button class="primary" type="submit" :disabled="loading">{{ loading ? '登录中…' : '登录' }}</button>
+    </form>
   </div>
 
   <!-- App -->
