@@ -236,7 +236,20 @@ function _M.load_rules()
             end
         end
     end
-    return _M.load_from_file()
+    -- File fallback (fresh boot / cache evicted): the file carries the last
+    -- saved version, but the shared save-counter starts at 0 after a full
+    -- restart. Without seeding it here, the FIRST version-checked save
+    -- compares the file version against 0 and conflicts forever ("expected
+    -- N but found 0" — reload cannot help, the fallback never writes the
+    -- counter). Seed only forward, never lower an existing counter.
+    local rules_obj = _M.load_from_file()
+    if rules_obj and rules_obj.version and shared then
+        local cur = tonumber(shared:get("waf_rules_save_version")) or 0
+        if rules_obj.version > cur then
+            shared:set("waf_rules_save_version", rules_obj.version)
+        end
+    end
+    return rules_obj
 end
 
 -- ---------------------------------------------------------------------------
