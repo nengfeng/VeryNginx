@@ -133,20 +133,39 @@ local WRIATBLE_DIR_KEY = "waf_rules:writable_dir"
 local function mkdir_recursive(path)
     if not path or path == "" then return end
     local ok_lfs, lfs = pcall(require, "lfs")
-    if not ok_lfs then
-        ngx.log(ngx.ERR, "waf-rule-manager: lfs required for directory creation")
+    if ok_lfs then
+        local parts = {}
+        local current = path
+        while current and current ~= "" do
+            if lfs.attributes(current, "mode") == "directory" then break end
+            table.insert(parts, 1, current)
+            current = current:match("^(.-)/[^/]+$")
+        end
+        for _, d in ipairs(parts) do
+            lfs.mkdir(d)
+            pcall(function() lfs.chmod(d, 755) end)
+        end
         return
     end
-    local parts = {}
-    local current = path
-    while current and current ~= "" do
-        if lfs.attributes(current, "mode") == "directory" then break end
-        table.insert(parts, 1, current)
-        current = current:match("^(.-)/[^/]+$")
-    end
-    for _, d in ipairs(parts) do
-        lfs.mkdir(d)
-        pcall(function() lfs.chmod(d, 755) end)
+    -- lfs unavailable (bare-Lua test host, or a minimal OpenResty build):
+    -- fall back to the shell. The path is always an internal constant or
+    -- config.resolve_path() result — never user input — so single-quoting
+    -- it is safe. AGENTS.md §1.5: do NOT use io.popen().close()'s exit
+    -- code to judge success; instead, verify the leaf directory actually
+    -- exists afterwards.
+    os.execute("mkdir -p '" .. path .. "' 2>/dev/null")
+    -- path may end in a slash (e.g. "configs/"); strip it and probe the
+    -- leaf dir itself to confirm the fallback mkdir actually ran. AGENTS.md
+    -- §1.5: do not trust the os.execute return value for success — verify
+    -- the artifact instead.
+    local probe_dir = path:gsub("/+$", "")  -- strip one or more trailing slashes
+    if probe_dir == "" then probe_dir = "/" end
+    local probe = io.open(probe_dir .. "/.waf_probe", "w")
+    if probe then
+        probe:close()
+        os.remove(probe_dir .. "/.waf_probe")
+    else
+        ngx.log(ngx.ERR, "waf-rule-manager: mkdir -p may have failed for ", path)
     end
 end
 

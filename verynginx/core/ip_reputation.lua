@@ -901,7 +901,19 @@ function _M.persist()
         flagged = flagged,
         pending = pending,
     }
-    local path = resolve_path() .. "ip-reputation-flagged.json"
+    local dir = resolve_path()
+    -- The configs dir may not exist in the test host / minimal install;
+    -- create it (lfs preferred, shell fallback) before writing so persist
+    -- does not silently no-op and the round-trip data is actually lost.
+    do
+        local ok_lfs, lfs = pcall(require, "lfs")
+        if ok_lfs then
+            pcall(lfs.mkdir, dir)
+        else
+            os.execute("mkdir -p '" .. dir .. "' 2>/dev/null")
+        end
+    end
+    local path = dir .. "ip-reputation-flagged.json"
     local tmp = path .. ".tmp"
     local f = io.open(tmp, "w")
     if not f then
