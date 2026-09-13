@@ -867,7 +867,7 @@
       })) return;
       wafRolling.value = true;
       try {
-        const d = await api('POST', '/verynginx/waf/rules/rollback', { version: version });
+        const d = await api('POST', '/verynginx/waf/rules/rollback', { version: btn.version });
         if (d.ret === 'success') {
           await loadWafRules();
         } else {
