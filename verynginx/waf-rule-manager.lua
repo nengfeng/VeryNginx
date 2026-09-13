@@ -132,18 +132,45 @@ local WRIATBLE_DIR_KEY = "waf_rules:writable_dir"
 -- surface in this module).
 local function mkdir_recursive(path)
     if not path or path == "" then return end
+    -- Strip trailing slash(es): `lfs.attributes` / `lfs.mkdir` on a
+    -- trailing-slash path behave inconsistently, and `current:match("^(.-)/[^/]+$")`
+    -- fails to advance when current ends in "/", leaving a single-level parts
+    -- list whose lfs.mkdir silently fails (lfs.mkdir is not recursive).
+    local p = path:gsub("/+$", "")
+    if p == "" then p = "/" end
     local ok_lfs, lfs = pcall(require, "lfs")
     if ok_lfs then
+        -- Walk up from the leaf to the first existing directory, collecting
+        -- each missing component bottom-up.
         local parts = {}
-        local current = path
-        while current and current ~= "" do
-            if lfs.attributes(current, "mode") == "directory" then break end
+        local current = p
+        while current and current ~= "/" do
+            local attr = lfs.attributes(current, "mode")
+            if attr == "directory" then break end
             table.insert(parts, 1, current)
-            current = current:match("^(.-)/[^/]+$")
+            local parent = current:match("^(.*)/[^/]*$")
+            if not parent or parent == current then
+                current = "/"
+            else
+                current = parent
+            end
         end
         for _, d in ipairs(parts) do
-            lfs.mkdir(d)
+            -- lfs.mkdir returns (true) or (false, err) when the parent does
+            -- not exist — verify instead of assuming success, and fall back
+            -- to the shell if the leaf was not created (a half-created tree
+            -- must not leak into ensure_writable_dir's probe).
+            local mok, merr = lfs.mkdir(d)
+            if not mok then
+                ngx.log(ngx.WARN, "waf-rule-manager: mkdir ", d, " failed: ",
+                    tostring(merr or "unknown"))
+            end
             pcall(function() lfs.chmod(d, 755) end)
+        end
+        if lfs.attributes(p, "mode") ~= "directory" then
+            ngx.log(ngx.WARN, "waf-rule-manager: lfs mkdir did not materialize ",
+                p, "; falling back to shell")
+            os.execute("mkdir -p '" .. p .. "' 2>/dev/null")
         end
         return
     end
@@ -153,17 +180,11 @@ local function mkdir_recursive(path)
     -- it is safe. AGENTS.md §1.5: do NOT use io.popen().close()'s exit
     -- code to judge success; instead, verify the leaf directory actually
     -- exists afterwards.
-    os.execute("mkdir -p '" .. path .. "' 2>/dev/null")
-    -- path may end in a slash (e.g. "configs/"); strip it and probe the
-    -- leaf dir itself to confirm the fallback mkdir actually ran. AGENTS.md
-    -- §1.5: do not trust the os.execute return value for success — verify
-    -- the artifact instead.
-    local probe_dir = path:gsub("/+$", "")  -- strip one or more trailing slashes
-    if probe_dir == "" then probe_dir = "/" end
-    local probe = io.open(probe_dir .. "/.waf_probe", "w")
+    os.execute("mkdir -p '" .. p .. "' 2>/dev/null")
+    local probe = io.open(p .. "/.waf_probe", "w")
     if probe then
         probe:close()
-        os.remove(probe_dir .. "/.waf_probe")
+        os.remove(p .. "/.waf_probe")
     else
         ngx.log(ngx.ERR, "waf-rule-manager: mkdir -p may have failed for ", path)
     end
@@ -186,11 +207,29 @@ local function ensure_writable_dir()
     local primary = config.resolve_path() .. "configs/"
     mkdir_recursive(primary)
     local f = io.open(primary .. ".waf_write_test", "w")
-    if f then f:close(); os.remove(primary .. ".waf_write_test") _writable_base = primary
+    if f then
+        f:close()
+        os.remove(primary .. ".waf_write_test")
+        _writable_base = primary
     else
+        -- primary is not writable (e.g. CI runner where /opt/verynginx is
+        -- absent or read-only): fall back to /tmp, but verify the fallback
+        -- directory actually materialized before committing to it.
         local fallback = "/tmp/verynginx/configs/"
         mkdir_recursive(fallback)
-        _writable_base = fallback
+        local fb_probe = io.open(fallback .. ".waf_write_test", "w")
+        if fb_probe then
+            fb_probe:close()
+            os.remove(fallback .. ".waf_write_test")
+            _writable_base = fallback
+        else
+            -- last resort: reuse primary even if the probe failed, so the
+            -- caller surfaces a real path rather than a phantom /tmp dir
+            -- that makes every subsequent io.open raise "No such file".
+            ngx.log(ngx.ERR, "waf-rule-manager: configs dir not writable "
+                .. "(primary=", primary, " fallback=", fallback, ")")
+            _writable_base = primary
+        end
     end
 
     if shared then
@@ -400,10 +439,27 @@ function _M._save_rules_unlocked(rules, action, expected_version)
         local backups = {}
         local ok, lfs = pcall(require, "lfs")
         if ok then
-            for f in lfs.dir(dir) do
-                if f:match("^waf%-rules%-backup%-") then
-                    backups[#backups + 1] = dir .. f
+            -- lfs.dir returns a C iterator whose state lives in a userdata;
+            -- wrapping the lfs.dir CALL in pcall detaches that state, so the
+            -- returned function yields nil and the for-iterator raises
+            -- "directory metatable expected, got nil". Pre-check the dir
+            -- instead, and pcall the loop body itself.
+            if lfs.attributes(dir, "mode") ~= "directory" then
+                ngx.log(ngx.WARN, "waf-rule-manager: backup prune skipped, ",
+                    dir, " not a directory")
+                return
+            end
+            local ok_dir, err_dir = pcall(function()
+                for f in lfs.dir(dir) do
+                    if f:match("^waf%-rules%-backup%-") then
+                        backups[#backups + 1] = dir .. f
+                    end
                 end
+            end)
+            if not ok_dir then
+                ngx.log(ngx.WARN, "waf-rule-manager: backup prune skipped: ",
+                    tostring(err_dir))
+                return
             end
         else
             local fh = io.popen('ls -1t "' .. dir .. '"waf-rules-backup-* 2>/dev/null', "r")
