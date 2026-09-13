@@ -1104,6 +1104,24 @@
     view('dismissRec', dismissRec);
     view('wafRollback', wafRollback);
     view('wafRestoreDefaults', wafRestoreDefaults);
+
+    // Per-row rollback target in the history tab. Rolling back TO a record
+    // restores the state AS OF after that record's action — for a 删除 row
+    // that means the deleted rule stays gone, which reads as "回滚没效果".
+    // User intent on that row is UNDO: restore the PREVIOUS record's state
+    // (the world before the deletion). The oldest record has no previous
+    // state in history — its button is hidden with a hint.
+    function wafRollbackBtn(idx) {
+      const h = wafHistory.value[idx];
+      if (!h) return null;
+      if (h.action === 'delete' && idx > 0) {
+        const prev = wafHistory.value[idx - 1];
+        if (prev && prev.rule_data) return { version: prev.version, label: '撤销删除' };
+        return { version: null, label: '回滚' };
+      }
+      return { version: h.version, label: '回滚' };
+    }
+    view('wafRollbackBtn', wafRollbackBtn);
     view('wafDeleteRule', wafDeleteRule);
     view('wafToggleRule', wafToggleRule);
     view('wafPage', wafPage);

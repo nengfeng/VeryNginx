@@ -904,12 +904,20 @@
             <table>
                <thead><tr><th>版本</th><th>时间戳</th><th>动作</th><th>规则数</th><th></th></tr></thead>
               <tbody>
-                <tr v-for="h in wafHistory" :key="h.version">
+                <tr v-for="(h, idx) in wafHistory" :key="h.version">
                   <td>{{ h.version }}</td>
                   <td style="white-space:nowrap">{{ h.timestamp }}</td>
                   <td><span class="tag">{{ h.action }}</span></td>
                   <td>{{ h.rule_count }}</td>
-                   <td><button class="outline small" @click="wafRollback(h.version)" :disabled="wafRolling">回滚</button></td>
+                  <td>
+                    <button v-if="wafRollbackBtn(idx) && wafRollbackBtn(idx).version !== null"
+                            class="outline small"
+                            @click="wafRollback(wafRollbackBtn(idx).version)"
+                            :disabled="wafRolling"
+                            :title="h.action === 'delete' ? '撤销这次删除：恢复到删除前的规则集' : '恢复到该版本的规则集'">
+                      {{ wafRollbackBtn(idx).label }}
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>
