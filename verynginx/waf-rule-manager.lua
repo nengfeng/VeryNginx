@@ -817,7 +817,10 @@ function _M.restore_defaults()
     end
 
     -- Validate candidates up front; an invalid factory rule is reported as
-    -- skipped instead of aborting the whole restore.
+    -- skipped instead of aborting the whole restore. Entries that lack an
+    -- id cannot be matched additively — count them in skipped too so the
+    -- dashboard's "skipped N" number reflects every junk entry, not just
+    -- the malformed ones that happen to carry an id.
     local valid_defaults, skipped = {}, {}
     for _, dr in ipairs(data.rules) do
         if type(dr) == "table" and dr.id then
@@ -827,6 +830,8 @@ function _M.restore_defaults()
             else
                 skipped[#skipped + 1] = dr.id .. " (" .. tostring(verr) .. ")"
             end
+        else
+            skipped[#skipped + 1] = "(no id)"
         end
     end
 
@@ -846,10 +851,10 @@ function _M.restore_defaults()
         return result
     end
 
-    local ok, err = _M.save_rules(merged, "restore_defaults",
+    local save_ok, save_err = _M.save_rules(merged, "restore_defaults",
         rules_obj and rules_obj.version)
-    if not ok then
-        return nil, "save failed: " .. tostring(err)
+    if not save_ok then
+        return nil, "save failed: " .. tostring(save_err)
     end
     return result
 end
