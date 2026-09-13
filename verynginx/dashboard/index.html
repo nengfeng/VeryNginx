@@ -2066,15 +2066,17 @@
     </div>
   <!-- Rule Editor Modal -->
   <div class="modal-overlay" v-if="wafEditModal.show" @click.self="wafEditModal.show=false">
-    <div class="modal" style="max-width:640px">
+    <div class="modal" style="max-width:720px">
        <h3>{{ wafEditModal.mode === 'create' ? '创建规则' : '编辑规则' }}: {{ wafEditModal.name || '(新)' }}</h3>
-      <div class="field">
-         <label>名称 *</label>
-         <input v-model="wafEditModal.name" type="text" placeholder="规则名称">
-      </div>
-      <div class="field">
-         <label>说明</label>
-         <input v-model="wafEditModal.description" type="text" placeholder="可选说明">
+      <div class="grid-2 mb-8">
+        <div class="field">
+          <label>名称 *</label>
+          <input v-model="wafEditModal.name" type="text" placeholder="规则名称">
+        </div>
+        <div class="field">
+          <label>说明</label>
+          <input v-model="wafEditModal.description" type="text" placeholder="可选说明">
+        </div>
       </div>
       <div class="grid-2 mb-8">
         <div class="field">
@@ -2104,7 +2106,7 @@
            </select>
         </div>
       </div>
-      <div class="grid-2 mb-8">
+      <div class="grid-3 mb-8">
         <div class="field">
            <label>动作 *</label>
            <select v-model="wafEditModal.action" style="width:100%" title="阻止=返回403阻断请求；放行=允许通过；记录=仅记日志不拦截；质询=要求浏览器执行JS验证（防自动化工具，用户无感知）">
@@ -2118,14 +2120,14 @@
            <label>状态码</label>
            <input v-model.number="wafEditModal.code" type="number" placeholder="403" min="200" max="599" title="动作=阻止时返回的 HTTP 状态码，默认 403；动作=质询时通常用 200 返回 JS 挑战页">
         </div>
+        <div class="field">
+           <label>标签 (逗号分隔)</label>
+           <input v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union" title="用于规则分类和搜索，不影响匹配行为">
+        </div>
       </div>
       <div class="field">
          <label>匹配器 (JSON) *</label>
         <textarea v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}' title='{"URI": {"operator":"≈","value":"/admin"}} 匹配 URI 字段；operator ≈ 正则匹配，= 精确匹配；支持 URI/IP/UA/Host/Referer/Header/Cookie/Args/Method 等字段'></textarea>
-      </div>
-      <div class="field">
-         <label>标签 (逗号分隔)</label>
-         <input v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union, injection" title="用于规则分类和搜索，不影响匹配行为，可填写多个用逗号分隔">
       </div>
       <div class="field">
          <label><input type="checkbox" v-model="wafEditModal.rateLimitEnabled"> 速率限制</label>
