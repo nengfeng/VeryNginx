@@ -2127,7 +2127,7 @@
       </div>
       <div class="field">
          <label>匹配器 (JSON) *</label>
-        <textarea v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}' title='{"URI": {"operator":"≈","value":"/admin"}} 匹配 URI 字段；operator ≈ 正则匹配，= 精确匹配；支持 URI/IP/UA/Host/Referer/Header/Cookie/Args/Method 等字段'></textarea>
+        <textarea v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:90px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}' title='{"URI": {"operator":"≈","value":"/admin"}} 匹配 URI 字段；operator ≈ 正则匹配，= 精确匹配；支持 URI/IP/UA/Host/Referer/Header/Cookie/Args/Method 等字段'></textarea>
       </div>
       <div class="field">
          <label><input type="checkbox" v-model="wafEditModal.rateLimitEnabled"> 速率限制</label>
@@ -2140,7 +2140,7 @@
       <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
       <div v-if="wafEditModal.mode === 'edit' && wafDiffLines.length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
         <div style="background:#f9fafb;padding:6px 12px;font-size:12px;font-weight:600;color:#374151;border-bottom:1px solid #e0e3eb">变更预览</div>
-        <div style="max-height:200px;overflow-y:auto;font-family:ui-monospace,monospace;font-size:12px;background:#fff">
+        <div style="max-height:120px;overflow-y:auto;font-family:ui-monospace,monospace;font-size:12px;background:#fff">
           <div v-for="(d,i) in wafDiffLines" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
             {{ d.type === 'added' ? '+' : '-' }} {{ d.text }}
           </div>

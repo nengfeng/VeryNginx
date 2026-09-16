@@ -14,6 +14,9 @@ button.small{padding:4px 10px;font-size:12px}
 button.outline{background:transparent;border:1px solid var(--border);color:var(--text)}
 button.outline:hover{background:var(--bg)}
 input,select,textarea{border:1px solid var(--border);border-radius:6px;padding:8px 12px;width:100%;background:var(--card)}
+/* Checkboxes/radios must not inherit the width:100% input rule — a full-width
+   checkbox renders as a wide box with the tick floating in the middle. */
+input[type="checkbox"],input[type="radio"]{width:auto;padding:0;margin:0;vertical-align:middle}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--primary);outline-offset:-1px}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
@@ -32,7 +35,10 @@ pre{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;overflow:aut
 textarea.code-editor{background:#1a1a2e;color:#e0e3eb;padding:16px;border-radius:8px;border:none;width:100%;font:13px/1.5 monospace;resize:vertical;min-height:200px;box-sizing:border-box}
 textarea.code-editor:focus{outline:1px solid var(--primary)}
 .card{background:var(--card);border-radius:10px;padding:20px;border:1px solid var(--border);margin-bottom:16px}
-.grid{display:grid;gap:16px}.grid-2{grid-template-columns:1fr 1fr}.grid-3{grid-template-columns:1fr 1fr 1fr}.grid-4{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+/* .grid-N must be self-sufficient: they used to only set grid-template-columns
+   and relied on a separate .grid for display:grid, so any `class="grid-2"`
+   without `grid` silently rendered as a single stacked column. */
+.grid{display:grid;gap:16px}.grid-2,.grid-3,.grid-4{display:grid;gap:16px}.grid-2{grid-template-columns:1fr 1fr}.grid-3{grid-template-columns:1fr 1fr 1fr}.grid-4{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
 .flex{display:flex;align-items:center}.flex-between{justify-content:space-between}.gap-8{gap:8px}.gap-16{gap:16px}
 .mb-8{margin-bottom:8px}.mb-16{margin-bottom:16px}.mt-16{margin-top:16px}
 .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
@@ -129,11 +135,24 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .dot.gray{background:#9ca3af}
 /* Modal overlay */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:200}
-.modal{background:var(--card);border-radius:12px;padding:24px;width:90%;max-width:500px;max-height:80vh;overflow-y:auto}
+.modal{background:var(--card);border-radius:12px;padding:24px;width:90%;max-width:500px;max-height:86vh;overflow-y:auto}
 .modal h3{font-size:16px;margin-bottom:16px}
 .modal .field{margin-bottom:12px}
+/* Inside a grid row the cell gap already provides vertical rhythm; the field's
+   own margin-bottom would double it (12px + 16px gap). */
+.modal .grid-2>.field,.modal .grid-3>.field,.modal .grid-4>.field{margin-bottom:0}
 .modal .field label{display:block;font-size:12px;font-weight:600;margin-bottom:3px;color:var(--muted)}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+/* Modals keep their multi-column rows below the generic 768px breakpoint —
+   otherwise a ~700px browser window stacks every field and the tall form
+   scrolls inside the modal. Only a genuine phone width (<560px) stacks. */
+@media(max-width:768px){
+  .modal .grid-2{grid-template-columns:1fr 1fr}
+  .modal .grid-3{grid-template-columns:1fr 1fr 1fr}
+}
+@media(max-width:560px){
+  .modal .grid-2,.modal .grid-3{grid-template-columns:1fr}
+}
 /* Inline JSON */
 .json-inline{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:768px){
