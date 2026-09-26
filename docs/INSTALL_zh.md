@@ -276,6 +276,41 @@ docker run -d --name=verynginx \
 
 ---
 
+## 方法五：LNMP 集成（install-lnmp.sh）
+
+如果你已经用 [LNMP](https://github.com/nengfeng/lnmp) 装好了 Nginx + PHP 环境，直接用 `install-lnmp.sh` 把 VeryNginx 装到现有 LNMP 之上：
+
+```bash
+cd VeryNginx
+sudo bash install-lnmp.sh
+```
+
+脚本会自动：检测 LNMP 的 Nginx（含 lua-nginx-module）、把文件安装到 `/opt/verynginx/`、向 `nginx.conf` 的 http 块注入 Lua 包路径 / shared dict / init 逻辑 / resolver 等，并可选择安装 Firewall Helper（内核 IP 拦截）。
+
+### 给站点加保护
+
+**后续新增的 vhost 自动受保护**。VeryNginx 安装之后，正常用 LNMP 添加站点即可——`lnmp vhost add` 会检测到 VeryNginx，自动把 WAF 处理器写进新生成的 vhost：
+
+```bash
+lnmp vhost add   # 按提示填域名，生成的 vhost 自带 VeryNginx 保护
+```
+
+**安装 VeryNginx 之前已创建的 vhost 不会自动补**，需要手动在它的 `server {}` 块里加三行处理器（不要 include 完整的 `in_server_block.conf`——它自带的 `location /` 会与 vhost 自己的 `location /` 冲突）：
+
+```nginx
+rewrite_by_lua_file /opt/verynginx/on_rewrite.lua;
+access_by_lua_file  /opt/verynginx/on_access.lua;
+log_by_lua_file     /opt/verynginx/on_log.lua;
+location /verynginx/static/ { alias /opt/verynginx/dashboard/; expires epoch; }
+location /verynginx/ { }
+```
+
+改完执行 `nginx -t && systemctl reload nginx` 生效。
+
+> **不安装 VeryNginx 时**，`lnmp vhost add` 生成的 vhost 与普通 LNMP 站点完全一致，不受任何影响。
+
+---
+
 ## 安装后配置
 
 ### 设置管理员密码
