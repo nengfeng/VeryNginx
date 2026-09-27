@@ -39,7 +39,7 @@ _G.ngx.var = {
 }
 
 -- ---- config fake (statistics-only; resolve_path for persist/restore) ----
-package.preload["core.config"] = function()
+local function make_fake_config()
     return {
         statistics = { max_hosts = 50, max_uri_keys = 10000 },
         resolve_path = function() return "/tmp/vn_stats_test" end,
@@ -51,6 +51,8 @@ local _orig_random = math.random
 
 describe("statistics per-host dimension", function()
     before_each(function()
+        package.preload["core.config"] = make_fake_config
+        package.loaded["core.config"] = nil
         package.loaded["core.statistics"] = nil
         package.loaded["core.dict_guard"] = nil
         _G.ngx.shared.statistics = new_mock_dict()
