@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vndashboard'] = function createvndashboardModule(shared) {
-        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, sessionExpiredNotice, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls, refreshPollActivePages, asList } = shared;
+        const { ctx, view, api, store, page, dashTab, advTab, cfgTab, loading, loginUser, loginPass, loginError, sessionExpiredNotice, status, connHistory, cfg, healthData, overview, dictUsage, rawJson, statsData, statsType, statsHost, statsHosts, statsError, versionInfo, topPaths, refreshCsrf, showToast, registerPoll, syncPolls, stopAllPolls, refreshPollActivePages, asList } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -213,7 +213,7 @@
     // Stats tab: load on entry (tab click OR returning to the page), so the
     // stats view is never stale after navigating away and back.
     watch([page, dashTab], ([p, d]) => {
-      if (p === 'dashboard' && d === 'stats' && store.loggedIn) loadStats();
+      if (p === 'dashboard' && d === 'stats' && store.loggedIn) { loadStats(); loadHosts(); }
     });
 
     // Advanced tab load (fingerprints / audit) - late-bound via shared
@@ -270,7 +270,8 @@
       const tok = gStats.mark();
       statsError.value = '';
       try {
-        statsData.value = await api('GET', `/verynginx/summary?type=${statsType.value}`);
+        const q = statsHost.value ? `&host=${encodeURIComponent(statsHost.value)}` : '';
+        statsData.value = await api('GET', `/verynginx/summary?type=${statsType.value}${q}`);
         if (!gStats.isCurrent(tok)) return;
       } catch (e) {
         if (gStats.isCurrent(tok)) statsError.value = e.message;
@@ -546,12 +547,31 @@
     // ---- Top Paths ----
     async function loadTopPaths() {
       try {
-        const d = await api('GET', '/verynginx/stats/top-paths?limit=20');
+        const q = statsHost.value ? `&host=${encodeURIComponent(statsHost.value)}` : '';
+        const d = await api('GET', `/verynginx/stats/top-paths?limit=20${q}`);
         if (d.ret === 'success') {
           topPaths.value = asList(d.data);
         }
       } catch (e) {
         console.warn('Top paths load failed:', e.message);
+      }
+    }
+
+
+    // ---- Host filter (per-host stats) ----
+    async function loadHosts() {
+      try {
+        const d = await api('GET', '/verynginx/stats/hosts');
+        if (d.ret === 'success') {
+          statsHosts.value = asList(d.data);
+          // If the selected host no longer exists, fall back to "all hosts"
+          if (statsHost.value && statsHosts.value.indexOf(statsHost.value) === -1) {
+            statsHost.value = '';
+            loadStats();
+          }
+        }
+      } catch (e) {
+        console.warn('Hosts load failed:', e.message);
       }
     }
 

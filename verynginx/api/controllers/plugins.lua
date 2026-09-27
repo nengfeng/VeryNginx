@@ -101,13 +101,25 @@ local function handle_get_upstream_health()
     return json.encode({ ret = "success", data = upstreams_data })
 end
 
---- GET /stats/top-paths - top N request paths by count
+--- GET /stats/top-paths - top N request paths by count (optional ?host=)
 local function handle_top_paths()
     local limit = tonumber(ngx.var.arg_limit) or 20
     if limit > 100 then limit = 100 end
     local stats_mod = require "core.statistics"
-    local paths = stats_mod.get_top_paths(limit)
+    local host = ngx.var.arg_host
+    if host ~= nil and host ~= "" and not stats_mod.valid_host_param(host) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid host" })
+    end
+    local paths = stats_mod.get_top_paths(limit, host)
     return json.encode({ ret = "success", data = paths })
+end
+
+--- GET /stats/hosts - list observed hosts (union of 1m + all buckets)
+local function handle_get_hosts()
+    local stats_mod = require "core.statistics"
+    local hosts = stats_mod.get_hosts()
+    return json.encode({ ret = "success", data = hosts })
 end
 
 function _M.register(api)
@@ -115,6 +127,7 @@ function _M.register(api)
     api.register("GET",  "/plugins",            handle_list_plugins,        true)
     api.register("POST", "/plugins/:id/toggle",  handle_toggle_plugin,       true)
     api.register("GET",  "/stats/top-paths",     handle_top_paths,           true)
+    api.register("GET",  "/stats/hosts",         handle_get_hosts,           true)
 end
 
 return _M

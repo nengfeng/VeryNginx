@@ -625,6 +625,10 @@
     view('statsData', statsData);
     const statsType = ref('long');
     view('statsType', statsType);
+    const statsHost = ref('');
+    view('statsHost', statsHost);
+    const statsHosts = ref([]);
+    view('statsHosts', statsHosts);
     const statsError = ref('');
     view('statsError', statsError);
     const expandedUri = ref(null);

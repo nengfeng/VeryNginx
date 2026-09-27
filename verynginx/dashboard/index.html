@@ -521,6 +521,10 @@
                <option value="medium">5 分钟</option>
                <option value="short">临时</option>
             </select>
+            <select v-if="statsHosts.length" v-model="statsHost" style="width:auto" @change="loadStats">
+               <option value="">全部主机</option>
+               <option v-for="h in statsHosts" :key="h" :value="h">{{ h }}</option>
+            </select>
              <button class="outline small" @click="loadStats">刷新</button>
           </div>
         </div>

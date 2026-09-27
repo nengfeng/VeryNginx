@@ -88,7 +88,13 @@ end
 --- GET /summary - return request statistics
 local function handle_get_summary()
     local args = ngx.req.get_uri_args()
-    return require("core.statistics").report(args.type or "short")
+    local stats = require "core.statistics"
+    local host = args.host
+    if host ~= nil and host ~= "" and not stats.valid_host_param(host) then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "invalid host" })
+    end
+    return stats.report(args.type or "short", host)
 end
 
 --- GET /csrf - return a CSRF token (stored in session for later verification)

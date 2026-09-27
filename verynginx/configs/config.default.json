@@ -30,7 +30,8 @@
         "buckets": ["1m", "5m", "1h", "all"],
         "flush_interval": 60,
         "persist_interval": 300,
-        "max_uri_keys": 10000
+        "max_uri_keys": 10000,
+        "max_hosts": 50
     },
     "observability": {
         "metrics": true,
