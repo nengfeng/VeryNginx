@@ -55,6 +55,7 @@ describe("statistics per-host dimension", function()
         package.loaded["core.dict_guard"] = nil
         _G.ngx.shared.statistics = new_mock_dict()
         math.random = function() return 1 end  -- force the 1-in-10 sample hit
+        os.execute("rm -rf /tmp/vn_stats_test 2>/dev/null")
     end)
 
     after_each(function()
@@ -69,11 +70,20 @@ describe("statistics per-host dimension", function()
         local stats = require "core.statistics"
         assert.are.equal("example.com", stats.normalize_host("Example.COM"))
         assert.are.equal("example.com", stats.normalize_host("example.com."))
-        assert.are.equal("_1__", stats.normalize_host("[::1]"))
-        assert.are.equal("_", stats.normalize_host(""))
-        assert.are.equal("_", stats.normalize_host(nil))
+        assert.are.equal("___1_", stats.normalize_host("[::1]"))
+        -- empty/nil falls back to server_name (stub = "example.com")
+        assert.are.equal("example.com", stats.normalize_host(""))
+        assert.are.equal("example.com", stats.normalize_host(nil))
         -- length bound
         assert.are.equal(64, #stats.normalize_host(string.rep("a", 100)))
+    end)
+
+    it("normalize_host yields _ when both host and server_name are empty", function()
+        local stats = require "core.statistics"
+        local saved = _G.ngx.var.server_name
+        _G.ngx.var.server_name = ""
+        assert.are.equal("_", stats.normalize_host(nil))
+        _G.ngx.var.server_name = saved
     end)
 
     it("valid_host_param accepts normalized tokens only", function()
