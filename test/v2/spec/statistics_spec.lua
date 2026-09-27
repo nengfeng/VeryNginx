@@ -72,10 +72,29 @@ describe("Statistics worker initialization", function()
         assert.are.equal(1, restore_calls)
     end)
 
-    it("merges persisted data without replacing live statistics", function()
+    it("merges persisted v2 data without replacing live statistics", function()
         config.statistics = { max_uri_keys = 3 }
-        ngx.shared.statistics:set("index:all", '["/live"]')
-        ngx.shared.statistics:set("all:/live:count", 5)
+        ngx.shared.statistics:set("index:all:example.com", '["/live"]')
+        ngx.shared.statistics:set("all:example.com:/live:count", 5)
+        temp_path = os.tmpname()
+        local f = assert(io.open(temp_path, "w"))
+        f:write('{"v":2,"data":{"example.com":{"/persisted":{"count":2,"bytes":20,"time":0.5}}}}')
+        f:close()
+        statistics._json_path = function() return temp_path end
+
+        statistics.restore()
+
+        local index = require("dkjson").decode(ngx.shared.statistics:get("index:all:example.com"))
+        assert.are.equal(2, #index)
+        assert.are.equal("/live", index[1])
+        assert.are.equal(5, ngx.shared.statistics:get("all:example.com:/live:count"))
+        assert.are.equal(2, ngx.shared.statistics:get("all:example.com:/persisted:count"))
+    end)
+
+    it("skips legacy flat (v1) persisted data", function()
+        config.statistics = { max_uri_keys = 3 }
+        ngx.shared.statistics:set("index:all:example.com", '["/live"]')
+        ngx.shared.statistics:set("all:example.com:/live:count", 5)
         temp_path = os.tmpname()
         local f = assert(io.open(temp_path, "w"))
         f:write('{"/persisted":{"count":2,"bytes":20,"time":0.5}}')
@@ -84,10 +103,9 @@ describe("Statistics worker initialization", function()
 
         statistics.restore()
 
-        local index = require("dkjson").decode(ngx.shared.statistics:get("index:all"))
-        assert.are.equal(2, #index)
-        assert.are.equal("/live", index[1])
-        assert.are.equal(5, ngx.shared.statistics:get("all:/live:count"))
-        assert.are.equal(2, ngx.shared.statistics:get("all:/persisted:count"))
+        -- Legacy flat format is dropped: live data untouched, nothing restored
+        assert.are.equal('["/live"]', ngx.shared.statistics:get("index:all:example.com"))
+        assert.are.equal(5, ngx.shared.statistics:get("all:example.com:/live:count"))
+        assert.is_nil(ngx.shared.statistics:get("all:example.com:/persisted:count"))
     end)
 end)
