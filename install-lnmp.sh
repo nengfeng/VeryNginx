@@ -179,17 +179,35 @@ install_files() {
   if command -v rsync >/dev/null 2>&1; then
     # Mirror the source tree so files DELETED upstream don't linger across
     # version upgrades (stale Lua modules keep being loaded — package.path
-    # hits them first). Runtime-mutable paths are excluded from deletion.
+    # hits them first). The whole configs/ tree is preserved except the two
+    # default templates, so runtime config (config.json, waf-rules.json),
+    # accumulated state (waf-rule-stats.json, waf-recent-hits.json,
+    # kernel-blocking-state.json, ip-reputation-flagged.json, …) and
+    # backups/ all survive upgrades — future runtime files are covered
+    # automatically without listing each one. geoip/ holds downloaded DBs.
     rsync -a --delete \
-      --exclude "configs/config.json" \
-      --exclude "configs/waf-rules.json" \
-      --exclude "configs/backups/" \
+      --include "configs/config.default.json" \
+      --include "configs/waf-rules.default.json" \
+      --exclude "configs/*" \
       --exclude "geoip/" \
       "${src_dir}/verynginx/" "${VN_DIR}/"
     info "Synced files (rsync mirror, runtime data preserved) ✓"
   else
-    # No rsync: plain copy (leaves upstream-deleted residue; noted).
-    cp -r "${src_dir}/verynginx/"* "${VN_DIR}/"
+    # No rsync: plain copy (leaves upstream-deleted residue; noted). Copy
+    # everything except configs/, then only the two default templates into
+    # configs/ — so runtime config, accumulated state and backups are
+    # preserved here too (a bare `cp -r src/* dst/` would clobber the live
+    # config.json and waf-rules.json, wiping the admin password and rules).
+    local item base
+    for item in "${src_dir}/verynginx/"*; do
+      base="$(basename "$item")"
+      [ "$base" = "configs" ] && continue
+      cp -r "$item" "${VN_DIR}/"
+    done
+    mkdir -p "${VN_DIR}/configs"
+    cp "${src_dir}/verynginx/configs/config.default.json" \
+       "${src_dir}/verynginx/configs/waf-rules.default.json" \
+       "${VN_DIR}/configs/" 2>/dev/null || true
     info "Copied files ✓ (install rsync for stale-file cleanup on upgrades)"
   fi
 
