@@ -1,6 +1,6 @@
 {
-  "version": 8,
-  "timestamp": "2026-06-29T04:48:04Z",
+  "version": 9,
+  "timestamp": "2026-10-10T20:22:16Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -11,17 +11,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "\\bunion\\b.+\\bselect\\b"
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "\\bunion\\b(?:[\\s/*]+all)?[\\s/*]*select\\b[\\s/*]*(?:\\*|\\(|\\d|null\\b|distinct\\b|'[^']*'|\\\"[^\\\"]*\\\"|[^;]{0,100}?\\bfrom\\b)"
+              }
+            }
+          ]
         }
       },
       "description": "Detects UNION-based SQL injection attempts in request parameters",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -33,17 +68,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "(?:\\b(or|and)\\s+[\\w\\s'\\\"`]+\\s*[=<>])|(?:['\\\"]\\s*(?:or|and)\\s+['\\\"]\\s*[=<>]['\\\"])"
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "\\b(?:or|and)\\b\\s*['\\\"]?\\d+['\\\"]?\\s*[=<>]|['\\\"]\\s*(?:or|and)\\s*['\\\"][^'\\\"]*['\\\"]\\s*[=<>]\\s*['\\\"]"
+              }
+            }
+          ]
         }
       },
       "description": "Detects tautology-based SQLi like ' OR 1=1",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -55,17 +125,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "(?:--[\\s]|#|/\\*!|;\\s*(?:drop|truncate|exec|declare|alter|create|insert|update|delete))"
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "(?:;|&&)\\s*(?:drop|truncate|exec|declare|alter|create|insert|update|delete|rename|grant)\\b"
+              }
+            }
+          ]
         }
       },
       "description": "Detects SQL comments and stacked query keywords",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -77,17 +182,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "<script[\\s>]"
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "value": "<script[\\s>]",
+                "name_operator": "*",
+                "operator": "≈"
+              }
+            }
+          ]
         }
       },
       "description": "Detects <script> tag injection in parameters",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -99,17 +239,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "\\bon\\w+\\s*="
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "\\b(?:onerror|onload|onclick|onmouseover|onmouseout|onmousedown|onmouseup|onfocus|onblur|onchange|onsubmit|onreset|onselect|onkeydown|onkeyup|onkeypress|oninput|ontoggle|onanimationstart|ontransitionstart)\\s*="
+              }
+            }
+          ]
         }
       },
       "description": "Detects HTML/JS event handler injection (onload, onerror, onclick, etc.)",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -142,17 +317,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:\\b(?:cmd|powershell|bash|sh|python|perl|wget|curl)\\b)?"
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*\\b(?:cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|wget|curl|nc|ncat)\\b"
+              }
+            }
+          ]
         }
       },
       "description": "Detects shell metacharacters in parameters indicating command injection",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -164,17 +374,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "\\b(?:system|exec|passthru|shell_exec|popen|proc_open|eval|assert|create_function|call_user_func|array_map)\\s*\\("
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "value": "\\b(?:system|exec|passthru|shell_exec|popen|proc_open|eval|assert|create_function|call_user_func|array_map)\\s*\\(",
+                "name_operator": "*",
+                "operator": "≈"
+              }
+            }
+          ]
         }
       },
       "description": "Detects PHP function injection attempts",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -186,17 +431,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "https?://[^\\s'\\\"<>]+"
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "(?:gopher|dict|jar)://|https?://(?:localhost|127(?:\\.\\d+){3}|0\\.0\\.0\\.0|\\[?::1\\]?|169\\.254\\.169\\.254|metadata\\.google\\.internal|10(?:\\.\\d+){3}|192\\.168(?:\\.\\d+){2}|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.\\d+){2})"
+              }
+            }
+          ]
         }
       },
       "description": "Detects URL/schema injection in parameters (SSRF / remote inclusion)",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -229,17 +509,52 @@
       "enable": true,
       "priority": 100,
       "matcher": {
-        "Args": {
-          "name_operator": "*",
-          "operator": "≈",
-          "value": "php://|file://|expect://|data://|input://"
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "Header": {
+                      "name_operator": "≈",
+                      "name_value": "(?i)content-type",
+                      "operator": "≈",
+                      "value": "(?i)multipart/form-data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpMyAdmin|myadmin|pma|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "value": "php://|file://|expect://|data://|input://",
+                "name_operator": "*",
+                "operator": "≈"
+              }
+            }
+          ]
         }
       },
       "description": "Detects PHP stream wrapper usage for LFI",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -295,14 +610,14 @@
       "matcher": {
         "UserAgent": {
           "operator": "≈",
-          "value": "(?i:(?:acunetix|netsparker|nessus|nikto|openvas|w3af|appscan|burpsuite|zap|arachni|grendel|webinspect|nmap|sqlmap|hydra|medusa|ncrack|thc)"
+          "value": "(?i:(?:acunetix|netsparker|nessus|nikto|openvas|w3af|appscan|burpsuite|zap\\b|arachni|grendel|webinspect|nmap|sqlmap|hydra|medusa|ncrack|thc))"
         }
       },
       "description": "Blocks requests from known security scanning tools",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -316,14 +631,14 @@
       "matcher": {
         "URI": {
           "operator": "≈",
-          "value": "(?:/wp-admin|/administrator|/manager/html|/jmx-console|/actuator|/console|/cgi-bin/|/~root|/~admin)"
+          "value": "(?:/wp-admin|/administrator|/manager/html|/jmx-console|/actuator|/console(?:[/?#]|$)|/cgi-bin/|/~root|/~admin)"
         }
       },
       "description": "Blocks access to common sensitive/admin paths targeted by scanners (excludes /phpmyadmin for LNMP compatibility)",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -337,14 +652,14 @@
       "matcher": {
         "UserAgent": {
           "operator": "≈",
-          "value": "(?i:(?:semrush|ahrefs|majestic|mj12|dotbot|rogerbot|exabot|ltx71|turnitin)"
+          "value": "(?i:(?:semrush|ahrefs|majestic|mj12|dotbot|rogerbot|exabot|ltx71|turnitin))"
         }
       },
       "description": "Blocks known aggressive/commercial crawlers that ignore robots.txt",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
@@ -403,14 +718,14 @@
       "matcher": {
         "Referer": {
           "operator": "≈",
-          "value": "(?i:(?:shoes-online|pills|casino|viagra|cialis|buy-now|free-|click-here)"
+          "value": "(?:https?:)?//[^/\\s]*(?:shoes-online|pills|casino|viagra|cialis|buy-now|free-|click-here)[^/\\s]*"
         }
       },
       "description": "Blocks requests with known spam referrer domains",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-10T20:22:16Z",
       "created_by": "system"
     },
     {
