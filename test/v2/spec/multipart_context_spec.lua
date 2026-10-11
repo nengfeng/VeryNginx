@@ -152,6 +152,61 @@ describe("Multipart parser (core.context)", function()
         end)
     end)
 
+    describe("bypass regressions (P0)", function()
+        it("REJECTS an in-line forged boundary (WAF/backend desync)", function()
+            -- RFC 2046 / PHP rfc1867 require the delimiter at a LINE START. A
+            -- forged in-line "--B--qq" must NOT terminate parsing, so the real
+            -- field below is still captured (old parser returned args={}).
+            local data = "zz--" .. B .. "--qq\r\n" ..
+                body(part(CD .. '; name="q"', "union select 1"))
+            local args = context._parse_multipart_body(data, B, 100)
+            assert.are_equal("union select 1", args and args.q)
+        end)
+
+        it("REJECTS a forged filename= in a sibling header (field not skipped)", function()
+            -- A junk header "X-Benign: filename=skipme" must NOT turn a normal
+            -- field into a skipped "file" part. PHP ignores unknown headers and
+            -- delivers the field; the WAF must scan its content too.
+            local headers = CD .. '; name="q"\r\nX-Benign: filename=skipme'
+            local args = context._parse_multipart_body(
+                body(part(headers, "union select 1")), B, 100)
+            assert.are_equal("union select 1", args and args.q)
+        end)
+
+        it("streams a field AFTER a huge file (no tail drop)", function()
+            -- File CONTENT is streamed/discarded, so a >max_size file part
+            -- cannot hide a trailing malicious field (old parser only read
+            -- max_size bytes and silently dropped the tail).
+            local tmp = os.tmpname()
+            local fh = assert(io.open(tmp, "wb"))
+            fh:write(part(CD .. '; name="f"; filename="big.bin"', string.rep("A", 2 * 1024 * 1024)))
+            fh:write(part(CD .. '; name="q"', "union select 1"))
+            fh:write("--" .. B .. "--\r\n")
+            fh:close()
+            local f = assert(io.open(tmp, "rb"))
+            -- tiny field budget: only field bytes are counted, not file content
+            local args = context._parse_multipart_stream(f, B, 100, 4096)
+            f:close()
+            os.remove(tmp)
+            assert.are_equal("big.bin", args and args.f)
+            assert.are_equal("union select 1", args and args.q)
+        end)
+
+        it("fails closed when a single field exceeds the field budget", function()
+            local tmp = os.tmpname()
+            local fh = assert(io.open(tmp, "wb"))
+            fh:write(part(CD .. '; name="q"', string.rep("B", 10000)))
+            fh:write("--" .. B .. "--\r\n")
+            fh:close()
+            local f = assert(io.open(tmp, "rb"))
+            local args, err = context._parse_multipart_stream(f, B, 100, 4096)
+            f:close()
+            os.remove(tmp)
+            assert.is_nil(args)
+            assert.are_equal("args_truncated", err)
+        end)
+    end)
+
     describe("get_body_args integration", function()
         it("parses an in-memory multipart body, skipping file content", function()
             ngx.var.content_type = "multipart/form-data; boundary=" .. B

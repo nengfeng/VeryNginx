@@ -124,105 +124,257 @@ function _M._cd_param(headers, param)
     end
 end
 
---- Parse a multipart body already fully in memory (bounded string).
--- Returns args (table) on success; nil, err on malformed / overflow.
--- File parts (non-empty filename) have their CONTENT skipped; only the
--- filename is recorded. Non-file fields record their value. This lets the
--- Args matcher scan form-field payloads while ignoring uploaded file bytes
--- (which would otherwise false-positive on code / SQL dumps containing
--- "../", "union select", etc.).
-function _M._parse_multipart_body(data, boundary, max_args)
+--- Extract the Content-Disposition VALUE from a part's header block.
+-- Only that single header line is considered, so a forged sibling header
+-- ("X-Benign: filename=skipme") can never be mistaken for a disposition
+-- parameter — which would classify a normal field as a "file" and skip its
+-- content (a WAF-side bypass; the backend ignores unknown headers and still
+-- delivers the field).
+function _M._cd_line(headers)
+    for line in (headers .. "\n"):gmatch("([^\n]*)\n") do
+        line = (line:gsub("\r$", ""))
+        local key, value = line:match("^%s*([%w%-]+)%s*:%s*(.-)%s*$")
+        if key and key:lower() == "content-disposition" then
+            return value
+        end
+    end
+    return nil
+end
+
+--- Wrap an in-memory string as a :read(n) reader (io-handle compatible).
+function _M._string_reader(s)
+    local i = 1
+    return {
+        read = function(_, n)
+            if i > #s then return nil end
+            local chunk = s:sub(i, i + n - 1)
+            if chunk == "" then return nil end
+            i = i + #chunk
+            return chunk
+        end,
+    }
+end
+
+--- Streaming multipart/form-data parser over a :read(n) reader (io handle or
+-- string wrapper). Three properties keep the WAF in lockstep with the backend
+-- (PHP rfc1867 / Go / Node) and prevent silent payload loss:
+--   1. Delimiter detection requires an RFC 2046 LINE-START boundary, so an
+--      in-line forged token ("zz--A--qq") is not a delimiter and cannot make
+--      the WAF terminate early while the backend still parses the fields.
+--   2. Part parameters are read only from the Content-Disposition line, so a
+--      forged sibling header cannot turn a field into a skipped "file".
+--   3. The body is streamed: file CONTENT is discarded chunk-by-chunk and
+--      never buffered, so a >max_size upload cannot hide trailing fields
+--      (they are still parsed) while memory stays bounded. Field values are
+--      bounded by max_field; overflow fails CLOSED (args_truncated), the same
+--      philosophy as the urlencoded path — nothing is silently dropped.
+-- Returns args (table); nil, err on error / overflow.
+function _M._parse_multipart_stream(reader, boundary, max_args, max_field)
     local delim = "--" .. boundary
     local dlen = #delim
-    local args = {}
-    local n = 0
-    local ds = data:find(delim, 1, true)
-    if not ds then return nil, "multipart_no_boundary" end
-    local pos = ds + dlen
+    local CHUNK = 8192
+    local KEEP = dlen + 32                       -- overlap retained across reads
+    local HDR_CAP = 16384
+    local args, n = {}, 0
+    local buf = ""                               -- unconsumed bytes
+    local eof = false
+    local at_ls = true                           -- buf[1] is at a line start
+    local budget = max_field
+
+    local function fill(k)
+        while not eof and #buf < k do
+            local c = reader:read(CHUNK)
+            if not c or c == "" then eof = true else buf = buf .. c end
+        end
+    end
+
+    -- Is a full boundary (line-start + RFC terminator) present at index s?
+    local function is_bnd(s)
+        if buf:sub(s, s + dlen - 1) ~= delim then return false end
+        if s == 1 then
+            if not at_ls then return false end
+        elseif buf:sub(s - 1, s - 1) ~= "\n" then
+            return false
+        end
+        fill(s + dlen + 3)
+        local a = buf:sub(s + dlen, s + dlen + 3)
+        if a == "" then return true end
+        if a:sub(1, 2) == "--" then return true end
+        if a:match("^[ \t]*\r?\n") then return true end
+        return false
+    end
+
+    -- Consume content from buf[1] up to the next boundary. If `accumulate`,
+    -- content is collected into a string bounded by `budget`; otherwise it is
+    -- discarded (file part) without being buffered. Returns acc, err, found.
+    local function take_content(accumulate)
+        local acc = accumulate and "" or nil
+        local search = 1
+        while true do
+            fill(search + dlen + 3)
+            local s = buf:find(delim, search, true)
+            while s and not is_bnd(s) do
+                search = s + 1                                     -- in-line forgery
+                s = buf:find(delim, search, true)
+            end
+            if s then
+                local content = (buf:sub(1, s - 1):gsub("\r?\n$", ""))
+                if acc then
+                    if #acc + #content > budget then return nil, "args_truncated", true end
+                    acc = acc .. content
+                end
+                buf = buf:sub(s)
+                at_ls = true
+                return acc, nil, true
+            end
+            if eof then
+                local content = (buf:gsub("\r?\n$", ""))
+                if acc then
+                    if #acc + #content > budget then return nil, "args_truncated", false end
+                    acc = acc .. content
+                end
+                buf = ""
+                return acc, nil, false
+            end
+            -- No boundary ahead yet: pull more data. If the enlarged buffer
+            -- now contains a delimiter, leave buf INTACT so the loop top can
+            -- find it (trimming here would drop a boundary that just arrived
+            -- at the read boundary and silently swallow the following part).
+            -- Only when still absent is the settled prefix safe to discard,
+            -- keeping a delimiter-sized overlap for the next pass.
+            local oldlen = #buf
+            fill(oldlen + CHUNK)
+            if #buf == oldlen then eof = true end
+            if not buf:find(delim, search, true) then
+                local drop = #buf - KEEP
+                if drop > 0 then
+                    local chunk = buf:sub(1, drop)
+                    at_ls = (buf:sub(drop, drop) == "\n")
+                    if acc then
+                        if #acc + #chunk > budget then return nil, "args_truncated", false end
+                        acc = acc .. chunk
+                    end
+                    buf = buf:sub(drop + 1)
+                    search = math.max(1, search - drop)
+                end
+            end
+        end
+    end
+
+    local function read_headers()
+        fill(2)
+        if buf:sub(1, 2) == "\r\n" then
+            buf = buf:sub(3); at_ls = true; return ""                -- empty header block
+        end
+        fill(1)
+        if buf:sub(1, 1) == "\n" then
+            buf = buf:sub(2); at_ls = true; return ""
+        end
+        while true do
+            local sep = buf:find("\r\n\r\n", 1, true)
+            local clen = 4
+            if not sep then
+                sep = buf:find("\n\n", 1, true)
+                clen = 2
+            end
+            if sep then
+                local headers = buf:sub(1, sep - 1)
+                buf = buf:sub(sep + clen)
+                at_ls = true
+                return headers
+            end
+            if #buf > HDR_CAP then return nil, "multipart_bad_headers" end
+            if eof then
+                local headers = buf
+                buf = ""
+                return headers
+            end
+            fill(#buf + CHUNK)
+        end
+    end
+
+    local function record(name, value)
+        if n >= max_args then return nil, "args_truncated" end        -- fail closed
+        local existing = args[name]
+        if existing == nil then
+            args[name] = value
+        elseif type(existing) == "table" then
+            existing[#existing + 1] = value
+        else
+            args[name] = { existing, value }
+        end
+        n = n + 1
+        return true
+    end
+
+    -- skip the preamble; position at the first boundary
+    local _, _, found = take_content(false)
+    if not found then return nil, "multipart_no_boundary" end
+
     while true do
-        if data:sub(pos, pos + 1) == "--" then break end           -- closing delimiter
-        local nl = data:find("\n", pos, true)
-        if not nl then break end                                    -- ran out mid-boundary
-        local part_start = nl + 1
-        local nds = data:find(delim, part_start, true)
-        local part_raw
-        if nds then
-            part_raw = data:sub(part_start, nds - 1)
-        else
-            part_raw = data:sub(part_start)                         -- last / truncated part
+        if buf:sub(dlen + 1, dlen + 2) == "--" then break end         -- close-delimiter
+        local eol = buf:find("\n", 1, true)
+        while not eol and not eof do
+            fill(#buf + CHUNK)
+            eol = buf:find("\n", 1, true)
         end
-        part_raw = part_raw:gsub("\r\n$", "")                       -- strip delimiter CRLF
-        part_raw = part_raw:gsub("\n$", "")
-        local sep = part_raw:find("\r\n\r\n", 1, true)
-        local clen = 4
-        if not sep then
-            sep = part_raw:find("\n\n", 1, true)
-            clen = 2
-        end
-        local headers, content
-        if sep then
-            headers = part_raw:sub(1, sep - 1)
-            content = part_raw:sub(sep + clen)
-        else
-            headers, content = part_raw, ""
-        end
-        local name = _M._cd_param(headers, "name")
-        local filename = _M._cd_param(headers, "filename")
+        if not eol then break end                                     -- truncated
+        buf = buf:sub(eol + 1)
+        at_ls = true
+
+        local headers, herr = read_headers()
+        if herr then return nil, herr end
+        local cd = _M._cd_line(headers)
+        local name = cd and _M._cd_param(cd, "name") or nil
+        local filename = cd and _M._cd_param(cd, "filename") or nil
+        local is_file = filename and filename ~= ""
+
+        local acc, cerr, fnd = take_content(not is_file)
+        if cerr then return nil, cerr end
+
         if name and name ~= "" then
-            if n >= max_args then
-                return nil, "args_truncated"                         -- fail closed
-            end
-            local value
-            if filename and filename ~= "" then
-                value = filename                                     -- skip file content
-            else
-                value = content
-            end
-            local existing = args[name]
-            if existing == nil then
-                args[name] = value
-            elseif type(existing) == "table" then
-                existing[#existing + 1] = value
-            else
-                args[name] = { existing, value }
-            end
-            n = n + 1
+            local value = is_file and filename or (acc or "")
+            local ok, rerr = record(name, value)
+            if not ok then return nil, rerr end
         end
-        if not nds then break end
-        pos = nds + dlen
+
+        if not fnd then break end
     end
     return args, nil
 end
 
+--- Back-compat wrapper: parse a multipart body held in memory.
+function _M._parse_multipart_body(data, boundary, max_args, max_field)
+    return _M._parse_multipart_stream(
+        _M._string_reader(data), boundary, max_args, max_field or (8 * 1024 * 1024))
+end
+
 --- Parse a multipart/form-data request body (in-memory string or body file).
 -- Real uploads are buffered to a file by nginx when they exceed the body
--- buffer; we read at most config.body.max_size bytes from that file. Because
--- file CONTENT is skipped anyway, the size cap only bounds I/O and memory —
--- it never fails-closed merely because an upload is large.
+-- buffer; that file is STREAMED (never fully read into memory), so a
+-- >max_size upload cannot hide trailing fields, memory stays bounded, and
+-- large uploads never fail-closed merely for being large.
 -- Returns args (table); nil, err on error / overflow.
 function _M._parse_multipart(max_args)
     local max_size = (config and config.body and config.body.max_size) or 1048576
-    ngx.req.read_body()
-    local data = ngx.req.get_body_data()
-    if not data then
-        local body_file = ngx.req.get_body_file()
-        if not body_file then
-            return {}, nil                                           -- no body
-        end
-        local f = io.open(body_file, "rb")
-        if not f then return nil, "body_file_unreadable" end
-        data = f:read(max_size)
-        f:close()
-        if not data then return nil, "body_file_read_failed" end
-    end
-    if #data > max_size then
-        data = data:sub(1, max_size)                                 -- bound memory
-    end
     local boundary = _M._multipart_boundary(ngx.var.content_type or "")
     if not boundary or boundary == "" then
         return nil, "multipart_bad_boundary"
     end
-    return _M._parse_multipart_body(data, boundary, max_args)
+    ngx.req.read_body()
+    local data = ngx.req.get_body_data()
+    if data then
+        return _M._parse_multipart_stream(_M._string_reader(data), boundary, max_args, max_size)
+    end
+    local body_file = ngx.req.get_body_file()
+    if not body_file then
+        return {}, nil                                                   -- no body
+    end
+    local f = io.open(body_file, "rb")
+    if not f then return nil, "body_file_unreadable" end
+    local args, err = _M._parse_multipart_stream(f, boundary, max_args, max_size)
+    f:close()
+    return args, err
 end
 
 function _M.get_body_args(ctx)
