@@ -211,7 +211,11 @@ package.preload["core.config"] = function()
     end
     M.rollback = function() return true end
     M.check_update = function() end
-    M.resolve_path = function() return "/opt/verynginx/" end
+    -- Test harness must NEVER resolve to the production tree: waf-rule-manager
+    -- and friends write configs/waf-rules.json through resolve_path(), and a
+    -- real /opt/verynginx target silently overwrote production rules whenever
+    -- the suite ran. Keep every spec self-contained under /tmp.
+    M.resolve_path = function() return "/tmp/vnt-spec/" end
     M.atomic_mutate = function(fn) return fn(M) end
     setmetatable(M, {
         __index = function(_, k) return _default_config[k] end,
