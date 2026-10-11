@@ -84,8 +84,168 @@ function _M._flatten_json(obj, prefix, out, limit, state)
     end
 end
 
+--- Extract the boundary token from a multipart/form-data Content-Type value.
+-- Handles quoted ("...") and unquoted boundary params, case-insensitively.
+function _M._multipart_boundary(content_type)
+    local lower = content_type:lower()
+    local s = lower:find("boundary", 1, true)
+    if not s then return nil end
+    local rest = content_type:sub(s + #"boundary")
+    local eq = rest:match("^%s*=%s*")
+    if not eq then return nil end
+    rest = rest:sub(#eq + 1)
+    local quoted = rest:match('^"([^"]*)"')
+    if quoted then return quoted end
+    return rest:match("^([^;%s]+)")
+end
+
+--- Read one Content-Disposition parameter (name / filename) from part headers.
+-- `param` must match as a standalone token (preceded by a non-word char or at
+-- string start) so that searching for "name" does not match inside "filename".
+function _M._cd_param(headers, param)
+    local search = 1
+    while true do
+        local s = headers:find(param, search, true)
+        if not s then return nil end
+        local prev = (s > 1) and headers:sub(s - 1, s - 1) or ""
+        if prev == "" or not prev:match("[%w]") then
+            local after = headers:sub(s + #param)
+            local eq = after:match("^%s*=")
+            if eq then
+                local rest = after:sub(#eq + 1)
+                local quoted = rest:match('^%s*"([^"]*)"')
+                if quoted then return quoted end
+                local bare = rest:match("^%s*([^;%c]+)")
+                if bare then return (bare:gsub("%s+$", "")) end
+                return nil
+            end
+        end
+        search = s + 1
+    end
+end
+
+--- Parse a multipart body already fully in memory (bounded string).
+-- Returns args (table) on success; nil, err on malformed / overflow.
+-- File parts (non-empty filename) have their CONTENT skipped; only the
+-- filename is recorded. Non-file fields record their value. This lets the
+-- Args matcher scan form-field payloads while ignoring uploaded file bytes
+-- (which would otherwise false-positive on code / SQL dumps containing
+-- "../", "union select", etc.).
+function _M._parse_multipart_body(data, boundary, max_args)
+    local delim = "--" .. boundary
+    local dlen = #delim
+    local args = {}
+    local n = 0
+    local ds = data:find(delim, 1, true)
+    if not ds then return nil, "multipart_no_boundary" end
+    local pos = ds + dlen
+    while true do
+        if data:sub(pos, pos + 1) == "--" then break end           -- closing delimiter
+        local nl = data:find("\n", pos, true)
+        if not nl then break end                                    -- ran out mid-boundary
+        local part_start = nl + 1
+        local nds = data:find(delim, part_start, true)
+        local part_raw
+        if nds then
+            part_raw = data:sub(part_start, nds - 1)
+        else
+            part_raw = data:sub(part_start)                         -- last / truncated part
+        end
+        part_raw = part_raw:gsub("\r\n$", "")                       -- strip delimiter CRLF
+        part_raw = part_raw:gsub("\n$", "")
+        local sep = part_raw:find("\r\n\r\n", 1, true)
+        local clen = 4
+        if not sep then
+            sep = part_raw:find("\n\n", 1, true)
+            clen = 2
+        end
+        local headers, content
+        if sep then
+            headers = part_raw:sub(1, sep - 1)
+            content = part_raw:sub(sep + clen)
+        else
+            headers, content = part_raw, ""
+        end
+        local name = _M._cd_param(headers, "name")
+        local filename = _M._cd_param(headers, "filename")
+        if name and name ~= "" then
+            if n >= max_args then
+                return nil, "args_truncated"                         -- fail closed
+            end
+            local value
+            if filename and filename ~= "" then
+                value = filename                                     -- skip file content
+            else
+                value = content
+            end
+            local existing = args[name]
+            if existing == nil then
+                args[name] = value
+            elseif type(existing) == "table" then
+                existing[#existing + 1] = value
+            else
+                args[name] = { existing, value }
+            end
+            n = n + 1
+        end
+        if not nds then break end
+        pos = nds + dlen
+    end
+    return args, nil
+end
+
+--- Parse a multipart/form-data request body (in-memory string or body file).
+-- Real uploads are buffered to a file by nginx when they exceed the body
+-- buffer; we read at most config.body.max_size bytes from that file. Because
+-- file CONTENT is skipped anyway, the size cap only bounds I/O and memory —
+-- it never fails-closed merely because an upload is large.
+-- Returns args (table); nil, err on error / overflow.
+function _M._parse_multipart(max_args)
+    local max_size = (config and config.body and config.body.max_size) or 1048576
+    ngx.req.read_body()
+    local data = ngx.req.get_body_data()
+    if not data then
+        local body_file = ngx.req.get_body_file()
+        if not body_file then
+            return {}, nil                                           -- no body
+        end
+        local f = io.open(body_file, "rb")
+        if not f then return nil, "body_file_unreadable" end
+        data = f:read(max_size)
+        f:close()
+        if not data then return nil, "body_file_read_failed" end
+    end
+    if #data > max_size then
+        data = data:sub(1, max_size)                                 -- bound memory
+    end
+    local boundary = _M._multipart_boundary(ngx.var.content_type or "")
+    if not boundary or boundary == "" then
+        return nil, "multipart_bad_boundary"
+    end
+    return _M._parse_multipart_body(data, boundary, max_args)
+end
+
 function _M.get_body_args(ctx)
     if ctx.request._body_read then
+        return ctx.request._body_args
+    end
+
+    local max_args = (config and config.body and config.body.max_args) or 100
+    local content_type = ngx.var.content_type or ""
+
+    -- multipart/form-data: parse fields only, skip file content.
+    -- Deliberately bypasses _read_body_data: real uploads are large (buffered
+    -- to a file) and would otherwise fail-closed on size; we only need the
+    -- small field values, and file content is skipped regardless of size.
+    if content_type:lower():find("multipart/form-data", 1, true) then
+        local args, merr = _M._parse_multipart(max_args)
+        if merr then
+            ctx.request._body_error = merr
+            ctx.request._body_args = nil
+        else
+            ctx.request._body_args = args or {}
+        end
+        ctx.request._body_read = true
         return ctx.request._body_args
     end
 
@@ -96,9 +256,6 @@ function _M.get_body_args(ctx)
         ctx.request._body_read = true
         return nil
     end
-
-    local max_args = (config and config.body and config.body.max_args) or 100
-    local content_type = ngx.var.content_type or ""
 
     if content_type:lower():find("application/json", 1, true) then
         local ok, decoded = pcall(json.decode, data)
