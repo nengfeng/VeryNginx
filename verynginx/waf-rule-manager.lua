@@ -117,7 +117,7 @@ _M.ACTIONS         = { block = true, accept = true, log = true, challenge = true
 _M.CATEGORIES      = {
     sqli = true, xss = true, rce = true, lfi = true, rfi = true,
     path_traversal = true, scanner = true, bot = true, brute = true,
-    spam = true, custom = true
+    spam = true, ssrf = true, custom = true
 }
 
 -- ---------------------------------------------------------------------------

@@ -91,7 +91,7 @@
       "name": "SQL Injection — Comments / Stacked Queries",
       "category": "sqli",
       "severity": "high",
-      "action": "block",
+      "action": "log",
       "enable": true,
       "priority": 20,
       "matcher": {
@@ -121,11 +121,11 @@
           ]
         }
       },
-      "description": "Detects SQL comments and stacked query keywords",
+      "description": "Detects SQL comments and stacked query keywords. Action is log (not block): the single-keyword pattern after ';'/'&&' false-positives on ordinary prose (\"wait; create an account\", \"ok; update: fixed it\"), so it is kept at log pending a two-keyword-tuned regex.",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-10T20:22:16Z",
+      "updated_at": "2026-10-12T00:20:00Z",
       "created_by": "system"
     },
     {
@@ -735,14 +735,14 @@
       "matcher": {
         "URI": {
           "operator": "≈",
-          "value": "/(?:\\.env|\\.git/config|\\.svn/entries|\\.DS_Store|composer\\.json|package\\.json|credentials\\.(?:json|ya?ml|txt|bak|csv|conf|ini|env|pem|key|p12|inc|php)|config\\.php|config\\.inc)|\\.(?:bak|old|save|swp|sql|dist|log|tar\\.gz|zip|rar|yml|yaml|htaccess|htpasswd|bash_history|ssh)$"
+          "value": "/(?:\\.env|\\.git/config|\\.svn/entries|\\.DS_Store|composer\\.json|package\\.json|credentials\\.(?:json|ya?ml|txt|bak|csv|conf|ini|env|pem|key|p12|inc|php)|config\\.php|config\\.inc)|\\.(?:bak|old|save|swp|tar\\.gz|sql\\.gz|htaccess|htpasswd|bash_history|ssh)$"
         }
       },
-      "description": "Blocks access to sensitive config, VCS, and backup files (.env, .git/config, credentials.*, *.bak/*.sql/*.swp/.htaccess, etc.)",
+      "description": "Blocks access to sensitive config, VCS, and backup files (.env, .git/config, credentials.*, *.bak/*.old/*.swp/*.tar.gz/*.sql.gz/.htaccess/.htpasswd, etc.). Extension list is deliberately narrow (backup/sensitive suffixes only) so that legitimate downloads (.zip/.yaml/.log/… ) on distribution or docs sites are not blocked.",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-11T10:45:00Z",
+      "updated_at": "2026-10-12T00:20:00Z",
       "created_by": "system"
     }
   ]
