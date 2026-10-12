@@ -169,6 +169,10 @@ describe("ip_reputation: observability integration", function()
             local s = ngx.shared.ip_reputation
             local slot = math.floor(ngx.time() / 60)
             s:set("ip_rep:waf:" .. ip .. ":" .. slot, 30, 300)
+            -- Raw slot writes bypass record_signal(), which is what normally
+            -- invalidates the score cache — mirror that here, otherwise the
+            -- flag-time snapshot's just-written 0-score cache masks the 30.
+            s:delete("ip_rep:score_cache:" .. ip)
 
             local obs = require("core.observability")
             obs._collect_ip_reputation_stats()

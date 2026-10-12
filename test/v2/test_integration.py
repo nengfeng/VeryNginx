@@ -372,7 +372,27 @@ def test_reputation():
     assert status == 200, f"Rep flagged failed: {status}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"Rep flagged response: {body[:200]}"
+    # Entries are enriched with score + flag-time reason (reason may be null
+    # for flags raised before the snapshot feature, but the key must exist).
+    for e in (resp.get("data") or []):
+        for key in ("ip", "flagged_at", "expires_at", "score", "reason"):
+            assert key in e, f"flagged entry missing {key}: {e}"
     print(f"  [PASS] Rep flagged")
+
+    # GET /reputation/score - enriched detail (explain / breakdown / reason)
+    status, body = curl("GET", "/verynginx/reputation/score?ip=1.2.3.4", cookies=cookies)
+    assert status == 200, f"Rep score failed: {status}"
+    resp = json.loads(body)
+    assert resp.get("ret") == "success", f"Rep score response: {body[:200]}"
+    data = resp.get("data") or {}
+    for key in ("score", "flagged", "pending", "whitelisted", "explain", "breakdown", "reason", "flag"):
+        assert key in data, f"score response missing {key}: {body[:300]}"
+    explain = data.get("explain") or {}
+    for key in ("score", "raw", "diversity", "ua_distinct", "threshold", "window"):
+        assert key in explain, f"explain missing {key}: {body[:300]}"
+    assert isinstance(data.get("breakdown"), list), f"breakdown not a list: {body[:300]}"
+    assert data.get("flag") is None, f"unflagged IP should have flag=null: {body[:300]}"
+    print(f"  [PASS] Rep score detail (explain/breakdown)")
 
     # GET /reputation/whitelist (empty initially)
     status, body = curl("GET", "/verynginx/reputation/whitelist", cookies=cookies)

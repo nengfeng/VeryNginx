@@ -1272,14 +1272,23 @@
           </div>
           <div style="overflow-x:auto">
             <table>
-               <thead><tr><th>IP</th><th>标记时间</th><th>过期时间</th><th>剩余</th><th></th></tr></thead>
+               <thead><tr><th>IP</th><th>分数</th><th>标记原因</th><th>标记时间</th><th>过期时间</th><th>剩余</th><th style="text-align:right">操作</th></tr></thead>
 <tbody>
                 <tr v-for="ip in repFlagged" :key="ip.ip">
                   <td><code>{{ ip.ip }}</code></td>
+                  <td><code :style="repStats && repStats.threshold != null && ip.score >= repStats.threshold ? 'color:#b91c1c;font-weight:600' : ''" :title="'声誉分数，标记阈值 ' + ((repStats && repStats.threshold) || '?')">{{ ip.score }}</code></td>
+                  <td style="max-width:340px" :title="ip.reason ? ('标记时分数 ' + ip.reason.score + '，快照于 ' + fmtTime(ip.reason.at)) : '标记时原因快照不可用（升级前标记或手动标记）'">{{ repReasonText(ip) }}</td>
                   <td>{{ fmtTime(ip.flagged_at) }}</td>
                   <td>{{ fmtTime(ip.expires_at) }}</td>
                   <td>{{ remaining(ip.expires_at) }}</td>
-                   <td><button class="danger small" @click="repClear(ip.ip)" :disabled="repClearBusy[ip.ip]">清除</button></td>
+                   <td>
+                    <div class="flex gap-8" style="justify-content:flex-end;flex-wrap:wrap">
+                      <button class="outline small" @click="repOpenDetail(ip.ip, 'overview')" title="查看分数构成、信号分解与标记原因">详情</button>
+                      <button class="outline small" @click="repOpenDetail(ip.ip, 'hits')" title="查看该 IP 的最近 WAF 命中记录">记录</button>
+                      <button class="outline small" @click="repOpenDetail(ip.ip, 'geo')" title="查询该 IP 的地理位置与运营商信息">IP信息</button>
+                      <button class="danger small" @click="repClear(ip.ip)" :disabled="repClearBusy[ip.ip]">清除</button>
+                    </div>
+                   </td>
                  </tr>
                </tbody>
             </table>
@@ -1329,6 +1338,127 @@
                <span><strong>已标记:</strong> <code>{{ repLookupResult.flagged ? '是' : '否' }}</code></span>
                <span><strong>待处理:</strong> <code>{{ repLookupResult.pending ? '是' : '否' }}</code></span>
                <span><strong>白名单:</strong> <code>{{ repLookupResult.whitelisted ? '是' : '否' }}</code></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Flagged IP detail modal: overview+reason / related hits / IP info -->
+        <div class="modal-overlay" v-if="repDetailModal.show" @click.self="repDetailModal.show=false">
+          <div class="modal" style="max-width:760px">
+            <h3>IP 详情 <code>{{ repDetailModal.ip }}</code>
+              <span v-if="repDetailModal.data && repDetailModal.data.flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:6px" title="该 IP 的声誉分数已超过阈值，处于自动挑战/封禁状态">已标记</span>
+              <span v-else-if="repDetailModal.data && repDetailModal.data.whitelisted" class="tag" style="background:#dcfce7;color:#166534;margin-left:6px">白名单</span>
+            </h3>
+            <div class="tabs mb-8">
+              <a :class="{active: repDetailModal.tab==='overview'}" @click="repOpenDetail(repDetailModal.ip, 'overview')">概览与原因</a>
+              <a :class="{active: repDetailModal.tab==='hits'}" @click="repOpenDetail(repDetailModal.ip, 'hits')">相关记录</a>
+              <a :class="{active: repDetailModal.tab==='geo'}" @click="repOpenDetail(repDetailModal.ip, 'geo')">IP 信息</a>
+            </div>
+
+            <!-- Tab 1: overview + why it was flagged -->
+            <div v-if="repDetailModal.tab==='overview'">
+              <div v-if="repDetailModal.loading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
+              <div v-else-if="repDetailModal.error" class="error"><div>{{ repDetailModal.error }}</div></div>
+              <template v-else-if="repDetailModal.data">
+                <div class="flex gap-16" style="flex-wrap:wrap;font-size:13px;margin-bottom:8px">
+                  <span><strong>当前分数:</strong> <code>{{ repDetailModal.data.score }}</code> / 阈值 <code>{{ repDetailModal.data.explain ? repDetailModal.data.explain.threshold : '-' }}</code></span>
+                  <span><strong>已标记:</strong> <code>{{ repDetailModal.data.flagged ? '是' : '否' }}</code></span>
+                  <span><strong>待处理挑战:</strong> <code>{{ repDetailModal.data.pending ? '是' : '否' }}</code></span>
+                  <span><strong>白名单:</strong> <code>{{ repDetailModal.data.whitelisted ? '是' : '否' }}</code></span>
+                </div>
+                <div v-if="repDetailModal.data.flag" class="flex gap-16" style="flex-wrap:wrap;font-size:13px;margin-bottom:8px">
+                  <span><strong>标记于:</strong> {{ fmtTime(repDetailModal.data.flag.flagged_at) }}</span>
+                  <span><strong>过期于:</strong> {{ fmtTime(repDetailModal.data.flag.expires_at) }}</span>
+                  <span><strong>剩余:</strong> {{ remaining(repDetailModal.data.flag.expires_at) }}</span>
+                </div>
+
+                <h4 style="font-size:13px;margin:12px 0 6px">实时信号分解（近 {{ repDetailModal.data.explain ? repDetailModal.data.explain.window : '-' }} 秒窗口）</h4>
+                <div v-if="repDetailModal.data.breakdown && repDetailModal.data.breakdown.length" style="overflow-x:auto">
+                  <table>
+                    <thead><tr><th>信号</th><th>次数</th><th>权重/次</th><th>贡献分</th></tr></thead>
+                    <tbody>
+                      <tr v-for="b in repDetailModal.data.breakdown" :key="b.signal">
+                        <td>{{ signalLabel(b.signal) }}</td>
+                        <td>{{ b.events }}</td>
+                        <td>{{ b.weight }}</td>
+                        <td><code>{{ b.points }}</code></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-else style="font-size:12px;color:var(--muted)">窗口内无活跃信号——分数可能来自已过期信号，或该 IP 为手动/联动标记。</div>
+
+                <h4 style="font-size:13px;margin:12px 0 6px">标记时快照</h4>
+                <div v-if="repDetailModal.data.reason" style="font-size:13px">
+                  <div style="color:var(--muted);margin-bottom:6px">标记于 {{ fmtTime(repDetailModal.data.reason.at) }}，标记时分数 <code>{{ repDetailModal.data.reason.score }}</code>（阈值 <code>{{ repDetailModal.data.reason.threshold }}</code>）</div>
+                  <div v-if="repDetailModal.data.reason.signals && repDetailModal.data.reason.signals.length" style="overflow-x:auto">
+                    <table>
+                      <thead><tr><th>信号</th><th>次数</th><th>权重/次</th><th>贡献分</th></tr></thead>
+                      <tbody>
+                        <tr v-for="b in repDetailModal.data.reason.signals" :key="'snap-' + b.signal">
+                          <td>{{ signalLabel(b.signal) }}</td>
+                          <td>{{ b.events }}</td>
+                          <td>{{ b.weight }}</td>
+                          <td><code>{{ b.points }}</code></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div v-else style="color:var(--muted)">标记时无窗口信号（手动或联动标记）。</div>
+                </div>
+                <div v-else style="font-size:12px;color:var(--muted)">该 IP 在原因快照功能上线前被标记，或快照已随标记过期清理——仅显示实时窗口数据。</div>
+
+                <div v-if="repDetailModal.data.explain" style="font-size:12px;color:var(--muted);margin-top:10px">
+                  计算方式：信号原始分 <code>{{ repDetailModal.data.explain.raw }}</code> × UA 多样性系数 <code>{{ repDetailModal.data.explain.diversity }}</code> ≈ 当前分数 <code>{{ repDetailModal.data.explain.score }}</code>（窗口内不同 UA {{ repDetailModal.data.explain.ua_distinct }} 个，UA 越杂系数越低）
+                </div>
+              </template>
+            </div>
+
+            <!-- Tab 2: related WAF hits -->
+            <div v-if="repDetailModal.tab==='hits'">
+              <div v-if="repDetailModal.hitsLoading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
+              <div v-else-if="repDetailModal.hitsError" class="error"><div>{{ repDetailModal.hitsError }}</div></div>
+              <div v-else-if="repDetailModal.hits && repDetailModal.hits.length" style="overflow-x:auto">
+                <table>
+                  <thead><tr><th>时间</th><th>规则</th><th>动作</th><th>方法</th><th>URI</th></tr></thead>
+                  <tbody>
+                    <tr v-for="h in repDetailModal.hits" :key="h.ring_idx" @click="openHitDetail(h)" style="cursor:pointer" title="点击查看完整命中详情（UA / 请求头 / 指纹）">
+                      <td style="white-space:nowrap">{{ fmtTime(h.timestamp) }}</td>
+                      <td><code>{{ h.rule_name || h.rule_id }}</code></td>
+                      <td><span class="tag">{{ h.action }}</span></td>
+                      <td>{{ h.method }}</td>
+                      <td><code style="display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom">{{ h.uri }}</code></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div style="font-size:12px;color:var(--muted);margin-top:6px">来自最近 100 条 WAF 命中环形缓冲（仅保留近期记录）；更早的访问请查服务器访问日志。点击行可打开完整命中详情。</div>
+              </div>
+              <div v-else class="empty"><div>最近命中缓冲中没有该 IP 的记录。</div></div>
+            </div>
+
+            <!-- Tab 3: IP info (GeoIP) -->
+            <div v-if="repDetailModal.tab==='geo'">
+              <div v-if="repDetailModal.geoLoading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
+              <div v-else-if="repDetailModal.geoError" class="error">
+                <div>{{ repDetailModal.geoError }}</div>
+                <div style="font-size:12px;margin-top:6px">提示：需先在「系统 → GeoIP」中安装 GeoLite2 数据库；无数据库时无法查询归属地。</div>
+              </div>
+              <div v-else-if="repDetailModal.geo" style="font-size:13px">
+                <div class="grid grid-2" style="gap:4px 16px">
+                  <div class="field"><label>国家/地区</label>{{ repDetailModal.geo.country_name || '-' }} <code v-if="repDetailModal.geo.country_code">{{ repDetailModal.geo.country_code }}</code></div>
+                  <div class="field"><label>城市</label>{{ repDetailModal.geo.city_name || '-' }}</div>
+                  <div class="field"><label>ASN</label><code>{{ repDetailModal.geo.asn || '-' }}</code></div>
+                  <div class="field"><label>运营商/组织</label>{{ repDetailModal.geo.asn_org || '-' }}</div>
+                  <div class="field"><label>经纬度</label>{{ repDetailModal.geo.latitude != null ? repDetailModal.geo.latitude + ', ' + repDetailModal.geo.longitude : '-' }}</div>
+                </div>
+              </div>
+              <div v-else class="empty"><div>GeoIP 库中无此 IP。</div></div>
+            </div>
+
+            <div class="modal-actions">
+              <button class="outline" v-if="repDetailModal.data" @click="repWhitelistToggle(repDetailModal.ip)">{{ repDetailModal.data.whitelisted ? '移出白名单' : '加入白名单' }}</button>
+              <button class="danger" v-if="repDetailModal.data && repDetailModal.data.flagged" @click="repClear(repDetailModal.ip)" :disabled="repClearBusy[repDetailModal.ip]">清除该 IP</button>
+              <button class="outline" @click="repDetailModal.show=false">关闭</button>
             </div>
           </div>
         </div>

@@ -21,6 +21,32 @@
     const repLookupResult = ref(null);
     const repClearBusy = ref({});
 
+    // Flagged-row detail modal: overview+reason / related hits / IP info.
+    // Tab data is cached per IP (…Ip fields) and refetched on each activation.
+    const repDetailModal = reactive({
+      show: false, ip: '', tab: 'overview',
+      loading: false, error: '', data: null, dataIp: '',
+      hits: null, hitsIp: '', hitsLoading: false, hitsError: '',
+      geo: null, geoIp: '', geoLoading: false, geoError: '',
+    });
+    const gRepDetail = shared.createStaleGuard();
+    const gRepDetailHits = shared.createStaleGuard();
+    const gRepDetailGeo = shared.createStaleGuard();
+
+    // Human labels for reputation signal types (breakdown display).
+    const SIGNAL_LABELS = {
+      waf_block: 'WAF 拦截',
+      waf_challenge: 'WAF 挑战',
+      not_found: '404 异常',
+      challenge_fail: '挑战失败',
+      geoip_block: 'GeoIP 封禁',
+      fingerprint_block: '指纹封禁',
+      fingerprint_challenge: '指纹挑战',
+    };
+    function signalLabel(s) {
+      return SIGNAL_LABELS[s] || s;
+    }
+
     // Stale-response guard for the reputation data loader.
     const gRepData = shared.createStaleGuard();
 
@@ -57,6 +83,8 @@
       repClearBusy.value[ip] = true;
       try {
         await api('POST', '/verynginx/reputation/clear?ip=' + encodeURIComponent(ip));
+        // Also close the detail modal if this clear came from it.
+        if (repDetailModal.show && repDetailModal.ip === ip) repDetailModal.show = false;
         loadRepData();
       } catch (e) {
         repError.value = e.message;
@@ -131,6 +159,135 @@
       }
     }
 
+    // ---- Flagged-row detail modal ----
+    async function repLoadOverview(ip) {
+      const tok = gRepDetail.mark();
+      repDetailModal.loading = true;
+      repDetailModal.error = '';
+      try {
+        const d = await api('GET', '/verynginx/reputation/score?ip=' + encodeURIComponent(ip));
+        if (d.ret === 'success') {
+          if (gRepDetail.isCurrent(tok)) {
+            repDetailModal.data = d.data;
+            repDetailModal.dataIp = ip;
+          }
+        } else if (gRepDetail.isCurrent(tok)) {
+          repDetailModal.error = d.message || '查询失败';
+          repDetailModal.data = null;
+        }
+      } catch (e) {
+        if (e.message === 'session_expired') throw e;
+        if (gRepDetail.isCurrent(tok)) repDetailModal.error = e.message;
+      }
+      if (gRepDetail.isCurrent(tok)) repDetailModal.loading = false;
+    }
+
+    async function repLoadHits(ip) {
+      const tok = gRepDetailHits.mark();
+      repDetailModal.hitsLoading = true;
+      repDetailModal.hitsError = '';
+      try {
+        const d = await api('GET', '/verynginx/waf/hits/by-ip?ip=' + encodeURIComponent(ip));
+        if (gRepDetailHits.isCurrent(tok)) {
+          if (d.ret === 'success') {
+            repDetailModal.hits = Array.isArray(d.data) ? d.data : [];
+            repDetailModal.hitsIp = ip;
+          } else {
+            repDetailModal.hitsError = d.message || '命中记录加载失败';
+            repDetailModal.hits = [];
+          }
+        }
+      } catch (e) {
+        if (e.message === 'session_expired') throw e;
+        if (gRepDetailHits.isCurrent(tok)) {
+          repDetailModal.hitsError = e.message;
+          repDetailModal.hits = [];
+        }
+      }
+      if (gRepDetailHits.isCurrent(tok)) repDetailModal.hitsLoading = false;
+    }
+
+    async function repLoadGeo(ip) {
+      const tok = gRepDetailGeo.mark();
+      repDetailModal.geoLoading = true;
+      repDetailModal.geoError = '';
+      repDetailModal.geo = null;
+      try {
+        const d = await api('GET', '/verynginx/geoip/lookup?ip=' + encodeURIComponent(ip));
+        if (gRepDetailGeo.isCurrent(tok)) {
+          if (d.ret === 'success' && d.data) {
+            repDetailModal.geo = d.data;
+            repDetailModal.geoIp = ip;
+          } else {
+            // ret=failed → DB unavailable (d.message has the reason);
+            // ret=success + null data → IP simply absent from the database.
+            repDetailModal.geoError = d.message || 'GeoIP 库中无此 IP';
+          }
+        }
+      } catch (e) {
+        if (e.message === 'session_expired') throw e;
+        if (gRepDetailGeo.isCurrent(tok)) repDetailModal.geoError = e.message;
+      }
+      if (gRepDetailGeo.isCurrent(tok)) repDetailModal.geoLoading = false;
+    }
+
+    // Open (or re-focus) the detail modal for ip on the given tab. Switching
+    // to a different IP resets the cached tab data so nothing flashes from
+    // the previous IP; the requested tab always refetches for fresh numbers.
+    async function repOpenDetail(ip, tab) {
+      const t = tab || 'overview';
+      if (repDetailModal.dataIp !== ip) {
+        repDetailModal.data = null;
+        repDetailModal.hits = null;
+        repDetailModal.geo = null;
+        repDetailModal.hitsIp = '';
+        repDetailModal.geoIp = '';
+        repDetailModal.error = '';
+        repDetailModal.hitsError = '';
+        repDetailModal.geoError = '';
+      }
+      repDetailModal.ip = ip;
+      repDetailModal.tab = t;
+      repDetailModal.show = true;
+      repLoadOverview(ip);
+      if (t === 'hits') repLoadHits(ip);
+      if (t === 'geo') repLoadGeo(ip);
+    }
+
+    // One-line summary of the flag-time reason snapshot for the table cell.
+    function repReasonText(e) {
+      const r = e && e.reason;
+      if (!r) return '—';
+      const sigs = Array.isArray(r.signals) ? r.signals : [];
+      if (!sigs.length) return '标记时无信号记录（手动或联动标记）';
+      return sigs.map(s => `${signalLabel(s.signal)}×${s.events}（${s.points}分）`).join(' · ');
+    }
+
+    // Whitelist shortcut from the detail modal (flag → whitelist is the
+    // standard false-positive flow; removal reuses the guarded remover).
+    async function repWhitelistToggle(ip) {
+      if (repWhitelist.value.includes(ip)) {
+        await repRemoveWhitelist(ip);
+        if (repDetailModal.show && repDetailModal.ip === ip) repLoadOverview(ip);
+        return;
+      }
+      if (!await showConfirm({
+        title: '加入白名单',
+        message: `将 ${ip} 加入白名单？\n\n`
+          + '加入后该 IP 完全跳过声誉评分，不再被自动挑战或封禁，WAF 规则对其也只记录不拦截。\n'
+          + '适用于确认误封后恢复正常流量，或保护自家出口 IP。',
+        type: 'primary',
+      })) return;
+      try {
+        await api('POST', '/verynginx/reputation/whitelist', { ip });
+        showToast('已加入白名单: ' + ip, 'success');
+        loadRepData();
+        if (repDetailModal.show && repDetailModal.ip === ip) repLoadOverview(ip);
+      } catch (e) {
+        repError.value = e.message;
+      }
+    }
+
     // ---- Exports ----
     view('repStats', repStats);
     view('repFlagged', repFlagged);
@@ -146,6 +303,11 @@
     view('repRemoveWhitelist', repRemoveWhitelist);
     view('repPersist', repPersist);
     view('repLookup', repLookup);
+    view('repDetailModal', repDetailModal);
+    view('repOpenDetail', repOpenDetail);
+    view('repReasonText', repReasonText);
+    view('signalLabel', signalLabel);
+    view('repWhitelistToggle', repWhitelistToggle);
 
     // Wipe per-session reputation data on logout.
     shared.onLogout(() => {
@@ -156,6 +318,12 @@
       repLookupResult.value = null;
       repNewWhitelist.value = '';
       repLookupIP.value = '';
+      Object.assign(repDetailModal, {
+        show: false, ip: '', tab: 'overview',
+        loading: false, error: '', data: null, dataIp: '',
+        hits: null, hitsIp: '', hitsLoading: false, hitsError: '',
+        geo: null, geoIp: '', geoLoading: false, geoError: '',
+      });
     });
 
         // Module initialization (if any)

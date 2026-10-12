@@ -240,12 +240,28 @@ local function handle_waf_hits_by_ip()
             if d then
                 local ok, det = pcall(json.decode, d)
                 if ok and det.ip == ip then
+                    -- ring_idx lets openHitDetail() fetch THIS record; without
+                    -- it the click falls back to index 0 (wrong hit).
+                    det.ring_idx = ri
                     hits[#hits + 1] = det
                 end
             end
         end
     end
     table.sort(hits, function(a, b) return (a.timestamp or 0) > (b.timestamp or 0) end)
+    -- Resolve rule ids to names so IP lists read like the hits table.
+    if #hits > 0 then
+        local names = {}
+        local rules_obj = waf_manager.load_rules()
+        if rules_obj and rules_obj.rules then
+            for _, r in ipairs(rules_obj.rules) do
+                names[r.id] = r.name or r.id
+            end
+        end
+        for _, det in ipairs(hits) do
+            det.rule_name = names[det.rule_id] or det.rule_id
+        end
+    end
     return json.encode({ ret = "success", data = hits })
 end
 

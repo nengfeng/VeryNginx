@@ -17,6 +17,13 @@ end
 local function handle_reputation_flagged()
     local rep = require "core.ip_reputation"
     local list = rep.list_flagged()
+    -- Normalize: the core module may omit `reason` entirely when no snapshot
+    -- exists (nil doesn't survive table construction). Guarantee the key so
+    -- clients see a stable shape. json here is dkjson — never forward the
+    -- core module's json.null sentinel across, it may be cjson.lightuserdata.
+    for _, e in ipairs(list) do
+        if e.reason == nil then e.reason = json.null end
+    end
     return json.encode({ ret = "success", data = list })
 end
 
@@ -37,6 +44,10 @@ local function handle_reputation_score()
         return json.encode({ ret = "failed", message = "invalid ip format" })
     end
     local rep = require "core.ip_reputation"
+    -- Beyond the four booleans the lookup box used to show, return the
+    -- evidence behind the score: live per-signal breakdown, the flag-time
+    -- snapshot (if flagged), flag timestamps, and the score's inputs
+    -- (raw points x UA-diversity) so the panel can explain "why".
     return json.encode({
         ret = "success",
         data = {
@@ -44,6 +55,12 @@ local function handle_reputation_score()
             flagged = rep.is_flagged(ip),
             pending = rep.has_pending(ip),
             whitelisted = rep.is_whitelisted(ip),
+            explain = rep.score_explain(ip),
+            breakdown = rep.get_signal_breakdown(ip),
+            -- json.null (not nil) keeps reason/flag present in the payload —
+            -- callers can rely on the keys always existing.
+            reason = rep.get_flag_reason(ip) or json.null,
+            flag = rep.get_flag_meta(ip) or json.null,
         }
     })
 end

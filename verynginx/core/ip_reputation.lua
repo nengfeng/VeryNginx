@@ -309,6 +309,11 @@ function _M.record_signal(ip, signal_type)
     local slot = current_slot()
     local key = "ip_rep:waf:" .. ip .. ":" .. slot
     s:incr(key, weight, 0, window_size())
+    -- Per-signal event counter. The waf slot above only stores the summed
+    -- points, which loses the signal *type* — this companion counter is what
+    -- lets the panel answer "why was this IP flagged". Same window/TTL, so
+    -- both expire together.
+    s:incr("ip_rep:sig:" .. ip .. ":" .. signal_type .. ":" .. slot, 1, 0, window_size())
     -- Invalidate score cache since weights changed
     s:delete("ip_rep:score_cache:" .. ip)
 end
@@ -347,6 +352,18 @@ local function distinct_ua_count(ip)
     return total
 end
 
+--- Raw score computation shared by get_score() and score_explain().
+-- @return result, raw, df, ua_distinct
+local function compute_score(ip)
+    local raw = sum_slots("ip_rep:waf:" .. ip .. ":")
+    local duc = distinct_ua_count(ip)
+    local df = 1.0
+    if duc > 1 then
+        df = math.max(0.5, 1.0 - (math.min(duc, MAX_UA_DISTINCT) - 1) * 0.1)
+    end
+    return math.floor(raw * df + 0.5), raw, df, duc
+end
+
 function _M.get_score(ip)
     local s = shared()
     if s then
@@ -355,13 +372,7 @@ function _M.get_score(ip)
             return cached
         end
     end
-    local score = sum_slots("ip_rep:waf:" .. ip .. ":")
-    local duc = distinct_ua_count(ip)
-    local df = 1.0
-    if duc > 1 then
-        df = math.max(0.5, 1.0 - (math.min(duc, MAX_UA_DISTINCT) - 1) * 0.1)
-    end
-    local result = math.floor(score * df + 0.5)
+    local result = compute_score(ip)
     if s then
         -- Adaptive TTL: clean IPs (well below threshold) cache longer
         local threshold = cfg_val("threshold")
@@ -369,6 +380,81 @@ function _M.get_score(ip)
         dict_guard.set(s, "ip_rep.score_cache", "ip_rep:score_cache:" .. ip, result, ttl)
     end
     return result
+end
+
+--- Full score explanation for diagnostics: the score plus the inputs behind
+-- it (raw signal points, UA-diversity factor, distinct-UA count). Always
+-- recomputed fresh — the caller wants the truth, not a 2-second cache.
+function _M.score_explain(ip)
+    local result, raw, df, duc = compute_score(ip)
+    return {
+        score = result,
+        raw = raw,
+        diversity = df,
+        ua_distinct = duc,
+        threshold = cfg_val("threshold"),
+        window = window_size(),
+    }
+end
+
+--- Per-signal event/point breakdown for an IP over the live window.
+-- Enumerates the *configured* signal types (a type removed from config drops
+-- out of the breakdown; its counters simply age out with the window). Points
+-- are recomputed as events x current weight, so a mid-window weight edit can
+-- differ from the summed waf slot total.
+-- @return array of { signal, events, weight, points },
+--         sorted points desc then name asc — deterministic, never pairs()-order
+function _M.get_signal_breakdown(ip)
+    local out = {}
+    local s = shared()
+    if not s then return out end
+    local signals = get_signals()
+    -- Stable iteration order: collect then sort the type names.
+    local types = {}
+    for stype, w in pairs(signals) do
+        if type(w) == "number" and w > 0 then
+            types[#types + 1] = stype
+        end
+    end
+    table.sort(types)
+    local slots = slot_keys()
+    for _, stype in ipairs(types) do
+        local events = 0
+        for _, slot in ipairs(slots) do
+            events = events + (s:get("ip_rep:sig:" .. ip .. ":" .. stype .. ":" .. slot) or 0)
+        end
+        if events > 0 then
+            local weight = signals[stype]
+            out[#out + 1] = {
+                signal = stype,
+                events = events,
+                weight = weight,
+                points = events * weight,
+            }
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.points ~= b.points then return a.points > b.points end
+        return a.signal < b.signal
+    end)
+    return out
+end
+
+--- Snapshot of the evidence taken when the IP was flagged (written by
+-- flag_ip). The live slots only cover the rolling window (default 5 min)
+-- while a flag outlives it (default 10 min), so without this snapshot the
+-- panel would lose the reason halfway through the flag's lifetime.
+-- @return table|nil { at, score, threshold, signals = {...} }
+function _M.get_flag_reason(ip)
+    local s = shared()
+    if not s then return nil end
+    local raw = s:get("ip_rep:flag_reason:" .. ip)
+    if not raw then return nil end
+    local ok, snap = pcall(json.decode, raw)
+    -- Guard the dkjson path: json.decode("null") yields json.null, a TABLE
+    -- with a metatable, which would otherwise masquerade as a snapshot.
+    if not ok or snap == json.null or type(snap) ~= "table" then return nil end
+    return snap
 end
 
 function _M.set_pending(ip)
@@ -488,6 +574,19 @@ local function remove_from_flagged_index(ip)
     end)
 end
 
+--- Flag timestamps for a single IP (nil when not currently flagged).
+function _M.get_flag_meta(ip)
+    local s = shared()
+    if not s then return nil end
+    local expires_at = tonumber(s:get(flagged_idx_key(ip)))
+    if not expires_at or expires_at <= ngx.time() then return nil end
+    local flagged_at = tonumber(s:get("ip_rep:flagged:" .. ip))
+    if not flagged_at then
+        flagged_at = expires_at - cfg_val("flag_duration")
+    end
+    return { flagged_at = flagged_at, expires_at = expires_at }
+end
+
 function _M.flag_ip(ip, duration)
     local s = shared()
     if not s then return end
@@ -499,6 +598,17 @@ function _M.flag_ip(ip, duration)
     -- count, while concurrent re-flags after expiry cannot double-count.
     if add_to_flagged_index(ip, ttl, now) then
         s:incr("ip_rep:flagged_today", 1, 0, 86400)
+        -- Snapshot the evidence while the signal slots are still live: the
+        -- flag outlives the scoring window, so this is the only record of
+        -- "why" that survives until expires_at. TTL matches the flag's.
+        local snap = {
+            at = now,
+            score = _M.get_score(ip),
+            threshold = cfg_val("threshold"),
+            signals = _M.get_signal_breakdown(ip),
+        }
+        dict_guard.set(s, "ip_rep.flag_reason", "ip_rep:flag_reason:" .. ip,
+            json.encode(snap), ttl)
     end
 end
 
@@ -556,6 +666,7 @@ function _M.clear_ip(ip)
     if not s then return end
     s:delete("ip_rep:flagged:" .. ip)
     s:delete("ip_rep:cache:" .. ip)
+    s:delete("ip_rep:flag_reason:" .. ip)
     remove_from_flagged_index(ip)
     _M.clear_score(ip)
     -- A full reputation reset must also drop pending challenge state — a
@@ -568,10 +679,18 @@ function _M.clear_score(ip)
     local s = shared()
     if not s then return end
     local slots = slot_keys()
+    local signals = get_signals()
     for _, slot in ipairs(slots) do
         s:delete("ip_rep:waf:" .. ip .. ":" .. slot)
         s:delete("ip_rep:req:" .. ip .. ":" .. slot)
         s:delete("ip_rep:ua_count:" .. ip .. ":" .. slot)
+        -- Per-signal counters too: a surviving breakdown would contradict
+        -- the freshly-cleared score until the window aged it out.
+        for stype, w in pairs(signals) do
+            if type(w) == "number" and w > 0 then
+                s:delete("ip_rep:sig:" .. ip .. ":" .. stype .. ":" .. slot)
+            end
+        end
     end
     -- Invalidate score cache so get_score() reflects the cleared score
     s:delete("ip_rep:score_cache:" .. ip)
@@ -831,9 +950,22 @@ function _M.list_flagged()
                 ip = ip,
                 expires_at = expires_at,
                 flagged_at = expires_at - cfg_val("flag_duration"),
+                -- Enrichment for the panel: current score plus the flag-time
+                -- reason snapshot. Also flows through persist()/restore() so
+                -- reasons survive a restart alongside their flags. May be nil
+                -- (no snapshot) — the API layer normalizes to JSON null, since
+                -- this module's json may differ from the controller's.
+                score = _M.get_score(ip),
+                reason = _M.get_flag_reason(ip),
             }
         end
     end
+    -- Newest first, IP as tiebreak — a stable list for the dashboard table
+    -- (raw pairs() order would reshuffle on every render).
+    table.sort(valid, function(a, b)
+        if a.flagged_at ~= b.flagged_at then return a.flagged_at > b.flagged_at end
+        return a.ip < b.ip
+    end)
     return valid
 end
 
@@ -876,7 +1008,7 @@ end
 
 function _M.get_stats()
     local s = shared()
-    if not s then return { flagged = 0, pending = 0, flagged_today = 0 } end
+    if not s then return { flagged = 0, pending = 0, flagged_today = 0, threshold = cfg_val("threshold") } end
     local flagged_count = #_M.list_flagged()
     local pending_count = _M.pending_count()
     local flagged_today = s:get("ip_rep:flagged_today") or 0
@@ -884,6 +1016,8 @@ function _M.get_stats()
         flagged = flagged_count,
         pending = pending_count,
         flagged_today = flagged_today,
+        -- Exposed so the panel can highlight scores at/over the flag line.
+        threshold = cfg_val("threshold"),
     }
 end
 
@@ -1020,6 +1154,15 @@ function _M.restore()
             s:set("ip_rep:flagged:" .. entry.ip, entry.flagged_at, remaining)
             s:set(flagged_idx_key(entry.ip), tostring(entry.expires_at), remaining)
             s:delete("ip_rep:cache:" .. entry.ip)
+            -- Re-materialize the flag-time reason snapshot (persist carries it
+            -- inside the entry); same TTL as the flag so they expire together.
+            if entry.reason ~= nil and entry.reason ~= json.null
+                and type(entry.reason) == "table" then
+                local okr, encoded = pcall(json.encode, entry.reason)
+                if okr then
+                    s:set("ip_rep:flag_reason:" .. entry.ip, encoded, remaining)
+                end
+            end
             table.insert(flagged_list, entry.ip)
             flagged_max_rem = math.max(flagged_max_rem, remaining)
             ngx.log(ngx.WARN, "ip_reputation: restored flagged IP ", entry.ip, " (", remaining, "s remaining)")
