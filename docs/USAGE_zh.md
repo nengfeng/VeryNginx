@@ -507,24 +507,29 @@ python install.py hash-password your_secure_password
 - Cookie 前缀：`verynginx`
 - 可在 `config.json` 中调整 `security.session_ttl`
 
-### 请求体限制
+### 请求体扫描
 
 ```json
 {
     "body": {
         "max_size": 1048576,
+        "max_field": 1048576,
         "max_args": 100,
-        "on_error": "fail_closed"
+        "on_error": "log",
+        "scan_exempt": []
     }
 }
 ```
 
-- `max_size`：允许的最大请求体大小（字节）
-- `max_args`：最大参数数量
-- `on_error`：当请求体解析失败时的行为
-  - `fail_closed`：阻止请求（默认）
-  - `match`：继续匹配
-  - `skip`：跳过正文检查
+- `max_size`：单请求扫描预算（字节）。超出预算的请求体**不会因体积被拒绝**：只扫描前 `max_size` 字节（前缀，ModSecurity `ProcessPartial` 语义），尾部未扫描部分如实记入 `vn_body_uninspectable` 观察命中，任何策略下都不阻断。
+- `max_field`：multipart 表单单字段预算（字节），与 `max_size` 解耦、独立调整。
+- `max_args`：最大解析参数数量；超出触发 `args_truncated`（属于可被 `fail_closed` 阻断的可疑原因）。
+- `scan_exempt`：跳过正文扫描的 URI 前缀数组（边界匹配，例如 `"/phpMyAdmin"`）。豁免路径完全不读取、不扫描请求体，也不记录检查命中（属主动排除而非检查失败）；其 URL 查询参数仍照常扫描。
+- `on_error`：正文/参数无法完整检查时的行为（默认 `log`）
+  - `log`：记录 `vn_body_uninspectable` 命中并放行（默认，灰度友好）
+  - `fail_closed`：仅对**可疑原因**（参数溢出、解析失败）阻断；大体积正文（`body_too_large` / `body_truncated`）在任何策略下都只观察、永不阻断
+  - `skip`：完全静默，不记录
+  - `match`：历史兼容值，行为同 `log`（注意：各 Args 条件上的 `on_body_error` 仍支持 `match`，含义为“该条件按命中处理”，与全局策略相互独立）
 
 ---
 

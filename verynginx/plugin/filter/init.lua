@@ -64,16 +64,53 @@ _M._split_rules = split_rules -- exported for unit tests (tie-break order)
 local UNINSPECTABLE_ID = "vn_body_uninspectable"
 
 --- Record a single honest hit for a request whose body/args could not be
--- inspected. Observation only (log): the global body.on_error = "skip"
--- opts out entirely; per-rule opt-in stays available via each Args
--- condition's on_body_error. Exported for unit tests.
+-- (fully) inspected, and honour body.on_error. on_error was previously read
+-- only to decide whether to LOG the hit, so the advertised "fail_closed"
+-- never blocked. Semantics now:
+--   fail_closed -> block the request, attributed to vn_body_uninspectable
+--                  (NOT a mislabelled sqli/xss rule); mirrors evaluate_rules'
+--                  block branch so reputation/kernel-blocking see a normal
+--                  block. Applies ONLY to suspicious causes (args overflow,
+--                  parse failure) — never to a large body.
+--   skip        -> pass silently, no hit.
+--   log/match/unset -> record one synthetic hit and pass (observe; default).
+-- LARGE-BODY causes (body_too_large / body_truncated — the ProcessPartial
+-- prefix was scanned, only the unaffordable tail was skipped) are always
+-- observe-only: a >max_size body is legitimate traffic (uploads, imports) and
+-- must never be 403'd merely for being large. Per-rule opt-in stays available
+-- via each Args condition's on_body_error.
+-- Returns true when a hit was recorded (block or observe), false otherwise.
+local BODY_SIZE_ERR = { body_too_large = true, body_truncated = true }
 function _M._record_uninspectable(ctx)
     local err = ctx.request and (ctx.request._body_error
         or ctx.request._uri_args_error)
     if not err then return false end
-    local policy = (config and config.body and config.body.on_error)
-        or "fail_closed"
+    local policy = (config and config.body and config.body.on_error) or "log"
     if policy == "skip" then return false end
+
+    local ip = ctx.request.remote_addr
+    local blockable = not BODY_SIZE_ERR[err]
+    if policy == "fail_closed" and blockable then
+        waf_manager.record_hit(UNINSPECTABLE_ID, ctx, "block")
+        -- Only set the decision / fire signals when no rule already decided
+        -- this request (avoid double-counting a block a rule already made).
+        local already = ctx.has_decision and ctx.has_decision(ctx)
+        if not already then
+            ip_reputation.record_signal(ip, "waf_block")
+            if config.kernel_ip_blocking and config.kernel_ip_blocking.enabled then
+                pcall(function()
+                    local kb = require "core.kernel_blocking.evidence"
+                    kb.record_waf_block_evidence(ip)
+                end)
+            end
+            ctx.set_action(ctx, "block", { code = 403, response = "forbidden_json" })
+        end
+        ngx.log(ngx.WARN, "waf: uninspectable request (", tostring(err),
+            ") blocked by body.on_error=fail_closed")
+        return true
+    end
+    -- observe: large body under any policy, or log/match/default for other
+    -- causes. One honest synthetic hit; the request passes.
     waf_manager.record_hit(UNINSPECTABLE_ID, ctx, "log")
     ngx.log(ngx.WARN, "waf: request not fully inspectable (", tostring(err),
         ") — recorded synthetic hit ", UNINSPECTABLE_ID)
@@ -237,9 +274,10 @@ function _M.on_access(ctx)
     local decided = evaluate_rules(hard_block_rules, ctx, ip)
 
     -- 【阶段一后】无法检测请求的诚实归因：Args 条件的懒读已在上面触发，
-    -- 若 body/args 解析失败或超限，记录一条合成命中（P1-4）。
+    -- 若 body/args 解析失败或超限，按 body.on_error 处理——fail_closed 阻断
+    -- 该请求（诚实归因到 vn_body_uninspectable），否则记录一条合成命中（P1-4）。
     _M._record_uninspectable(ctx)
-    if decided then
+    if decided or (ctx.has_decision and ctx.has_decision(ctx)) then
         return
     end
 

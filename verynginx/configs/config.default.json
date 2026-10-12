@@ -14,7 +14,9 @@
     "body": {
         "max_size": 1048576,
         "max_args": 100,
-        "on_error": "fail_closed"
+        "max_field": 1048576,
+        "on_error": "log",
+        "scan_exempt": []
     },
     "plugin": {
         "filter": { "enable": true, "priority": 100, "critical": true },

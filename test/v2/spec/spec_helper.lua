@@ -43,6 +43,37 @@ function ngx.req.get_body_data()   end
 function ngx.req.get_body_file()   return nil end
 function ngx.req.get_post_args()   return {} end
 function ngx.req.get_uri_args()    return {} end
+
+-- Real query-string decoder (ProcessPartial prefix scan relies on it):
+-- percent-decode, "+" = space, repeated keys collected into a list,
+-- capped at max_args (returns "truncated" like OpenResty).
+function ngx.decode_args(str, max_args)
+    local args, n = {}, 0
+    max_args = max_args or 100
+    local function unesc(s)
+        s = s:gsub("+", " ")
+        s = s:gsub("%%(%x%x)", function(h)
+            return string.char(tonumber(h, 16))
+        end)
+        return s
+    end
+    for pair in tostring(str):gmatch("[^&]+") do
+        n = n + 1
+        if n > max_args then return args, "truncated" end
+        local eq = pair:find("=", 1, true)
+        local k = unesc(eq and pair:sub(1, eq - 1) or pair)
+        local v = unesc(eq and pair:sub(eq + 1) or "")
+        local cur = args[k]
+        if cur == nil then
+            args[k] = v
+        elseif type(cur) == "table" then
+            cur[#cur + 1] = v
+        else
+            args[k] = { cur, v }
+        end
+    end
+    return args, nil
+end
 function ngx.req.set_uri()         end
 function ngx.req.get_headers()     return {} end
 

@@ -61,12 +61,24 @@ _M.schema = {
         observability = leaf({ type = "table", default = {} }),
         body = {
             type = "object",
-            default = { max_size = 1048576, max_args = 1000, on_error = "fail_closed" },
+            default = { max_size = 1048576, max_args = 1000, max_field = 1048576,
+                        on_error = "log", scan_exempt = {} },
             children = {
                 max_size = leaf({ type = "integer", default = 1048576, min = 1024, max = 104857600 }),
                 max_args = leaf({ type = "integer", default = 1000, min = 1, max = 10000 }),
-                on_error = leaf({ type = "string", default = "fail_closed",
-                    enum = { "match", "skip", "fail_closed" } }),
+                -- Per-field budget, decoupled from max_size (ModSecurity's
+                -- SecMultipartFieldSizeLimit analog): a single form field may
+                -- be large while the total scan budget stays bounded, or vice
+                -- versa. Defaults to max_size's value but is tuned separately.
+                max_field = leaf({ type = "integer", default = 1048576, min = 1024, max = 104857600 }),
+                on_error = leaf({ type = "string", default = "log",
+                    enum = { "log", "match", "skip", "fail_closed" } }),
+                -- URI prefixes whose request BODY is not scanned (ModSecurity
+                -- rule-exclusion analog): phpMyAdmin imports carry huge SQL
+                -- form fields that are both costly to scan and injection-
+                -- shaped, so they are excluded rather than size-rejected or
+                -- mis-signatured. Query args on these paths are still scanned.
+                scan_exempt = leaf({ type = "table", default = {} }),
             },
             preserve_unknown = true,
         },
@@ -720,8 +732,22 @@ local function validate_config(config)
     -- on_body_error global default validation
     if config.body and config.body.on_error then
         local oe = config.body.on_error
-        if oe ~= "match" and oe ~= "skip" and oe ~= "fail_closed" then
-            return false, "body.on_error must be 'match', 'skip', or 'fail_closed'"
+        if oe ~= "log" and oe ~= "match" and oe ~= "skip" and oe ~= "fail_closed" then
+            return false, "body.on_error must be 'log', 'match', 'skip', or 'fail_closed'"
+        end
+    end
+
+    -- body.scan_exempt: array of absolute URI prefixes (path-boundary matched).
+    if config.body and config.body.scan_exempt ~= nil then
+        local se = config.body.scan_exempt
+        if type(se) ~= "table" then
+            return false, "body.scan_exempt must be an array of URI prefixes"
+        end
+        for i, p in ipairs(se) do
+            if type(p) ~= "string" or p == "" or p:sub(1, 1) ~= "/" then
+                return false, string.format(
+                    "body.scan_exempt[%d] must be a string starting with '/'", i)
+            end
         end
     end
 

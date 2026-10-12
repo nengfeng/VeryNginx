@@ -36,25 +36,35 @@ function _M.new()
     }, ctx_mt)
 end
 
---- Read raw body data (respects max_size limit).
+--- Read raw body data up to the scan budget (ModSecurity's
+-- SecRequestBodyLimitAction ProcessPartial analog).
+-- Instead of rejecting a body that exceeds body.max_size (which would make
+-- every >max_size request uninspectable — and 403 legitimate large uploads
+-- under fail_closed), we scan the first max_size bytes (the affordable
+-- prefix) and flag the remainder. Returns:
+--   data, nil        body fits within the budget (fully readable)
+--   data, "truncated" prefix only: body exceeded max_size, tail unscanned
+--   nil, err         could not read (unreadable file) / no body
+-- Memory stays bounded by max_size: for bodies larger than the nginx body
+-- buffer nginx spills to a spool file, we read at most max_size+1 bytes.
 function _M._read_body_data()
     local max_size = (config and config.body and config.body.max_size) or 1048576
-    local content_length = tonumber(ngx.var.content_length) or 0
-    if content_length > max_size then
-        return nil, "body_too_large"
-    end
 
     ngx.req.read_body()
 
     local data = ngx.req.get_body_data()
-    if data then return data end
+    if data then
+        if #data > max_size then
+            return data:sub(1, max_size), "truncated"
+        end
+        return data, nil
+    end
 
     -- Body spilled to nginx's spool file (content_length exceeds
     -- client_body_buffer_size — commonly 8-16k on default LNMP installs).
     -- Read it back, same as the multipart branch does, so urlencoded and
     -- JSON bodies stay SCANNABLE instead of failing closed: a payload in a
     -- spilled 20k form used to be invisible to the scanner entirely.
-    -- Bounded by max_size, which the content_length check above enforces.
     local body_file = ngx.req.get_body_file()
     if not body_file then return nil end
     local f = io.open(body_file, "rb")
@@ -62,8 +72,10 @@ function _M._read_body_data()
     local spilled = f:read(max_size + 1)
     f:close()
     if not spilled then return nil, "body_file_unreadable" end
-    if #spilled > max_size then return nil, "body_too_large" end
-    return spilled
+    if #spilled > max_size then
+        return spilled:sub(1, max_size), "truncated"
+    end
+    return spilled, nil
 end
 
 --- Lazy body read: only reads the request body when first called.
@@ -185,8 +197,10 @@ end
 --   3. The body is streamed: file CONTENT is discarded chunk-by-chunk and
 --      never buffered, so a >max_size upload cannot hide trailing fields
 --      (they are still parsed) while memory stays bounded. Field values are
---      bounded by max_field; overflow fails CLOSED (args_truncated), the same
---      philosophy as the urlencoded path — nothing is silently dropped.
+--      bounded by max_field; overflow is surfaced as args_truncated (the
+--      same as the urlencoded path — nothing is silently dropped). The
+--      request-level outcome is decided by body.on_error (plugin/filter),
+--      not by the parser.
 -- Returns args (table); nil, err on error / overflow.
 function _M._parse_multipart_stream(reader, boundary, max_args, max_field)
     local delim = "--" .. boundary
@@ -313,7 +327,7 @@ function _M._parse_multipart_stream(reader, boundary, max_args, max_field)
     end
 
     local function record(name, value)
-        if n >= max_args then return nil, "args_truncated" end        -- fail closed
+        if n >= max_args then return nil, "args_truncated" end        -- surfaced; body.on_error decides blocking
         local existing = args[name]
         if existing == nil then
             args[name] = value
@@ -364,8 +378,9 @@ end
 
 --- Back-compat wrapper: parse a multipart body held in memory.
 function _M._parse_multipart_body(data, boundary, max_args, max_field)
-    return _M._parse_multipart_stream(
-        _M._string_reader(data), boundary, max_args, max_field or (8 * 1024 * 1024))
+    return _M._parse_multipart_stream(_M._string_reader(data), boundary, max_args,
+        max_field or (config and config.body and config.body.max_field)
+            or (8 * 1024 * 1024))
 end
 
 --- Parse a multipart/form-data request body (in-memory string or body file).
@@ -375,7 +390,7 @@ end
 -- large uploads never fail-closed merely for being large.
 -- Returns args (table); nil, err on error / overflow.
 function _M._parse_multipart(max_args)
-    local max_size = (config and config.body and config.body.max_size) or 1048576
+    local max_field = (config and config.body and config.body.max_field) or 1048576
     local boundary = _M._multipart_boundary(ngx.var.content_type or "")
     if not boundary or boundary == "" then
         return nil, "multipart_bad_boundary"
@@ -383,7 +398,7 @@ function _M._parse_multipart(max_args)
     ngx.req.read_body()
     local data = ngx.req.get_body_data()
     if data then
-        return _M._parse_multipart_stream(_M._string_reader(data), boundary, max_args, max_size)
+        return _M._parse_multipart_stream(_M._string_reader(data), boundary, max_args, max_field)
     end
     local body_file = ngx.req.get_body_file()
     if not body_file then
@@ -391,9 +406,29 @@ function _M._parse_multipart(max_args)
     end
     local f = io.open(body_file, "rb")
     if not f then return nil, "body_file_unreadable" end
-    local args, err = _M._parse_multipart_stream(f, boundary, max_args, max_size)
+    local args, err = _M._parse_multipart_stream(f, boundary, max_args, max_field)
     f:close()
     return args, err
+end
+
+--- Whether the request body should be skipped for this URI (config
+-- body.scan_exempt, an array of URI prefixes). Boundary-aware: a prefix
+-- matches the URI itself or a "/"-delimited segment below it ("/phpMyAdmin"
+-- matches "/phpMyAdmin" and "/phpMyAdmin/import.php", not "/phpMyAdminEvil").
+function _M._body_scan_exempt()
+    local exempt = config and config.body and config.body.scan_exempt
+    if type(exempt) ~= "table" or #exempt == 0 then return false end
+    local uri = ngx.var.uri or ""
+    for i = 1, #exempt do
+        local p = exempt[i]
+        if type(p) == "string" and p ~= "" and uri:sub(1, #p) == p then
+            local nxt = uri:sub(#p + 1, #p + 1)
+            if nxt == "" or nxt == "/" or p:sub(-1) == "/" then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 function _M.get_body_args(ctx)
@@ -401,13 +436,26 @@ function _M.get_body_args(ctx)
         return ctx.request._body_args
     end
 
+    -- Body-scan exemption (ModSecurity rule-exclusion analog): exempt URIs
+    -- (e.g. /phpMyAdmin imports) never read or scan the request body, so a
+    -- huge SQL form field neither costs scan budget nor trips injection
+    -- signatures. No _body_error is set — this is a deliberate exclusion, not
+    -- an inspection failure, so the filter records no synthetic hit either.
+    -- Query args on these paths are still scanned by the Args matcher.
+    if _M._body_scan_exempt() then
+        ctx.request._body_args = nil
+        ctx.request._body_read = true
+        return nil
+    end
+
     local max_args = (config and config.body and config.body.max_args) or 100
     local content_type = ngx.var.content_type or ""
 
     -- multipart/form-data: parse fields only, skip file content.
-    -- Deliberately bypasses _read_body_data: real uploads are large (buffered
-    -- to a file) and would otherwise fail-closed on size; we only need the
-    -- small field values, and file content is skipped regardless of size.
+    -- Deliberately bypasses _read_body_data: uploads are large and must be
+    -- STREAMED (parsed incrementally from the spool file) rather than read as
+    -- a whole-body prefix — file content is skipped either way, and only the
+    -- small field values (each bounded by body.max_field) are kept.
     if content_type:lower():find("multipart/form-data", 1, true) then
         local args, merr = _M._parse_multipart(max_args)
         if merr then
@@ -420,15 +468,30 @@ function _M.get_body_args(ctx)
         return ctx.request._body_args
     end
 
-    local data, err = _M._read_body_data()
+    local data, rerr = _M._read_body_data()
     if not data then
-        ctx.request._body_error = err
+        -- Unreadable body (rerr set) or no body (rerr nil => no error).
+        ctx.request._body_error = rerr
         ctx.request._body_args = nil
         ctx.request._body_read = true
         return nil
     end
+    -- ProcessPartial: data is the budget prefix when the body exceeded
+    -- max_size (rerr == "truncated"); the tail past max_size is unscanned.
+    local partial = (rerr == "truncated")
 
     if content_type:lower():find("application/json", 1, true) then
+        if partial then
+            -- Truncated JSON cannot be decoded (a cut-off object is invalid).
+            -- Scan the raw budget prefix as one synthetic value so wildcard
+            -- payload rules still see the readable bytes, and flag
+            -- body_truncated so the filter records an observe-only hit
+            -- (a large body is legitimate traffic — never blockable).
+            ctx.request._body_args = { _body_raw = data }
+            ctx.request._body_error = "body_truncated"
+            ctx.request._body_read = true
+            return ctx.request._body_args
+        end
         local ok, decoded = pcall(json.decode, data)
         if not ok then
             ctx.request._body_error = "json_decode_failed"
@@ -461,6 +524,21 @@ function _M.get_body_args(ctx)
         ctx.request._body_args = args
         ctx.request._body_read = true
         return args
+    end
+
+    if partial then
+        -- ProcessPartial urlencoded: parse the budget prefix with nginx's own
+        -- decoder (bounded by max_size prefix + max_args). The prefix args are
+        -- scanned like any other body; body_truncated tells the filter the
+        -- tail past max_size went unscanned (observe-only for a large body).
+        -- The prefix can be cut mid "%XX" escape — strip the dangling
+        -- percent bytes first so decode_args cannot reject the whole prefix.
+        local clean = data:gsub("%%[%x]?$", ""):gsub("%%$", "")
+        local pargs = ngx.decode_args(clean, max_args)
+        ctx.request._body_args = pargs or {}
+        ctx.request._body_error = "body_truncated"
+        ctx.request._body_read = true
+        return ctx.request._body_args
     end
 
     -- Standard form parsing

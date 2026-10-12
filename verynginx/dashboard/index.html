@@ -456,7 +456,9 @@
               <tr><td>cookie_prefix</td><td>{{ cfg.cookie_prefix }}</td></tr>
               <tr><td>auth_strategy</td><td>{{ cfg.auth_strategy }}</td></tr>
               <tr><td>body.max_size</td><td>{{ cfg.body?.max_size || '-' }}</td></tr>
+              <tr><td>body.max_field</td><td>{{ cfg.body?.max_field || '-' }}</td></tr>
               <tr><td>body.on_error</td><td>{{ cfg.body?.on_error || '-' }}</td></tr>
+              <tr><td>body.scan_exempt</td><td>{{ (cfg.body?.scan_exempt || []).join(', ') || '-' }}</td></tr>
               <tr><td>proxy.health_check_interval</td><td>{{ cfg.proxy?.health_check_interval || '-' }}s</td></tr>
             </tbody>
           </table>
