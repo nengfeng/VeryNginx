@@ -14,7 +14,7 @@ local _CONDITION_ORDER = {
     Method = 1,
     URI = 2,
     Host = 3,
-    UA = 4,
+    UserAgent = 4,
     Referer = 5,
     IP = 6,
     Header = 7,
@@ -29,6 +29,44 @@ end
 
 function _M.condition_order()
     return _CONDITION_ORDER
+end
+
+--- Pre-compute the per-request hot-path data for a matcher definition:
+-- _matcher_crc (match-cache key; avoids a per-request json.encode + crc32)
+-- and _sorted_conditions (avoids a per-request allocation + table.sort),
+-- then recurse into Composite sub-conditions so nested definitions get the
+-- same treatment. Idempotent; called once at config-compile / rule-load
+-- time. Both fields must be set together: a crc without the sorted list
+-- would leak the "_"-prefixed keys into the condition loop.
+function _M.precompute(matcher_def)
+    if type(matcher_def) ~= "table" or matcher_def._sorted_conditions then
+        return matcher_def
+    end
+    if not matcher_def._matcher_crc and ngx and ngx.crc32_short then
+        -- encode before the "_" keys exist so the crc covers only conditions
+        matcher_def._matcher_crc = ngx.crc32_short(json.encode(matcher_def))
+    end
+    local sorted = {}
+    for condition_type, condition in pairs(matcher_def) do
+        -- skip our own metadata keys (defensive: also protects the
+        -- un-precomputed fallback path in _M.test below)
+        if condition_type:sub(1, 1) ~= "_" then
+            sorted[#sorted + 1] = { type = condition_type, cond = condition,
+                                    order = _CONDITION_ORDER[condition_type] or 50 }
+        end
+    end
+    table.sort(sorted, function(a, b) return a.order < b.order end)
+    matcher_def._sorted_conditions = sorted
+    for _, entry in ipairs(sorted) do
+        local c = entry.cond
+        if entry.type == "Composite" and type(c) == "table"
+            and type(c.conditions) == "table" then
+            for _, sub in ipairs(c.conditions) do
+                if type(sub) == "table" then _M.precompute(sub) end
+            end
+        end
+    end
+    return matcher_def
 end
 
 --- Resolve a rule's matcher definition.
@@ -64,8 +102,12 @@ function _M.test(matcher_def, ctx)
     if not sorted then
         sorted = {}
         for condition_type, condition in pairs(matcher_def) do
-            sorted[#sorted + 1] = { type = condition_type, cond = condition,
-                                    order = _CONDITION_ORDER[condition_type] or 50 }
+            -- skip "_"-prefixed metadata keys (_matcher_crc etc.) so a
+            -- partially precomputed def can never be treated as a condition
+            if condition_type:sub(1, 1) ~= "_" then
+                sorted[#sorted + 1] = { type = condition_type, cond = condition,
+                                        order = _CONDITION_ORDER[condition_type] or 50 }
+            end
         end
         table.sort(sorted, function(a, b) return a.order < b.order end)
     end

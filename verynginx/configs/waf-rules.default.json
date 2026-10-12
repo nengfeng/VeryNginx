@@ -88,7 +88,7 @@
     },
     {
       "id": "vn_sqli_0003",
-      "name": "SQL Injection — Comments / Stacked Queries",
+      "name": "SQL Injection — Stacked Queries",
       "category": "sqli",
       "severity": "high",
       "action": "log",
@@ -121,11 +121,11 @@
           ]
         }
       },
-      "description": "Detects SQL comments and stacked query keywords. Action is log (not block): the single-keyword pattern after ';'/'&&' false-positives on ordinary prose (\"wait; create an account\", \"ok; update: fixed it\"), so it is kept at log pending a two-keyword-tuned regex.",
+      "description": "Detects stacked query keywords (DDL/DML verbs after ';' or '&&') in parameters. Comment-syntax detection was removed in v9. Action is log (not block): the single-keyword pattern false-positives on ordinary prose (\"wait; create an account\", \"ok; update: fixed it\"), so it is kept at log pending a two-keyword-tuned regex.",
       "tags": [],
-      "version": 3,
+      "version": 4,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T00:20:00Z",
+      "updated_at": "2026-10-12T01:15:00Z",
       "created_by": "system"
     },
     {
@@ -267,29 +267,49 @@
       "priority": 20,
       "matcher": {
         "Composite": {
-          "operator": "OR",
+          "operator": "AND",
           "conditions": [
             {
-              "URI": {
-                "operator": "≈",
-                "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|document\\.|window\\.|location\\.)"
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
               }
             },
             {
-              "Args": {
-                "name_operator": "*",
-                "operator": "≈",
-                "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|document\\.|window\\.|location\\.)"
+              "Composite": {
+                "operator": "OR",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|document\\.|window\\.|location\\.)"
+                    }
+                  },
+                  {
+                    "Args": {
+                      "name_operator": "*",
+                      "operator": "≈",
+                      "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|document\\.|window\\.|location\\.)"
+                    }
+                  }
+                ]
               }
             }
           ]
         }
       },
-      "description": "Detects javascript: XSS payload in URI or parameters (javascript:alert/confirm/prompt/document./window./location.)",
+      "description": "Detects javascript: XSS payload in URI or parameters (javascript:alert/confirm/prompt/document./window./location.). phpMyAdmin paths are exempt, matching the other request-parameter rules.",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-11T10:45:00Z",
+      "updated_at": "2026-10-12T01:15:00Z",
       "created_by": "system"
     },
     {
@@ -472,29 +492,49 @@
       "priority": 20,
       "matcher": {
         "Composite": {
-          "operator": "OR",
+          "operator": "AND",
           "conditions": [
             {
-              "URI": {
-                "operator": "≈",
-                "value": "(?:etc/passwd|etc/shadow|etc/hosts|proc/self/environ|proc/self/cmdline|boot\\.ini|win\\.ini)"
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
               }
             },
             {
-              "Args": {
-                "name_operator": "*",
-                "operator": "≈",
-                "value": "(?:etc/passwd|etc/shadow|etc/hosts|proc/self/environ|proc/self/cmdline|boot\\.ini|win\\.ini)"
+              "Composite": {
+                "operator": "OR",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?:etc/passwd|etc/shadow|etc/hosts|proc/self/environ|proc/self/cmdline|boot\\.ini|win\\.ini)"
+                    }
+                  },
+                  {
+                    "Args": {
+                      "name_operator": "*",
+                      "operator": "≈",
+                      "value": "(?:etc/passwd|etc/shadow|etc/hosts|proc/self/environ|proc/self/cmdline|boot\\.ini|win\\.ini)"
+                    }
+                  }
+                ]
               }
             }
           ]
         }
       },
-      "description": "Detects attempts to read sensitive system files",
+      "description": "Detects attempts to read sensitive system files. phpMyAdmin paths are exempt, matching the other request-parameter rules.",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-11T10:45:00Z",
+      "updated_at": "2026-10-12T01:15:00Z",
       "created_by": "system"
     },
     {
@@ -549,29 +589,49 @@
       "priority": 20,
       "matcher": {
         "Composite": {
-          "operator": "OR",
+          "operator": "AND",
           "conditions": [
             {
-              "URI": {
-                "operator": "≈",
-                "value": "\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e\\\\|..%5c"
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$|\\.)"
+                    }
+                  }
+                ]
               }
             },
             {
-              "Args": {
-                "name_operator": "*",
-                "operator": "≈",
-                "value": "\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e\\\\|..%5c"
+              "Composite": {
+                "operator": "OR",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e\\\\|..%5c"
+                    }
+                  },
+                  {
+                    "Args": {
+                      "name_operator": "*",
+                      "operator": "≈",
+                      "value": "\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e\\\\|..%5c"
+                    }
+                  }
+                ]
               }
             }
           ]
         }
       },
-      "description": "Detects directory traversal sequences (../) encoding bypasses included",
+      "description": "Detects directory traversal sequences (../) encoding bypasses included. phpMyAdmin paths are exempt, matching the other request-parameter rules.",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-11T10:45:00Z",
+      "updated_at": "2026-10-12T01:15:00Z",
       "created_by": "system"
     },
     {
@@ -627,14 +687,14 @@
       "matcher": {
         "URI": {
           "operator": "≈",
-          "value": "(?:/manager/html|/jmx-console|/actuator|/cgi-bin/|/~root|/~admin)"
+          "value": "(?:/manager/html|/jmx-console|/actuator(?:/|$)|/cgi-bin/|/~root|/~admin)"
         }
       },
-      "description": "Blocks scanner-targeted management paths (Tomcat manager, JMX console, Spring actuator, CGI bin, home dirs). CMS admin paths (/wp-admin, /administrator) and the overly-broad /console are intentionally NOT blocked for LNMP compatibility.",
+      "description": "Blocks scanner-targeted management paths (Tomcat manager, JMX console, Spring actuator, CGI bin, home dirs). /actuator is anchored so lookalike paths (/products/actuator-x) are not blocked. CMS admin paths (/wp-admin, /administrator) and the overly-broad /console are intentionally NOT blocked for LNMP compatibility.",
       "tags": [],
-      "version": 3,
+      "version": 4,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-11T10:45:00Z",
+      "updated_at": "2026-10-12T01:15:00Z",
       "created_by": "system"
     },
     {
@@ -735,14 +795,14 @@
       "matcher": {
         "URI": {
           "operator": "≈",
-          "value": "/(?:\\.env|\\.git/config|\\.svn/entries|\\.DS_Store|composer\\.json|package\\.json|credentials\\.(?:json|ya?ml|txt|bak|csv|conf|ini|env|pem|key|p12|inc|php)|config\\.php|config\\.inc)|\\.(?:bak|old|save|swp|tar\\.gz|sql\\.gz|htaccess|htpasswd|bash_history|ssh)$"
+          "value": "/(?:\\.env|\\.git/|\\.svn/entries|\\.DS_Store|composer\\.json|package\\.json|credentials\\.(?:json|ya?ml|txt|bak|csv|conf|ini|env|pem|key|p12|inc|php)|config\\.php|config\\.inc)|\\.(?:bak|old|save|swp|tar\\.gz|sql\\.gz|htaccess|htpasswd|bash_history|ssh)$"
         }
       },
-      "description": "Blocks access to sensitive config, VCS, and backup files (.env, .git/config, credentials.*, *.bak/*.old/*.swp/*.tar.gz/*.sql.gz/.htaccess/.htpasswd, etc.). Extension list is deliberately narrow (backup/sensitive suffixes only) so that legitimate downloads (.zip/.yaml/.log/… ) on distribution or docs sites are not blocked.",
+      "description": "Blocks access to sensitive config, VCS, and backup files (.env, any /.git/ path incl. HEAD/config/index, credentials.*, *.bak/*.old/*.swp/*.tar.gz/*.sql.gz/.htaccess/.htpasswd, etc.). Extension list is deliberately narrow (backup/sensitive suffixes only) so that legitimate downloads (.zip/.yaml/.log/… ) on distribution or docs sites are not blocked.",
       "tags": [],
-      "version": 3,
+      "version": 4,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T00:20:00Z",
+      "updated_at": "2026-10-12T01:15:00Z",
       "created_by": "system"
     }
   ]

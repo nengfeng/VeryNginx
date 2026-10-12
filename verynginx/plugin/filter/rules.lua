@@ -5,13 +5,17 @@
 
 local _M = {}
 
--- Default matchers for built-in security rules
+-- Default matchers for built-in security rules.
+-- These only activate when waf-rules.json is missing/corrupt; keep them
+-- aligned with the v10 factory philosophy: tight patterns (no bare
+-- "select.+from", no bare "zap" matching "Zapier"), narrow backup
+-- extensions (real backup/sensitive suffixes only, incl. .sql.gz).
 _M.default_matchers = {
     attack_sqli = {
         Args = {
             name_operator = "*",
             operator = "≈",
-            value = "(\\bunion\\b.+\\bselect\\b|\\bselect\\b.+\\bfrom\\b|" ..
+            value = "(\\bunion\\b[\\s/*]+(?:all[\\s/*]+)?select\\b|" ..
                 "\\bsleep\\s*\\(|\\bload_file\\s*\\(|\\bexec\\s*\\(|" ..
                 "\\bxp_cmdshell\\b|\\binformation_schema\\b|\\b1\\s*=\\s*1\\b|" ..
                 "'\\s*or\\s*'|\\b0x[0-9a-f]{8,}\\b)",
@@ -21,19 +25,20 @@ _M.default_matchers = {
     attack_backup = {
         URI = {
             operator = "≈",
-            value = "\\.(htaccess|bash_history|ssh|sql|bak|old|swp|config|yml|yaml|env|dist|log|tar\\.gz|zip|rar)$"
+            value = "\\.(?:bak|old|save|swp|tar\\.gz|sql\\.gz|htaccess|htpasswd|bash_history|ssh)$"
         }
     },
     attack_scanner = {
         UserAgent = {
             operator = "≈",
-            value = "(nmap|w3af|netsparker|nikto|acunetix|nessus|openvas|fimap|sqlmap|hydra|medusa|burpsuite|zap)"
+            -- "zap\\b": a bare "zap" also matches "Zapier" (false positive)
+            value = "(nmap|w3af|netsparker|nikto|acunetix|nessus|openvas|fimap|sqlmap|hydra|medusa|burpsuite|zap\\b)"
         }
     },
     attack_code_leak = {
         URI = {
             operator = "≈",
-            value = "(\\.git/config|\\.svn/entries|\\.env\\b|/vendor/|/composer\\.json|" ..
+            value = "(\\.git/|\\.svn/entries|\\.env\\b|/vendor/|/composer\\.json|" ..
                 "/package\\.json|/node_modules/|/wp-config\\.php|config\\.php\\b|WEB-INF/web\\.xml)"
         }
     },

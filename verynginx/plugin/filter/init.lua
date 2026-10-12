@@ -22,6 +22,12 @@ local function split_rules(all_rules)
     local hard_block, challenge = {}, {}
     for _, rule in ipairs(all_rules) do
         if not rule.enable then goto continue end
+        -- WAF rules never pass through the config-compile path, so
+        -- pre-compute their matcher hot-path data (CRC + sorted conditions,
+        -- recursing into Composite) here, once per rule load — otherwise
+        -- every request re-does json.encode + crc32 + sort per definition.
+        local rule_md = matcher.resolve(rule)
+        if rule_md then matcher.precompute(rule_md) end
         local action = rule.action or "log"
         if action == "block" or action == "accept" then
             table.insert(hard_block, rule)

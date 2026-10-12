@@ -33,6 +33,12 @@ local STATS_PREFIX  = "waf_rule_stats:"
 local STATS_INDEX_KEY = "waf_rule_stats:index"
 local RATE_PREFIX   = "waf_rate_limit:"
 local HIT_PREFIX    = "waf_hit:"
+-- Hit-sampling fairness: per-rule cap of sampled hits per flush cycle.
+-- A hot rule (e.g. a log rule matching a high-traffic login path) must not
+-- monopolize the 5000-slot shared buffer and evict every other rule's
+-- samples; per-day stats counters are unaffected (counted before the cap).
+local HIT_FLUSH_INTERVAL = 30              -- must match the timer.every below
+local HIT_CAP_PER_RULE_PER_CYCLE = 200
 
 -- Chunk size: each chunk stores at most this many rules to stay under the
 -- 1 MB shared-dict value-size limit.  100 rules × ~8KB/rule = ~800 KB.
@@ -874,12 +880,79 @@ local function merge_missing(current, defaults)
 end
 _M._merge_missing = merge_missing
 
---- Restore missing factory rules from configs/waf-rules.default.json by id.
---- Additive only: rules already present (whatever their current content) and
---- custom rules are never touched, so a misbehaving default file cannot
---- overwrite operator work.
+-- Fields treated as *factory content* by force-sync: everything a factory
+-- rule owns except the operator's behavioral choices (enable, action,
+-- code, response) and history/bookkeeping fields (version, timestamps,
+-- hit_count, ...). Preserving enable/action means a gray-release action
+-- state survives the sync.
+local _SYNC_FIELDS = { "name", "description", "category", "severity",
+                       "priority", "matcher", "tags" }
+
+local function deep_equal(a, b)
+    if a == b then return true end
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+    for k, v in pairs(a) do
+        if not deep_equal(v, b[k]) then return false end
+    end
+    for k in pairs(b) do
+        if a[k] == nil then return false end
+    end
+    return true
+end
+_M._deep_equal = deep_equal
+
+--- Force-sync merge: existing rules get their factory *content* refreshed
+--- from the defaults while the operator's enable/action (plus code and
+--- response) choices are preserved. Missing factory rules are appended;
+--- custom rules (ids absent from defaults) are untouched. Rules whose
+--- content already matches are left alone (no version churn).
+--- Exported as _M._sync_defaults for unit tests.
+local function sync_defaults(current, defaults)
+    local by_id = {}
+    for _, r in ipairs(current) do
+        if type(r) == "table" and r.id then by_id[r.id] = r end
+    end
+    local merged = current
+    local restored_ids, updated_ids = {}, {}
+    for _, dr in ipairs(defaults) do
+        local cur = by_id[dr.id]
+        if not cur then
+            by_id[dr.id] = dr.id
+            merged[#merged + 1] = deep_copy(dr)
+            restored_ids[#restored_ids + 1] = dr.id
+        else
+            local changed = false
+            for _, f in ipairs(_SYNC_FIELDS) do
+                if not deep_equal(cur[f], dr[f]) then
+                    cur[f] = deep_copy(dr[f])
+                    changed = true
+                end
+            end
+            if changed then
+                -- monotone version: never lower a version the operator has
+                -- already advanced past via dashboard edits
+                cur.version = math.max(tonumber(cur.version) or 0,
+                                        tonumber(dr.version) or 0)
+                updated_ids[#updated_ids + 1] = dr.id
+            end
+        end
+    end
+    return merged, restored_ids, updated_ids
+end
+_M._sync_defaults = sync_defaults
+
+--- Restore factory rules from configs/waf-rules.default.json by id.
+--- Default mode is additive only: rules already present (whatever their
+--- current content) and custom rules are never touched, so a misbehaving
+--- default file cannot overwrite operator work.
+--- opts.force = true additionally syncs existing rules' factory *content*
+--- (name/matcher/severity/...) to the defaults while preserving the
+--- operator's enable/action choices — this is how upgrades deliver factory
+--- fixes to installations that already carry an older copy of a rule.
 -- @return result table or nil + err
-function _M.restore_defaults()
+function _M.restore_defaults(opts)
+    opts = opts or {}
+    local force = opts.force == true
     local f = io.open(default_rules_path(), "r")
     if not f then
         return nil, "default rules file not found: " .. default_rules_path()
@@ -912,21 +985,32 @@ function _M.restore_defaults()
 
     local rules_obj = _M.load_rules()
     local current = (rules_obj and rules_obj.rules) or {}
-    local merged, restored_ids = merge_missing(current, valid_defaults)
+    local merged, restored_ids, updated_ids
+    if force then
+        merged, restored_ids, updated_ids = sync_defaults(current, valid_defaults)
+    else
+        merged, restored_ids = merge_missing(current, valid_defaults)
+        updated_ids = {}
+    end
 
     local result = {
         restored = #restored_ids,
         restored_ids = restored_ids,
+        updated = #updated_ids,
+        updated_ids = updated_ids,
         present = #current,
         skipped = skipped,
     }
-    if #restored_ids == 0 then
-        -- Nothing missing: do not bump the version or write a history entry.
-        result.message = "没有缺失的出厂规则"
+    if #restored_ids == 0 and #updated_ids == 0 then
+        -- Nothing missing and nothing stale: do not bump the version or
+        -- write a history entry.
+        result.message = force and "所有出厂规则内容均为最新"
+            or "没有缺失的出厂规则"
         return result
     end
 
-    local save_ok, save_err = _M.save_rules(merged, "restore_defaults",
+    local save_ok, save_err = _M.save_rules(merged,
+        force and "sync_defaults" or "restore_defaults",
         rules_obj and rules_obj.version)
     if not save_ok then
         return nil, "save failed: " .. tostring(save_err)
@@ -1108,16 +1192,44 @@ end
 -- ---------------------------------------------------------------------------
 function _M.record_hit(rule_id, ctx, action)
     local shared = ngx.shared.vn_config
+    local hit_action = action or "log"
 
-    -- Drop hit if buffer is too large (prevents unbounded growth when
-    -- flush cannot keep pace, e.g. burst >5000 hits per 30s cycle)
+    -- Independent per-day counters first, before any sampling drop: they
+    -- power "today's hits" and must stay exact even when the sample buffer
+    -- is full or the per-rule cap below has been reached. (Previously they
+    -- were incremented only after the buffer guard, so a single hot rule
+    -- filling the buffer silently froze *every* rule's stats.)
+    pcall(function()
+        local day = os.date("!%Y%m%d")
+        shared:incr("waf_rule_stats:" .. tostring(rule_id) .. ":today:" .. day, 1, 0, 172800)
+        if hit_action == "challenge" then
+            -- Per-day challenge count: numerator of the analytics pass-rate
+            -- (:cpass:) is also per-day; a lifetime denominator made the rate
+            -- decay toward 0% over time.
+            shared:incr("waf_rule_stats:" .. tostring(rule_id) .. ":chal:" .. day, 1, 0, 172800)
+        end
+    end)
+
+    -- Per-rule sampling cap per flush cycle: a rule matching a high-traffic
+    -- path (e.g. a log rule on /login) records at most
+    -- HIT_CAP_PER_RULE_PER_CYCLE samples per cycle, leaving buffer slots
+    -- for every other rule instead of evicting their samples.
+    local cap_key = HIT_PREFIX .. "cap:" .. tostring(rule_id)
+        .. ":" .. tostring(math.floor(ngx.time() / HIT_FLUSH_INTERVAL))
+    local capn = shared:incr(cap_key, 1, 0, HIT_FLUSH_INTERVAL * 2)
+    if capn and capn > HIT_CAP_PER_RULE_PER_CYCLE then
+        return
+    end
+
+    -- Drop remaining sample if buffer is too large (prevents unbounded
+    -- growth when flush cannot keep pace, e.g. burst >5000 hits per 30s
+    -- cycle)
     local head = tonumber(shared:get(HIT_PREFIX .. "head") or 0)
     local tail = tonumber(shared:get(HIT_PREFIX .. "tail") or 0)
     if tail - head >= 5000 then
         return
     end
 
-    local hit_action = action or "log"
     local hit_data = table.concat({
         rule_id,
         hit_action,
@@ -1132,19 +1244,6 @@ function _M.record_hit(rule_id, ctx, action)
     -- leaving it unconsumed forever — let strays self-expire instead of
     -- leaking vn_config under sustained load.
     shared:set(HIT_PREFIX .. tostring(idx), hit_data, 600)
-    -- Independent per-day counter so "today's hits" can't be inflated by a
-    -- rule's all-time total (stats previously added hit_count when
-    -- last_triggered fell inside today).
-    pcall(function()
-        local day = os.date("!%Y%m%d")
-        shared:incr("waf_rule_stats:" .. tostring(rule_id) .. ":today:" .. day, 1, 0, 172800)
-        if hit_action == "challenge" then
-            -- Per-day challenge count: numerator of the analytics pass-rate
-            -- (:cpass:) is also per-day; a lifetime denominator made the rate
-            -- decay toward 0% over time.
-            shared:incr("waf_rule_stats:" .. tostring(rule_id) .. ":chal:" .. day, 1, 0, 172800)
-        end
-    end)
 
     -- Ring buffer for recent hits display (keep last 100)
     local ring_idx = (shared:incr("waf_recent_hits:idx", 1, 0) - 1) % 100 + 1

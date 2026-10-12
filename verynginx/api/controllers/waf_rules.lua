@@ -558,18 +558,38 @@ local function handle_list_pending_rules()
 end
 
 --- POST /waf/rules/restore-defaults - re-add missing factory rules by id.
---- Additive only: present rules (factory or custom) are untouched, so a
---- corrupt default file cannot overwrite operator work.
+--- Additive only by default: present rules (factory or custom) are
+--- untouched, so a corrupt default file cannot overwrite operator work.
+--- Body {"force": true} additionally syncs existing factory rules' content
+--- to the current defaults while preserving the operator's enable/action
+--- choices (upgrade path for installations carrying stale rule copies).
 local function handle_restore_defaults()
-    local result, err = waf_manager.restore_defaults()
+    local args = helpers.get_request_args()
+    local force = args and (args.force == true or args.force == "true")
+    local result, err = waf_manager.restore_defaults({ force = force })
     if not result then
         ngx.status = 500
         return json.encode({ ret = "failed", message = tostring(err) })
     end
-    audit.log("waf_rules_defaults_restored", "restored=" .. tostring(result.restored), "-")
-    local msg = "已恢复 " .. tostring(result.restored) .. " 条默认规则"
-    if result.restored == 0 then
-        msg = result.message or "没有缺失的出厂规则"
+    if force then
+        audit.log("waf_rules_defaults_synced",
+            "restored=" .. tostring(result.restored)
+            .. " updated=" .. tostring(result.updated), "-")
+    else
+        audit.log("waf_rules_defaults_restored", "restored=" .. tostring(result.restored), "-")
+    end
+    local msg
+    if force then
+        msg = "已恢复 " .. tostring(result.restored) .. " 条、同步 "
+            .. tostring(result.updated) .. " 条出厂规则（现有启用/动作设置已保留）"
+        if result.restored == 0 and result.updated == 0 then
+            msg = result.message or "所有出厂规则内容均为最新"
+        end
+    else
+        msg = "已恢复 " .. tostring(result.restored) .. " 条默认规则"
+        if result.restored == 0 then
+            msg = result.message or "没有缺失的出厂规则"
+        end
     end
     return json.encode({ ret = "success", data = result, message = msg })
 end

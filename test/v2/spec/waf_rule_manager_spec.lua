@@ -654,4 +654,168 @@ describe("waf-rule-manager", function()
         end)
     end)
 
+    -----------------------------------------------------------------------
+    -- _sync_defaults()  (force mode of restore_defaults)
+    -----------------------------------------------------------------------
+    describe("_sync_defaults()", function()
+        local sync = waf._sync_defaults
+        assert.truthy(sync, "_sync_defaults must be exported")
+
+        it("updates factory content but preserves enable/action (gray state)", function()
+            local current = {
+                { id = "f1", name = "old name", category = "sqli", severity = "high",
+                  action = "log", enable = false, priority = 20,
+                  matcher = { URI = { operator = "≈", value = "/old" } },
+                  version = 1, hit_count = 42 },
+                { id = "custom_1", name = "custom", action = "block" },
+            }
+            local defaults = {
+                { id = "f1", name = "new name", category = "sqli", severity = "critical",
+                  action = "block", enable = true, priority = 10,
+                  matcher = { URI = { operator = "≈", value = "/new" } },
+                  version = 3 },
+            }
+            local merged, restored, updated = sync(current, defaults)
+            assert.are.equal(2, #merged)
+            assert.are.equal(0, #restored)
+            assert.are.equal(1, #updated)
+            assert.are.equal("f1", updated[1])
+            local r = merged[1]
+            assert.are.equal("new name", r.name, "content synced")
+            assert.are.equal("critical", r.severity)
+            assert.are.equal("/new", r.matcher.URI.value)
+            assert.are.equal("log", r.action, "operator action preserved")
+            assert.is_false(r.enable, "operator enable preserved")
+            assert.are.equal(3, r.version, "monotone version from defaults")
+            assert.are.equal(42, r.hit_count, "bookkeeping untouched")
+            assert.are.equal("custom", merged[2].name, "custom rule untouched")
+        end)
+
+        it("appends missing factory rules", function()
+            local merged, restored, updated = sync({}, {
+                { id = "f1", name = "n", category = "sqli", severity = "low",
+                  action = "log", enable = true, matcher = { URI = { operator = "≈", value = "/a" } } },
+            })
+            assert.are.equal(1, #merged)
+            assert.are.equal(1, #restored)
+            assert.are.equal(0, #updated)
+        end)
+
+        it("reports no changes when content already matches", function()
+            local rule = { id = "f1", name = "n", category = "sqli", severity = "low",
+                           action = "log", enable = true,
+                           matcher = { URI = { operator = "≈", value = "/a" } } }
+            local current = { { id = "f1", name = "n", category = "sqli", severity = "low",
+                                action = "block", enable = false,
+                                matcher = { URI = { operator = "≈", value = "/a" } } } }
+            local defaults = { { id = "f1", name = "n", category = "sqli", severity = "low",
+                                 action = "log", enable = true,
+                                 matcher = { URI = { operator = "≈", value = "/a" } } } }
+            local merged, restored, updated = sync(current, defaults)
+            assert.are.equal(0, #restored)
+            assert.are.equal(0, #updated, "enable/action differences alone are not content changes")
+            assert.are.equal("block", merged[1].action, "action untouched")
+            assert.is_false(merged[1].enable)
+            assert.truthy(rule) -- silence unused-local linters
+        end)
+    end)
+
+    describe("restore_defaults() force mode end-to-end", function()
+        local config = require("core.config")
+        local fixture_path = config.resolve_path() .. "configs/waf-rules.default.json"
+
+        local function write_fixture()
+            local f = assert(io.open(fixture_path, "w"))
+            f:write([[
+{
+  "version": 1,
+  "timestamp": "2026-10-12T00:00:00Z",
+  "rules": [
+    {
+      "id": "fx_stale", "name": "Fresh Content", "category": "sqli",
+      "severity": "critical", "action": "block", "enable": true, "priority": 10,
+      "matcher": { "URI": { "operator": "≈", "value": "/fresh" } },
+      "version": 7
+    },
+    {
+      "id": "fx_missing", "name": "Was Missing", "category": "xss",
+      "severity": "low", "action": "log", "enable": true, "priority": 40,
+      "matcher": { "URI": { "operator": "≈", "value": "/missing" } },
+      "version": 1
+    }
+  ]
+}
+]])
+            f:close()
+        end
+
+        setup(function()
+            write_fixture()
+        end)
+
+        teardown(function()
+            os.remove(fixture_path)
+        end)
+
+        it("force syncs stale factory content, keeps gray state, appends missing", function()
+            waf.save_rules({
+                { id = "fx_stale", name = "Stale Content", category = "sqli",
+                  severity = "medium", action = "log", enable = false, priority = 30,
+                  matcher = { URI = { operator = "≈", value = "/stale" } },
+                  version = 2 },
+                { id = "fx_custom", name = "Custom", category = "custom",
+                  severity = "low", action = "block", enable = true, priority = 50,
+                  matcher = { URI = { operator = "≈", value = "/custom" } },
+                  version = 1 },
+            })
+            local result, err = waf.restore_defaults({ force = true })
+            assert.is_nil(err)
+            assert.are.equal(1, result.restored, "fx_missing appended")
+            assert.are.equal(1, result.updated, "fx_stale content synced")
+            local rules = waf.load_rules().rules
+            local by_id = {}
+            for _, r in ipairs(rules) do by_id[r.id] = r end
+            assert.are.equal("Fresh Content", by_id.fx_stale.name)
+            assert.are.equal("/fresh", by_id.fx_stale.matcher.URI.value)
+            assert.are.equal("log", by_id.fx_stale.action, "gray action preserved")
+            assert.is_false(by_id.fx_stale.enable, "disable preserved")
+            assert.are.equal(7, by_id.fx_stale.version)
+            assert.are.equal("Custom", by_id.fx_custom.name, "custom untouched")
+            assert.truthy(by_id.fx_missing, "missing factory rule appended")
+        end)
+
+        it("non-force mode stays additive-only (stale content untouched)", function()
+            write_fixture()
+            waf.save_rules({
+                { id = "fx_stale", name = "Stale Content", category = "sqli",
+                  severity = "medium", action = "log", enable = true, priority = 30,
+                  matcher = { URI = { operator = "≈", value = "/stale" } },
+                  version = 2 },
+            })
+            local result = waf.restore_defaults()
+            assert.are.equal(1, result.restored)
+            assert.are.equal(0, result.updated or 0)
+            local rules = waf.load_rules().rules
+            assert.are.equal("Stale Content", rules[1].name, "additive mode never rewrites")
+            assert.are.equal("/stale", rules[1].matcher.URI.value)
+        end)
+
+        it("force with current content reports zero counts and skips the save", function()
+            waf.save_rules({
+                { id = "fx_stale", name = "Fresh Content", category = "sqli",
+                  severity = "critical", action = "log", enable = false, priority = 10,
+                  matcher = { URI = { operator = "≈", value = "/fresh" } },
+                  version = 7 },
+                { id = "fx_missing", name = "Was Missing", category = "xss",
+                  severity = "low", action = "log", enable = true, priority = 40,
+                  matcher = { URI = { operator = "≈", value = "/missing" } },
+                  version = 1 },
+            })
+            local result = waf.restore_defaults({ force = true })
+            assert.are.equal(0, result.restored)
+            assert.are.equal(0, result.updated)
+            assert.is_not_nil(result.message, "user-facing explanation returned")
+        end)
+    end)
+
 end)

@@ -77,4 +77,33 @@ describe("waf: hit recording and ring buffer", function()
         assert.is_true(found)
     end)
 
+    it("per-rule sampling cap stops a hot rule monopolizing the buffer", function()
+        local shared = ngx.shared.vn_config
+        local tail_before = tonumber(shared:get("waf_hit:tail") or 0)
+        -- simulate a hot rule firing on every request (e.g. a log rule on /login)
+        for i = 1, 500 do
+            waf.record_hit("hot_rule", make_ctx({ uri = "/login" }))
+        end
+        -- another rule must still get its sample recorded
+        waf.record_hit("other_rule", make_ctx({ uri = "/precious" }), "block")
+        local tail_after = tonumber(shared:get("waf_hit:tail") or 0)
+        local sampled = tail_after - tail_before
+        assert.is_true(sampled <= 210,
+            "hot rule capped: expected <=210 sampled hits, got " .. sampled)
+        -- and the hot rule's per-day stats stay exact (uncapped)
+        local day = os.date("!%Y%m%d")
+        local today = tonumber(shared:get("waf_rule_stats:hot_rule:today:" .. day) or 0)
+        assert.are.equal(500, today, "per-day counter must count every hit")
+        -- other rule's hit is in the recent-hits ring
+        local hits = waf.get_recent_hits(100)
+        local found = false
+        for _, h in ipairs(hits) do
+            if h.rule_id == "other_rule" and h.uri == "/precious" then
+                found = true
+                break
+            end
+        end
+        assert.is_true(found, "other rule's hit must not be evicted by the hot rule")
+    end)
+
 end)

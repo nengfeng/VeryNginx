@@ -259,7 +259,10 @@ install_files() {
   if [ ! -f "$rules_file" ]; then
     if [ -f "${VN_DIR}/configs/waf-rules.default.json" ]; then
       cp "${VN_DIR}/configs/waf-rules.default.json" "$rules_file"
-      info "Created waf-rules.json from default template (20 rules)"
+      # count dynamically so this line can never go stale again
+      local rule_count
+      rule_count=$(grep -c '"id":' "${VN_DIR}/configs/waf-rules.default.json" 2>/dev/null || echo "?")
+      info "Created waf-rules.json from default template (${rule_count} rules)"
     fi
   else
     info "waf-rules.json already exists, keeping it"

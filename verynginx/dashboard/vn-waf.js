@@ -855,6 +855,30 @@
       }
     }
 
+    async function wafSyncDefaults() {
+      if (!await showConfirm({
+        title: '同步出厂规则内容',
+        message: '出厂规则的内容（匹配条件、名称、级别等）将更新为当前版本默认值；你的启用/停用与动作选择（含灰度 log 状态）会保留，自定义规则不受影响。继续？',
+        type: 'warning',
+      })) return;
+      wafRolling.value = true;
+      try {
+        const d = await api('POST', '/verynginx/waf/rules/restore-defaults', { force: true });
+        if (d.ret === 'success') {
+          const r = d.data || {};
+          const skippedNote = r.skipped && r.skipped.length ? `，跳过 ${r.skipped.length} 条无效规则` : '';
+          showToast(`已恢复 ${r.restored} 条、同步 ${r.updated || 0} 条出厂规则${skippedNote}`, 'success');
+          await loadWafData();
+        } else {
+          showToast(d.message || '同步失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message || '同步失败', 'error');
+      } finally {
+        wafRolling.value = false;
+      }
+    }
+
     async function wafRollback(btn) {
       if (!btn || !btn.version) return;
       if (!await showConfirm({
@@ -1105,6 +1129,7 @@
     view('dismissRec', dismissRec);
     view('wafRollback', wafRollback);
     view('wafRestoreDefaults', wafRestoreDefaults);
+    view('wafSyncDefaults', wafSyncDefaults);
 
     // History rows are per-save snapshots ("state after this change").
     // Clicking a row's button = UNDO that change: restore the PREVIOUS
