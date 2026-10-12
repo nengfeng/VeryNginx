@@ -39,13 +39,47 @@ local function split_rules(all_rules)
         ::continue::
     end
     table.sort(hard_block, function(a, b)
-        return (a.priority or 100) < (b.priority or 100)
+        local pa, pb = a.priority or 100, b.priority or 100
+        if pa ~= pb then return pa < pb end
+        -- Deterministic tie-break: Lua's table.sort is unstable, so without
+        -- it same-priority rules evaluate in arbitrary order — and which
+        -- block rule records the hit (first match returns) became luck.
+        return (a.id or "") < (b.id or "")
     end)
     table.sort(challenge, function(a, b)
-        return (a.priority or 100) < (b.priority or 100)
+        local pa, pb = a.priority or 100, b.priority or 100
+        if pa ~= pb then return pa < pb end
+        return (a.id or "") < (b.id or "")
     end)
     return hard_block, challenge
 end
+_M._split_rules = split_rules -- exported for unit tests (tie-break order)
+
+-- Synthetic rule id for requests the scanner could not inspect (body over
+-- body.max_size, args over max_args, parse failures). Previously each Args
+-- condition fail-closed to "match", so whichever Args rule sorted first
+-- claimed the hit — usually vn_sqli_0001 — mislabelling large legitimate
+-- uploads as SQL injection and, on default installs (factory action=block),
+-- 403ing them. One honest synthetic hit replaces that masquerade.
+local UNINSPECTABLE_ID = "vn_body_uninspectable"
+
+--- Record a single honest hit for a request whose body/args could not be
+-- inspected. Observation only (log): the global body.on_error = "skip"
+-- opts out entirely; per-rule opt-in stays available via each Args
+-- condition's on_body_error. Exported for unit tests.
+function _M._record_uninspectable(ctx)
+    local err = ctx.request and (ctx.request._body_error
+        or ctx.request._uri_args_error)
+    if not err then return false end
+    local policy = (config and config.body and config.body.on_error)
+        or "fail_closed"
+    if policy == "skip" then return false end
+    waf_manager.record_hit(UNINSPECTABLE_ID, ctx, "log")
+    ngx.log(ngx.WARN, "waf: request not fully inspectable (", tostring(err),
+        ") — recorded synthetic hit ", UNINSPECTABLE_ID)
+    return true
+end
+_M.UNINSPECTABLE_ID = UNINSPECTABLE_ID
 
 local function evaluate_rules(rules, ctx, ip)
     for _, rule in ipairs(rules) do
@@ -201,6 +235,10 @@ function _M.on_access(ctx)
 
     -- 【阶段一】始终执行硬 block 规则
     local decided = evaluate_rules(hard_block_rules, ctx, ip)
+
+    -- 【阶段一后】无法检测请求的诚实归因：Args 条件的懒读已在上面触发，
+    -- 若 body/args 解析失败或超限，记录一条合成命中（P1-4）。
+    _M._record_uninspectable(ctx)
     if decided then
         return
     end

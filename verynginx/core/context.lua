@@ -73,7 +73,13 @@ function _M._flatten_json(obj, prefix, out, limit, state)
         return
     end
     for k, v in pairs(obj) do
-        if state.n >= limit then return end
+        if state.n >= limit then
+            -- Caller inspects state.truncated: silently dropping the tail
+            -- (backend still parses the full body) must fail closed, exactly
+            -- like the urlencoded/URI/multipart overflow guards.
+            state.truncated = true
+            return
+        end
         local key = (prefix == "" and tostring(k)) or (prefix .. "." .. tostring(k))
         if type(v) == "table" then
             _M._flatten_json(v, key, out, limit, state)
@@ -430,7 +436,15 @@ function _M.get_body_args(ctx)
         -- matcher (a bare tostring() on a table yields "table: 0x..." and the
         -- value is never scanned). Bounded by max_args leaf count.
         local args = {}
-        _M._flatten_json(decoded, "", args, max_args, { n = 0 })
+        local state = { n = 0 }
+        _M._flatten_json(decoded, "", args, max_args, state)
+        if state.truncated then
+            -- Leaves beyond the cap were dropped while the backend still
+            -- parses the full body: a payload hidden past the cap must fail
+            -- closed, not walk past the scanner (same guard as urlencoded,
+            -- URI args and multipart).
+            ctx.request._body_error = "args_truncated"
+        end
         ctx.request._body_args = args
         ctx.request._body_read = true
         return args

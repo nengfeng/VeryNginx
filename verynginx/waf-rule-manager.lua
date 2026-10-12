@@ -248,6 +248,11 @@ local function rules_path()
     return ensure_writable_dir() .. "waf-rules.json"
 end
 
+--- Locate the shipped factory rule set (deployed with the verynginx tree).
+local function default_rules_path()
+    return ensure_writable_dir() .. "waf-rules.default.json"
+end
+
 local function history_path()
     return ensure_writable_dir() .. "waf-rules-history.json"
 end
@@ -260,6 +265,9 @@ end
 -- load_rules  — load from shared dict chunks, fallback to file
 -- ---------------------------------------------------------------------------
 -- Returns { version, timestamp, rules = [...] } or nil.
+-- One-shot guard for the per-worker factory-drift WARN (disk loads only).
+local _drift_logged = false
+
 function _M.load_rules()
     local shared = ngx.shared.vn_config
     if shared then
@@ -313,6 +321,31 @@ function _M.load_rules()
             shared:set("waf_rules_save_version", rules_obj.version)
         end
     end
+    -- P0-2 visibility: rules just came off disk (boot / version change) —
+    -- surface factory drift once per worker. Upgrades keep the runtime file
+    -- as-is and force-sync never touches action, so factory fixes can
+    -- silently never arrive; make the divergence reviewable instead.
+    if rules_obj and not _drift_logged then
+        _drift_logged = true
+        pcall(function()
+            local report = _M._factory_drift_report(rules_obj)
+            if report and #report.drift > 0 then
+                local parts, shown = {}, math.min(#report.drift, 8)
+                for i = 1, shown do
+                    parts[#parts + 1] = report.drift[i].id
+                        .. "(" .. report.drift[i].kind .. ")"
+                end
+                if #report.drift > shown then
+                    parts[#parts + 1] = "..."
+                end
+                ngx.log(ngx.WARN, "waf-rule-manager: ", #report.drift,
+                    " rules differ from factory defaults: ",
+                    table.concat(parts, ", "),
+                    " — inspect via GET /waf/rules/factory-drift, sync via",
+                    " POST /waf/rules/restore-defaults {\"force\":true}")
+            end
+        end)
+    end
     return rules_obj
 end
 
@@ -323,6 +356,20 @@ end
 function _M.load_from_file()
     local path = rules_path()
     local f = io.open(path, "r")
+    if not f then
+        -- Runtime rules file missing (botched upgrade / manual delete): the
+        -- shipped factory set is a far better fail-over than the legacy
+        -- 6-rule hardcoded fallback in plugin/filter/rules.lua (URI-only,
+        -- pre-v10 patterns that miss args-based attacks). The next save
+        -- persists the factory set as the runtime rules.
+        local dpath = default_rules_path()
+        local df = io.open(dpath, "r")
+        if df then
+            f = df
+            pcall(ngx.log, ngx.WARN, "waf-rule-manager: rules file not found at ",
+                path, " — falling back to factory defaults at ", dpath)
+        end
+    end
     if not f then
         ngx.log(ngx.WARN, "waf-rule-manager: rules file not found at ", path)
         return nil
@@ -854,9 +901,9 @@ end
 -- delete_rule  — delete a rule
 -- ---------------------------------------------------------------------------
 --- Locate the shipped factory rule set (deployed with the verynginx tree).
-local function default_rules_path()
-    return ensure_writable_dir() .. "waf-rules.default.json"
-end
+-- (moved next to rules_path() above so load_from_file's factory fail-over
+-- can see it; the local must be declared before its first use.)
+-- (function definition moved up; see rules_path section)
 
 --- Pure merge: append factory rules whose id is missing from the current
 --- set. Existing rules (factory or custom, modified or not) are untouched;
@@ -900,6 +947,70 @@ local function deep_equal(a, b)
     return true
 end
 _M._deep_equal = deep_equal
+
+--- Compare a loaded rule set against the shipped factory defaults.
+-- kind: "content" (matcher differs), "action" (operator override vs the
+-- factory action), "missing" (factory rule absent from the runtime set).
+-- Custom rules (ids not in the factory file) are intentional and not
+-- reported. P0-2 context: upgrades keep the runtime file as-is and
+-- force-sync preserves action by design, so a factory fix can silently
+-- never reach an install — this makes the drift visible.
+-- factory_rules (optional) skips the file read for unit tests.
+-- Returns { drift = {...}, checked = N } or nil + err.
+function _M._factory_drift_report(rules_obj, factory_rules)
+    local defaults = factory_rules
+    if not defaults then
+        local f = io.open(default_rules_path(), "r")
+        if not f then
+            return nil, "factory defaults not found: " .. default_rules_path()
+        end
+        local raw = f:read("*all")
+        f:close()
+        local ok, decoded = pcall(json.decode, raw)
+        if not ok or type(decoded) ~= "table" or type(decoded.rules) ~= "table" then
+            return nil, "factory defaults unreadable"
+        end
+        defaults = decoded
+    end
+    if type(defaults.rules) ~= "table" then
+        return nil, "factory defaults malformed"
+    end
+    local by_id = {}
+    for _, r in ipairs((rules_obj and rules_obj.rules) or {}) do
+        if type(r) == "table" and r.id then by_id[r.id] = r end
+    end
+    local drift = {}
+    for _, fr in ipairs(defaults.rules) do
+        if type(fr) == "table" and fr.id then
+            local rt = by_id[fr.id]
+            if not rt then
+                drift[#drift + 1] = { id = fr.id, kind = "missing",
+                                      factory_action = fr.action }
+            else
+                if not deep_equal(rt.matcher, fr.matcher) then
+                    drift[#drift + 1] = { id = fr.id, kind = "content",
+                                          runtime_action = rt.action,
+                                          factory_action = fr.action }
+                end
+                if rt.action ~= fr.action then
+                    drift[#drift + 1] = { id = fr.id, kind = "action",
+                                          runtime_action = rt.action,
+                                          factory_action = fr.action }
+                end
+            end
+        end
+    end
+    return { drift = drift, checked = #(defaults.rules or {}) }
+end
+
+--- Public drift check (API): load the runtime set, compare to factory.
+function _M.factory_drift()
+    local rules_obj = _M.load_rules()
+    if not rules_obj or not rules_obj.rules then
+        return nil, "no runtime rules loaded"
+    end
+    return _M._factory_drift_report(rules_obj)
+end
 
 --- Force-sync merge: existing rules get their factory *content* refreshed
 --- from the defaults while the operator's enable/action (plus code and

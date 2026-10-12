@@ -72,4 +72,38 @@ describe("Request context", function()
         assert.is_nil(args)
         assert.are_equal("body_too_large", ctx.request._body_error)
     end)
+
+    it("sets _body_error=args_truncated when JSON leaves exceed max_args", function()
+        -- P0-1: the JSON flatten used to drop the tail silently (no
+        -- _body_error) while the backend parses the full body — a payload
+        -- past the cap walked past the scanner. Now it fails closed like
+        -- the urlencoded/URI/multipart overflow guards.
+        local config = require("core.config")
+        local limit = tonumber(config.body and config.body.max_args) or 100
+        local parts = {}
+        for i = 1, limit + 5 do parts[#parts + 1] = '"k' .. i .. '":"v"' end
+        local body = "{" .. table.concat(parts, ",") .. "}"
+        ngx.var.content_type = "application/json"
+        ngx.var.content_length = tostring(#body)
+        ngx.req.get_body_data = function() return body end
+        local ctx = context.new()
+        local args = ctx.get_body_args(ctx)
+        assert.is_not_nil(args, "head of the body must still be scanned")
+        assert.is_not_nil(args["k1"], "first leaves must be visible")
+        assert.are_equal("args_truncated", ctx.request._body_error)
+    end)
+
+    it("does NOT set _body_error when JSON leaves fit within max_args", function()
+        local config = require("core.config")
+        local limit = tonumber(config.body and config.body.max_args) or 100
+        local parts = {}
+        for i = 1, limit - 1 do parts[#parts + 1] = '"k' .. i .. '":"v"' end
+        local body = "{" .. table.concat(parts, ",") .. "}"
+        ngx.var.content_type = "application/json"
+        ngx.var.content_length = tostring(#body)
+        ngx.req.get_body_data = function() return body end
+        local ctx = context.new()
+        ctx.get_body_args(ctx)
+        assert.is_nil(ctx.request._body_error)
+    end)
 end)

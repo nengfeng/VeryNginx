@@ -18,14 +18,23 @@ function _M.test(condition, ctx)
         return _M._test_args(body_args, name_op, name_val, op, val)
     end
 
-    -- Either body read failed, or URI args were truncated (tail dropped).
-    -- Apply the configured on_error policy so a hidden payload cannot slip
-    -- past the scanner. Default to fail_closed when the policy is missing.
+    -- Body read failed, or args were truncated (tail dropped).
+    -- A condition that explicitly sets on_body_error keeps fail-closed
+    -- ("match"/"fail_closed") or fail-open ("skip") semantics for
+    -- uninspectable bodies.
+    --
+    -- The GLOBAL body.on_error policy no longer fans out to every Args
+    -- condition: that masquerade made whichever rule happened to sort first
+    -- claim the hit (typically vn_sqli_0001, pri=10) and 403'd legitimate
+    -- large bodies on default installs. plugin/filter now records one honest
+    -- synthetic hit (vn_body_uninspectable) for uninspectable requests
+    -- instead.
     if ctx.request._body_error or ctx.request._uri_args_error then
-        local policy = condition.on_body_error
-            or (require("core.config").body and require("core.config").body.on_error)
-            or "fail_closed"
-        return policy == "match" or policy == "fail_closed"
+        local cond_policy = condition.on_body_error
+        if cond_policy then
+            return cond_policy == "match" or cond_policy == "fail_closed"
+        end
+        return false
     end
     return false
 end
