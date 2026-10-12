@@ -1,6 +1,6 @@
 {
-  "version": 10,
-  "timestamp": "2026-10-11T10:45:00Z",
+  "version": 11,
+  "timestamp": "2026-10-12T04:40:21Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -31,7 +31,7 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "\\bunion\\b(?:[\\s/*]+all)?[\\s/*]*select\\b[\\s/*]*(?:\\*|\\(|\\d|null\\b|distinct\\b|'[^']*'|\\\"[^\\\"]*\\\"|[^;]{0,100}?\\bfrom\\b)"
+                "value": "\\bunion\\b(?:[\\s/*!]+all)?[\\s/*!\\d]*select\\b[\\s/*!\\d]*(?:\\*|\\(|\\d|null\\b|distinct\\b|'[^']*'|\\\"[^\\\"]*\\\"|[^;]{0,100}?\\bfrom\\b)"
               }
             }
           ]
@@ -39,9 +39,9 @@
       },
       "description": "Detects UNION-based SQL injection attempts in request parameters",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-10T20:22:16Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     },
     {
@@ -157,7 +157,7 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "\\b(?:sleep|benchmark)\\s*\\(|\\bwaitfor\\s+delay\\b|\\binformation_schema\\b|\\bload_file\\s*\\(|\\bxp_cmdshell\\b|\\b(?:updatexml|extractvalue)\\s*\\("
+                "value": "\\b(?:sleep|benchmark)\\s*\\(|\\bpg_sleep\\s*\\(|\\bwaitfor\\s+delay\\b|\\binformation_schema\\b|\\bload_file\\s*\\(|\\bxp_cmdshell\\b|\\b(?:updatexml|extractvalue)\\s*\\("
               }
             }
           ]
@@ -168,9 +168,9 @@
         "sqli",
         "time-based"
       ],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-10-11T10:45:00Z",
-      "updated_at": "2026-10-11T10:45:00Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     },
     {
@@ -200,7 +200,7 @@
             },
             {
               "Args": {
-                "value": "<script[\\s>]",
+                "value": "<script[\\s/>]",
                 "name_operator": "*",
                 "operator": "≈"
               }
@@ -210,9 +210,9 @@
       },
       "description": "Detects <script> tag injection in parameters",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-10T20:22:16Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     },
     {
@@ -289,14 +289,14 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|document\\.|window\\.|location\\.)"
+                      "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|eval|document\\.|window\\.|location\\.)"
                     }
                   },
                   {
                     "Args": {
                       "name_operator": "*",
                       "operator": "≈",
-                      "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|document\\.|window\\.|location\\.)"
+                      "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|eval|document\\.|window\\.|location\\.)"
                     }
                   }
                 ]
@@ -307,9 +307,9 @@
       },
       "description": "Detects javascript: XSS payload in URI or parameters (javascript:alert/confirm/prompt/document./window./location.). phpMyAdmin paths are exempt, matching the other request-parameter rules.",
       "tags": [],
-      "version": 3,
+      "version": 4,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T01:15:00Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     },
     {
@@ -564,7 +564,7 @@
             },
             {
               "Args": {
-                "value": "php://|file://|expect://|data://|input://",
+                "value": "php://|file://|phar://|zip://|expect://|data://",
                 "name_operator": "*",
                 "operator": "≈"
               }
@@ -574,9 +574,9 @@
       },
       "description": "Detects PHP stream wrapper usage for LFI",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-10T20:22:16Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     },
     {
@@ -643,16 +643,30 @@
       "enable": true,
       "priority": 30,
       "matcher": {
-        "URI": {
-          "operator": "≈",
-          "value": "(?:\\b[a-zA-Z]:[/\\\\])"
+        "Composite": {
+          "operator": "OR",
+          "conditions": [
+            {
+              "URI": {
+                "operator": "≈",
+                "value": "(?:\\b[a-zA-Z]:[/\\\\])"
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "(?:\\b[a-zA-Z]:[/\\\\])"
+              }
+            }
+          ]
         }
       },
       "description": "Detects absolute Windows paths in request URI",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-06-29T04:48:04Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     },
     {
@@ -666,14 +680,14 @@
       "matcher": {
         "UserAgent": {
           "operator": "≈",
-          "value": "(?i:(?:acunetix|netsparker|nessus|nikto|openvas|w3af|appscan|burpsuite|zap\\b|arachni|grendel|webinspect|nmap|sqlmap|hydra|medusa|ncrack|thc))"
+          "value": "(?i:(?:acunetix|netsparker|nessus|nikto|openvas|w3af|appscan|burpsuite|zap\\b|arachni|grendel|webinspect|nmap|sqlmap|hydra|medusa|ncrack|\\bthc\\b))"
         }
       },
       "description": "Blocks requests from known security scanning tools",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-10T20:22:16Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     },
     {
@@ -768,7 +782,7 @@
       "name": "Spam Referrer — Known Spam Domains",
       "category": "spam",
       "severity": "low",
-      "action": "block",
+      "action": "log",
       "enable": true,
       "priority": 40,
       "matcher": {
@@ -779,9 +793,9 @@
       },
       "description": "Blocks requests with known spam referrer domains",
       "tags": [],
-      "version": 3,
+      "version": 4,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-11T10:45:00Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     },
     {
@@ -795,14 +809,14 @@
       "matcher": {
         "URI": {
           "operator": "≈",
-          "value": "/(?:\\.env|\\.git/|\\.svn/entries|\\.DS_Store|composer\\.json|package\\.json|credentials\\.(?:json|ya?ml|txt|bak|csv|conf|ini|env|pem|key|p12|inc|php)|config\\.php|config\\.inc)|\\.(?:bak|old|save|swp|tar\\.gz|sql\\.gz|htaccess|htpasswd|bash_history|ssh)$"
+          "value": "/(?:\\.env|\\.git/|\\.svn/entries|\\.DS_Store|composer\\.json|package\\.json|credentials\\.(?:json|ya?ml|txt|bak|csv|conf|ini|env|pem|key|p12|inc|php)|wp-config\\.php|config\\.php|config\\.inc)|\\.(?:bak|old|save|swp|tar\\.gz|sql\\.gz|htaccess|htpasswd|bash_history|ssh)$"
         }
       },
       "description": "Blocks access to sensitive config, VCS, and backup files (.env, any /.git/ path incl. HEAD/config/index, credentials.*, *.bak/*.old/*.swp/*.tar.gz/*.sql.gz/.htaccess/.htpasswd, etc.). Extension list is deliberately narrow (backup/sensitive suffixes only) so that legitimate downloads (.zip/.yaml/.log/… ) on distribution or docs sites are not blocked.",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T01:15:00Z",
+      "updated_at": "2026-10-12T04:40:21Z",
       "created_by": "system"
     }
   ]
