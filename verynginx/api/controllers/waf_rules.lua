@@ -207,6 +207,20 @@ local function handle_waf_rule_history()
     return json.encode({ ret = "success", data = slim })
 end
 
+--- GET /waf/rules/factory-drift - compare runtime rules vs factory defaults.
+-- P0-2 visibility: upgrades keep the runtime rule file untouched and
+-- force-sync preserves operator action choices, so factory fixes may never
+-- reach an install. This lists what actually diverges so the operator can
+-- review and decide.
+local function handle_factory_drift()
+    local report, err = waf_manager.factory_drift()
+    if not report then
+        ngx.status = 500
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    return json.encode({ ret = "success", data = report })
+end
+
 --- POST /waf/rules/reload - force reload rules from file
 local function handle_reload_waf_rules()
     local ok, err = waf_manager.reload()
@@ -598,6 +612,7 @@ function _M.register(api)
     api.register("GET",    "/waf/rules",              handle_list_waf_rules,     true)
     api.register("POST",   "/waf/rules",              handle_create_waf_rule,    true)
     api.register("GET",    "/waf/rules/history",      handle_waf_rule_history,   true)
+    api.register("GET",    "/waf/rules/factory-drift", handle_factory_drift,     true)
     api.register("POST",   "/waf/rules/reload",       handle_reload_waf_rules,   true)
     api.register("POST",   "/waf/rules/rollback",     handle_rollback_waf_rules, true)
     api.register("GET",    "/waf/rules/:id",          handle_get_waf_rule,       true)

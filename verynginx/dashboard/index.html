@@ -674,6 +674,19 @@
         <div v-if="wafTab==='rules' && wafRuleView==='list'">
           <div class="page-desc">查看所有已配置的 WAF 规则，可按分类和严重级别筛选。点击名称进入编辑，点击启用/禁用徽章可快速切换规则状态。</div>
           <div v-if="wafError" class="error" style="margin-bottom:8px">{{ wafError }}</div>
+          <!-- Factory drift notice: rendered only when GET /waf/rules/factory-drift
+               reports divergence; silent (nothing rendered) on 0 drift or any failure. -->
+          <div v-if="wafDrift" style="margin-bottom:8px;padding:8px 14px;background:rgba(244,162,97,.08);border:1px solid var(--warning);border-radius:6px;font-size:13px">
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <span>⚠ {{ wafDrift.items.length }} 条规则与出厂默认存在差异（内容 {{ wafDrift.counts.content }} · 动作 {{ wafDrift.counts.action }} · 缺失 {{ wafDrift.counts.missing }}）</span>
+              <a style="cursor:pointer;font-size:12px;white-space:nowrap" @click="wafDriftOpen = !wafDriftOpen">{{ wafDriftOpen ? '收起' : '详情' }}</a>
+              <span style="color:var(--muted)">确认后可用「同步出厂内容」拉齐出厂内容（保留你的启用/动作设置）</span>
+            </div>
+            <div v-if="wafDriftOpen" style="margin-top:6px;font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);line-height:1.7">
+              <div v-for="(dd, ddi) in wafDrift.items.slice(0, 20)" :key="ddi">{{ dd.id }} ({{ dd.kind }})</div>
+              <div v-if="wafDrift.items.length > 20">…</div>
+            </div>
+          </div>
           <div class="flex gap-8 mb-8" style="flex-wrap:wrap">
              <select v-model="wafFilterCat" @change="wafFilterChange" style="width:auto">
                <option value="">全部分类</option>

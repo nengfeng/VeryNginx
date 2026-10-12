@@ -205,6 +205,39 @@
       } catch (e) { if (gWafRules.isCurrent(tok)) wafError.value = e.message; }
     }
 
+    // ---- Factory drift notice (rules tab) ----
+    // Runtime rules vs shipped factory defaults (GET /waf/rules/factory-drift).
+    // null = render nothing: 0 drift, non-success payload, missing/unknown
+    // `kind`, 401/session_expired and network errors all fall through silently.
+    const wafDrift = ref(null);
+    const wafDriftOpen = ref(false);
+    const gWafDrift = shared.createStaleGuard();
+
+    // Fire-and-forget: loadWafData() never awaits this, so a slow or failing
+    // drift check can never gate the rules table render.
+    async function loadWafDrift() {
+      const tok = gWafDrift.mark();
+      let next = null;
+      try {
+        const d = await api('GET', '/verynginx/waf/rules/factory-drift');
+        if (d && d.ret === 'success' && d.data) {
+          const items = asList(d.data.drift);
+          const counts = { content: 0, action: 0, missing: 0 };
+          let ok = items.length > 0;
+          for (const it of items) {
+            // Unknown/absent kind (older or partial payload) → no banner.
+            if (!it || (it.kind !== 'content' && it.kind !== 'action' && it.kind !== 'missing')) { ok = false; break; }
+            counts[it.kind]++;
+          }
+          if (ok) next = { items, counts, checked: d.data.checked };
+        }
+      } catch (e) { /* silent: failures render nothing */ }
+      if (!gWafDrift.isCurrent(tok)) return;
+      const had = wafDrift.value;
+      wafDrift.value = next;
+      if (next && !had) wafDriftOpen.value = false;
+    }
+
     function formatNumber(n) {
       if (n == null) return '0';
       return Number(n).toLocaleString();
@@ -254,6 +287,10 @@
 
     async function loadWafData() {
       await loadWafRules();
+      // Non-blocking: the rules table has already rendered from loadWafRules()
+      // above; the drift check runs in the background and renders nothing on
+      // any failure (see loadWafDrift).
+      loadWafDrift();
       if (wafTab.value === 'attacks') await loadWafAttackData();
       if (wafTab.value === 'rules' && wafRuleView.value === 'analytics') await loadWafAnalytics();
       if (wafTab.value === 'rules' && wafRuleView.value === 'recs') await loadRecs();
@@ -978,6 +1015,8 @@
     view('wafRuleView', wafRuleView);
     view('wafAttackView', wafAttackView);
     view('wafError', wafError);
+    view('wafDrift', wafDrift);
+    view('wafDriftOpen', wafDriftOpen);
     view('wafRules', wafRules);
     const wafRulesTbl = shared.createTableTools(wafRules);
     view('wafRulesTbl', wafRulesTbl);
@@ -1167,6 +1206,8 @@
     shared.onLogout(() => {
       wafRules.value = [];
       wafCategories.value = {};
+      wafDrift.value = null;
+      wafDriftOpen.value = false;
       wafStatsData.value = null;
       wafStatsError.value = '';
       wafHistory.value = [];
