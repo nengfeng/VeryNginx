@@ -554,29 +554,49 @@ def test_proxy_pass():
 
 
 def test_waf_restore_defaults():
-    """Restore-defaults endpoint re-adds missing factory rules by id.
+    """Restore-defaults re-adds factory rules deleted from the runtime set.
 
-    Runs AFTER test_waf_rules (whose cleanup deletes its rule), so the
-    factory set is expected to be missing and get restored in full."""
+    Fresh boots initialize the runtime store from the factory defaults
+    (load_from_file falls back to waf-rules.default.json when the runtime
+    file is absent), so the set is complete from the first request — the
+    older assumption that a fresh instance starts *missing* the factory
+    rules no longer holds (it only did when a missing runtime file fell
+    back to the 6-rule hardcoded set). Give the endpoint something to
+    restore: delete two factory rules, then assert they come back."""
     cookies = get_shared_session()
     # Mutating request: CSRF token required (header form, like test_waf_rules)
     status, body = curl("GET", "/verynginx/csrf", cookies=cookies)
     assert status == 200, f"GET CSRF failed: {status}"
-    csrf_token = json.loads(body).get("csrf_token", "")
+    csrf = {"X-CSRF-Token": json.loads(body).get("csrf_token", "")}
+
+    # Fresh-boot sanity: the full factory set must already be present
+    status, body = curl("GET", "/verynginx/waf/rules?limit=100", cookies=cookies)
+    assert status == 200, f"GET rules failed: {status}"
+    boot_ids = {r.get("id") for r in json.loads(body).get("data", {}).get("rules", [])}
+    assert "vn_sqli_0001" in boot_ids, "factory rules must be present on a fresh boot"
+
+    # Remove two factory rules so restore-defaults has something to restore
+    victims = ["vn_xss_0005", "vn_brute_0018"]
+    for rid in victims:
+        status, body = curl("DELETE", f"/verynginx/waf/rules/{rid}",
+                            cookies=cookies, headers=csrf)
+        assert status == 200, f"DELETE {rid} failed: {status} {body[:200]}"
+
     status, body = curl("POST", "/verynginx/waf/rules/restore-defaults",
-                        data="{}", cookies=cookies,
-                        headers={"X-CSRF-Token": csrf_token})
+                        data="{}", cookies=cookies, headers=csrf)
     assert status == 200, f"restore-defaults failed: {status} {body[:200]}"
     resp = json.loads(body)
     assert resp.get("ret") == "success", f"restore response: {body[:300]}"
     data = resp.get("data") or {}
-    restored = data.get("restored", 0)
-    assert restored >= 20, f"expected >= 20 factory rules restored, got: {body[:200]}"
-    status, body = curl("GET", "/verynginx/waf/rules", cookies=cookies)
-    rules = json.loads(body).get("data", {}).get("rules", [])
-    ids = {r.get("id") for r in rules}
-    assert "vn_sqli_0001" in ids, "factory rule vn_sqli_0001 must be present after restore"
-    print(f"  [PASS] Restore defaults: {restored} factory rules re-added")
+    restored_ids = set(data.get("restored_ids") or [])
+    assert set(victims) <= restored_ids, \
+        f"expected {victims} among restored, got: {body[:300]}"
+
+    status, body = curl("GET", "/verynginx/waf/rules?limit=100", cookies=cookies)
+    ids = {r.get("id") for r in json.loads(body).get("data", {}).get("rules", [])}
+    for rid in victims:
+        assert rid in ids, f"factory rule {rid} must be present after restore"
+    print(f"  [PASS] Restore defaults: {len(restored_ids)} factory rules re-added")
 
 
 def test_routes():
