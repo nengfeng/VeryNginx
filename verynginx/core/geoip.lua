@@ -95,12 +95,24 @@ function _M.validate_mmdb(path)
     local tail = f:read(scan_size)
     f:close()
     if not tail then return false, "cannot read file tail" end
-    local idx
-    repeat
-        local start = (idx and idx + 1) or 1
-        idx = tail:find("\xAB\xCD\xEF", start, true)
-    until idx == nil
-    if not idx then
+    -- Locate the LAST marker occurrence in the tail (the metadata section
+    -- sits at the END of the file; a stray marker-looking byte sequence in
+    -- the data section must not shadow it).
+    --
+    -- The previous implementation looped `repeat ... until idx == nil`,
+    -- which exits with idx == nil BY CONSTRUCTION — so this check failed
+    -- for EVERY file, and every dashboard GeoIP update died at
+    -- "invalid MMDB" no matter how valid the download was (all three
+    -- mirrors rejected identically). The last found index MUST live in a
+    -- separate variable from the loop condition.
+    local last, from = nil, 1
+    while true do
+        local idx = tail:find("\xAB\xCD\xEF", from, true)
+        if not idx then break end
+        last = idx
+        from = idx + 1
+    end
+    if not last then
         return false, "invalid MMDB (no \\xAB\\xCD\\xEF marker in the final 128KiB — not a MaxMind DB)"
     end
     return true
