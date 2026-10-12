@@ -46,11 +46,24 @@ function _M._read_body_data()
 
     ngx.req.read_body()
 
-    if ngx.req.get_body_file() then
-        return nil, "body_buffered_to_file"
-    end
+    local data = ngx.req.get_body_data()
+    if data then return data end
 
-    return ngx.req.get_body_data()
+    -- Body spilled to nginx's spool file (content_length exceeds
+    -- client_body_buffer_size — commonly 8-16k on default LNMP installs).
+    -- Read it back, same as the multipart branch does, so urlencoded and
+    -- JSON bodies stay SCANNABLE instead of failing closed: a payload in a
+    -- spilled 20k form used to be invisible to the scanner entirely.
+    -- Bounded by max_size, which the content_length check above enforces.
+    local body_file = ngx.req.get_body_file()
+    if not body_file then return nil end
+    local f = io.open(body_file, "rb")
+    if not f then return nil, "body_file_unreadable" end
+    local spilled = f:read(max_size + 1)
+    f:close()
+    if not spilled then return nil, "body_file_unreadable" end
+    if #spilled > max_size then return nil, "body_too_large" end
+    return spilled
 end
 
 --- Lazy body read: only reads the request body when first called.

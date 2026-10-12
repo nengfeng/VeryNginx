@@ -40,8 +40,14 @@ function _M.test(condition, ctx)
 end
 
 function _M._test_args(args, name_op, name_val, op, val)
+    -- Wildcard name match ("*"): the parameter NAME is attacker-controlled
+    -- data too — backends echo it in errors, search pages and routing — so
+    -- test the key against the payload matcher as well. Conditions with an
+    -- explicit name pattern keep name-scoped semantics untouched.
+    local wildcard = name_op == "*"
     for k, v in pairs(args) do
         if compare.match(k, name_op, name_val) then
+            if wildcard and compare.match(k, op, val) then return true end
             if type(v) == "table" then
                 for _, arg_v in ipairs(v) do
                     if compare.match(arg_v, op, val) then return true end

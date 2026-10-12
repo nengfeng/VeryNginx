@@ -110,4 +110,49 @@ describe("Request context", function()
         ctx.get_body_args(ctx)
         assert.is_nil(ctx.request._body_error)
     end)
+
+    it("reads the body back from nginx's spool file (E-2)", function()
+        -- content_length within max_size but the body spilled to disk
+        -- (exceeded client_body_buffer_size, commonly 8-16k on default LNMP
+        -- installs). Must be read back and parsed — a spilled 20k form used
+        -- to be invisible to the scanner entirely.
+        local body = '{"cmd":"sleep(5)","note":"hello"}'
+        local path = "/tmp/vnt-spool-spec.body"
+        local f = assert(io.open(path, "wb"))
+        f:write(body)
+        f:close()
+        ngx.var.content_type = "application/json"
+        ngx.var.content_length = tostring(#body)
+        ngx.req.get_body_data = function() return nil end        -- spilled
+        ngx.req.get_body_file = function() return path end
+        local ctx = context.new()
+        local args = ctx.get_body_args(ctx)
+        os.remove(path)
+        assert.is_not_nil(args, "spooled JSON body must still be parsed")
+        assert.are_equal("sleep(5)", args["cmd"])
+        assert.is_nil(ctx.request._body_error)
+    end)
+
+    it("spool read respects max_size (file larger than cap -> body_too_large)", function()
+        local path = "/tmp/vnt-spool-oversize.body"
+        local f = assert(io.open(path, "wb"))
+        f:write(string.rep("x", 64))
+        f:close()
+        ngx.var.content_type = "application/json"
+        ngx.var.content_length = "50"              -- honest small length; file lies
+        ngx.req.get_body_data = function() return nil end
+        ngx.req.get_body_file = function() return path end
+        -- Shrink max_size via config stub for this test
+        local config = require("core.config")
+        local created = false
+        if not config.body then config.body = {}; created = true end
+        local saved = config.body.max_size
+        config.body.max_size = 16
+        local ctx = context.new()
+        ctx.get_body_args(ctx)
+        config.body.max_size = saved
+        if created then config.body = nil end
+        os.remove(path)
+        assert.are_equal("body_too_large", ctx.request._body_error)
+    end)
 end)

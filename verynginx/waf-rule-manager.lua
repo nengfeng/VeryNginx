@@ -123,7 +123,8 @@ _M.ACTIONS         = { block = true, accept = true, log = true, challenge = true
 _M.CATEGORIES      = {
     sqli = true, xss = true, rce = true, lfi = true, rfi = true,
     path_traversal = true, scanner = true, bot = true, brute = true,
-    spam = true, ssrf = true, custom = true
+    spam = true, ssrf = true, crlf = true, deserialization = true,
+    custom = true
 }
 
 -- ---------------------------------------------------------------------------
@@ -1144,6 +1145,46 @@ end
 -- ---------------------------------------------------------------------------
 -- create_mock_context  — create a fake request context for rule testing
 -- ---------------------------------------------------------------------------
+--- Minimal percent-decoder for the rule tester. Production
+--- ngx.req.get_uri_args decodes names and values; without this the tester
+--- reported "?q=%3Cscript%3E" as non-matching while production blocks it —
+--- a debugging trap (E-4).
+local function url_unquote(s)
+    if not s then return "" end
+    if not s:find("%", 1, true) and not s:find("+", 1, true) then return s end
+    s = s:gsub("+", " ")
+    return (s:gsub("%%(%x%x)", function(h)
+        return string.char(tonumber(h, 16))
+    end))
+end
+
+--- Mock of ngx.req.get_uri_args for the rule tester: percent-decodes both
+--- names and values, and mirrors production's repeated-key list semantics
+--- (production returns a list per key; args.lua iterates it).
+function _M._mock_uri_args(uri)
+    local args = {}
+    local qs = uri and uri:match("%?(.*)")
+    if not qs then return args end
+    for pair in qs:gmatch("([^&]+)") do
+        local eq = pair:find("=", 1, true)
+        local k, v
+        if eq then
+            k, v = url_unquote(pair:sub(1, eq - 1)), url_unquote(pair:sub(eq + 1))
+        else
+            k, v = url_unquote(pair), ""
+        end
+        local cur = args[k]
+        if cur == nil then
+            args[k] = v
+        elseif type(cur) == "table" then
+            cur[#cur + 1] = v
+        else
+            args[k] = { cur, v }
+        end
+    end
+    return args
+end
+
 function _M.create_mock_context(case)
     case = case or {}
     local ctx = {
@@ -1166,14 +1207,7 @@ function _M.create_mock_context(case)
     }
 
     function ctx:get_uri_args()
-        local args = {}
-        local qs = self.request.uri:match("%?(.*)")
-        if qs then
-            for k, v in qs:gmatch("([^&=]+)=([^&]*)") do
-                args[k] = v
-            end
-        end
-        return args
+        return _M._mock_uri_args(self.request.uri)
     end
 
     function ctx:get_body_args()
