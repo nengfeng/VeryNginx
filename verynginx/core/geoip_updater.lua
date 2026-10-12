@@ -105,17 +105,76 @@ local function validate_mmdb(path)
     return geoip.validate_mmdb(path)
 end
 
--- Download file from URL (resty.http only — curl fallback removed to prevent command injection)
-local function download_file(url, dest, timeout)
-    timeout = timeout or 30
-    -- Ensure parent directory exists
-    ensure_dir(dest:match("^(.-)/[^/]+$"))
+-- Follow up to MAX_REDIRECTS Location hops. lua-resty-http's request_uri
+-- (vendored 0.17.2) does NOT follow redirects, and GitHub's
+-- releases/latest/download endpoints always answer
+-- 302 -> github.com/releases/download/... -> release-assets CDN, so the
+-- previous plain request_uri call reported "HTTP 302" and every such
+-- mirror was treated as dead.
+local MAX_REDIRECTS = 5
+
+-- Resolve a Location header value against the URL that produced it.
+-- Absolute http(s) URLs pass through; scheme-relative (//host/...),
+-- root-relative (/path) and relative references are resolved against the
+-- base. Anything we cannot resolve to http/https returns nil — the caller
+-- then fails the hop instead of requesting a bogus URL.
+-- Exported as _M._resolve_redirect for unit tests.
+local function resolve_redirect(base, loc)
+    if type(loc) ~= "string" or loc == "" then return nil end
+    if loc:match("^https?://") then return loc end
+    local scheme, hostport = base:match("^(https?)://([^/]+)")
+    if not scheme then return nil end
+    if loc:match("^//") then return scheme .. ":" .. loc end
+    if loc:match("^/") then return scheme .. "://" .. hostport .. loc end
+    local dir = base:gsub("[^/]*$", "")
+    return dir .. loc
+end
+-- Exported as _M._resolve_redirect for unit tests.
+_M._resolve_redirect = resolve_redirect
+
+-- Shared HTTP request helper with bounded redirect following. A fresh
+-- connection per hop (request_uri handles its own connect/close), so hops
+-- may legitimately change host (github.com -> release-assets CDN).
+-- @return res, nil, final_url  |  nil, err, last_requested_url
+local function request_follow(url, opts)
+    opts = opts or {}
     local ok_http, http = pcall(require, "resty.http")
     if not ok_http then
-        return false, "resty.http not available (required for secure download)"
+        return nil, "resty.http not available (required for secure download)", url
     end
-    local httpc = http.new()
-    httpc:set_timeout(timeout * 1000)
+    local current = url
+    for _ = 0, MAX_REDIRECTS do
+        local httpc = http.new()
+        httpc:set_timeout(opts.timeout_ms or 30000)
+        local res, err = httpc:request_uri(current, {
+            method = opts.method or "GET",
+            ssl_verify = opts.ssl_verify,
+            headers = opts.headers,
+        })
+        if not res then
+            return nil, err, current
+        end
+        local loc = res.headers and (res.headers["Location"] or res.headers["location"])
+        if res.status >= 300 and res.status < 400 and loc then
+            local nxt = resolve_redirect(current, loc)
+            if not nxt then
+                return nil, "HTTP " .. res.status .. " with unresolvable Location", current
+            end
+            current = nxt
+        else
+            return res, nil, current
+        end
+    end
+    return nil, "too many redirects (> " .. MAX_REDIRECTS .. ")", current
+end
+
+-- Download file from URL (resty.http only — curl fallback removed to prevent command injection)
+local function download_file(url, dest, timeout)
+    -- 60s default (was 30): the City mirror is 50+ MB and a slow link
+    -- legitimately needs longer than half a minute.
+    timeout = timeout or 60
+    -- Ensure parent directory exists
+    ensure_dir(dest:match("^(.-)/[^/]+$"))
     -- TLS verification stays ON by default; config.geoip.tls_verify=false is
     -- an explicit operator escape hatch (no CA bundle on the box). Note the
     -- library cannot take a CA path — verification uses the worker process
@@ -126,10 +185,11 @@ local function download_file(url, dest, timeout)
     if cfg_ok and cfg_mod and cfg_mod.geoip and cfg_mod.geoip.tls_verify == false then
         tls_verify = false
     end
-    local res, err = httpc:request_uri(url, {
+    local res, err = request_follow(url, {
         method = "GET",
         ssl_verify = tls_verify,
         headers = { ["User-Agent"] = "VeryNginx-GeoIP-Updater/2.0" },
+        timeout_ms = timeout * 1000,
     })
     if not res then return false, "download failed: " .. tostring(err) end
     if res.status ~= 200 then return false, "HTTP " .. res.status end
@@ -141,28 +201,29 @@ local function download_file(url, dest, timeout)
     pcall(function() require("lfs").chmod(dest, 644) end)
     return true
 end
+-- Exported as _M._download_file for unit tests (redirect behaviour).
+_M._download_file = download_file
 
--- Get remote ETag via HEAD request (resty.http only)
+-- Get remote ETag via HEAD request (resty.http only). Follows redirects
+-- too: the GitHub release endpoints 302 exactly like the GET path, and the
+-- ETag must come from the FINAL response.
 local function get_remote_etag(url)
-    local ok_http, http = pcall(require, "resty.http")
-    if not ok_http then
-        return nil, "resty.http not available (required for secure HEAD request)"
-    end
-    local httpc = http.new()
-    httpc:set_timeout(10000)
-    -- Same TLS policy as download_file: verify unless geoip.tls_verify=false
     local cfg_ok, cfg_mod = pcall(require, "core.config")
     local tls_verify = true
     if cfg_ok and cfg_mod and cfg_mod.geoip and cfg_mod.geoip.tls_verify == false then
         tls_verify = false
     end
-    local res, err = httpc:request_uri(url, {
+    local res, err = request_follow(url, {
         method = "HEAD",
         ssl_verify = tls_verify,
+        headers = { ["User-Agent"] = "VeryNginx-GeoIP-Updater/2.0" },
+        timeout_ms = 10000,
     })
-    if not res then return nil, tostring(err) end
+    if not res then return nil, err end
     return res.headers["ETag"] or res.headers["Last-Modified"]
 end
+-- Exported as _M._get_remote_etag for unit tests.
+_M._get_remote_etag = get_remote_etag
 
 -- Acquire update lock. Token = random bytes (NOT ngx.time(): same-second
 -- callers were indistinguishable). Stored module-locally so release_lock()
@@ -312,10 +373,18 @@ function _M.check_update(force)
         -- jsdelivr default was in effect).
         local urls = build_url_list(ucfg, cfg.license_key)
 
-        local last_err = "no URLs configured"
+        local errs = {}
         local success = false
         local result_msg = ""
         local result_status = 502
+        -- Record one mirror's failure. The dashboard used to surface ONLY
+        -- the last mirror's error, hiding why the earlier mirrors failed
+        -- (their WARN logs never reach a crit-level error_log) — collect
+        -- every failure into the final message instead.
+        local function fail_mirror(msg)
+            errs[#errs + 1] = msg
+            ngx.log(ngx.WARN, "geoip: ", msg)
+        end
         for i, url in ipairs(urls) do
             -- Check remote ETag
             local remote_etag = get_remote_etag(url)
@@ -332,8 +401,7 @@ function _M.check_update(force)
             local tmp_path = geodb_path .. ".tmp"
             local dl_ok, dl_err = download_file(url, tmp_path)
             if not dl_ok then
-                last_err = "mirror " .. i .. " (" .. url .. "): " .. dl_err
-                ngx.log(ngx.WARN, "geoip: ", last_err)
+                fail_mirror("mirror " .. i .. " (" .. url .. "): " .. dl_err)
                 goto next_mirror
             end
 
@@ -341,8 +409,7 @@ function _M.check_update(force)
             local valid, valid_err = validate_mmdb(tmp_path)
             if not valid then
                 os.remove(tmp_path)
-                last_err = "mirror " .. i .. " invalid file: " .. valid_err
-                ngx.log(ngx.WARN, "geoip: ", last_err)
+                fail_mirror("mirror " .. i .. " invalid file: " .. valid_err)
                 goto next_mirror
             end
 
@@ -352,8 +419,7 @@ function _M.check_update(force)
             local gate_ok, gate_err = probe_mmdb_openable(tmp_path)
             if gate_ok == false then
                 os.remove(tmp_path)
-                last_err = "mirror " .. i .. " rejected by libmaxminddb: " .. tostring(gate_err)
-                ngx.log(ngx.WARN, "geoip: ", last_err)
+                fail_mirror("mirror " .. i .. " rejected by libmaxminddb: " .. tostring(gate_err))
                 goto next_mirror
             end
 
@@ -369,8 +435,7 @@ function _M.check_update(force)
             if not rename_ok then
                 os.remove(tmp_path)
                 if had_prev then os.rename(prev_path, geodb_path) end
-                last_err = "rename failed: " .. tostring(rename_err)
-                ngx.log(ngx.WARN, "geoip: ", last_err)
+                fail_mirror("rename failed: " .. tostring(rename_err))
                 goto next_mirror
             end
 
@@ -384,9 +449,8 @@ function _M.check_update(force)
                     os.rename(prev_path, geodb_path)
                     pcall(function() geoip.reload() end)
                 end
-                last_err = "mirror " .. i .. " replaced DB but reload failed (rolled back): "
-                    .. tostring(reload_err)
-                ngx.log(ngx.WARN, "geoip: ", last_err)
+                fail_mirror("mirror " .. i .. " replaced DB but reload failed (rolled back): "
+                    .. tostring(reload_err))
                 goto next_mirror
             end
             os.remove(prev_path)
@@ -410,7 +474,8 @@ function _M.check_update(force)
         if success then
             return true, result_msg, result_status
         end
-        return false, (result_msg ~= "" and result_msg) or ("all mirrors failed: " .. last_err), result_status
+        local why = (#errs > 0) and table.concat(errs, "; ") or "no URLs configured"
+        return false, (result_msg ~= "" and result_msg) or ("all mirrors failed: " .. why), result_status
     end) }
 
     release_lock()
