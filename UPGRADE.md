@@ -1,5 +1,18 @@
 # VeryNginx v2 升级指南
 
+## v2.3.0 升级要点：Cloudflare CDN 真实客户端 IP（2026-10-13）
+
+站点经 Cloudflare 回源时，源站看到的是 CF 边缘 IP——WAF 命中记录、IP 声誉评分、内核封禁、登录限流都会记在"一个边缘 IP 背后成千真实用户"的粒度上（归因错位、评分失真，误封一个边缘 IP 会伤及其后全部真实用户）。v2.3.0 起用 http_realip_module 把 `remote_addr` 还原为真实客户端 IP，配置集中在 `nginx_conf/cf-real-ip.conf` 一处：
+
+- **新装**：两条安装路径自动带上——OpenResty 模板经 `in_http_block.conf` 的 include；lnmp 安装器向 `nginx.conf` 注入同一行 include（幂等：检测到已有 `set_real_ip_from` / `real_ip_header` / 本 include 会跳过，不覆盖运维自定义的 realip 配置）。
+- **升级（OpenResty 安装）**：`upgrade.sh` 会更新 `in_http_block.conf`，升级后自动生效，无需操作。
+- **升级（lnmp 安装）**：`upgrade.sh` 不修改 lnmp 的 nginx.conf，需手动在 `http {}` 块加一行：
+  `include /opt/verynginx/nginx_conf/cf-real-ip.conf;`
+- **区间维护**：只维护 `verynginx/nginx_conf/cf-real-ip.conf` 一处，季度核对官方列表（https://www.cloudflare.com/ips-v4 与 ips-v6）。
+- **安全性**：仅对来自 CF 官方区间的连接替换 IP，直连源站伪造 `CF-Connecting-IP` 无效；站点不在 CF 后面时该配置为无副作用的空操作。
+
+---
+
 ## v2.2.1 升级要点（2026-09-06）
 
 v2.2.1 是 v2.2 的修复版本，**无配置迁移**，升级后重启即生效。主要内容：

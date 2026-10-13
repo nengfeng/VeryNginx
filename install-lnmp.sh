@@ -521,6 +521,35 @@ patch_nginx_conf() {
     fi
   fi
 
+  # 1f) Real client IP behind Cloudflare (http_realip_module). Without it
+  # every request that arrives via Cloudflare is recorded with the CF EDGE
+  # ip: WAF hits, ip reputation and login rate limits key on an address
+  # shared by thousands of real users, and a kernel-level ban of an edge IP
+  # would cut off all users behind it. Ranges live in ONE file —
+  # ${VN_DIR}/nginx_conf/cf-real-ip.conf (keep it in sync with
+  # https://www.cloudflare.com/ips-v4 + ips-v6, quarterly).
+  # directive_file also scans included snippets: if in_http_block.conf (or
+  # the operator's own config) already provides realip, inject NOTHING —
+  # a duplicate real_ip_header directive fails nginx -t.
+  if directive_file 'cf-real-ip\.conf|real_ip_header|set_real_ip_from'; then
+    info "Cloudflare real_ip include already present, skipping ✓"
+  elif grep -q '^http\s*{' "$NGINX_CONF"; then
+    sed -i "/^http\s*{/a\\
+    # VeryNginx v2 - real client IP behind Cloudflare - ranges: nginx_conf/cf-real-ip.conf\\
+    include ${VN_DIR}/nginx_conf/cf-real-ip.conf;" "$NGINX_CONF"
+    if grep -q 'cf-real-ip' "$NGINX_CONF" 2>/dev/null; then
+      info "Added Cloudflare real_ip include ✓"
+    else
+      warn "cf-real-ip include NOT injected — no '^http {' anchor found in ${NGINX_CONF}"
+      echo "    Add manually inside the http block:"
+      echo "      include ${VN_DIR}/nginx_conf/cf-real-ip.conf;"
+    fi
+  else
+    warn "Cannot find '^http {' at line start in ${NGINX_CONF} — Cloudflare real_ip NOT injected"
+    echo "    Add manually inside the http {} block:"
+    echo "      include ${VN_DIR}/nginx_conf/cf-real-ip.conf;"
+  fi
+
   # 2) add VeryNginx paths to existing lua_package_path inside http block
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"
