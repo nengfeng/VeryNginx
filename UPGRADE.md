@@ -1,8 +1,21 @@
 # VeryNginx v2 升级指南
 
-## v2.3.0 升级要点：Cloudflare CDN 真实客户端 IP（2026-10-13）
+## v2.3.0 升级要点（2026-10-13）
 
-站点经 Cloudflare 回源时，源站看到的是 CF 边缘 IP——WAF 命中记录、IP 声誉评分、内核封禁、登录限流都会记在"一个边缘 IP 背后成千真实用户"的粒度上（归因错位、评分失真，误封一个边缘 IP 会伤及其后全部真实用户）。v2.3.0 起用 http_realip_module 把 `remote_addr` 还原为真实客户端 IP，配置集中在 `nginx_conf/cf-real-ip.conf` 一处：
+**无强制配置迁移**——新增配置项均有默认值（运行时自动合并），升级替换代码、重启即生效。本轮 55 个 commit / 59 个文件，要点：
+
+- **请求体检查全面重做（重点）**：`multipart/form-data` 的字段名与字段值进入 WAF 检查（文件内容跳过），并修复 multipart 解析器三处绕过（P0）与参数名漏检；新增 `body.max_field`（字段长度上限，独立于 `max_size`）、`body.scan_exempt`（URI 豁免，如 phpMyAdmin）；`body.on_error` 默认改为 `log`，超限 body 只做前缀扫描（ModSecurity ProcessPartial 语义）——大文件上传既不再被整体读入、也不再漏检。
+- **默认规则 v9 → v13**：关闭多类扫描器绕过路径、降误报、锚定 phpMyAdmin 豁免、新增 ssrf 类别、收窄敏感文件扩展名、记录堆叠 sqli；`vn_scanner_0014` 修复为命中 ffuf 真实默认 UA（"Fuzz Faster U Fool"——旧正则从未命中过任何一次 ffuf）。`waf-rules.json` 是运行态文件、升级不覆盖：**升级后面板「规则与出厂差异」会列出漂移，可按需「同步出厂内容」**（历史命中计数保留）。
+- **IP 声誉增强**：被标记 IP 现带原因、可下钻查看扣分记录与 IP 信息（可选 GeoIP 质量 enrichment + ipinfo 回源）；新增按日持久的「今日被标记 IP（含已过期）」记录（保留 48h）。
+- **每主机请求统计**：面板新增主机过滤。
+- **面板**：历史 tab 以撤销语义重做（回滚可再撤销、删除可按条恢复）；出厂漂移提示按 action 类型解释（灰度 log 与 block 一目了然）；restore-defaults 只按 id 补回缺失的出厂规则、不覆盖操作动作；登录表单、模态布局与静态资源缓存标签修复。
+- **GeoIP**：`validate_mmdb` 恒失败修复、镜像下载跟随重定向并报告全部镜像失败。
+- **供应商**：lua-resty-http 0.17.2 → 0.18.0。
+- **安装/升级**：升级保留运行时配置与状态（`configs/` 除两个默认模板外不再被覆盖）；测试 helper 不再解析到生产树。
+
+### Cloudflare CDN 真实客户端 IP
+
+站点经 Cloudflare 回源时，源站看到的是 CF 边缘 IP——WAF 命中记录、IP 声誉评分、内核封禁、登录限流都会记在“一个边缘 IP 背后成千真实用户”的粒度上（归因错位、评分失真，误封一个边缘 IP 会伤及其后全部真实用户）。v2.3.0 起用 http_realip_module 把 `remote_addr` 还原为真实客户端 IP，配置集中在 `nginx_conf/cf-real-ip.conf` 一处：
 
 - **新装**：两条安装路径自动带上——OpenResty 模板经 `in_http_block.conf` 的 include；lnmp 安装器向 `nginx.conf` 注入同一行 include（幂等：检测到已有 `set_real_ip_from` / `real_ip_header` / 本 include 会跳过，不覆盖运维自定义的 realip 配置）。
 - **升级（OpenResty 安装）**：`upgrade.sh` 会更新 `in_http_block.conf`，升级后自动生效，无需操作。
