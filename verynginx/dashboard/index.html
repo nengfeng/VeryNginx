@@ -685,7 +685,10 @@
               <span style="color:var(--muted)">{{ wafDriftHint }}</span>
             </div>
             <div v-if="wafDriftOpen" style="margin-top:6px;font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);line-height:1.7">
-              <div v-for="(dd, ddi) in wafDrift.items.slice(0, 20)" :key="ddi">{{ dd.id }} ({{ dd.kind }})</div>
+              <div v-for="(dd, ddi) in wafDrift.items.slice(0, 20)" :key="ddi">
+                {{ dd.id }} ({{ dd.kind }}{{ dd.kind === 'action' ? ': ' + (dd.runtime_action || '?') + ' → ' + (dd.factory_action || '?') : '' }})
+                <a v-if="dd.kind === 'action'" style="cursor:pointer;white-space:nowrap" @click="wafAcceptFactoryAction(dd.id)">接受出厂动作</a>
+              </div>
               <div v-if="wafDrift.items.length > 20">…</div>
             </div>
           </div>

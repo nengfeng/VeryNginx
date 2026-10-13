@@ -949,6 +949,22 @@ local function deep_equal(a, b)
 end
 _M._deep_equal = deep_equal
 
+--- Read the shipped factory defaults file (shared by the drift report and
+-- accept-factory-actions). Returns the decoded file object or nil + err.
+local function read_factory_file()
+    local f = io.open(default_rules_path(), "r")
+    if not f then
+        return nil, "factory defaults not found: " .. default_rules_path()
+    end
+    local raw = f:read("*all")
+    f:close()
+    local ok, decoded = pcall(json.decode, raw)
+    if not ok or type(decoded) ~= "table" or type(decoded.rules) ~= "table" then
+        return nil, "factory defaults unreadable"
+    end
+    return decoded
+end
+
 --- Compare a loaded rule set against the shipped factory defaults.
 -- kind: "content" (matcher differs), "action" (operator override vs the
 -- factory action), "missing" (factory rule absent from the runtime set).
@@ -961,16 +977,8 @@ _M._deep_equal = deep_equal
 function _M._factory_drift_report(rules_obj, factory_rules)
     local defaults = factory_rules
     if not defaults then
-        local f = io.open(default_rules_path(), "r")
-        if not f then
-            return nil, "factory defaults not found: " .. default_rules_path()
-        end
-        local raw = f:read("*all")
-        f:close()
-        local ok, decoded = pcall(json.decode, raw)
-        if not ok or type(decoded) ~= "table" or type(decoded.rules) ~= "table" then
-            return nil, "factory defaults unreadable"
-        end
+        local decoded, derr = read_factory_file()
+        if not decoded then return nil, derr end
         defaults = decoded
     end
     if type(defaults.rules) ~= "table" then
@@ -1052,6 +1060,90 @@ local function sync_defaults(current, defaults)
     return merged, restored_ids, updated_ids
 end
 _M._sync_defaults = sync_defaults
+
+-- ---------------------------------------------------------------------------
+-- accept-factory-actions — the drift banner's explicit per-id escape hatch.
+--
+-- force-sync deliberately never touches `action` (gray-release states must
+-- survive upgrades), which also means a STALE operator action — e.g. a
+-- v9-era `block` that the factory has since demoted to `log` because it
+-- false-kills — can never be repaired automatically. The drift report
+-- cannot tell "intentional gray" from "stale": only the operator can.
+-- This flips `action` alone for explicitly listed ids; content, enable,
+-- code and response stay untouched.
+
+--- Pure merge core (exported for unit tests): set the runtime action of
+-- each listed id to the factory action. Ids that are unknown, not factory
+-- rules, or already matching are reported as skipped (with the reason).
+-- Repeated ids are processed once. Returns current (mutated in place),
+-- accepted ids, skipped reason strings.
+local function accept_actions(current, defaults, ids)
+    local dby, cby = {}, {}
+    for _, dr in ipairs(defaults) do
+        if type(dr) == "table" and dr.id then dby[dr.id] = dr end
+    end
+    for _, cr in ipairs(current) do
+        if type(cr) == "table" and cr.id then cby[cr.id] = cr end
+    end
+    local accepted, skipped, seen = {}, {}, {}
+    for _, id in ipairs(ids) do
+        if type(id) ~= "string" or #id == 0 or #id > 64 then
+            skipped[#skipped + 1] = "(bad id)"
+        elseif not seen[id] then
+            seen[id] = true
+            local cur, fac = cby[id], dby[id]
+            if not cur then
+                skipped[#skipped + 1] = id .. " (not found)"
+            elseif not fac then
+                skipped[#skipped + 1] = id .. " (not a factory rule)"
+            elseif cur.action == fac.action then
+                skipped[#skipped + 1] = id .. " (action already matches factory)"
+            else
+                cur.action = fac.action
+                -- monotone, same rule as sync_defaults: never lower a
+                -- version the operator has already advanced past.
+                cur.version = math.max(tonumber(cur.version) or 0,
+                                       tonumber(fac.version) or 0)
+                accepted[#accepted + 1] = id
+            end
+        end
+    end
+    return current, accepted, skipped
+end
+_M._accept_actions = accept_actions
+
+--- Public entry (API): accept factory actions for the given ids.
+-- @return result { accepted, skipped, present } or nil + err
+function _M.accept_factory_actions(ids)
+    if type(ids) ~= "table" or #ids == 0 then
+        return nil, "ids required"
+    end
+    if #ids > 200 then
+        return nil, "too many ids (max 200)"
+    end
+    local defaults, derr = read_factory_file()
+    if not defaults then return nil, derr end
+    local rules_obj = _M.load_rules()
+    if not rules_obj or not rules_obj.rules then
+        return nil, "no runtime rules loaded"
+    end
+    local merged, accepted, skipped =
+        accept_actions(rules_obj.rules, defaults.rules, ids)
+    local result = { accepted = accepted, skipped = skipped,
+                     present = #rules_obj.rules }
+    if #accepted == 0 then
+        -- Nothing actually flipped: do not bump the version or write a
+        -- history entry (same no-op contract as restore_defaults).
+        result.message = "没有可接受的出厂动作差异"
+        return result
+    end
+    local ok, err = _M.save_rules(merged, "accept_factory_actions",
+                                  rules_obj.version)
+    if not ok then
+        return nil, "save failed: " .. tostring(err)
+    end
+    return result
+end
 
 --- Restore factory rules from configs/waf-rules.default.json by id.
 --- Default mode is additive only: rules already present (whatever their

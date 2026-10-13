@@ -608,6 +608,38 @@ local function handle_restore_defaults()
     return json.encode({ ret = "success", data = result, message = msg })
 end
 
+--- POST /waf/rules/accept-factory-actions - flip listed rules' action to the
+-- factory action (the drift banner's per-item fix). Only `action` moves;
+-- enable, content, code and response stay untouched. Explicit and id-scoped
+-- because the drift report cannot distinguish a stale v9-era action from an
+-- intentional gray-release state — force-sync preserves action on purpose,
+-- so repairing it must be an operator decision per rule.
+local function handle_accept_factory_actions()
+    local args = helpers.get_request_args()
+    local ids = args and args.ids
+    if type(ids) ~= "table" or #ids == 0 then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = "ids required" })
+    end
+    local result, err = waf_manager.accept_factory_actions(ids)
+    if not result then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err) })
+    end
+    audit.log("waf_rules_actions_accepted",
+        "accepted=" .. tostring(#result.accepted), "-")
+    local msg
+    if #result.accepted > 0 then
+        msg = "已接受出厂动作：" .. table.concat(result.accepted, "、")
+        if #result.skipped > 0 then
+            msg = msg .. "（跳过 " .. tostring(#result.skipped) .. " 条）"
+        end
+    else
+        msg = result.message or "没有可接受的出厂动作差异"
+    end
+    return json.encode({ ret = "success", data = result, message = msg })
+end
+
 function _M.register(api)
     api.register("GET",    "/waf/rules",              handle_list_waf_rules,     true)
     api.register("POST",   "/waf/rules",              handle_create_waf_rule,    true)
@@ -619,6 +651,7 @@ function _M.register(api)
     api.register("PUT",    "/waf/rules/:id",          handle_update_waf_rule,    true)
     api.register("DELETE", "/waf/rules/:id",          handle_delete_waf_rule,    true)
     api.register("POST",   "/waf/rules/restore-defaults", handle_restore_defaults, true)
+    api.register("POST",   "/waf/rules/accept-factory-actions", handle_accept_factory_actions, true)
     api.register("POST",   "/waf/rules/:id/enable",   handle_enable_waf_rule,    true)
     api.register("POST",   "/waf/rules/:id/disable",  handle_disable_waf_rule,   true)
     api.register("POST",   "/waf/rules/:id/stage",    handle_stage_waf_rule,     true)

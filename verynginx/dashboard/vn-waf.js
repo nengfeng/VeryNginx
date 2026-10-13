@@ -249,7 +249,7 @@
       const parts = [];
       if (d.counts.missing > 0) parts.push(`「恢复默认规则」可补回 ${d.counts.missing} 条缺失规则`);
       if (d.counts.content > 0) parts.push(`「同步出厂内容」可拉齐 ${d.counts.content} 条内容差异（保留启用/动作设置）`);
-      if (d.counts.action > 0) parts.push(`动作差异 ${d.counts.action} 条为你的灰度/自定义设置（如 log 级观察），同步出厂内容不会改动它们`);
+      if (d.counts.action > 0) parts.push(`动作差异 ${d.counts.action} 条为你的灰度/自定义设置（如 log 级观察），同步出厂内容不会改动它们；「详情」中可逐条「接受出厂动作」拉齐到出厂值`);
       return parts.join('；');
     });
 
@@ -934,6 +934,29 @@
       }
     }
 
+    async function wafAcceptFactoryAction(id) {
+      if (!await showConfirm({
+        title: '接受出厂动作',
+        message: `将把 ${id} 的动作改为出厂值（你对该规则的灰度/自定义动作将被覆盖；启用状态与匹配内容不受影响）。继续？`,
+        type: 'warning',
+      })) return;
+      wafRolling.value = true;
+      try {
+        const d = await api('POST', '/verynginx/waf/rules/accept-factory-actions', { ids: [id] });
+        if (d.ret === 'success') {
+          showToast(d.message || '已接受出厂动作', 'success');
+          await loadWafData();
+          await loadWafDrift();
+        } else {
+          showToast(d.message || '操作失败', 'error');
+        }
+      } catch (e) {
+        showToast(e.message || '操作失败', 'error');
+      } finally {
+        wafRolling.value = false;
+      }
+    }
+
     async function wafRollback(btn) {
       if (!btn || !btn.version) return;
       if (!await showConfirm({
@@ -1188,6 +1211,7 @@
     view('wafRollback', wafRollback);
     view('wafRestoreDefaults', wafRestoreDefaults);
     view('wafSyncDefaults', wafSyncDefaults);
+    view('wafAcceptFactoryAction', wafAcceptFactoryAction);
 
     // History rows are per-save snapshots ("state after this change").
     // Clicking a row's button = UNDO that change: restore the PREVIOUS
