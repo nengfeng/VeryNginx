@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VeryNginx v2 - factory WAF rules battery (v15+)
+VeryNginx v2 - factory WAF rules battery (v16+)
 ================================================
 Behavioral + structural checks against verynginx/configs/waf-rules.default.json.
 
@@ -9,6 +9,9 @@ Why Python: the busted rig stubs ngx.re with *Lua patterns*
 nginx cannot be executed inside busted. This script re-runs the shipped
 patterns under Python `re` (case-insensitive, mirroring the engine's "i"
 compile flag in matcher/compare.lua) against a positive/negative case table.
+New PCRE constructs (fixed-length lookbehinds, comment-tolerant gaps) are
+additionally validated against real PCRE before landing (see /tmp scratch
+harness convention); the battery pins the resulting behavior.
 
 Coverage contract (learned the hard way — the v14 rce_0007 review):
   1. Every regex-valued condition in the factory matcher tree compiles.
@@ -25,6 +28,10 @@ Coverage contract (learned the hard way — the v14 rce_0007 review):
      path/flag/URL/sensitive-word argument guard. Accepted misses
      ("; ps aux", "; make install", "; cat passwd without slash is now
      caught by marker word") are asserted as misses, not ignored.
+  5. P0 review-round fixes (v16: sqli union/select-shape bypasses,
+     tautology comment/LIKE gaps, sleep-prefix/info_schema prose FPs,
+     xss event/verb-table gaps, ssrf userinfo bypass) each carry their own
+     hit + clear pins below; accepted residuals are asserted, not ignored.
 
 Run (repo root):  python3 test/v2/factory_rules_battery.py
 Exit code 0 = all pass. CI/gate: run alongside busted + luacheck.
@@ -139,8 +146,14 @@ def main():
     for rid, pat in (("vn_rce_0007", bp), ("vn_rce_0025", lp)):
         uris = regex_values(by[rid]["matcher"])
         check(NEW_EX in uris, f"{rid} keeps the admin-path exemption")
-    check(d.get("version") == 15, f"file version == 15 (got {d.get('version')})")
+    check(d.get("version") == 16, f"file version == 16 (got {d.get('version')})")
     check(len(d["rules"]) == 26, f"26 rules (got {len(d['rules'])})")
+    check(by["vn_sqli_0001"]["version"] >= 7, "vn_sqli_0001 v7 (union-shape bypasses closed)")
+    check(by["vn_sqli_0002"]["version"] >= 6, "vn_sqli_0002 v6 (comment/LIKE gaps closed)")
+    check(by["vn_sqli_0004"]["version"] >= 6, "vn_sqli_0004 v6 (sleep-prefix/info_schema prose fixed)")
+    check(by["vn_xss_0005"]["version"] >= 5, "vn_xss_0005 v5 (event families added)")
+    check(by["vn_xss_0006"]["version"] >= 7, "vn_xss_0006 v7 (verb-table redesign)")
+    check(by["vn_ssrf_0021"]["version"] >= 4, "vn_ssrf_0021 v4 (userinfo bypass closed)")
 
     bx = re.compile(bp, re.I)
     lg = re.compile(lp, re.I)
@@ -259,6 +272,152 @@ def main():
     for s in prose_fps:
         got = tier(s)
         check(got is None, f"prose clear (got {got}): {s!r}")
+
+    # ---- 8. P0 review-round fixes (v16) ----------------------------------
+    # Each P0 finding carries hit + clear pins. Accepted residuals are
+    # asserted (not silently dropped) with the reason inline.
+    print("== P0 review-round fixes (v16) ==")
+
+    def uri_attack_pattern(rule):
+        """First URI ≈ value that is NOT the phpMyAdmin exemption."""
+        found = []
+
+        def walk(o):
+            if isinstance(o, dict):
+                if (isinstance(o.get("URI"), dict)
+                        and o["URI"].get("operator") == "≈"
+                        and isinstance(o["URI"].get("value"), str)
+                        and "phpmyadmin" not in o["URI"]["value"].lower()):
+                    found.append(o["URI"]["value"])
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+        walk(rule.get("matcher") or {})
+        return found[0] if found else None
+
+    def pin(regex, cases, rid):
+        for s, want in cases:
+            got = bool(regex.search(s))
+            check(got == want, f"[{rid}] {'hit' if want else 'clear'}: {s!r}")
+
+    pin(re.compile(args_pattern(by["vn_sqli_0001"]), re.I), [
+        ("id=1 UNION SELECT *", True),
+        ("1 UNION(SELECT password FROM users)", True),
+        ("1 UNION DISTINCT SELECT * FROM users", True),
+        ("id=1 union select name from t", True),
+        ("1' UNION SELECT password FROM users --", True),
+        ("1 UNION ALL SELECT 1,2,3", True),
+        ("1 union select null,null from t", True),
+        ("our union select committee from each shop", False),
+        ("the credit union select rates from the table daily", False),
+        ("The UNION SELECT statement retrieves rows from a table", False),
+        # Accepted residual: bare leading-digit marker + plain words, no
+        # param-name '=' nearby. Real traffic carries 'name=' before the
+        # value (covered by the backward-marker branch); sqlmap probes use
+        # NULL (covered by the strong branch).
+        ("1 union select name from t", False),
+    ], "vn_sqli_0001")
+
+    pin(re.compile(args_pattern(by["vn_sqli_0002"]), re.I), [
+        ("1' OR 1=1", True),
+        ("1' OR/**/1=1-- ", True),
+        ("'/**/OR/**/1=1-- ", True),
+        ("' OR 'a' LIKE 'a", True),
+        ("1 OR 1 LIKE 1", True),
+        ("1 OR 1 IN (1,2)", True),
+        ("1 OR 1 BETWEEN 1 AND 2", True),
+        ("1 OR 2=2", True),
+        ("x' || '1'='1", True),
+        ("' OR 'a'='a", True),
+        ("cats or dogs, 1<2", False),
+        ("do you like tea or coffee", False),
+        # Known FP (P1, block): "bake 30 min or 1<2 hours" still hits.
+        # Pinned in prose, not asserted, pending a value-shape guard.
+    ], "vn_sqli_0002")
+
+    pin(re.compile(args_pattern(by["vn_sqli_0004"]), re.I), [
+        ("1' AND SLEEP(5)--+", True),
+        ("x=(SLEEP(5))", True),
+        ("1 AND BENCHMARK(1000000,MD5(1))", True),
+        ("1' AND GET_LOCK('x',5)--", True),
+        ("1 UNION SELECT * FROM information_schema.tables", True),
+        ("1 AND UPDATEXML(1,2,3)--", True),
+        ("' AND CHAR(105,110)--", True),
+        ("1 UNION SELECT UNHEX(41)--", True),
+        ("1 AND CONCAT('a','b')--", True),
+        ("' WAITFOR DELAY '0:0:5'--", True),
+        ("EXEC xp_cmdshell 'dir'", True),
+        ("1;EXEC xp_cmdshell('dir')", True),
+        ("1 AND SLEEP(5) FROM users", True),
+        ('he said "sleep(8)" every night', False),
+        ("where to sleep(nearby) on road trips", False),
+        ("query information_schema.tables for columns", False),
+        ("I need sleep(8 hours) daily", False),
+        ("use waitfor delay to pause", False),
+        ("enable xp_cmdshell on the server", False),
+        ("the information_schema database stores metadata", False),
+        ("error 0x80004005 on boot", False),
+        ("call updatexml( to modify xml", False),
+    ], "vn_sqli_0004")
+
+    pin(re.compile(args_pattern(by["vn_xss_0005"]), re.I), [
+        ("<svg onload=alert(1)>", True),
+        ("<img src=x onerror=alert(1)>", True),
+        ("<svg><animate onbegin=alert(1)>", True),
+        ("<details open ontoggle=alert(1)>", True),
+        ("<body onpointerenter=alert(1)>", True),
+        ("<div onanimationend=alert(1)>", True),
+        ('<div onclick/**/="x">', True),
+        ("<svg/onload=alert(1)>", True),
+        ("<form onformdata=alert(1)>", True),
+        ("discussion of the onload attribute here", False),
+        # Known FP (P1, block; gray-logged on prod): bare prose 'onclick='.
+        # Asserted as HIT so a silent behavior change fails loudly; fix
+        # requires an attribute-breakout-safe context guard, not a '<' prefix.
+        ('discussion of "onclick=" attribute here', True),
+    ], "vn_xss_0005")
+
+    xss6_args = args_pattern(by["vn_xss_0006"])
+    xss6_uri = uri_attack_pattern(by["vn_xss_0006"])
+    check(xss6_uri == xss6_args, "vn_xss_0006 URI and Args branches share one value")
+    pin(re.compile(xss6_args, re.I), [
+        ("javascript:alert(1)", True),
+        ("JaVaScRiPt:alert(1)", True),
+        ('javascript:Function("alert(1)")()', True),
+        ("javascript:setTimeout(alert(1))", True),
+        ("javascript:fetch(1)", True),
+        ("javascript:import(1)", True),
+        ("javascript:top['al'+'ert'](1)", True),
+        ("javascript:void(0)", True),
+        ("javascript:eval(name)", True),
+        ("java\tScript:alert(1)", True),
+        ("data:text/html,<script>alert(1)</script>", True),
+        ("data:text/html;base64,PHNjcmlwdA==", True),
+        ("please javascript:confirm your email address", False),
+        ("javascript:visit our site (link)", False),
+        ("see the javascript: URL scheme", False),
+        # Accepted residuals: vbscript: (IE-dead) and HTML-entity-encoded
+        # schemes (no entity decoding on the match path).
+        ("vbscript:msgbox(1)", False),
+    ], "vn_xss_0006")
+    if xss6_uri:
+        pin(re.compile(xss6_uri, re.I), [
+            ("javascript:alert(1)", True),
+            ("please javascript:confirm your email address", False),
+        ], "vn_xss_0006/uri")
+
+    pin(re.compile(args_pattern(by["vn_ssrf_0021"]), re.I), [
+        ("http://169.254.169.254/latest/meta-data/", True),
+        ("http://evil@169.254.169.254/", True),
+        ("http://evil@10.0.0.1:8080/", True),
+        ("http://user:pass@192.168.1.1/", True),
+        ("http://evil@2130706433/", True),
+        ("http://evil@0x7f000001/", True),
+        ("http://user@example.com/", False),
+        ("https://oauth.example.com/callback", False),
+    ], "vn_ssrf_0021")
 
     # ---- 7. other invariants (v14 sections retained) --------------------
     print("== v14 invariants retained ==")

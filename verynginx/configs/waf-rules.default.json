@@ -1,6 +1,6 @@
 {
-  "version": 15,
-  "timestamp": "2026-10-13T08:32:06Z",
+  "version": 16,
+  "timestamp": "2026-10-13T09:37:42Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -31,17 +31,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "\\bunion\\b(?:[\\s/*!]+all)?[\\s/*!\\d]*select\\b[\\s/*!\\d]*(?:\\*|\\(|\\d|null\\b|distinct\\b|'[^']*'|\\\"[^\\\"]*\\\"|[\\w$]+\\s*\\(|[\\w$]+\\s*,|[^;]{0,100}?\\b(?:from|into|limit|where|having)\\b)"
+                "value": "\\bunion\\b(?:[\\s/*!]+(?:all|distinct))?[\\s/*!\\d(]*select\\b[\\s/*!\\d(]*(?:(?:\\*|\\(|\\d|null\\b|distinct\\b|'[^']*'|\\\"[^\\\"]*\\\"|[\\w$]+\\s*\\(|[\\w$]+\\s*,)|(?=[\\s\\S]{0,200}?['\\\"()\\d=;*,!@#%+<>&|~-]|[\\s\\S]{0,200}?\\b(?:passwords?|passwd|usernames?|admins?|schemas?|versions?|databases?|table_name|column_name|information_schema|group_concat|concat|char)\\b)[^;]{0,100}?\\b(?:from|into|limit|where|having)\\b)|(?:['\\\"()=*;])[\\s\\S]{0,20}?\\bunion\\b(?:[\\s/*!]+(?:all|distinct))?[\\s/*!\\d(]*select\\b[\\s/*!\\d(]*[^;]{0,100}?\\b(?:from|into|limit|where|having)\\b"
               }
             }
           ]
         }
       },
-      "description": "Detects UNION-based SQL injection attempts in request parameters",
+      "description": "Detects UNION-based SQL injection attempts in request parameters (UNION(SELECT) and UNION DISTINCT included; bare-word column lists require an attack marker so tutorial prose stays out).",
       "tags": [],
-      "version": 6,
+      "version": 7,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-13T09:37:42Z",
       "created_by": "system"
     },
     {
@@ -73,17 +73,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "\\b(?:or|and)\\b\\s*['\\\"]?1['\\\"]?\\s*(?:=|<>|!=|<=|>=|<|>)\\s*['\\\"]?\\d+|['\\\"]\\s*(?:or|and)\\s*['\\\"][^'\\\"]*['\\\"]\\s*[=<>]\\s*['\\\"]"
+                "value": "(?:\\b(?:or|and)\\b|\\|\\||&&)(?:\\s|/\\*[\\s\\S]*?\\*/)*['\\\"]?(?:\\s|/\\*[\\s\\S]*?\\*/)*\\d+(?:\\s|/\\*[\\s\\S]*?\\*/)*(?:=|<>|!=|<=|>=|<|>|\\bLIKE\\b|\\bRLIKE\\b|\\bREGEXP\\b|\\bIN\\b|\\bBETWEEN\\b)(?:\\s|/\\*[\\s\\S]*?\\*/)*(?:\\(\\s*)?\\d+|['\\\"](?:\\s|/\\*[\\s\\S]*?\\*/)*(?:\\b(?:or|and)\\b|\\|\\||&&)(?:\\s|/\\*[\\s\\S]*?\\*/)*['\\\"][^'\\\\\\\"]*['\\\"](?:\\s|/\\*[\\s\\S]*?\\*/)*(?:=|<>|!=|<=|>=|<|>|\\bLIKE\\b|\\bRLIKE\\b|\\bREGEXP\\b|\\bIN\\b|\\bBETWEEN\\b)(?:\\s|/\\*[\\s\\S]*?\\*/)*(?:\\(\\s*)?['\\\"]"
               }
             }
           ]
         }
       },
-      "description": "Detects tautology-based SQLi like ' OR 1=1",
+      "description": "Detects tautology-based SQLi like ' OR 1=1 (comment-obfuscated gaps and LIKE/IN/BETWEEN covered).",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-13T09:37:42Z",
       "created_by": "system"
     },
     {
@@ -157,20 +157,20 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "\\bwaitfor\\s+delay\\b|\\bxp_cmdshell\\b|\\binformation_schema\\b|\\b(?:updatexml|extractvalue)\\s*\\(|(?:['\\\";,]|\\b(?:or|and|where|select|from|having)\\b)[^;]{0,30}?\\b(?:sleep|benchmark|pg_sleep|load_file)\\s*\\("
+                "value": "\\bwaitfor\\s+delay\\s*['\\\"]|\\bxp_cmdshell\\b(?=\\s*[\\x28\\x27\\x22])|(?<!query )(?<!describe )(?<!desc )(?<!show )(?<!explain )(?<!the )(?<!an )(?<!this )(?<!that )(?<!these )(?<!those )(?<!your )(?<!our )(?<!my )\\binformation_schema\\b|(?<!query )(?<!describe )(?<!desc )(?<!show )(?<!explain )(?<!the )(?<!an )(?<!this )(?<!that )(?<!these )(?<!those )(?<!your )(?<!our )(?<!my )(?<!call )(?<!use )\\b(?:updatexml|extractvalue)\\s*\\(|(?:[;,()=]|\\b(?:or|and|select|from|having|union)\\b)[^;]{0,50}?(?:\\b(?:sleep|benchmark|pg_sleep|load_file|get_lock|receive_message)\\s*\\(|\\b(?:char|chr|unhex|concat(?:_ws)?|group_concat)\\s*\\()|\\b(?:or|and|select|from|having|union|values|into)\\b[^;]{0,50}?\\b0x[0-9a-f]{2,}\\b"
               }
             }
           ]
         }
       },
-      "description": "Detects time-based / error-based SQLi and schema enumeration (sleep, benchmark, waitfor delay, information_schema, load_file, xp_cmdshell, updatexml, extractvalue)",
+      "description": "Detects time-based / error-based SQLi and schema enumeration (sleep, benchmark, get_lock, waitfor delay, information_schema, load_file, char/concat/unhex/0x probes, xp_cmdshell, updatexml, extractvalue). Tutorial-text contexts stay out.",
       "tags": [
         "sqli",
         "time-based"
       ],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-10-11T10:45:00Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-13T09:37:42Z",
       "created_by": "system"
     },
     {
@@ -244,17 +244,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "\\b(?:onerror|onload|onclick|onmouseover|onmouseout|onmousedown|onmouseup|onfocus|onblur|onchange|onsubmit|onreset|onselect|onkeydown|onkeyup|onkeypress|oninput|ontoggle|onanimationstart|ontransitionstart)\\s*="
+                "value": "\\b(?:onabort|onanimationend|onanimationiteration|onanimationstart|onauxclick|onbeforeinput|onbeforematch|onbeforetoggle|onbegin|onblur|oncancel|oncanplay|oncanplaythrough|onchange|onclick|onclose|oncontextlost|oncontextmenu|oncontextrestored|oncopy|oncuechange|oncut|ondblclick|ondrag|ondragend|ondragenter|ondragleave|ondragover|ondragstart|ondrop|ondurationchange|onemptied|onend|onended|onerror|onfocus|onformdata|ongotpointercapture|oninput|oninvalid|onkeydown|onkeypress|onkeyup|onload|onloadeddata|onloadedmetadata|onloadstart|onlostpointercapture|onmousedown|onmouseenter|onmouseleave|onmousemove|onmouseout|onmouseover|onmouseup|onmousewheel|onpaste|onpause|onplay|onplaying|onpointercancel|onpointerdown|onpointerenter|onpointerleave|onpointermove|onpointerout|onpointerover|onpointerup|onprogress|onratechange|onrepeat|onreset|onresize|onscroll|onsearch|onsecuritypolicyviolation|onseeked|onseeking|onselect|onslotchange|onstalled|onsubmit|onsuspend|ontimeupdate|ontoggle|ontransitioncancel|ontransitionend|ontransitionrun|ontransitionstart|onvolumechange|onwaiting|onwheel)(?:\\s|/\\*[\\s\\S]*?\\*/|/)*="
               }
             }
           ]
         }
       },
-      "description": "Detects HTML/JS event handler injection (onload, onerror, onclick, etc.)",
+      "description": "Detects HTML/JS event handler injection (full HTML event list incl. pointer/animation/transition/form families; comment- and slash-separated name/value pairs stay in scope).",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-13T09:37:42Z",
       "created_by": "system"
     },
     {
@@ -289,14 +289,14 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|eval|document\\.|window\\.|location\\.)"
+                      "value": "(?:java\\s*script\\s*:(?=[\\s\\S]{0,200}?[()\\[\\];=+`$])(?:\\b(?:alert|confirm|prompt|eval|exec|function|settimeout|setinterval|fetch|import|top|self|parent|frames|void|typeof|await|throw|debugger|document|window|location)\\b|\\.[A-Za-z_]\\w*\\()|data\\s*:\\s*text/html[\\s\\S]{0,100}?(?:[<>]|base64))"
                     }
                   },
                   {
                     "Args": {
                       "name_operator": "*",
                       "operator": "≈",
-                      "value": "javascript\\s*:\\s*(?:alert|confirm|prompt|eval|document\\.|window\\.|location\\.)"
+                      "value": "(?:java\\s*script\\s*:(?=[\\s\\S]{0,200}?[()\\[\\];=+`$])(?:\\b(?:alert|confirm|prompt|eval|exec|function|settimeout|setinterval|fetch|import|top|self|parent|frames|void|typeof|await|throw|debugger|document|window|location)\\b|\\.[A-Za-z_]\\w*\\()|data\\s*:\\s*text/html[\\s\\S]{0,100}?(?:[<>]|base64))"
                     }
                   }
                 ]
@@ -305,11 +305,11 @@
           ]
         }
       },
-      "description": "Detects javascript: XSS payload in URI or parameters (javascript:alert/confirm/prompt/document./window./location.). phpMyAdmin paths are exempt, matching the other request-parameter rules.",
+      "description": "Detects javascript: XSS payload with code-shaped value (JS verb or method call plus parens/brackets) and data:text/html payloads, in URI or parameters; plain prose after 'javascript:' stays out. phpMyAdmin paths are exempt, matching the other request-parameter rules.",
       "tags": [],
-      "version": 6,
+      "version": 7,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-13T09:37:42Z",
       "created_by": "system"
     },
     {
@@ -467,19 +467,19 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "https?://(?:localhost|127(?:\\.\\d+){3}|0\\.0\\.0\\.0|\\[?::1\\]?|169\\.254\\.(?:169\\.254|170\\.\\d+)|metadata\\.google\\.internal|10(?:\\.\\d+){3}|192\\.168(?:\\.\\d+){2}|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.\\d+){2}|100\\.(?:6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])(?:\\.\\d+){2})|https?://0x[0-9a-f]+|https?://\\d{8,12}\\b"
+                "value": "https?://(?:[^/\\s?#]*@)?(?:localhost|127(?:\\.\\d+){3}|0\\.0\\.0\\.0|\\[?::1\\]?|169\\.254\\.(?:169\\.254|170\\.\\d+)|metadata\\.google\\.internal|10(?:\\.\\d+){3}|192\\.168(?:\\.\\d+){2}|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.\\d+){2}|100\\.(?:6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])(?:\\.\\d+){2})|https?://(?:[^/\\s?#]*@)?0x[0-9a-f]+|https?://(?:[^/\\s?#]*@)?\\d{8,12}\\b"
               }
             }
           ]
         }
       },
-      "description": "Detects URLs pointing to internal / private / cloud-metadata IPs in parameters (SSRF), including dword (decimal) and hex encodings and 169.254.170.x (ECS). Logged by default — internal URLs in params are common (OAuth redirects, service callbacks); review logs then flip to block if appropriate.",
+      "description": "Detects URLs pointing to internal / private / cloud-metadata IPs in parameters (SSRF), including dword (decimal) and hex encodings and 169.254.170.x (ECS). Logged by default — internal URLs in params are common (OAuth redirects, service callbacks); review logs then flip to block if appropriate. Userinfo-prefixed URLs (user@host) covered.",
       "tags": [
         "ssrf"
       ],
-      "version": 3,
+      "version": 4,
       "created_at": "2026-10-11T10:45:00Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-13T09:37:42Z",
       "created_by": "system"
     },
     {
