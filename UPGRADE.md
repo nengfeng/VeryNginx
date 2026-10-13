@@ -4,9 +4,9 @@
 
 **无强制配置迁移**——新增配置项均有默认值（运行时自动合并），升级替换代码、重启即生效。本轮 55 个 commit / 59 个文件，要点：
 
-- **请求体检查全面重做（重点）**：`multipart/form-data` 的字段名与字段值进入 WAF 检查（文件内容跳过），并修复 multipart 解析器三处绕过（P0）与参数名漏检；新增 `body.max_field`（字段长度上限，独立于 `max_size`）、`body.scan_exempt`（URI 豁免，如 phpMyAdmin）；`body.on_error` 默认改为 `log`，超限 body 只做前缀扫描（ModSecurity ProcessPartial 语义）——大文件上传既不再被整体读入、也不再漏检。
+- **请求体检查全面重做（重点）**：`multipart/form-data` 的字段名与字段值进入 WAF 检查（文件内容跳过），并修复 multipart 解析器三处绕过（P0）与参数名漏检；新增 `body.max_field`（字段长度上限，独立于 `max_size`）、`body.scan_exempt`（URI 豁免、大小写不敏感，如 phpMyAdmin）；`body.on_error` 默认改为 `log`，超限 body 只做前缀扫描（ModSecurity ProcessPartial 语义）——大文件上传既不再被整体读入、也不再漏检。
 - **默认规则 v9 → v13**：关闭多类扫描器绕过路径、降误报、锚定 phpMyAdmin 豁免、新增 ssrf 类别、收窄敏感文件扩展名、记录堆叠 sqli；`vn_scanner_0014` 修复为命中 ffuf 真实默认 UA（"Fuzz Faster U Fool"——旧正则从未命中过任何一次 ffuf）。`waf-rules.json` 是运行态文件、升级不覆盖：**升级后面板「规则与出厂差异」会列出漂移，可按需「同步出厂内容」**（历史命中计数保留）。
-- **IP 声誉增强**：被标记 IP 现带原因、可下钻查看扣分记录与 IP 信息（可选 GeoIP 质量 enrichment + ipinfo 回源）；新增按日持久的「今日被标记 IP（含已过期）」记录（保留 48h）。
+- **IP 声誉增强**：被标记 IP 现带原因、可下钻查看扣分记录与 IP 信息（可选 GeoIP 质量 enrichment + ipinfo 回源）；新增按日持久的「今日被标记 IP（含已过期）」记录（保留 48h；写路径封顶——最多保留最新 100 条，`flagged_today` 计数器精确不封顶）。
 - **每主机请求统计**：面板新增主机过滤。
 - **面板**：历史 tab 以撤销语义重做（回滚可再撤销、删除可按条恢复）；出厂漂移提示按 action 类型解释（灰度 log 与 block 一目了然）；restore-defaults 只按 id 补回缺失的出厂规则、不覆盖操作动作；登录表单、模态布局与静态资源缓存标签修复。
 - **GeoIP**：`validate_mmdb` 恒失败修复、镜像下载跟随重定向并报告全部镜像失败。
