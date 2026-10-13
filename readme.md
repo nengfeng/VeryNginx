@@ -4,6 +4,20 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 
 [中文文档](readme_zh.md) | [Installation Guide](docs/INSTALL_zh.md) | [Usage Manual](docs/USAGE_zh.md) | [Architecture Design](docs/DESIGN_V2.md)
 
+## v2.3 Highlights (2026-10-13)
+
+- **Request-body inspection rebuilt** — `multipart/form-data` field names *and* values now reach the WAF (file contents skipped), after closing three P0 parser bypasses and a parameter-name blind spot. New `body.max_field` (field length cap, independent of `max_size`), `body.scan_exempt` (URI exemptions, case-insensitive, e.g. phpMyAdmin), and `body.on_error` defaulting to `log` with a ModSecurity *ProcessPartial* prefix scan — oversized uploads are neither read whole nor silently unscanned.
+- **Default ruleset hardened v9 → v17** — ssrf category added, scanner-bypass paths closed, ffuf's real default UA finally matched, admin-path exemptions accept `.php` entries (`/adminer.php`), and the sqli/xss/ssrf/rce rules rebuilt over three external reviews: `UNION(SELECT)`/`UNION DISTINCT` match, tautology gaps closed (comment obfuscation, `LIKE`/`IN`/`BETWEEN`), tutorial-prose false positives cut, the XSS event table completed, `javascript:` rebuilt around code shape, SSRF covers `user@` prefixes. `vn_rce_0007` settled as a value-anchored block (leading separator + 24 high-risk bare-invocation commands, no argument guard — so `data:` URIs and CSV never block while `; rm file` does) with a log-only companion rule; a "value must not contain non-ASCII" style guard was banned outright after it was shown to be a universal bypass switch (append one high byte and every payload goes clean).
+- **TLS fingerprinting on JA4, and two chains that never ran** — the old path read `$ssl_client_j3_hash` (undefined on a vanilla nginx: no JA3 module compiled in) and the filter plugin consulted a `ctx.request.ja3_fingerprint` key nothing ever wrote, so fingerprint blocking, challenging and cross-IP alerting had never actually fired. JA4 is now computed once per handshake (the only context that sees the raw ClientHello), needs no nginx rebuild, and is stable under GREASE randomisation. Library entries carry **kind** (ja3/ja4/ja4h) and **match mode** (exact/family); matching is kind-scoped, the negotiated-cipher `tls:` namespace is explicitly non-matchable, and family matching slices the human-readable section A so a client survives its own cipher rotation. `tools/import_ja4db.py` turns the official FoxIO mapping into candidates (**log by default**, hashes shared with benign clients skipped).
+- **Factory-drift transparency** — an endpoint reports content/action/missing drift against the factory ruleset, the dashboard explains gray-release vs stale actions, and each drifted rule can be individually "accepted" back to factory action; `restore-defaults` only re-adds missing factory rules by id and never overwrites operator-set actions.
+- **IP reputation observability** — flagged IPs now carry reasons, drill-down into the score history, optional IP-quality lookup, and a durable per-day flag log (48h) with a hard write-path cap (its unbounded growth ran O(n) inside the global index lock on the request hot path and could freeze the index).
+- **Per-host request statistics** — the request panel can filter and aggregate by host.
+- **Dashboard history tab redesigned around undo** — rollback is undoable, deletions restore per-entry; factory-drift hints and per-rule accept-action live next to it.
+- **Operational fixes** — GeoIP validation and mirror download reporting, lua-resty-http 0.18.0, installer preserves runtime config on upgrade, fresh installs auto-configure Cloudflare real client IP (`http_realip_module` with the official ranges), and `upgrade.sh` re-injects the TLS fingerprint hook so upgraded installs actually get it.
+- **Standing gates** — every factory rule ships with a PCRE positive/negative battery (`test/v2/factory_rules_battery.py`, 312 checks covering every command family, dual-engine verified against real PCRE), the vendored JA4 implementation is pinned to FoxIO's published vectors (`test/v2/ja4_golden.lua`), plus luacheck 0/0 over 103 files, 353 spec and 374 phase0 cases, and dashboard binding gates.
+
+---
+
 ## v2.2 Highlights (2026-09-06)
 
 - **Security audit remediation (35 findings closed)**: session/password constant-time compare rewritten (the old algebraic identity allowed admin-session forgery at ~1/20,000 per try); upstream TLS verification for proxied backends (self-signed upstreams need an explicit CA); `configs/` permission hardening — no more world-readable `session_secret`; proxy-path crash and internal-redirect-loop fixes (the proxy chain had never been end-to-end exercised); request-time JSON hardening — malformed `POST /config` bodies now 400, not 500
@@ -38,7 +52,7 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **Plugin-based architecture** — filter, frequency_limit, browser_verify, proxy_pass, static_file, router, summary
 - **10 matcher types** — IP (CIDR), Host, URI, UserAgent, Referer, Args, Header, Cookie, Method, Composite
 - **8 rule groups** — filter, frequency_limit, browser_verify, proxy_pass, static_file, redirect, uri_rewrite, scheme_lock
-- **Pre-built WAF rules** — SQL injection, path traversal, scanner detection, Git/SVN exposure
+- **Pre-built WAF rules** — 26 factory rules across sqli / xss / rce / lfi / path_traversal / ssrf / scanner / bot / brute / spam / crlf / deserialization, ship as editable JSON with the dashboard's factory-drift view
 - **Browser verification** — cookie + JavaScript challenge against bots and CC attacks
 - **Rate limiting** — per-IP, per-URI, or custom key with configurable time windows
 - **Rule staging / approval flow** — changes can be staged as "pending" before activation
@@ -48,8 +62,8 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **Hit detail drill-down** — click any hit to see full request context (UA, headers, body, IP reputation)
 - **Rule test history** — automatic save of last 20 test runs for comparison and debugging
 - **Test rule against cases** — built-in tester with request samples and match results
-- **IP reputation engine** — scoring based on signals (WAF block/challenge/404), auto-flagging, whitelist, challenge flow
-- **TLS fingerprinting (JA4)** — client identification via the TLS ClientHello fingerprint, computed in the handshake phase (`ssl_client_hello_by_lua*`), stable across GREASE randomisation; JA3 kept for existing libraries, with a non-matchable negotiated-cipher fallback
+- **IP reputation engine** — scoring based on signals (WAF block/challenge/404), auto-flagging, whitelist, challenge flow, with flag reasons and a per-day flag log
+- **TLS fingerprinting (JA4)** — client identification via the TLS ClientHello fingerprint, computed in the handshake phase (`ssl_client_hello_by_lua*`), stable across GREASE randomisation; no nginx rebuild required. Library entries are kind-scoped (`ja3`/`ja4`/`ja4h`) and support exact or family (section-A prefix) matching; the negotiated-cipher fallback is recorded but never matched. JA4H (HTTP-layer) is available behind `fingerprints.ja4.http_enable`
 
 ### Reverse Proxy
 
@@ -78,16 +92,16 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **Hot-reload** — config changes take effect immediately (zero-I/O MD5 hash comparison)
 - **Atomic saves** — `tmp + rename` strategy with automatic backups (keeps last 10)
 - **Prometheus metrics** — `/verynginx/metrics` endpoint for monitoring (per-rule hits/blocks/challenges, plugin duration, IP reputation). **Auth required since the persistence audit** — scrape with a dashboard session cookie or forward via an internal channel.
-- **Request statistics** — per-URI tracking across 1m/5m/1h/all time windows
+- **Request statistics** — per-URI tracking across 1m/5m/1h/all time windows, with per-host filtering
 - **Audit log** — ring buffer (1000 entries) with search by user, action type, and time range
-- **Alerting engine** — webhook notifications for hit rate spikes, false positive changes, unknown attack patterns, JA3 cross-IP correlation
+- **Alerting engine** — webhook notifications for hit rate spikes, false positive changes, unknown attack patterns, TLS-fingerprint cross-IP correlation (distributed-scanner detection)
 - **Frequency limit management** — dedicated dashboard page for rate limit rules and active counters
 
 ### Security
 
 - **Session authentication** — PBKDF2-HMAC-SHA256 password hashing (optional bcrypt/argon2), 8h default TTL
 - **CSRF protection** — enabled by default for all configuration endpoints
-- **Configurable request body limits** — size, argument count, error policy (fail-closed/match/skip)
+- **Configurable request body limits** — size, field length, argument count, URI exemptions (`body.scan_exempt`, case-insensitive) and error policy (fail-closed/match/skip/log, with ProcessPartial prefix scanning for oversized bodies)
 - **Account lockout** — 5 failed logins locks the account for 15 minutes
 - **Rate limiting** — IP-based (30/min) and per-user (5/min) login protection
 - **Audit log filtering** — search by user, action type, and time range for security investigations
