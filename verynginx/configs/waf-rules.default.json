@@ -1,6 +1,6 @@
 {
-  "version": 16,
-  "timestamp": "2026-10-13T09:37:42Z",
+  "version": 17,
+  "timestamp": "2026-10-13T09:55:51Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -341,17 +341,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:rm|cp|mv|chmod|chown|dd|mkfs|ssh|scp|nc|ncat|netcat|socat|tftp|telnet|ftp|mount|umount|crontab|nohup|pkill|base64|openssl)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?!(?:[\\s\\S]){0,50}[^\\x00-\\x7f])"
+                "value": "^\\s*(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:rm|cp|mv|chmod|chown|dd|mkfs|ssh|scp|nc|ncat|netcat|socat|tftp|telnet|ftp|mount|umount|crontab|nohup|pkill|base64|openssl)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)"
               }
             }
           ]
         }
       },
-      "description": "Detects high-risk shell commands (rm, chmod, chown, ssh, scp, nc, socat, dd, mount, crontab, base64, openssl, ...) after metacharacters; blocked regardless of arguments. Companion vn_rce_0025 (log) covers path-guarded wide commands.",
+      "description": "Detects high-risk shell commands (rm, chmod, chown, ssh, scp, nc, socat, dd, mount, crontab, base64, openssl, ...) after leading metacharacters at value start; blocked regardless of arguments. Mid-value and data shapes (data: URIs, CSV) are left to log companion vn_rce_0025.",
       "tags": [],
-      "version": 6,
+      "version": 7,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T08:32:06Z",
+      "updated_at": "2026-10-13T09:55:51Z",
       "created_by": "system"
     },
     {
@@ -919,17 +919,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:(?:cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|ruby|php[0-9.]*|node|lua|gcc|make|eval|exec|system|wget|curl|cat|head|tail|touch|env|printenv|ps|df|kill|ping|dig|nslookup|whois|traceroute|netstat|ifconfig|route)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?!(?:[\\s\\S]){0,50}[^\\x00-\\x7f])\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:ls|id|whoami|uname|hostname|pwd)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?!(?:[\\s\\S]){0,50}[^\\x00-\\x7f])(?:\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:\\s*$|[\\x60;|&)}\\]])))"
+                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:(?:rm|cp|mv|chmod|chown|dd|mkfs|ssh|scp|nc|ncat|netcat|socat|tftp|telnet|ftp|mount|umount|crontab|nohup|pkill|base64|openssl|cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|ruby|php[0-9.]*|node|lua|gcc|make|eval|exec|system|wget|curl|cat|head|tail|touch|env|printenv|ps|df|kill|ping|dig|nslookup|whois|traceroute|netstat|ifconfig|route)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*@\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:ls|id|whoami|uname|hostname|pwd)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?:\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*@\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:\\s*$|[\\x60;|&)}\\]]|[^\\x00-\\x7f])))"
               }
             }
           ]
         }
       },
-      "description": "Logs shell commands with path/flag/URL-like arguments plus bare recon commands (id, whoami, ls, pwd, uname, hostname) — observe-only companion of vn_rce_0007; English-filler and CJK args stay out.",
+      "description": "Logs shell commands (full command list incl. rm/ssh/nc, path/flag/URL/@host/sensitive-word arguments, bare recon commands) anywhere in the value — observe-only companion of vn_rce_0007. Data-URI/CSV shapes and filler/CJK prose stay out; rare jpeg/svg data URIs may log.",
       "tags": [],
-      "version": 1,
+      "version": 2,
       "created_at": "2026-10-13T08:32:06Z",
-      "updated_at": "2026-10-13T08:32:06Z",
+      "updated_at": "2026-10-13T09:55:51Z",
       "created_by": "system"
     }
   ]

