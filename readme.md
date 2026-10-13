@@ -49,7 +49,7 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **Rule test history** — automatic save of last 20 test runs for comparison and debugging
 - **Test rule against cases** — built-in tester with request samples and match results
 - **IP reputation engine** — scoring based on signals (WAF block/challenge/404), auto-flagging, whitelist, challenge flow
-- **TLS fingerprinting (JA3)** — client identification via TLS handshake fingerprint (graceful fallback to simple TLS params)
+- **TLS fingerprinting (JA4)** — client identification via the TLS ClientHello fingerprint, computed in the handshake phase (`ssl_client_hello_by_lua*`), stable across GREASE randomisation; JA3 kept for existing libraries, with a non-matchable negotiated-cipher fallback
 
 ### Reverse Proxy
 

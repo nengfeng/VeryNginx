@@ -1410,12 +1410,19 @@ local function capture_request_detail()
             detail.body_snippet = body:sub(1, 1024)
         end
     end)
-    -- Capture TLS/JA3 fingerprint if available
+    -- Capture the TLS/HTTP fingerprint (JA4 > JA3 > negotiated-cipher fallback).
+    -- ja3_fingerprint stays the storage key — renaming it would orphan every
+    -- existing hit record and alert statistic; the VALUE now carries its kind
+    -- prefix ("ja4:…"), and tls_fingerprint/tls_fingerprint_kind are added
+    -- alongside for new readers.
     pcall(function()
-        local ja3_mod = require "core.ja3"
-        local ja3 = ja3_mod.get_fingerprint()
-        if ja3 then
-            detail.ja3_fingerprint = ja3
+        local tls_mod = require "core.tls_fingerprint"
+        local rec = tls_mod.get()
+        if rec then
+            detail.ja3_fingerprint = rec.value
+            detail.tls_fingerprint = rec.value
+            detail.tls_fingerprint_kind = rec.kind
+            if rec.family then detail.tls_fingerprint_family = rec.family end
         end
     end)
     if ngx.ctx then

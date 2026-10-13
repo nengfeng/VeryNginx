@@ -427,14 +427,25 @@ auto_whitelist = { type = "table", default = {
 
 ---
 
-### 7.6 TLS 指纹持久化（fingerprint_db）
+### 7.6 TLS 指纹（tls_fingerprint 采集 + fingerprint_db 持久化）
 
+- **两条死路径（v17 前的结构性缺陷，已修）**：① `ja3.lua` 读 `$ssl_client_j3_hash`，而 LNMP 的 vanilla nginx（`--with-openssl`，无额外模块）根本没有该变量 → 恒 nil；② `plugin/filter/init.lua` 读 `ctx.request.ja3_fingerprint`，但**全仓无人写入**（唯一写入点在命中明细构建里，晚于执法）→ `fingerprint_db.match()` 从未执行。整条执法链（block/challenge/跨 IP 告警）出厂即死
+- **采集时机**：`core/tls_fingerprint.hello_phase()` 挂在 `ssl_client_hello_by_lua_block`（http 级，`nginx_conf/tls-fingerprint.conf` 单一来源，指令不可叠加）。握手期是唯一能看见原始 ClientHello 的阶段；该指令必须只 include 一次，重复会 `nginx -t` 失败
+- **失败必须降级**：lua 侧全程 pcall + nil 返回。缺 clienthello getter、缺 vendored 模块、OpenSSL 怪癖 → 无 JA4，退回 JA3 或协商套件串，**绝不影响握手**
+- **命名空间**：指纹一律 `kind:value`。JA4（主）/ JA3（旧库）/ `tls:`（协商套件，**显式不可匹配**——它是连接协商结果不是客户端标识，匹配它等于把所有协商到同一套件的正常访客一起封了）。`fingerprint_db.match()` 先按 kind 分空间，再 exact/family
+- **section A 位宽**：JA4 = 10、JA4H = 12，family 切片依赖它；改 `resty/ja4*.lua` 的 A 段写法必须同步 `fingerprint_db.family_of()`
+- **infer_kind 位数陷阱**（已犯过一次）：JA4 A 段 10 字符、JA4H 12 字符，按 12/16 写正则会让无 `kind` 字段的 JA4 条目被判成 ja3、静默永不命中
+- **golden 向量门禁**：`test/v2/ja4_golden.lua`（luajit 跑，busted 的 Lua 5.3 无 FFI）。JA4 对齐 FoxIO 规范 JA4_r 例；JA4H 的 cdef 了 nginx 进程内符号，仓外加载必然失败→ 门禁显式 SKIP（不是静默过），由 nginx 侧验证
+- **vendor 加固**：`resty/ja4/utils.lua` 上游用 `ffi.C.EVP_sha256`，静态链接 OpenSSL 的 nginx 不导出该符号 → 加载期崩。已改为 ffi.C → libcrypto.so.* 回退（SHA-256 输出版本无关，混用安全），见 `resty/README.md`
 - **存储形态**：条目以 JSON 字符串存入 `config.fingerprints.entries`（schema 保持 `items="string"` 不动）；`decode_entry` 同时兼容手编 config.json 的原生 table，坏数据跳过
 - **写入路径**：add/remove 一律走 `config.atomic_mutate`；失败返回 `false,err`，controller 上报 500——绝不允许"内存改了、持久化丢了"的静默半成功
 - **跨 worker 收敛**：`ensure_loaded` 比较 `config.local_hash`（纯 Lua 比较，零共享字典读）；另一 worker 保存后 on_rewrite→check_update 刷新本 worker config，哈希错位即自动 reload
-- **播种陷阱**：config.entries 为空时 reload 走内置 DEFAULT 分支——首次自定义添加必须把当前工作集（=默认库）连同新条目一起落盘，否则 reload 切到 config 分支后 11 条默认指纹集体蒸发
+- **播种陷阱**：config.entries 为空时 reload 走内置 DEFAULT 分支——首次自定义添加必须把当前工作集（=默认库）连同新条目一起落盘，否则 reload 切到 config 分支后默认指纹集体蒸发
 - **remove 语义**：按解码后 hash 过滤；不可解析条目原样保留不销毁；删除不存在项 `removed=false`（前端据此提示"不存在"而非假成功）；清空后回落默认库
 - **enable/enabled 键**：list() 返回 `enabled`，add() 规范键是 `enable`（兼容读 enabled）——两端键名错一位，"停用指纹"就永远是 no-op
+- **存储键冻结**：命中明细仍写 `ja3_fingerprint`（值带 kind 前缀），新字段 `tls_fingerprint*` 并存——改名会让历史记录与告警统计全部孤儿化
+- **JA4H 默认关闭**：`fingerprints.ja4.http_enable=false`。JA4 本体 BSD-3 可自由用；JA4H 属 JA4+（FoxIO License 1.1，patent-pending），随对外分发的产品出货需先过许可
+- **导入纪律**：`tools/import_ja4db.py` 从官方 mapping CSV 生成候选条目，**默认 action=log**，且"良性/威胁共享同一 hash"整条跳过——官方库是识别库不是黑名单，批量 block 会误伤 curl/Python/Go
 
 ## 8. 前端 Dashboard
 

@@ -103,7 +103,63 @@
     const fpError = ref('');
     const fpToggleBusy = ref(false);
     const fpSaving = ref(false);
-    const fpEditModal = reactive({ show: false, hash: '', name: '', category: 'scanner', action: 'block' });
+    const fpEditModal = reactive({
+      show: false, hash: '', name: '', category: 'scanner', action: 'block',
+      kind: 'ja4', match_mode: 'exact', error: ''
+    });
+
+    // A JA4 "section A" is exactly 10 chars — resty/ja4.lua writes protocol(1) +
+    // version(2) + sni(1) + cipher count(2) + ext count(2) + alpn(2) — and the
+    // alpn pair is "00" when the client offers none, so both are [0-9a-z]. A
+    // JA4H prefix is 12 (resty/ja4h.lua: method(2) + version(2) + cookie(1) +
+    // referer(1) + header count(2) + lang(4)). A JA3 is a bare 32-char MD5.
+    // The (_|$) anchor requires that section A is the WHOLE leading segment: an
+    // MD5 whose first 10 hex chars happen to satisfy the classes is not a JA4.
+    // Only used to PRE-FILL the 类型 select — the resolved kind is always sent
+    // explicitly, so the server never has to re-infer it from the hash.
+    const RE_JA4 = /^[a-z][0-9]{2}[a-z][0-9]{4}[0-9a-z]{2}(_|$)/;
+    const RE_JA4H = /^[a-z]{2}[0-9]{2}[a-z]{2}[0-9]{2}[0-9a-z]{4}(_|$)/;
+    // Set once the operator picks 类型 by hand; until then the hash field keeps
+    // re-guessing it as the operator pastes.
+    let fpKindTouched = false;
+
+    function fpInferKind(hash) {
+      const h = (hash || '').trim().toLowerCase();
+      if (RE_JA4.test(h)) return 'ja4';
+      if (RE_JA4H.test(h)) return 'ja4h';
+      return 'ja3';
+    }
+
+    // Entries persisted before the JA4 upgrade carry no "kind"/"match_mode";
+    // the backend infers ja3/exact for those on load, so mirror that here
+    // instead of rendering a blank cell.
+    function fpKind(fp) { return (fp && fp.kind) || 'ja3'; }
+    function fpMatchMode(fp) { return (fp && fp.match_mode) || 'exact'; }
+    // "family" = the first 10 chars of a JA4/JA4H hash. JA3 has no such
+    // section and the server rejects the mode for it.
+    function fpFamily(fp) { return (fp && fp.hash ? String(fp.hash).slice(0, 10) : '') || '-'; }
+    function fpFamilyAllowed(kind) { return kind === 'ja4' || kind === 'ja4h'; }
+
+    function fpKindTitle(kind) {
+      if (kind === 'ja4') return 'JA4：TLS ClientHello 的结构化指纹。排序后对 GREASE 随机值稳定、人可读，是当前的主信号。';
+      if (kind === 'ja4h') return 'JA4H：JA4+ 的 HTTP 层指纹（请求方法/头顺序/Cookie）。默认关闭，需在 config.json 的 fingerprints.ja4.http_enable 打开。';
+      if (kind === 'tls') return '协商协议|密码套件 回退值：标识的是「一条连接协商出了什么」，不是客户端，不可作为匹配项。';
+      return 'JA3：ClientHello 要素的 MD5（32 位十六进制）。保留给已有的 JA3 指纹库，新条目建议改用 JA4。';
+    }
+
+    // Hash field input handler: keep 类型 in sync with what was pasted unless
+    // the operator has already chosen one explicitly.
+    function inferFpKind() {
+      if (fpKindTouched) return;
+      fpEditModal.kind = fpInferKind(fpEditModal.hash);
+    }
+    // 「类型」 is also what gates the family match mode — dropping back to
+    // exact keeps the form in a state the backend will accept.
+    function setFpEditKind(kind) {
+      fpKindTouched = true;
+      fpEditModal.kind = kind;
+      if (!fpFamilyAllowed(kind)) fpEditModal.match_mode = 'exact';
+    }
 
     // Stale-response guards for the audit / fingerprint list loaders.
     const gAudit = shared.createStaleGuard();
@@ -133,31 +189,76 @@
       fpEditModal.name = '';
       fpEditModal.category = 'scanner';
       fpEditModal.action = 'block';
+      fpEditModal.kind = 'ja4';
+      fpEditModal.match_mode = 'exact';
+      fpEditModal.error = '';
+      fpKindTouched = false;
       fpEditModal.show = true;
+    }
+
+    // The server does the same checks (fingerprint_db.add) and returns its
+    // message; reproducing them here just spares a doomed round-trip and keeps
+    // the wording identical, so the operator sees one consistent explanation.
+    function fpValidate(entry) {
+      if (!entry.hash || !entry.name) return '哈希和名称必填';
+      if (entry.match_mode === 'family') {
+        if (!fpFamilyAllowed(entry.kind)) return 'family 匹配仅支持 JA4 / JA4H（JA3 无家族段）';
+        if (entry.hash.length < 10) return 'family 匹配需要至少 10 个字符（JA4 家族段 a）';
+      }
+      return '';
     }
 
     async function saveFpAdd() {
       if (fpSaving.value) return;
-      const hash = (fpEditModal.hash || '').trim();
-      const name = (fpEditModal.name || '').trim();
-      if (!hash || !name) { showToast('哈希和名称必填', 'error'); return; }
+      const entry = {
+        hash: (fpEditModal.hash || '').trim(),
+        name: (fpEditModal.name || '').trim(),
+        kind: fpEditModal.kind || 'ja3',
+        match_mode: fpEditModal.match_mode || 'exact',
+        category: fpEditModal.category,
+        action: fpEditModal.action
+      };
+      const bad = fpValidate(entry);
+      if (bad) { fpEditModal.error = bad; showToast(bad, 'error'); return; }
+      fpEditModal.error = '';
       fpSaving.value = true;
       try {
-        const d = await api('POST', '/verynginx/fingerprints', {
-          hash, name, category: fpEditModal.category, action: fpEditModal.action
-        });
+        const d = await api('POST', '/verynginx/fingerprints', entry);
         if (d.ret === 'success') {
           fpEditModal.show = false;
           showToast('指纹已添加', 'success');
           await loadFingerprints();
         } else {
-          showToast(d.message || '添加失败', 'error');
+          fpEditModal.error = d.message || '添加失败';
+          showToast(fpEditModal.error, 'error');
         }
       } catch (e) {
-        showToast(e.message || '添加失败', 'error');
+        // 400/500 from the API layer — surface the server's own message.
+        fpEditModal.error = e.message || '添加失败';
+        showToast(fpEditModal.error, 'error');
       } finally {
         fpSaving.value = false;
       }
+    }
+
+    // Inline 「匹配」 dropdown. @change gives us the new value only, so the
+    // previous mode is captured before mutating — a rejected save (e.g. family
+    // on a ja3) snaps the row back instead of leaving a lie on screen.
+    async function setFpMatchMode(fp, ev) {
+      const sel = ev && ev.target;
+      const next = sel ? sel.value : null;
+      if (!next) return;
+      const prev = fpMatchMode(fp);
+      if (next === prev) return;
+      if (next === 'family' && !fpFamilyAllowed(fpKind(fp))) {
+        sel.value = prev;
+        showToast('family 匹配仅支持 JA4 / JA4H（JA3 无家族段）', 'error');
+        return;
+      }
+      fp.match_mode = next;
+      if (await saveFp(fp)) return;
+      fp.match_mode = prev;
+      if (sel) sel.value = prev;
     }
 
     async function toggleFp(fp) {
@@ -295,6 +396,14 @@
     view('fpToggleBusy', fpToggleBusy);
     view('fpEditModal', fpEditModal);
     view('fpSaving', fpSaving);
+    view('fpKind', fpKind);
+    view('fpMatchMode', fpMatchMode);
+    view('fpFamily', fpFamily);
+    view('fpFamilyAllowed', fpFamilyAllowed);
+    view('fpKindTitle', fpKindTitle);
+    view('inferFpKind', inferFpKind);
+    view('setFpEditKind', setFpEditKind);
+    view('setFpMatchMode', setFpMatchMode);
     view('loadFingerprints', loadFingerprints);
     view('openFpAdd', openFpAdd);
     view('saveFpAdd', saveFpAdd);

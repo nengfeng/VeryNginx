@@ -9,6 +9,7 @@ local config = require "core.config"
 local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 local ip_reputation = require "core.ip_reputation"
+local tls_fingerprint = require "core.tls_fingerprint"
 local javascript_verify = require "plugin.browser_verify.javascript_verify"
 local metrics = require "core.metrics"
 local geoip = nil -- lazy loaded in on_access()
@@ -241,10 +242,24 @@ function _M.on_access(ctx)
     end
 
     -- 【前置-1.7】TLS 指纹检查
+    -- ctx.request.ja3_fingerprint used to be READ here but never WRITTEN by
+    -- anyone (the only producer ran later, inside hit-detail building), so
+    -- this whole block was dead code. The fingerprint now comes from
+    -- core.tls_fingerprint, which computes JA4 once per handshake (or falls
+    -- back to the legacy JA3 module / negotiated-cipher string) and caches the
+    -- record per request. We publish it on ctx.request under the historical
+    -- key so hit details and alerting keep reading one identical value.
     if not fingerprint_db then fingerprint_db = require "core.fingerprint_db" end
+    if ctx.request.ja3_fingerprint == nil then
+        local rec = tls_fingerprint.get()
+        if rec then
+            ctx.request.ja3_fingerprint = rec.value
+            ctx.request.tls_fingerprint = rec
+        end
+    end
     local ja3 = ctx.request.ja3_fingerprint
     if ja3 then
-        local match = fingerprint_db.match(ja3)
+        local match = fingerprint_db.match(ctx.request.tls_fingerprint or ja3)
         if match then
             if match.action == "block" and (config.fingerprints.auto_block_scanners ~= false) then
                 ip_reputation.record_signal(ip, "fingerprint_block")

@@ -191,11 +191,31 @@ _M.schema = {
         },
         fingerprints = {
             type = "object",
-            default = { enable = true, auto_block_scanners = true, entries = {} },
+            default = {
+                enable = true,
+                auto_block_scanners = true,
+                entries = {},
+                ja4 = { enable = true, http_enable = false },
+            },
             children = {
                 enable              = leaf({ type = "boolean", default = true }),
                 auto_block_scanners = leaf({ type = "boolean", default = true }),
                 entries             = leaf({ type = "array", default = {}, items = "string" }),
+                -- TLS client fingerprinting. ja4.enable: compute JA4 in the
+                -- ssl_client_hello phase (requires the nginx conf hook in
+                -- nginx_conf/in_http_block.conf). http_enable: also compute
+                -- JA4H per request — it is part of "JA4+" under FoxIO License
+                -- 1.1 (JA4 itself is BSD-3), so it ships OFF pending a
+                -- licensing decision for redistributed builds.
+                ja4 = {
+                    type = "object",
+                    default = { enable = true, http_enable = false },
+                    children = {
+                        enable      = leaf({ type = "boolean", default = true }),
+                        http_enable = leaf({ type = "boolean", default = false }),
+                    },
+                    preserve_unknown = true,
+                },
             },
             preserve_unknown = true,
         },

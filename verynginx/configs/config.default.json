@@ -73,7 +73,11 @@
     "fingerprints": {
         "enable": true,
         "auto_block_scanners": true,
-        "entries": []
+        "entries": [],
+        "ja4": {
+            "enable": true,
+            "http_enable": false
+        }
     },
     "kernel_ip_blocking": {
         "enabled": false,

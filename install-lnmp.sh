@@ -556,6 +556,31 @@ patch_nginx_conf() {
     echo "      include ${VN_DIR}/nginx_conf/cf-real-ip.conf;"
   fi
 
+  # 1g) TLS client fingerprinting hook. JA4 is computed during the handshake
+  # (ssl_client_hello_by_lua_block at http level), which is the only place the
+  # raw ClientHello exists — request-phase code cannot see it. The Lua side
+  # degrades to "no fingerprint" on any error, so a hook on an nginx built
+  # without the clienthello getters is harmless. Same duplicate-directive
+  # discipline as realip: if the snippet already provides it, inject NOTHING.
+  if directive_file 'ssl_client_hello_by_lua|tls-fingerprint'; then
+    info "ssl_client_hello_by_lua hook already present, skipping ✓"
+  elif grep -q '^http\s*{' "$NGINX_CONF"; then
+    sed -i "/^http\s*{/a\\
+    # VeryNginx v2 - TLS client fingerprinting (JA4) - see nginx_conf/in_http_block.conf\\
+    include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;" "$NGINX_CONF"
+    if grep -q 'tls-fingerprint' "$NGINX_CONF" 2>/dev/null; then
+      info "Added TLS fingerprint hook include ✓"
+    else
+      warn "tls-fingerprint include NOT injected — no '^http {' anchor found in ${NGINX_CONF}"
+      echo "    Add manually inside the http block:"
+      echo "      include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;"
+    fi
+  else
+    warn "Cannot find '^http {' at line start in ${NGINX_CONF} — TLS fingerprint hook NOT injected"
+    echo "    Add manually inside the http {} block:"
+    echo "      include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;"
+  fi
+
   # 2) add VeryNginx paths to existing lua_package_path inside http block
   local vn_paths="${VN_DIR}/?.lua;${VN_DIR}/lua_script/?.lua;${VN_DIR}/lua_script/module/?.lua"
   local vn_cpath="${VN_DIR}/?.so"

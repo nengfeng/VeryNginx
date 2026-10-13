@@ -1637,7 +1637,7 @@
         <div class="flex flex-between mb-16">
           <div>
             <h2 class="page-title" style="margin-bottom:0">TLS 指纹</h2>
-            <div class="page-desc" style="margin-bottom:0">基于 JA3 哈希识别客户端 TLS 握手特征，可用于识别已知扫描器/僵尸网络/自动化工具。指纹存于 config.fingerprints.entries，与 WAF 规则的 IP 匹配器配合使用效果更佳。</div>
+            <div class="page-desc" style="margin-bottom:0">基于 TLS 客户端握手指纹（JA4 优先，JA3 兼容旧库）识别客户端特征，可用于识别已知扫描器/僵尸网络/自动化工具。指纹存于 config.fingerprints.entries，与 WAF 规则的 IP 匹配器配合使用效果更佳。</div>
           </div>
           <div class="flex gap-8">
             <button class="outline small" @click="loadFingerprints">刷新</button>
@@ -1656,10 +1656,15 @@
         <!-- Table -->
         <div class="card" style="padding:16px">
           <table>
-             <thead><tr><th>JA3 哈希 <small style="font-weight:400;color:var(--muted);font-size:10px" title="TLS ClientHello 握手的 MD5 哈希，同一客户端程序通常稳定，用于识别扫描器/僵尸网络/自动化工具">(?</small></th><th>名称</th><th>分类</th><th>动作</th><th>启用</th><th></th></tr></thead>
+             <thead><tr><th>指纹 <small style="font-weight:400;color:var(--muted);font-size:10px" title="JA4（如 t13d1516h2_8daaf6152771_e5627efa2ab1）：TLS ClientHello 的结构化指纹，排序后对 GREASE 随机值稳定、人可读，是当前主信号。JA3（如 e7d705a3286e19ea42f587b344ee6865）：ClientHello 要素的 MD5，保留给已有的旧指纹库。两者为不同算法，绝不会互相命中。">(?</small></th><th>类型</th><th>匹配</th><th>名称</th><th>分类</th><th>动作</th><th>启用</th><th></th></tr></thead>
             <tbody>
-<tr v-for="fp in fingerprints" :key="fp.hash">
-                <td><code style="font-size:10px">{{ fp.hash }}</code> <button class="outline small" @click="copyText(fp.hash)" title="复制 hash">复制</button></td>
+<tr v-for="fp in fingerprints" :key="(fp.kind||'ja3') + '|' + fp.hash">
+                <td><code style="font-size:10px;word-break:break-all">{{ fp.hash }}</code> <button class="outline small" @click="copyText(fp.hash)" title="复制 hash">复制</button></td>
+                <td><span class="tag" :style="{background:fpKind(fp)==='ja4'?'#dbeafe':fpKind(fp)==='ja4h'?'#ede9fe':'#e5e7eb'}" :title="fpKindTitle(fpKind(fp))">{{ fpKind(fp) }}</span></td>
+                <td><select :value="fpMatchMode(fp)" @change="setFpMatchMode(fp, $event)" style="width:auto" :title="fpMatchMode(fp)==='family' ? ('家族匹配：只比较前 10 字符 '+fpFamily(fp)+'，客户端升级换密码套件时 b 段会变、a 段不变，故可用家族段长期追踪同一客户端') : '精确匹配：完整哈希逐字符比较'">
+                       <option value="exact">精确</option>
+                       <option value="family" :disabled="!fpFamilyAllowed(fpKind(fp))" title="家族匹配仅 JA4 / JA4H 支持：JA3 是整体 MD5，没有可分离的家族段">家族（前 10 字符，如 t13d1516h2）</option>
+                     </select></td>
                 <td>{{ fp.name }}</td>
                 <td><span class="tag" :title="fp.category === 'scanner' ? '已知扫描器/漏洞探测工具' : fp.category === 'bot' ? '自动化机器人/爬虫' : fp.category === 'browser' ? '正常浏览器（通常用于误判排查）' : '用户自定义分类'">{{ fp.category }}</span></td>
                 <td><span class="tag" :style="{background:fp.action==='block'?'#fee2e2':'#fef3c7'}" :title="fp.action==='block'?'命中此指纹的 IP 将被直接拦截(403)':'命中此指纹的 IP 将触发 JS 挑战，验证为浏览器后放行'">{{ fp.action }}</span></td>
@@ -1667,7 +1672,7 @@
                  <td><button class="outline small" @click="deleteFp(fp)">删除</button></td>
                </tr>
               <tr v-if="!fingerprints.length">
-                <td colspan="6" class="empty">
+                <td colspan="8" class="empty">
                   <div>未配置指纹（内置默认库未加载或已被清空）。</div>
                   <button class="primary small" style="margin-top:8px" @click="openFpAdd()">+ 添加指纹</button>
                 </td>
@@ -2335,17 +2340,42 @@
     <div class="modal" style="max-width:480px">
       <h3>添加 TLS 指纹</h3>
       <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:12px;padding:10px 12px;background:var(--bg);border-radius:6px">
-        <strong>什么是 JA3 指纹：</strong>对 TLS ClientHello 握手要素（版本/密码套件/扩展/椭圆曲线）取 MD5
-        得到的 32 位十六进制串。同一客户端程序的 JA3 通常稳定，可在不依赖 User-Agent（易伪造）的情况下识别工具。
-        <br><strong>如何获取：</strong>
-        ① WAF → 命中记录 → 打开命中详情，直接复制其中的「TLS 指纹」字段（最常用，针对真实来访工具）；
-        ② 查公开库 ja3er.com / abuse.ch（curl、python-requests、各类扫描器的现成 hash）；
-        ③ Wireshark 抓 ClientHello（过滤 tls.handshake.type == 1）后用 salesforce/ja3 的 ja3.py 计算。
+        <strong>JA4 是主信号：</strong>JA4 在 TLS 握手阶段直接计算 ClientHello（协议/版本/密码套件/扩展/ALPN）。
+        它先剔除 GREASE 随机值再排序，因此浏览器每连接都变的 GREASE 不再污染哈希，值稳定且人可读（a_b_c 三段）。
+        JA3 是同一部位的 MD5，被保留给已有的旧指纹库——新条目请优先用 JA4。
+        <br><strong>家族（family）匹配：</strong>JA4 完整值分三段 a_b_c。客户端升级浏览器或更换密码套件时 b、c 段会变，a 段不变
+        （a = 前 10 字符，如 t13d1516h2）。用 family 模式只比较 a 段，可以在工具迭代升级期间长期追踪同一客户端，不至于每次升级都重新采集哈希。
+        <br><strong>JA4H 默认关闭：</strong>JA4H 指纹库本体（JA4）是 BSD-3 许可，但 JA4H 属 JA4+ 系列、采用 FoxIO License 1.1，
+        随本产品分发需要额外确认，因此默认不开。如需使用，请在 config.json 里设置 <code style="font-size:11px">fingerprints.ja4.http_enable = true</code> 后重载配置。
+        <br><strong>如何手工获取：</strong>
+        ① WAF → 命中记录 → 打开命中详情，直接复制其中的「TLS 指纹」字段（最常用，针对真实来访工具；值带 <code style="font-size:11px">ja4:</code> 前缀，粘贴时去掉前缀只留哈希部分）；
+        ② JA4：用 Wireshark/tshark 抓 ClientHello（过滤 <code style="font-size:11px">tls.handshake.type == 1</code>），再用 FoxIO 官方的 ja4 工具（tshark + ja4.py）计算；
+        也可直接看本机 access log 或本面板的命中明细里的值；
+        ③ JA3（仅供补旧库）：查公开库 ja3er.com / abuse.ch，或 Wireshark 抓 ClientHello 后用 salesforce/ja3 的 ja3.py 计算。
         <br><strong>建议：</strong>新指纹先用「挑战」观察确认无误拦，再升级为「拦截」。
       </div>
+      <div v-if="fpEditModal.error" class="error" style="margin-bottom:12px">{{ fpEditModal.error }}</div>
       <div class="field">
-        <label>指纹哈希 *（JA3 MD5，32 位十六进制）</label>
-        <input v-model="fpEditModal.hash" type="text" placeholder="如 e7d705a3286e19ea42f587b344ee6865">
+        <label>指纹哈希 *（不带 <code style="font-size:11px">ja4:/ja3:</code> 前缀的裸哈希）</label>
+        <input v-model="fpEditModal.hash" type="text" @input="inferFpKind" spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px" placeholder="JA4：t13d1516h2_8daaf6152771_e5627efa2ab1（36 字符）｜ JA4H：ge11nn030000_fe444ad14866_000000000000_000000000000（48 字符）｜ JA3：e7d705a3286e19ea42f587b344ee6865（32 位 MD5）">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">三种形态任填其一，「类型」会按哈希形状自动推断，可手动覆盖。JA4/JA4H 选 family 时哈希至少 10 字符。</div>
+      </div>
+      <div class="grid-2 mb-8">
+        <div class="field">
+          <label>类型 <small style="font-weight:400;color:var(--muted);font-size:10px" :title="fpKindTitle(fpEditModal.kind)">(?</small></label>
+          <select v-model="fpEditModal.kind" @change="setFpEditKind(fpEditModal.kind)" style="width:100%">
+            <option value="ja3">JA3（旧库兼容）</option>
+            <option value="ja4">JA4（主信号）</option>
+            <option value="ja4h">JA4H（默认关闭）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>匹配</label>
+          <select v-model="fpEditModal.match_mode" style="width:100%" :title="fpEditModal.match_mode==='family' ? '只比较哈希前 10 字符（家族段 a），客户端升级换套件时仍可长期追踪' : '完整哈希精确比较'">
+            <option value="exact">精确</option>
+            <option value="family" :disabled="!fpFamilyAllowed(fpEditModal.kind)" title="家族匹配仅 JA4 / JA4H 支持：JA3 是整体 MD5，没有可分离的家族段">家族（前 10 字符）</option>
+          </select>
+        </div>
       </div>
       <div class="field">
         <label>名称 *</label>
@@ -2426,7 +2456,14 @@
          <div class="field"><label>URI</label><code style="word-break:break-all">{{ wafHitDetailModal.data.uri }}</code></div>
          <div class="field" v-if="wafHitDetailModal.data.query_string"><label>查询字符串</label><code style="word-break:break-all">{{ wafHitDetailModal.data.query_string }}</code></div>
          <div class="field"><label>User-Agent</label><div style="font-size:12px;color:#374151;word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
-         <div class="field" v-if="wafHitDetailModal.data.ja3_fingerprint"><label>TLS 指纹</label><code style="font-size:11px;word-break:break-all">{{ wafHitDetailModal.data.ja3_fingerprint }}</code></div>
+         <div class="field" v-if="wafHitDetailModal.data.ja3_fingerprint || wafHitDetailModal.data.tls_fingerprint"><label>TLS 指纹</label><div>
+              <code style="font-size:11px;word-break:break-all">{{ wafHitDetailModal.data.tls_fingerprint || wafHitDetailModal.data.ja3_fingerprint }}</code>
+              <span v-if="wafHitDetailModal.data.tls_fingerprint_kind" class="tag" :style="{background:wafHitDetailModal.data.tls_fingerprint_kind==='ja4'?'#dbeafe':wafHitDetailModal.data.tls_fingerprint_kind==='ja4h'?'#ede9fe':'#e5e7eb'}" :title="fpKindTitle(wafHitDetailModal.data.tls_fingerprint_kind)">{{ wafHitDetailModal.data.tls_fingerprint_kind }}</span>
+              <span v-if="wafHitDetailModal.data.tls_fingerprint_family" class="tag" style="background:#fef3c7;color:#92400e" :title="'家族段（JA4 前 10 字符）：只比较这一段即可在同一客户端升级换套件时持续命中'">家族 {{ wafHitDetailModal.data.tls_fingerprint_family }}</span>
+              <button class="outline small" style="margin-left:4px" @click="copyText(wafHitDetailModal.data.tls_fingerprint || wafHitDetailModal.data.ja3_fingerprint)" title="复制指纹值">复制</button>
+            </div>
+            <div v-if="!wafHitDetailModal.data.tls_fingerprint_kind" style="font-size:11px;color:var(--muted);margin-top:4px">旧记录没有类型/家族字段：值前缀即类型（ja4: / ja3: / tls:），复制时去掉前缀即可作为指纹哈希。</div>
+          </div>
          <div class="field" v-if="wafHitDetailModal.data.body_snippet"><label>Body (前 1KB)</label><pre style="background:#f9fafb;padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
          <div class="field" v-if="wafHitDetailModal.data.headers && Object.keys(wafHitDetailModal.data.headers).length">
            <label>请求头</label>
@@ -2599,7 +2636,7 @@
   <script src="/verynginx/static/vn-frequency.js?v=2.2.1-2"></script>
   <script src="/verynginx/static/vn-iploc.js?v=2.2.1-2"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.2.1-4"></script>
-  <script src="/verynginx/static/vn-advanced.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-advanced.js?v=2.2.1-3"></script>
   <script src="/verynginx/static/vn-kb.js?v=2.2.1-2"></script>
   <script src="/verynginx/static/app.js?v=2.2.1-2"></script>
   <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->

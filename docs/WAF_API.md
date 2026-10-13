@@ -280,10 +280,31 @@ Returns full request context for a specific hit, enriched with rule metadata and
     "ip_flagged": true,
     "ip_whitelisted": false,
     "ip_hit_count": 23,
-    "ja3_fingerprint": "ja3:abc123..."
+    "ja3_fingerprint": "ja4:t13d1516h2_8daaf6152771_e5627efa2ab1",
+    "tls_fingerprint": "ja4:t13d1516h2_8daaf6152771_e5627efa2ab1",
+    "tls_fingerprint_kind": "ja4",
+    "tls_fingerprint_family": "t13d1516h2"
   }
 }
 ```
+
+#### TLS fingerprint fields
+
+TLS fingerprinting is JA4-first, with JA3 kept for pre-existing libraries.
+
+| Field | Meaning |
+|-------|---------|
+| `ja3_fingerprint` | Legacy storage key, **kept for backward compatibility**. The *value* now carries its kind as a prefix: `ja4:…`, `ja3:…`, or `tls:…` (negotiated protocol\|cipher fallback, which is not a client fingerprint and is never matchable). Do not rename this key — doing so would orphan every stored hit record and alert statistic. |
+| `tls_fingerprint` | Identical value as `ja3_fingerprint`, added for new readers. Present on records written after the JA4 upgrade only. |
+| `tls_fingerprint_kind` | `ja4`, `ja3`, or `tls`. Absent on older records; fall back to the value prefix. |
+| `tls_fingerprint_family` | JA4 "section A" — the first 10 characters (e.g. `t13d1516h2`). Set only when the record carries a JA4/JA4H hash. Stable across a client's cipher-list churn, which is what family-mode entries match on. |
+
+Fingerprint database entries (`GET/POST/PUT /verynginx/fingerprints`) are
+`{ hash, kind, match_mode, name, category, action, description, enable }`:
+`kind` is `ja3` / `ja4` / `ja4h` (`tls` is rejected — it is not matchable),
+`match_mode` is `exact` or `family`, and `hash` is a **bare** hash with no
+`kind:` prefix. `family` requires `kind` in `{ja4, ja4h}` and a hash of at least
+10 characters; violations return HTTP 400/500 with a JSON `message`.
 
 ### Hits by IP
 
