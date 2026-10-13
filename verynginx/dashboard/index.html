@@ -1307,7 +1307,7 @@
         <div class="card mb-16" v-if="repStats && repStats.flagged_log && repStats.flagged_log.length">
           <div class="flex flex-between mb-8">
              <strong>今日被标记 IP（含已过期）</strong>
-             <span style="font-size:12px;color:var(--muted)">上方「已标记 IP」仅显示仍处于标记期内的条目；此列表为 48 小时持久记录，含已过期的标记</span>
+             <span style="font-size:12px;color:var(--muted)">上方「已标记 IP」仅显示仍处于标记期内的条目；此列表为 48 小时持久记录（最多保留最新 100 条），含已过期的标记</span>
           </div>
           <div style="overflow-x:auto">
             <table>

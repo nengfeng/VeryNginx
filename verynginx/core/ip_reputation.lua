@@ -40,6 +40,11 @@ local INDEX_COMPACT_THRESHOLD = 32
 -- they expire the daily counter was the sole survivor and "今日标记 N" could
 -- never answer WHICH IPs were flagged. These records deliberately outlive
 -- the flags (48h TTL, UTC-day keys) so the panel can list expired flags.
+-- FLAG_LOG_MAX bounds BOTH paths: the day index is capped at write time
+-- (flaglog_index_add_unlocked — flag_ip runs on the request hot path via
+-- is_flagged, so an unbounded index would be a full decode/encode of a
+-- growing list inside the global index lock, worst exactly when attack
+-- traffic peaks) and the read surfaces at most FLAG_LOG_MAX newest rows.
 local FLAG_LOG_TTL = 172800
 local FLAG_LOG_MAX = 100
 
@@ -599,6 +604,41 @@ local function flag_log_day()
     return os.date("!%Y%m%d")
 end
 
+-- Day-index add with a HARD write-path bound. The generic
+-- json_index_add_unlocked cannot serve the flag log: with is_live=nil its
+-- only growth control (filter_live compaction) is disabled, so the index
+-- would grow without bound — one full decode/encode per newly flagged IP,
+-- O(n) inside the global index lock — until the shared dict refuses the
+-- oversized value and the index freezes while ip_rep:flagged_today keeps
+-- counting (the §3.4 silent divergence, reintroduced by the very feature
+-- built to fight it). Evicting the oldest-first-SEEN entries keeps the
+-- newest FLAG_LOG_MAX; per-IP data keys are untouched, so an evicted IP's
+-- count still merges when it is flagged again (its list slot re-enters at
+-- the tail). Bounded work: decode/encode of <= FLAG_LOG_MAX short strings.
+local function flaglog_index_add_unlocked(s, day, ip, ttl)
+    local key = "ip_rep:flaglog:" .. day
+    local raw = s:get(key)
+    local list = {}
+    if raw then
+        local ok, decoded = pcall(json.decode, raw)
+        if ok and type(decoded) == "table" then list = decoded end
+    end
+    for _, v in ipairs(list) do
+        if v == ip then return false end -- already listed; data key merged by caller
+    end
+    -- Single-pass tail-keep (O(n), not repeated remove(1)): also self-heals
+    -- any oversized list written before this bound existed.
+    local drop = #list - FLAG_LOG_MAX + 1
+    if drop > 0 then
+        local trimmed = {}
+        for i = drop + 1, #list do trimmed[#trimmed + 1] = list[i] end
+        list = trimmed
+    end
+    list[#list + 1] = ip
+    dict_guard.set(s, "ip_rep.index", key, json.encode(list), ttl)
+    return true
+end
+
 -- Append one durable per-day flag record for `ip` (see FLAG_LOG_TTL).
 -- Called only for NEW flags (add_to_flagged_index serialized the decision),
 -- so the per-IP data key has a single writer; the day index RMW runs under
@@ -626,13 +666,17 @@ local function record_flag_log(ip, snap)
     dict_guard.set(s, "ip_rep.flaglog", "ip_rep:flaglog:" .. day .. ":" .. ip,
         json.encode(entry), FLAG_LOG_TTL)
     with_index_lock(function()
-        -- is_live=nil: entries are records, not live state — a repeated flag
-        -- of the same IP updates its data key instead of re-listing it.
-        json_index_add_unlocked(s, "ip_rep:flaglog:" .. day, ip, FLAG_LOG_TTL, nil, false)
+        -- Not json_index_add_unlocked: entries are records, not live state,
+        -- so is_live=nil would disable the ONLY growth bound — this capped
+        -- variant is the flag-log's own write path (see above).
+        flaglog_index_add_unlocked(s, day, ip, FLAG_LOG_TTL)
     end)
 end
 
--- Today's durable flag records, newest first (by last_at), capped.
+-- Today's durable flag records, newest first (by last_at), capped. The day
+-- index is already bounded to FLAG_LOG_MAX entries at write time, so the
+-- loop below performs at most FLAG_LOG_MAX gets — the final trim is a
+-- belt-and-braces guard, not the primary bound.
 local function flagged_log_today(s)
     local day = flag_log_day()
     local raw = s:get("ip_rep:flaglog:" .. day)

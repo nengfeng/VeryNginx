@@ -637,6 +637,46 @@ describe("ip_reputation", function()
             if not ok then error(err) end
         end)
 
+        it("bounds the day index on the WRITE path (cap = FLAG_LOG_MAX)", function()
+            local s = ngx.shared.ip_reputation
+            for i = 1, 150 do
+                rep.flag_ip("10.200.0." .. i, 600)
+            end
+            local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
+            local raw = s:get("ip_rep:flaglog:" .. os.date("!%Y%m%d"))
+            local list = json.decode(raw)
+            -- Write path capped: oldest first-seen IPs evicted, newest kept,
+            -- insertion order preserved (decode of the raw index — the read
+            -- path sorts by last_at and would hide the eviction direction).
+            assert.equals(100, #list)
+            assert.equals("10.200.0.51", list[1])
+            assert.equals("10.200.0.150", list[#list])
+            local stats = rep.get_stats()
+            assert.equals(150, stats.flagged_today) -- the counter stays exact
+            assert.equals(100, #stats.flagged_log)  -- the list shows the kept 100
+        end)
+
+        it("an evicted IP re-enters with its merged count on re-flag", function()
+            local s = ngx.shared.ip_reputation
+            for i = 1, 150 do
+                rep.flag_ip("10.201.0." .. i, 600) -- .1 gets evicted from the index
+            end
+            -- Simulate flag expiry exactly like the case above: the liveness
+            -- keys vanish, the per-IP flag-log DATA key (48h) survives.
+            s:delete("ip_rep:flagged:10.201.0.1")
+            s:delete("ip_rep:flagged_idx:10.201.0.1")
+            rep.flag_ip("10.201.0.1", 600)
+            assert.equals(151, s:get("ip_rep:flagged_today"))
+            local stats = rep.get_stats()
+            assert.equals(100, #stats.flagged_log)
+            local found
+            for _, e in ipairs(stats.flagged_log) do
+                if e.ip == "10.201.0.1" then found = e end
+            end
+            assert.is_not_nil(found, "evicted IP re-enters the day index")
+            assert.equals(2, found.count, "count merged across the eviction")
+        end)
+
     end)
 
     describe("_collect_pending expiry refresh", function()
