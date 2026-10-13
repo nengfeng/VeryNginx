@@ -26,6 +26,20 @@
 
 ---
 
+## 配置指引：phpMyAdmin / adminer 部署在非标准路径
+
+参数注入类规则（14 条 sqli/xss/rce/lfi/ssrf/穿越）带 URI 豁免，只认**根路径** `/(phpmyadmin|phpminiadmin|adminer)`（工厂规则 v14 起含 `.php` 形式，如 `/adminer.php`、`/phpminiadmin.php`）。豁免刻意不放开任意嵌套路径——否则攻击者只要在路径里嵌一段 `phpmyadmin` 就能绕过全部参数检查。
+
+部署在更深层路径（如 `/mysql/phpmyadmin/`、`/tools/adminer.php`）时规则豁免不命中，管理工具里合法的 SQL 可能被 `vn_sqli_*` 拦下，需要补配 `body.scan_exempt`：
+
+- **含义**：URI 前缀数组，大小写不敏感、边界感知（`/phpMyAdminEvil` 蹭不到 `/phpMyAdmin` 的豁免）。命中的请求**完全不读、不扫描请求体**，导入/查询提交不再被参数规则拦截。
+- **示例**：`"scan_exempt": ["/phpMyAdmin", "/mysql/phpmyadmin/"]`
+- **边界**：只豁免请求体；URL query 参数仍在扫描范围内（管理工具的 SQL 都在 POST body，通常足够）。
+- **生效**：面板「配置」保存即热生效（各 worker 数秒内收敛）；手改 `configs/config.json` 后需 `nginx -s reload`。
+- 出厂默认 `[]` 是有意的：豁免记录的是运维对自己站点 URI 的判断，不应由上游替你开。
+
+---
+
 ## v2.2.1 升级要点（2026-09-06）
 
 v2.2.1 是 v2.2 的修复版本，**无配置迁移**，升级后重启即生效。主要内容：
