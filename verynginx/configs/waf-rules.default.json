@@ -1,6 +1,6 @@
 {
-  "version": 13,
-  "timestamp": "2026-10-13T00:46:29Z",
+  "version": 14,
+  "timestamp": "2026-10-13T07:25:34Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -21,7 +21,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -39,9 +39,9 @@
       },
       "description": "Detects UNION-based SQL injection attempts in request parameters",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -63,7 +63,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -81,9 +81,9 @@
       },
       "description": "Detects tautology-based SQLi like ' OR 1=1",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -105,7 +105,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -123,9 +123,9 @@
       },
       "description": "Detects stacked query keywords (DDL/DML verbs after ';' or '&&') in parameters. Comment-syntax detection was removed in v9. Action is log (not block): the single-keyword pattern false-positives on ordinary prose (\"wait; create an account\", \"ok; update: fixed it\"), so it is kept at log pending a two-keyword-tuned regex.",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -147,7 +147,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -168,9 +168,9 @@
         "sqli",
         "time-based"
       ],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-10-11T10:45:00Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -192,7 +192,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -210,9 +210,9 @@
       },
       "description": "Detects <script> tag injection in parameters",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -234,7 +234,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -252,9 +252,9 @@
       },
       "description": "Detects HTML/JS event handler injection (onload, onerror, onclick, etc.)",
       "tags": [],
-      "version": 3,
+      "version": 4,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -276,7 +276,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -307,9 +307,9 @@
       },
       "description": "Detects javascript: XSS payload in URI or parameters (javascript:alert/confirm/prompt/document./window./location.). phpMyAdmin paths are exempt, matching the other request-parameter rules.",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -331,7 +331,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -341,7 +341,7 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|wget|curl|nc|ncat|cat|head|tail|touch|rm|cp|mv|chmod|chown|kill|mount|dd|crontab|openssl|base64|socat|telnet|ftp|tftp|ssh|scp|dig|nslookup|whois|ping|traceroute|netstat|ifconfig|route|ps|df|env|printenv|ruby|php|node|lua|gcc|make|eval|exec|system)\\b\\s*[\\w/.-]|(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:id|whoami|uname|hostname|pwd|ls)\\b(?![\\w=])"
+                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|wget|curl|nc|ncat|cat|head|tail|touch|rm|cp|mv|chmod|chown|kill|mount|dd|crontab|openssl|base64|socat|telnet|ftp|tftp|ssh|scp|dig|nslookup|whois|ping|traceroute|netstat|ifconfig|route|ps|df|env|printenv|ruby|php|node|lua|gcc|make|eval|exec|system)\\b\\s*(?:[-/]\\S*|\\S*/\\S*|\\S*\\.[A-Za-z]\\S*)|(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:id|whoami|uname|hostname|pwd|ls)\\b(?![\\w=])"
               }
             }
           ]
@@ -349,9 +349,9 @@
       },
       "description": "Detects shell metacharacters in parameters indicating command injection",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -373,7 +373,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -391,9 +391,9 @@
       },
       "description": "Detects PHP function injection attempts. Logged by default — eval/assert/array_map/exec( appear legitimately in code snippets, CMS content, and comments (high FP risk); flip to block after review if the site does not accept such content.",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -415,7 +415,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -433,9 +433,9 @@
       },
       "description": "Detects gopher://, dict://, jar:// URL schemes in parameters (SSRF / remote inclusion). These schemes have no legitimate web use. Internal-IP SSRF is split out to vn_ssrf_0021 (logged) to avoid false-positives on OAuth redirects / callbacks.",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -457,7 +457,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -477,9 +477,9 @@
       "tags": [
         "ssrf"
       ],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-10-11T10:45:00Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -501,7 +501,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -532,9 +532,9 @@
       },
       "description": "Detects attempts to read sensitive system files. phpMyAdmin paths are exempt, matching the other request-parameter rules.",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -556,7 +556,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -574,9 +574,9 @@
       },
       "description": "Detects PHP stream wrapper usage for LFI",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -598,7 +598,7 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:/|$)"
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
                     }
                   }
                 ]
@@ -629,9 +629,9 @@
       },
       "description": "Detects directory traversal sequences (../) encoding bypasses included. phpMyAdmin paths are exempt, matching the other request-parameter rules.",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
@@ -791,11 +791,11 @@
           "value": "(?:https?:)?//[^/\\s]*(?:shoes-online|pills|casino|viagra|cialis)[^/\\s]*"
         }
       },
-      "description": "Blocks requests with known spam referrer domains",
+      "description": "Logs requests with known spam referrer domains (does not block)",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T04:40:21Z",
+      "updated_at": "2026-10-13T07:25:34Z",
       "created_by": "system"
     },
     {
