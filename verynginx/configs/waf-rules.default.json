@@ -1,6 +1,6 @@
 {
-  "version": 12,
-  "timestamp": "2026-10-12T06:14:50Z",
+  "version": 13,
+  "timestamp": "2026-10-13T00:46:29Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -680,14 +680,14 @@
       "matcher": {
         "UserAgent": {
           "operator": "≈",
-          "value": "(?i:(?:acunetix|netsparker|nessus|nikto|openvas|w3af|appscan|burpsuite|zap\\b|arachni|grendel|webinspect|nmap|sqlmap|hydra|medusa|ncrack|\\bthc\\b|nuclei\\b|wpscan\\b|ffuf\\b|feroxbuster\\b|gobuster\\b))"
+          "value": "(?i:(?:acunetix|netsparker|nessus|nikto|openvas|w3af|appscan|burpsuite|zap\\b|arachni|grendel|webinspect|nmap|sqlmap|hydra|medusa|ncrack|\\bthc\\b|nuclei\\b|wpscan\\b|ffuf\\b|fuzz faster u fool|feroxbuster\\b|gobuster\\b))"
         }
       },
       "description": "Blocks requests from known security scanning tools",
       "tags": [],
-      "version": 4,
+      "version": 5,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-12T06:14:50Z",
+      "updated_at": "2026-10-13T00:46:29Z",
       "created_by": "system"
     },
     {
