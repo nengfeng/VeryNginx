@@ -1,6 +1,6 @@
 {
-  "version": 14,
-  "timestamp": "2026-10-13T07:25:34Z",
+  "version": 15,
+  "timestamp": "2026-10-13T08:32:06Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -341,17 +341,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|wget|curl|nc|ncat|cat|head|tail|touch|rm|cp|mv|chmod|chown|kill|mount|dd|crontab|openssl|base64|socat|telnet|ftp|tftp|ssh|scp|dig|nslookup|whois|ping|traceroute|netstat|ifconfig|route|ps|df|env|printenv|ruby|php|node|lua|gcc|make|eval|exec|system)\\b\\s*(?:[-/]\\S*|\\S*/\\S*|\\S*\\.[A-Za-z]\\S*)|(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:id|whoami|uname|hostname|pwd|ls)\\b(?![\\w=])"
+                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:rm|cp|mv|chmod|chown|dd|mkfs|ssh|scp|nc|ncat|netcat|socat|tftp|telnet|ftp|mount|umount|crontab|nohup|pkill|base64|openssl)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?!(?:[\\s\\S]){0,50}[^\\x00-\\x7f])"
               }
             }
           ]
         }
       },
-      "description": "Detects shell metacharacters in parameters indicating command injection",
+      "description": "Detects high-risk shell commands (rm, chmod, chown, ssh, scp, nc, socat, dd, mount, crontab, base64, openssl, ...) after metacharacters; blocked regardless of arguments. Companion vn_rce_0025 (log) covers path-guarded wide commands.",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-13T08:32:06Z",
       "created_by": "system"
     },
     {
@@ -888,6 +888,48 @@
       "version": 1,
       "created_at": "2026-10-12T06:14:50Z",
       "updated_at": "2026-10-12T06:14:50Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_rce_0025",
+      "name": "Remote Command Execution — Path-Guarded Commands (log-only)",
+      "category": "rce",
+      "severity": "high",
+      "action": "log",
+      "enable": true,
+      "priority": 40,
+      "matcher": {
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:(?:cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|ruby|php[0-9.]*|node|lua|gcc|make|eval|exec|system|wget|curl|cat|head|tail|touch|env|printenv|ps|df|kill|ping|dig|nslookup|whois|traceroute|netstat|ifconfig|route)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?!(?:[\\s\\S]){0,50}[^\\x00-\\x7f])\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:ls|id|whoami|uname|hostname|pwd)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?!(?:[\\s\\S]){0,50}[^\\x00-\\x7f])(?:\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:\\s*$|[\\x60;|&)}\\]])))"
+              }
+            }
+          ]
+        }
+      },
+      "description": "Logs shell commands with path/flag/URL-like arguments plus bare recon commands (id, whoami, ls, pwd, uname, hostname) — observe-only companion of vn_rce_0007; English-filler and CJK args stay out.",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-10-13T08:32:06Z",
+      "updated_at": "2026-10-13T08:32:06Z",
       "created_by": "system"
     }
   ]
