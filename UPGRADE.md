@@ -2,7 +2,7 @@
 
 ## v2.3.0 升级要点（2026-10-13）
 
-**无强制配置迁移**——新增配置项均有默认值（运行时自动合并），升级替换代码、重启即生效。本轮 80 个 commit / 64 个文件，要点：
+**无强制配置迁移**——新增配置项均有默认值（运行时自动合并），升级替换代码、重启即生效。本轮 86 个 commit / 81 个文件，要点：
 
 - **请求体检查全面重做（重点）**：`multipart/form-data` 的字段名与字段值进入 WAF 检查（文件内容跳过），并修复 multipart 解析器三处绕过（P0）与参数名漏检；新增 `body.max_field`（字段长度上限，独立于 `max_size`）、`body.scan_exempt`（URI 豁免、大小写不敏感，如 phpMyAdmin）；`body.on_error` 默认改为 `log`，超限 body 只做前缀扫描（ModSecurity ProcessPartial 语义）——大文件上传既不再被整体读入、也不再漏检。
 - **默认规则 v9 → v17**：关闭多类扫描器绕过路径、降误报、锚定 phpMyAdmin 豁免、新增 ssrf 类别、收窄敏感文件扩展名、记录堆叠 sqli；`vn_scanner_0014` 修复为命中 ffuf 真实默认 UA（"Fuzz Faster U Fool"——旧正则从未命中过任何一次 ffuf）；`vn_sqli_0001/0002/0004` 补齐绕过类（`UNION(SELECT`、`UNION DISTINCT`、注释混淆、`LIKE/IN/BETWEEN`、无前缀 `sleep`、`CHAR()` 构造）并豁免教程散文；`vn_xss_0005` 补全事件表（pointer/animation/transition/form 家族与注释分隔），`vn_xss_0006` 改为 scheme+代码形态门（`Function/setTimeout/fetch` 进、`confirm your email` 出）并覆盖 `data:text/html`；`vn_ssrf_0021` 覆盖 `user@` 前缀；`vn_rce_0007` 经三轮外部复评后定型为值锚定 block（分隔符必须出现在参数值开头，高危裸调用命令无参数约束；data-URI/CSV 的分隔符全在值中部，天然豁免），宽命令表与裸侦察命令落入 log-only 伴随规则 `vn_rce_0025`（非锚定宽扫，`go; rm -rf /` 照样记录），两层均不含任何字节内容守卫（"值内无非 ASCII"曾是万能绕过开关：追加一个高位字节即清零检测，已删除并用结构断言禁用）；14 条参数规则的管理路径豁免支持 `.php`（`/adminer.php`、`/phpminiadmin.php` 的合法 SQL 不再被拦，嵌套路径见下方「配置指引」）；`vn_spam_0019` 描述与 log 动作对齐；新增出厂规则正/负样本电池 `test/v2/factory_rules_battery.py`（312 项，逐命令族覆盖散文/攻击样本，真机 PCRE 双引擎对照）作为常驻门禁。`waf-rules.json` 是运行态文件、升级不覆盖：**升级后面板「规则与出厂差异」会列出漂移，可按需「同步出厂内容」**（历史命中计数保留）。
@@ -10,7 +10,8 @@
 - **每主机请求统计**：面板新增主机过滤。
 - **面板**：历史 tab 以撤销语义重做（回滚可再撤销、删除可按条恢复）；出厂漂移提示按 action 类型解释（灰度 log 与 block 一目了然），详情可逐条「接受出厂动作」拉齐陈旧动作（灰度状态默认保留、按条显式接受）；restore-defaults 只按 id 补回缺失的出厂规则、不覆盖操作动作；登录表单、模态布局与静态资源缓存标签修复。
 - **GeoIP**：`validate_mmdb` 恒失败修复、镜像下载跟随重定向并报告全部镜像失败。
-- **供应商**：lua-resty-http 0.17.2 → 0.18.0。
+- **TLS 指纹改用 JA4，并修复两条「执法链出厂即死」的缺陷**：原实现读 `$ssl_client_j3_hash`（LNMP 的 vanilla nginx 未编译该模块，恒为 nil）且 filter 插件读一个**全仓无人写入**的 `ctx.request.ja3_fingerprint`，因此指纹封禁/挑战与跨 IP 关联告警从未真正生效。现在改为在 TLS 握手期（`ssl_client_hello_by_lua_block`，唯一能看到原始 ClientHello 的阶段）计算 **JA4**——排序后的密码套件/扩展使其对 GREASE 随机化免疫；无需重编 nginx（本机 lua-nginx-module 0.10.32 已提供全部所需接口）。指纹库条目新增 **kind（ja3/ja4/ja4h）与 match_mode（exact/family）**，匹配按 kind 分空间，`tls:`（协商套件串）显式不可匹配；**family 匹配**取人可读的 section A（JA4 前 10 字符 / JA4H 前 12），客户端换套件仍能按家族追踪。**升级需注意**：钩子挂在 server 级（http 级会因默认 :80 站导致 `nginx -t` 失败），`upgrade.sh` 已自动注入到每个 VeryNginx 管理的 SSL server（也可手动加 `include /opt/verynginx/nginx_conf/tls-fingerprint.conf;`）。面板支持按类型/匹配方式维护条目；官方映射表可用 `tools/import_ja4db.py` 导入候选（**默认 log**，良性/威胁共享的哈希整条跳过）。JA4H（HTTP 层指纹）默认关闭：JA4 本体为 BSD-3，JA4H 属 JA4+（FoxIO License 1.1），随产品分发需先确认许可（`fingerprints.ja4.http_enable`）。
+- **供应商**：lua-resty-http 0.17.2 → 0.18.0；新增 vendor `lua-resty-ja4` v0.2.0（MIT）。
 - **安装/升级**：升级保留运行时配置与状态（`configs/` 除两个默认模板外不再被覆盖）；测试 helper 不再解析到生产树。
 
 ### Cloudflare CDN 真实客户端 IP
