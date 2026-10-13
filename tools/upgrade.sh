@@ -251,6 +251,30 @@ else
     warn "    ${HTTP_BLOCK_INCLUDE}"
 fi
 
+# ---- TLS 指纹钩子（JA4）注入 ----
+# 必须补：升级只覆盖 verynginx/ 树，nginx.conf 与各 vhost 不会被改动。
+# 没有这个 include，JA4 只是躺在代码里——指纹采集不发生，执法链依然空转。
+# 放在 server 级而不是 http 级：lua-nginx-module 对每��� server 校验
+# "has SSL"，http 级指令只要与任意纯 HTTP server 同块就会 nginx -t 失败
+# （LNMP 默认就带一个 :80 默认站）。工具只注入 VeryNginx 管理的 SSL
+# server（有 on_access.lua 且有 ssl_certificate），幂等。
+info "=== Step 4c: 注入 TLS 指纹钩子（JA4）==="
+if [ -f "${NGINX_CONF}" ] && [ -f "${VN_DIR}/tools/inject_tls_fingerprint.py" ]; then
+    if python3 "${VN_DIR}/tools/inject_tls_fingerprint.py" \
+         --nginx-conf "${NGINX_CONF}" \
+         --include "${VN_DIR}/nginx_conf/tls-fingerprint.conf" \
+         --backup; then
+        info "TLS 指纹钩子已注入（或已存在）"
+    else
+        warn "自动注入失败——请在每个 VeryNginx 管理的 SSL server {} 块中手动加入："
+        warn "    include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;"
+    fi
+else
+    warn "跳过 TLS 指纹钩子注入（找不到 nginx.conf 或注入脚本）"
+    warn "如需启用 JA4，请在每个 VeryNginx 管理的 SSL server {} 块中加入："
+    warn "    include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;"
+fi
+
 # ---- 恢复配置 ----
 info "=== Step 5: 恢复用户配置 ==="
 
