@@ -269,49 +269,60 @@ function _M.list()
     return _fingerprints
 end
 
---- Get fingerprint by hash (kind inferred from the hash shape).
+--- Get fingerprint by hash. Optional kind disambiguates when the same hash
+--- exists under two kinds. NOTE: a bare family prefix ("t13d3013h2") carries no
+--- section separator, so infer_kind() calls it ja3 — a kind-less lookup for a
+--- family entry therefore needs the explicit kind argument.
 -- @param ja3_hash string
+-- @param kind string|nil
 -- @return table|nil
-function _M.get(ja3_hash)
+function _M.get(ja3_hash, kind)
     ensure_loaded()
     if not ja3_hash then return nil end
     local target = tostring(ja3_hash):lower()
-    local kind = infer_kind(target)
+    local want = kind and normalize_kind(kind, target) or nil
+    local fallback
     for _, fp in ipairs(_fingerprints) do
-        if fp.hash == target and fp.kind == kind then
-            return fp
+        if fp.hash == target then
+            if want == nil or fp.kind == want then
+                return fp
+            end
+            fallback = fallback or fp
         end
     end
-    return nil
+    -- kind given but not stored under it: return the hash match anyway so a
+    -- caller asking for the wrong kind still sees the entry it exists in.
+    return fallback
 end
 
 --- Add or update a fingerprint entry AND persist it to config.
--- @param entry table: { hash, name, category, action, description, enable }
+-- @param entry table: { hash, kind, match_mode, name, category, action, description, enable }
 --   `enable` is the canonical key; `enabled` (the key list() returns) is
 --   accepted as a fallback so echoing a list item back toggles correctly
 --   instead of always re-enabling.
--- @return boolean ok, string? err — false,err means persistence failed and
---   the caller should surface a 5xx instead of a silent no-op.
+-- @return boolean ok, string? err, string? class — on failure `class` is
+--   "validation" (the request is malformed → caller should surface 4xx) or
+--   "persist" (in-memory change was lost → 5xx, never a silent no-op).
 function _M.add(entry)
     ensure_loaded()
     if not entry or not entry.hash or not entry.name then
-        return false, "hash and name are required"
+        return false, "hash and name are required", "validation"
     end
     local hash = tostring(entry.hash):lower()
     local kind = normalize_kind(entry.kind, hash)
     if not kind then
-        return false, "kind must be one of ja3/ja4/ja4h (the tls fallback is not matchable)"
+        return false, "kind must be one of ja3/ja4/ja4h (the tls fallback is not matchable)", "validation"
     end
     local mode = entry.match_mode or "exact"
     if mode ~= "exact" and mode ~= "family" then
-        return false, "match_mode must be exact or family"
+        return false, "match_mode must be exact or family", "validation"
     end
     if mode == "family" then
         if kind ~= "ja4" and kind ~= "ja4h" then
-            return false, "family match_mode requires kind ja4 or ja4h"
+            return false, "family match_mode requires kind ja4 or ja4h", "validation"
         end
         if not family_of(hash, kind) then
-            return false, "family match_mode needs a full section A prefix (JA4: 10 chars, JA4H: 12)"
+            return false, "family match_mode needs a full section A prefix (JA4: 10 chars, JA4H: 12)", "validation"
         end
     end
     local enable = entry.enable
@@ -363,7 +374,7 @@ function _M.add(entry)
     end
 
     local ok, err = persist_entries(desired)
-    if not ok then return false, err end
+    if not ok then return false, err, "persist" end
 
     -- Resync memory + hash marker from the freshly saved config generation.
     _M.reload()

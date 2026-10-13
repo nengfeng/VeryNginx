@@ -13,6 +13,20 @@ local function handle_fingerprint_list()
     return json.encode({ ret = "success", data = fp.list() })
 end
 
+-- Map a fingerprint_db.add() failure onto the right status: a malformed
+-- request (bad kind, family mode on a ja3 entry, truncated hash) is the
+-- caller's fault and must read as 4xx so the panel can show the message and
+-- re-enable its form; only a failed persist is a 5xx.
+local function add_failure(err, class)
+    if class == "validation" then
+        ngx.status = 400
+        return json.encode({ ret = "failed", message = tostring(err or "invalid fingerprint") })
+    end
+    ngx.status = 500
+    return json.encode({ ret = "failed",
+                         message = "fingerprint persist failed: " .. tostring(err or "unknown") })
+end
+
 local function handle_fingerprint_add()
     ngx.req.read_body()
     local raw = ngx.req.get_body_data()
@@ -27,12 +41,11 @@ local function handle_fingerprint_add()
     end
     local fp = require "core.fingerprint_db"
     fp.reload()
-    local added, err = fp.add(entry)
+    local added, err, class = fp.add(entry)
     if not added then
-        ngx.status = 500
-        return json.encode({ ret = "failed", message = "fingerprint persist failed: " .. tostring(err or "unknown") })
+        return add_failure(err, class)
     end
-    return json.encode({ ret = "success", data = fp.get(entry.hash) })
+    return json.encode({ ret = "success", data = fp.get(entry.hash, entry.kind) })
 end
 
 local function handle_fingerprint_update()
@@ -53,12 +66,11 @@ local function handle_fingerprint_update()
     end
     local fp = require "core.fingerprint_db"
     fp.reload()
-    local added, err = fp.add(entry)
+    local added, err, class = fp.add(entry)
     if not added then
-        ngx.status = 500
-        return json.encode({ ret = "failed", message = "fingerprint persist failed: " .. tostring(err or "unknown") })
+        return add_failure(err, class)
     end
-    return json.encode({ ret = "success", data = fp.get(entry.hash) })
+    return json.encode({ ret = "success", data = fp.get(entry.hash, entry.kind) })
 end
 
 local function handle_fingerprint_delete()

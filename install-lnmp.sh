@@ -557,27 +557,23 @@ patch_nginx_conf() {
   fi
 
   # 1g) TLS client fingerprinting hook. JA4 is computed during the handshake
-  # (ssl_client_hello_by_lua_block at http level), which is the only place the
-  # raw ClientHello exists — request-phase code cannot see it. The Lua side
-  # degrades to "no fingerprint" on any error, so a hook on an nginx built
-  # without the clienthello getters is harmless. Same duplicate-directive
-  # discipline as realip: if the snippet already provides it, inject NOTHING.
-  if directive_file 'ssl_client_hello_by_lua|tls-fingerprint'; then
-    info "ssl_client_hello_by_lua hook already present, skipping ✓"
-  elif grep -q '^http\s*{' "$NGINX_CONF"; then
-    sed -i "/^http\s*{/a\\
-    # VeryNginx v2 - TLS client fingerprinting (JA4) - see nginx_conf/in_http_block.conf\\
-    include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;" "$NGINX_CONF"
-    if grep -q 'tls-fingerprint' "$NGINX_CONF" 2>/dev/null; then
-      info "Added TLS fingerprint hook include ✓"
-    else
-      warn "tls-fingerprint include NOT injected — no '^http {' anchor found in ${NGINX_CONF}"
-      echo "    Add manually inside the http block:"
-      echo "      include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;"
-    fi
+  # (ssl_client_hello_by_lua_block), the only place the raw ClientHello exists.
+  # Placement is NOT http-level: lua-nginx-module enforces "has SSL" per
+  # server, so an http-level directive fails nginx -t with "no ssl configured
+  # for the server" as soon as a plain-HTTP server shares the block (LNMP always
+  # ships a :80 default vhost). tools/inject_tls_fingerprint.py injects into
+  # exactly the VeryNginx-managed SSL servers (those carrying on_access.lua AND
+  # an ssl_certificate), is idempotent, and skips vhosts where the WAF does not
+  # run at all.
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "${VN_DIR}/tools/inject_tls_fingerprint.py" \
+      --nginx-conf "$NGINX_CONF" \
+      --include "${VN_DIR}/nginx_conf/tls-fingerprint.conf" \
+      --backup || warn "tls fingerprint injection failed"
+    echo "      include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;  # once per VeryNginx-managed SSL server block"
   else
-    warn "Cannot find '^http {' at line start in ${NGINX_CONF} — TLS fingerprint hook NOT injected"
-    echo "    Add manually inside the http {} block:"
+    warn "python3 missing — TLS fingerprint hook NOT injected"
+    echo "    Add manually inside each VeryNginx-managed SSL server {} block:"
     echo "      include ${VN_DIR}/nginx_conf/tls-fingerprint.conf;"
   fi
 

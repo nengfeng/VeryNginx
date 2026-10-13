@@ -108,10 +108,13 @@ describe("tls fingerprint", function()
         end)
 
         it("rejects family mode for ja3 and for truncated hashes", function()
-            local ok, err = db.add({ hash = "e7d705a3286e19ea42f587b344ee6865", kind = "ja3",
-                                     match_mode = "family", name = "x", action = "log" })
+            local ok, err, class = db.add({ hash = "e7d705a3286e19ea42f587b344ee6865", kind = "ja3",
+                                            match_mode = "family", name = "x", action = "log" })
             assert.is_falsy(ok)
             assert.matches("ja4 or ja4h", err)
+            -- class drives the HTTP status in the controller: malformed input
+            -- must read as 4xx, not 5xx
+            assert.are.equal("validation", class)
 
             -- a bare 10-char section A IS a complete JA4 family key and is a
             -- legitimate stored value; 9 chars is not
@@ -128,9 +131,26 @@ describe("tls fingerprint", function()
         end)
 
         it("rejects the non-matchable tls kind", function()
-            local ok, err = db.add({ hash = "abc123", kind = "tls", name = "x", action = "log" })
+            local ok, err, class = db.add({ hash = "abc123", kind = "tls", name = "x", action = "log" })
             assert.is_falsy(ok)
             assert.matches("not matchable", err)
+            assert.are.equal("validation", class)
+        end)
+
+        it("get() resolves a bare family prefix when told the kind", function()
+            -- "t13d3013h2" has no section separator, so shape inference calls
+            -- it ja3; the explicit kind is what makes the lookup work.
+            local ok = db.add({ hash = "t13d3013h2", kind = "ja4", match_mode = "family",
+                                name = "fam-get", action = "log" })
+            assert.is_truthy(ok)
+            db.reload()
+            local byKind = db.get("t13d3013h2", "ja4")
+            assert.is_truthy(byKind)
+            assert.are.equal("fam-get", byKind.name)
+            -- kind-less lookup still finds it rather than returning nil
+            assert.is_truthy(db.get("t13d3013h2"))
+            db.remove("t13d3013h2")
+            db.reload()
         end)
     end)
 

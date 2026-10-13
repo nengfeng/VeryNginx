@@ -1506,6 +1506,12 @@ function _M.record_hit(rule_id, ctx, action)
         headers = req_detail.headers,
         body_snippet = req_detail.body_snippet,
         ja3_fingerprint = req_detail.ja3_fingerprint,
+        -- kind/family are derived fields, not storage keys: the dashboard
+        -- reads them off the detail, and the alert correlator still groups on
+        -- the prefixed ja3_fingerprint value.
+        tls_fingerprint = req_detail.tls_fingerprint,
+        tls_fingerprint_kind = req_detail.tls_fingerprint_kind,
+        tls_fingerprint_family = req_detail.tls_fingerprint_family,
     }
     shared:set("waf_recent_hits:data:" .. ring_idx, json.encode(detail))
 end
