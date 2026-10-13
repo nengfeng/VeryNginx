@@ -35,6 +35,14 @@ local MAX_UA_DISTINCT = 20
 local AWL_INDEX_KEY = "ip_rep:awl_index"
 local INDEX_COMPACT_THRESHOLD = 32
 
+-- Durable per-day flag log (ip_rep:flaglog:<YYYYMMDD>[:ip]). Flag keys and
+-- the evidence snapshot both live only flag_duration (default 600s); once
+-- they expire the daily counter was the sole survivor and "今日标记 N" could
+-- never answer WHICH IPs were flagged. These records deliberately outlive
+-- the flags (48h TTL, UTC-day keys) so the panel can list expired flags.
+local FLAG_LOG_TTL = 172800
+local FLAG_LOG_MAX = 100
+
 local function shared()
     return ngx.shared[SHARED_DICT_NAME]
 end
@@ -587,6 +595,70 @@ function _M.get_flag_meta(ip)
     return { flagged_at = flagged_at, expires_at = expires_at }
 end
 
+local function flag_log_day()
+    return os.date("!%Y%m%d")
+end
+
+-- Append one durable per-day flag record for `ip` (see FLAG_LOG_TTL).
+-- Called only for NEW flags (add_to_flagged_index serialized the decision),
+-- so the per-IP data key has a single writer; the day index RMW runs under
+-- the index lock like every other ip_rep JSON index.
+local function record_flag_log(ip, snap)
+    local s = shared()
+    if not s then return end
+    local day = flag_log_day()
+    local now = (snap and snap.at) or ngx.time()
+    local entry = { first_at = now, last_at = now, count = 1 }
+    local prev = s:get("ip_rep:flaglog:" .. day .. ":" .. ip)
+    if prev then
+        local ok, p = pcall(json.decode, prev)
+        if ok and type(p) == "table" then
+            entry.first_at = p.first_at or now
+            entry.last_at = now
+            entry.count = (tonumber(p.count) or 0) + 1
+        end
+    end
+    if snap then
+        entry.score = snap.score
+        entry.threshold = snap.threshold
+        entry.signals = snap.signals
+    end
+    dict_guard.set(s, "ip_rep.flaglog", "ip_rep:flaglog:" .. day .. ":" .. ip,
+        json.encode(entry), FLAG_LOG_TTL)
+    with_index_lock(function()
+        -- is_live=nil: entries are records, not live state — a repeated flag
+        -- of the same IP updates its data key instead of re-listing it.
+        json_index_add_unlocked(s, "ip_rep:flaglog:" .. day, ip, FLAG_LOG_TTL, nil, false)
+    end)
+end
+
+-- Today's durable flag records, newest first (by last_at), capped.
+local function flagged_log_today(s)
+    local day = flag_log_day()
+    local raw = s:get("ip_rep:flaglog:" .. day)
+    if not raw then return {} end
+    local ok, list = pcall(json.decode, raw)
+    if not ok or type(list) ~= "table" then return {} end
+    local out = {}
+    for _, ip in ipairs(list) do
+        local ejson = s:get("ip_rep:flaglog:" .. day .. ":" .. ip)
+        if ejson then
+            local ok2, e = pcall(json.decode, ejson)
+            if ok2 and type(e) == "table" then
+                e.ip = ip
+                out[#out + 1] = e
+            end
+        end
+    end
+    table.sort(out, function(a, b) return (a.last_at or 0) > (b.last_at or 0) end)
+    if #out > FLAG_LOG_MAX then
+        local trimmed = {}
+        for i = 1, FLAG_LOG_MAX do trimmed[i] = out[i] end
+        return trimmed
+    end
+    return out
+end
+
 function _M.flag_ip(ip, duration)
     local s = shared()
     if not s then return end
@@ -609,6 +681,7 @@ function _M.flag_ip(ip, duration)
         }
         dict_guard.set(s, "ip_rep.flag_reason", "ip_rep:flag_reason:" .. ip,
             json.encode(snap), ttl)
+        record_flag_log(ip, snap)
     end
 end
 
@@ -1018,6 +1091,9 @@ function _M.get_stats()
         flagged_today = flagged_today,
         -- Exposed so the panel can highlight scores at/over the flag line.
         threshold = cfg_val("threshold"),
+        -- Durable per-day records: which IPs were flagged today (incl.
+        -- already-expired flags), newest first.
+        flagged_log = flagged_log_today(s),
     }
 end
 

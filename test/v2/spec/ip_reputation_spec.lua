@@ -583,6 +583,62 @@ describe("ip_reputation", function()
 
     end)
 
+    describe("flag_ip durable per-day flag log", function()
+
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+        end)
+
+        it("records each newly flagged IP in today's log", function()
+            rep.flag_ip("10.0.9.1", 600)
+            rep.flag_ip("10.0.9.2", 600)
+            local stats = rep.get_stats()
+            assert.equals(2, stats.flagged_today)
+            assert.equals(2, #stats.flagged_log)
+            local by_ip = {}
+            for _, e in ipairs(stats.flagged_log) do by_ip[e.ip] = e end
+            assert.is_not_nil(by_ip["10.0.9.1"])
+            assert.is_not_nil(by_ip["10.0.9.2"])
+            assert.equals(1, by_ip["10.0.9.1"].count)
+            assert.equals(1, by_ip["10.0.9.2"].count)
+        end)
+
+        it("keeps a single row (count=2) when the IP is re-flagged after expiry", function()
+            local s = ngx.shared.ip_reputation
+            rep.flag_ip("10.0.9.3", 600)
+            -- Simulate flag expiry exactly like the dead-index test above:
+            -- the per-IP liveness keys vanish, the dead entry lingers.
+            s:delete("ip_rep:flagged:10.0.9.3")
+            s:delete("ip_rep:flagged_idx:10.0.9.3")
+            rep.flag_ip("10.0.9.3", 600)
+            assert.equals(2, s:get("ip_rep:flagged_today"))
+            local stats = rep.get_stats()
+            assert.equals(1, #stats.flagged_log)
+            local e = stats.flagged_log[1]
+            assert.equals("10.0.9.3", e.ip)
+            assert.equals(2, e.count)
+            assert.is_true(e.last_at >= e.first_at)
+        end)
+
+        it("sorts rows by last_at descending", function()
+            local real = ngx.time
+            local t = real()
+            _G.ngx.time = function() return t end
+            local ok, err = pcall(function()
+                rep.flag_ip("10.0.9.4", 600)
+                t = t + 10
+                rep.flag_ip("10.0.9.5", 600)
+                local stats = rep.get_stats()
+                assert.equals(2, #stats.flagged_log)
+                assert.equals("10.0.9.5", stats.flagged_log[1].ip)
+                assert.equals(10, stats.flagged_log[1].last_at - stats.flagged_log[2].last_at)
+            end)
+            _G.ngx.time = real
+            if not ok then error(err) end
+        end)
+
+    end)
+
     describe("_collect_pending expiry refresh", function()
 
         local real_time

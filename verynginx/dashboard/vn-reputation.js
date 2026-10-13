@@ -263,6 +263,16 @@
       return sigs.map(s => `${signalLabel(s.signal)}×${s.events}（${s.points}分）`).join(' · ');
     }
 
+    // Compact signal breakdown for the daily flag-log rows; same sorted
+    // array shape as the reason snapshot signals.
+    function repLogSignals(fl) {
+      const sigs = Array.isArray(fl && fl.signals) ? fl.signals : [];
+      if (!sigs.length) return '—';
+      return sigs.slice(0, 3)
+        .map(s => `${signalLabel(s.signal)}×${s.events}`)
+        .join(' · ') + (sigs.length > 3 ? ' …' : '');
+    }
+
     // Whitelist shortcut from the detail modal (flag → whitelist is the
     // standard false-positive flow; removal reuses the guarded remover).
     async function repWhitelistToggle(ip) {
@@ -306,6 +316,7 @@
     view('repDetailModal', repDetailModal);
     view('repOpenDetail', repOpenDetail);
     view('repReasonText', repReasonText);
+    view('repLogSignals', repLogSignals);
     view('signalLabel', signalLabel);
     view('repWhitelistToggle', repWhitelistToggle);
 
