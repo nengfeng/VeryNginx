@@ -582,7 +582,26 @@ def write_output(items, path, stats):
 # --apply：调用 VeryNginx API
 # ---------------------------------------------------------------------------
 
-def post_json(url, payload, cookie, csrf, timeout):
+def build_ssl_context(ca_file, insecure):
+    """构造 TLS 上下文。
+
+    自部署场景的证书往往不适合系统信任库：自签证书、企业私有 CA，或者干脆
+    面板只按 IP 访问（证书与 IP 不匹配）。默认走系统校验，但两种情况都会让整批
+    导入静默失败（每条都变成 network error），因此提供显式的 --ca / --insecure。
+    """
+    if insecure:
+        import ssl
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    if ca_file:
+        import ssl
+        return ssl.create_default_context(cafile=ca_file)
+    return None
+
+
+def post_json(url, payload, cookie, csrf, timeout, ssl_context=None):
     """POST 一个 JSON body，返回 (status, text)；任何异常都归一化成 (0, 原因文本)。
 
     为什么不用 urllib.request 发：urllib 在 HTTPHandler.do_open() 里对所有请求头
@@ -608,10 +627,10 @@ def post_json(url, payload, cookie, csrf, timeout):
     connection = None
     try:
         if parts.scheme == "https":
-            import ssl  # 仅 https 时引入
+            # ssl_context 为 None 时 http.client 使用系统默认校验行为
             connection = http.client.HTTPSConnection(
                 parts.hostname, parts.port, timeout=timeout,
-                context=ssl.create_default_context())
+                context=ssl_context)
         else:
             connection = http.client.HTTPConnection(
                 parts.hostname, parts.port, timeout=timeout)
@@ -642,10 +661,14 @@ def apply_entries(entries, opts, stats):
     url = opts.url.rstrip("/")
     if not url.endswith("/verynginx/fingerprints"):
         url = url + "/verynginx/fingerprints"
+    if getattr(opts, "insecure", False):
+        sys.stderr.write("警告：--insecure 关闭了 TLS 证书校验（仅限可信网络的自部署环境）\n")
+    ssl_context = build_ssl_context(getattr(opts, "ca", None), getattr(opts, "insecure", False))
     failures = []
     for entry in entries:
         body = json.dumps(entry, ensure_ascii=False).encode("utf-8")
-        status, text = post_json(url, body, opts.cookie, opts.csrf, opts.timeout)
+        status, text = post_json(url, body, opts.cookie, opts.csrf, opts.timeout,
+                                 ssl_context=ssl_context)
         if status == 0:
             failures.append((entry, text))
             continue
@@ -812,6 +835,10 @@ def build_parser():
                         help="只打印将要导入的条目摘要，不写文件、不发请求")
     parser.add_argument("--dry-run-limit", type=int, default=30,
                         help="--dry-run 最多打印多少条（0 = 不限），默认 30")
+    parser.add_argument("--ca", default=None, metavar="FILE",
+                        help="指定信任的 CA 证书（PEM），用于自签/私有 CA 的部署")
+    parser.add_argument("--insecure", action="store_true",
+                        help="关闭 TLS 证书校验（自签证书或按 IP 访问面板时使用；仅限可信网络）")
     parser.add_argument("--apply", action="store_true",
                         help="逐条 POST 到 VeryNginx 指纹 API（需 --url/--cookie/--csrf，"
                              "三个都必须提供；也可用环境变量 %s/%s/%s）"
