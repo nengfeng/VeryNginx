@@ -2,10 +2,10 @@
 
 ## v2.3.0 升级要点（2026-10-13）
 
-**无强制配置迁移**——新增配置项均有默认值（运行时自动合并），升级替换代码、重启即生效。本轮 71 个 commit / 64 个文件，要点：
+**无强制配置迁移**——新增配置项均有默认值（运行时自动合并），升级替换代码、重启即生效。本轮 75 个 commit / 64 个文件，要点：
 
 - **请求体检查全面重做（重点）**：`multipart/form-data` 的字段名与字段值进入 WAF 检查（文件内容跳过），并修复 multipart 解析器三处绕过（P0）与参数名漏检；新增 `body.max_field`（字段长度上限，独立于 `max_size`）、`body.scan_exempt`（URI 豁免、大小写不敏感，如 phpMyAdmin）；`body.on_error` 默认改为 `log`，超限 body 只做前缀扫描（ModSecurity ProcessPartial 语义）——大文件上传既不再被整体读入、也不再漏检。
-- **默认规则 v9 → v14**：关闭多类扫描器绕过路径、降误报、锚定 phpMyAdmin 豁免、新增 ssrf 类别、收窄敏感文件扩展名、记录堆叠 sqli；`vn_scanner_0014` 修复为命中 ffuf 真实默认 UA（"Fuzz Faster U Fool"——旧正则从未命中过任何一次 ffuf）；`vn_rce_0007` 修复普通文本误报（命令后要求路径/参数形态，`; cat is a pet`、`wait; curl the docs` 不再 403）；14 条参数规则的管理路径豁免支持 `.php`（`/adminer.php`、`/phpminiadmin.php` 的合法 SQL 不再被拦，嵌套路径见下方「配置指引」）；`vn_spam_0019` 描述与 log 动作对齐；新增出厂规则正/负样本电池 `test/v2/factory_rules_battery.py` 作为常驻门禁。`waf-rules.json` 是运行态文件、升级不覆盖：**升级后面板「规则与出厂差异」会列出漂移，可按需「同步出厂内容」**（历史命中计数保留）。
+- **默认规则 v9 → v15**：关闭多类扫描器绕过路径、降误报、锚定 phpMyAdmin 豁免、新增 ssrf 类别、收窄敏感文件扩展名、记录堆叠 sqli；`vn_scanner_0014` 修复为命中 ffuf 真实默认 UA（"Fuzz Faster U Fool"——旧正则从未命中过任何一次 ffuf）；`vn_rce_0007` 经两轮外部复评后重做为两层拆分——高危裸调用命令（rm/chmod/ssh/nc/base64 等 24 个非英语词命令）维持 block 且不受参数形态约束，宽命令表与裸侦察命令（id/whoami/ls 等）落入新增的 log-only 伴随规则 `vn_rce_0025`（要求路径/flag/URL/敏感词等参数形态），两层共享英语填充词与中文散文双守卫（`上传后; chmod 777 目录`、`; ls the results` 这类正常文字绝不会被 403）；14 条参数规则的管理路径豁免支持 `.php`（`/adminer.php`、`/phpminiadmin.php` 的合法 SQL 不再被拦，嵌套路径见下方「配置指引」）；`vn_spam_0019` 描述与 log 动作对齐；新增出厂规则正/负样本电池 `test/v2/factory_rules_battery.py`（148 项，逐命令族覆盖散文/攻击样本）作为常驻门禁。`waf-rules.json` 是运行态文件、升级不覆盖：**升级后面板「规则与出厂差异」会列出漂移，可按需「同步出厂内容」**（历史命中计数保留）。
 - **IP 声誉增强**：被标记 IP 现带原因、可下钻查看扣分记录与 IP 信息（可选 GeoIP 质量 enrichment + ipinfo 回源）；新增按日持久的「今日被标记 IP（含已过期）」记录（保留 48h；写路径封顶——最多保留最新 100 条，`flagged_today` 计数器精确不封顶）。
 - **每主机请求统计**：面板新增主机过滤。
 - **面板**：历史 tab 以撤销语义重做（回滚可再撤销、删除可按条恢复）；出厂漂移提示按 action 类型解释（灰度 log 与 block 一目了然），详情可逐条「接受出厂动作」拉齐陈旧动作（灰度状态默认保留、按条显式接受）；restore-defaults 只按 id 补回缺失的出厂规则、不覆盖操作动作；登录表单、模态布局与静态资源缓存标签修复。
