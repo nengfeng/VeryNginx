@@ -379,6 +379,12 @@ backup_nginx_conf() {
 # is invisible to the main-conf checks -> we inject a SECOND copy and
 # `nginx -t` dies with "duplicate directive".
 VN_DIRECTIVE_FILE=""
+# directive_file <regex> — is <regex> present in $NGINX_CONF or in any file
+# it DIRECTLY includes (one level, globs expanded). LIMITATION: a directive
+# nested two or more include levels deep is invisible here — keep
+# VeryNginx-managed config at include level 1 or in nginx.conf itself, or a
+# guarded injection may duplicate what it failed to see (a duplicated
+# real_ip_header then fails nginx -t loudly at reload).
 directive_file() {
   VN_DIRECTIVE_FILE=""
   local pat="$1" inc f exp
