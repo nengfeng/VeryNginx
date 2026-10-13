@@ -737,7 +737,8 @@ local function validate_config(config)
         end
     end
 
-    -- body.scan_exempt: array of absolute URI prefixes (path-boundary matched).
+    -- body.scan_exempt: array of absolute URI prefixes (path-boundary
+    -- matched, case-insensitive — see core/context._body_scan_exempt).
     if config.body and config.body.scan_exempt ~= nil then
         local se = config.body.scan_exempt
         if type(se) ~= "table" then

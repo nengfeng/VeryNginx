@@ -415,16 +415,26 @@ end
 -- body.scan_exempt, an array of URI prefixes). Boundary-aware: a prefix
 -- matches the URI itself or a "/"-delimited segment below it ("/phpMyAdmin"
 -- matches "/phpMyAdmin" and "/phpMyAdmin/import.php", not "/phpMyAdminEvil").
+-- Case-INSENSITIVE on purpose: URI paths are case-sensitive per spec, but
+-- scan_exempt records operator intent ("that directory is my phpMyAdmin"),
+-- and a case mismatch ("/phpmyadmin" configured vs "/phpMyAdmin" served)
+-- silently disabling the exemption is a footgun with no security payoff —
+-- the exemption only ever applies to this box's own URIs.
 function _M._body_scan_exempt()
     local exempt = config and config.body and config.body.scan_exempt
     if type(exempt) ~= "table" or #exempt == 0 then return false end
-    local uri = ngx.var.uri or ""
+    -- string.lower is ASCII-only in LuaJIT: byte length is preserved, so the
+    -- boundary arithmetic below stays correct for any URI bytes.
+    local uri = (ngx.var.uri or ""):lower()
     for i = 1, #exempt do
         local p = exempt[i]
-        if type(p) == "string" and p ~= "" and uri:sub(1, #p) == p then
-            local nxt = uri:sub(#p + 1, #p + 1)
-            if nxt == "" or nxt == "/" or p:sub(-1) == "/" then
-                return true
+        if type(p) == "string" and p ~= "" then
+            p = p:lower()
+            if uri:sub(1, #p) == p then
+                local nxt = uri:sub(#p + 1, #p + 1)
+                if nxt == "" or nxt == "/" or p:sub(-1) == "/" then
+                    return true
+                end
             end
         end
     end

@@ -261,6 +261,29 @@ describe("Request context", function()
         assert.is_false(r4, "prefix only matches from URI start")
     end)
 
+    it("scan_exempt is case-insensitive (phpMyAdmin camelCase footgun)", function()
+        local config = require("core.config")
+        local created = false
+        if not config.body then config.body = {}; created = true end
+        local saved_se = config.body.scan_exempt
+        local function probe(cfg_prefix, uri)
+            config.body.scan_exempt = { cfg_prefix }
+            ngx.var.uri = uri
+            return context._body_scan_exempt()
+        end
+        local r1 = probe("/phpmyadmin", "/phpMyAdmin/import.php")
+        local r2 = probe("/phpMyAdmin", "/phpmyadmin/index.php")
+        local r3 = probe("/phpmyadmin", "/phpmyadminEvil")
+        local r4 = probe("/phpmyadmin", "/other/phpmyadmin")
+        ngx.var.uri = "/"
+        config.body.scan_exempt = saved_se
+        if created then config.body = nil end
+        assert.is_true(r1, "lowercase config prefix matches camelCase URI")
+        assert.is_true(r2, "camelCase config prefix matches lowercase URI")
+        assert.is_false(r3, "sibling with same lowered prefix must NOT match")
+        assert.is_false(r4, "lowered prefix only matches from URI start")
+    end)
+
     it("max_field is decoupled from max_size (per-field budget honored)", function()
         local config = require("core.config")
         local created = false
