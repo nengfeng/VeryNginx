@@ -238,6 +238,21 @@
       if (next && !had) wafDriftOpen.value = false;
     }
 
+    // Banner hint per drift kind. Action drifts are operator overrides
+    // (gray-release log etc.) that restore-defaults deliberately preserves,
+    // so promising "拉齐出厂内容" for a pure-action drift made the sync
+    // button look broken (counter never moves). Spell out what each
+    // button can and cannot fix.
+    const wafDriftHint = computed(() => {
+      const d = wafDrift.value;
+      if (!d) return '';
+      const parts = [];
+      if (d.counts.missing > 0) parts.push(`「恢复默认规则」可补回 ${d.counts.missing} 条缺失规则`);
+      if (d.counts.content > 0) parts.push(`「同步出厂内容」可拉齐 ${d.counts.content} 条内容差异（保留启用/动作设置）`);
+      if (d.counts.action > 0) parts.push(`动作差异 ${d.counts.action} 条为你的灰度/自定义设置（如 log 级观察），同步出厂内容不会改动它们`);
+      return parts.join('；');
+    });
+
     function formatNumber(n) {
       if (n == null) return '0';
       return Number(n).toLocaleString();
@@ -904,7 +919,10 @@
         if (d.ret === 'success') {
           const r = d.data || {};
           const skippedNote = r.skipped && r.skipped.length ? `，跳过 ${r.skipped.length} 条无效规则` : '';
-          showToast(`已恢复 ${r.restored} 条、同步 ${r.updated || 0} 条出厂规则${skippedNote}`, 'success');
+          // Backend message wins when there was nothing to do (e.g. "所有
+          // 出厂规则内容均为最新") — the fallback toast above reads like a
+          // failed sync even though it succeeded.
+          showToast(d.message || `已恢复 ${r.restored} 条、同步 ${r.updated || 0} 条出厂规则${skippedNote}`, 'success');
           await loadWafData();
         } else {
           showToast(d.message || '同步失败', 'error');
@@ -1017,6 +1035,7 @@
     view('wafError', wafError);
     view('wafDrift', wafDrift);
     view('wafDriftOpen', wafDriftOpen);
+    view('wafDriftHint', wafDriftHint);
     view('wafRules', wafRules);
     const wafRulesTbl = shared.createTableTools(wafRules);
     view('wafRulesTbl', wafRulesTbl);

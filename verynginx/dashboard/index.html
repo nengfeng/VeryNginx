@@ -682,7 +682,7 @@
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
               <span>⚠ {{ wafDrift.items.length }} 条规则与出厂默认存在差异（内容 {{ wafDrift.counts.content }} · 动作 {{ wafDrift.counts.action }} · 缺失 {{ wafDrift.counts.missing }}）</span>
               <a style="cursor:pointer;font-size:12px;white-space:nowrap" @click="wafDriftOpen = !wafDriftOpen">{{ wafDriftOpen ? '收起' : '详情' }}</a>
-              <span style="color:var(--muted)">确认后可用「同步出厂内容」拉齐出厂内容（保留你的启用/动作设置）</span>
+              <span style="color:var(--muted)">{{ wafDriftHint }}</span>
             </div>
             <div v-if="wafDriftOpen" style="margin-top:6px;font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);line-height:1.7">
               <div v-for="(dd, ddi) in wafDrift.items.slice(0, 20)" :key="ddi">{{ dd.id }} ({{ dd.kind }})</div>
