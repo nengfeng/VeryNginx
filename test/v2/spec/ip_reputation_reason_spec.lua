@@ -22,7 +22,7 @@ describe("ip_reputation: flag reason & signal breakdown", function()
     before_each(function()
         local s = ngx.shared.ip_reputation
         s:flush_all()
-        s:delete("ip_rep:flagged_today")
+        s:delete("ip_rep:flagged_today:" .. os.date("%Y%m%d"))
     end)
 
     describe("get_signal_breakdown()", function()
