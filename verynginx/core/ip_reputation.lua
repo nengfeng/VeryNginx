@@ -600,8 +600,23 @@ function _M.get_flag_meta(ip)
     return { flagged_at = flagged_at, expires_at = expires_at }
 end
 
+-- The day bucket for the durable flag log AND for the flagged_today counter,
+-- which is why both live here: the panel shows them side by side under the
+-- same "today" label, so they must roll over at the same instant.
+--
+-- Local server date, deliberately NOT os.date("!%Y%m%d"). The UTC day rolls
+-- over at 08:00 on a CST box, so every day between local midnight and 08:00
+-- the counter (a 24h TTL that ignores day boundaries) counted events whose
+-- records went to the previous day's list — the panel read "今日标记 14" above
+-- a five-row "今日被标记 IP" table, with the missing nine sitting in a bucket
+-- nobody displays. Keying the counter by day removes the second mismatch too:
+-- same day function, same rollover, no rolling window to disagree with.
 local function flag_log_day()
-    return os.date("!%Y%m%d")
+    return os.date("%Y%m%d")
+end
+
+local function flagged_today_key()
+    return "ip_rep:flagged_today:" .. flag_log_day()
 end
 
 -- Day-index add with a HARD write-path bound. The generic
@@ -713,7 +728,7 @@ function _M.flag_ip(ip, duration)
     -- state), so a dead index entry from an expired flag cannot suppress the
     -- count, while concurrent re-flags after expiry cannot double-count.
     if add_to_flagged_index(ip, ttl, now) then
-        s:incr("ip_rep:flagged_today", 1, 0, 86400)
+        s:incr(flagged_today_key(), 1, 0, 86400)
         -- Snapshot the evidence while the signal slots are still live: the
         -- flag outlives the scoring window, so this is the only record of
         -- "why" that survives until expires_at. TTL matches the flag's.
@@ -1128,7 +1143,7 @@ function _M.get_stats()
     if not s then return { flagged = 0, pending = 0, flagged_today = 0, threshold = cfg_val("threshold") } end
     local flagged_count = #_M.list_flagged()
     local pending_count = _M.pending_count()
-    local flagged_today = s:get("ip_rep:flagged_today") or 0
+    local flagged_today = s:get(flagged_today_key()) or 0
     return {
         flagged = flagged_count,
         pending = pending_count,
