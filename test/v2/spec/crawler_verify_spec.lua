@@ -408,3 +408,55 @@ describe("crawler identity gate runs independently of the rule set", function()
         cleanup_dns()
     end)
 end)
+
+describe("clearing an address also clears its DNS verdict", function()
+    -- An operator who clears an IP expects it to be unknown again. Leaving a
+    -- `fake` verdict in place means the identity gate keeps returning 403 for
+    -- an address that the panel says was just cleared, with nothing to
+    -- explain the discrepancy.
+    local rep, cv, s
+
+    setup(function()
+        package.preload["bit"] = package.preload["bit"] or function()
+            local m = {}
+            function m.band(a, b)
+                local r, v = 0, 1
+                while a > 0 or b > 0 do
+                    if a % 2 == 1 and b % 2 == 1 then r = r + v end
+                    a, b = math.floor(a / 2), math.floor(b / 2)
+                    v = v * 2
+                end
+                return r
+            end
+            return m
+        end
+        rep = require "core.ip_reputation"
+        cv = require "core.crawler_verify"
+        s = ngx.shared.ip_reputation
+        s:flush_all()
+    end)
+
+    teardown(function()
+        s:flush_all()
+    end)
+
+    it("forgets a fake verdict", function()
+        s:set("crawler_verify:203.0.113.50", cv.VERDICT_FAKE, 3600)
+        assert.are.equal(cv.VERDICT_FAKE, cv.verdict("203.0.113.50"))
+        assert.is_false(rep.is_crawler_exempt({ category = "bot" }, "203.0.113.50")
+            and cv.is_verified("203.0.113.50"))
+        rep.clear_ip("203.0.113.50")
+        assert.is_nil(cv.verdict("203.0.113.50"), "clear_ip must drop the DNS verdict")
+    end)
+
+    it("leaves ip_reputation working when the DNS module is unavailable", function()
+        package.loaded["core.crawler_verify"] = nil
+        package.preload["core.crawler_verify"] = function()
+            error("module missing")
+        end
+        local ok = pcall(function() rep.clear_ip("203.0.113.51") end)
+        package.preload["core.crawler_verify"] = nil
+        package.loaded["core.crawler_verify"] = nil
+        assert.is_true(ok, "a missing DNS module must not break clearing an IP")
+    end)
+end)

@@ -888,6 +888,14 @@ function _M.is_flagged(ip, opts)
 end
 
 function _M.clear_ip(ip)
+    -- Also drop any cached DNS identity verdict. "Clear this address" has to
+    -- mean the address is unknown again: leaving a `fake` verdict behind
+    -- would have the crawler identity gate keep returning 403 for an operator
+    -- who just cleared it, with nothing left to explain why.
+    -- Lazy require so ip_reputation stays loadable without the DNS module.
+    pcall(function()
+        require("core.crawler_verify").forget(ip)
+    end)
     local s = shared()
     if not s then return end
     s:delete("ip_rep:flagged:" .. ip)
