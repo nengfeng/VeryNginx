@@ -144,6 +144,9 @@ end
 -- that is indistinguishable from success unless each vendor is named.
 local function handle_reputation_crawler_fetch()
     local ranges = require "core.crawler_ranges"
+    -- read_body() first: get_body_data() returns nil until the body has been
+    -- read, which silently made every request look like "apply".
+    ngx.req.read_body()
     local body = ngx.req.get_body_data()
     local apply = true
     if body and body ~= "" then
