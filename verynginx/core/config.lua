@@ -233,7 +233,7 @@ _M.schema = {
         ip_reputation = {
             type = "object",
             default = {
-                enable = false,
+                enable = true,
                 threshold = 25,
                 flag_duration = 600,
                 window_size = 300,
@@ -241,6 +241,22 @@ _M.schema = {
                 min_requests = 3,
                 pending_ttl = 600,
                 whitelist = {},
+                -- category -> points charged for a block hit of that category.
+                -- Categories not listed keep signals.waf_block. bot is soft:
+                -- ccbot / claudebot / dataforseo are ordinary crawlers, and
+                -- five of their requests inside the window used to flag a
+                -- search engine for the full flag duration.
+                rule_signal_weights = {
+                    bot = 1,
+                },
+                -- IPv4 ranges (or bare addresses) of verified search-engine /
+                -- AI crawlers. Checked ONLY for the soft categories above, so
+                -- an attack rule still blocks a crawler carrying an injection.
+                -- Ships EMPTY on purpose: the authoritative lists are
+                -- published per-vendor and change without notice, so they are
+                -- fetched with tools/fetch_crawler_ips.py rather than frozen
+                -- into the defaults where they would rot unnoticed.
+                crawler_ip_whitelist = {},
                 signals = {
                     waf_challenge = 3,
                     waf_block = 5,
@@ -255,7 +271,7 @@ _M.schema = {
                 },
             },
             children = {
-                enable          = leaf({ type = "boolean", default = false }),
+                enable          = leaf({ type = "boolean", default = true }),
                 threshold       = leaf({ type = "integer", default = 25, min = 1, max = 10000 }),
                 flag_duration   = leaf({ type = "integer", default = 600, min = 60, max = 604800 }),
                 window_size     = leaf({ type = "integer", default = 300, min = 60, max = 86400 }),
@@ -263,6 +279,12 @@ _M.schema = {
                 min_requests    = leaf({ type = "integer", default = 3, min = 1, max = 1000 }),
                 pending_ttl     = leaf({ type = "integer", default = 600, min = 60, max = 86400 }),
                 whitelist       = leaf({ type = "array", default = {}, items = "string" }),
+                crawler_ip_whitelist = leaf({ type = "array", default = {}, items = "string" }),
+                rule_signal_weights = {
+                    type = "object",
+                    default = { bot = 1 },
+                    preserve_unknown = true,
+                },
                 signals = {
                     type = "object",
                     default = {

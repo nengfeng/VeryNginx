@@ -4,6 +4,7 @@ local config = require "core.config"
 local bit = require "core.bit_compat"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local wlg = require "core.kernel_blocking.whitelist_generation"
+local cidr = require "core.cidr"
 local random = require "core.random"
 local dict_guard = require "core.dict_guard"
 local DEFAULTS = {
@@ -237,6 +238,64 @@ function cfg_val(key)
     return DEFAULTS[key]
 end
 
+--- Is the reputation subsystem switched on?
+--
+-- Until now nothing read this key: `ip_reputation.enable: false` sat in the
+-- shipped defaults while record_signal / flag_ip / is_flagged all ran anyway,
+-- so an operator who believed they had turned scoring off had not. It is a
+-- real switch now. An ABSENT key means enabled — a config written before the
+-- switch existed describes an install that was running, and failing closed
+-- here would silently unflag every IP on upgrade.
+function _M.is_enabled()
+    local v = raw_cfg().enable
+    if v == nil then return true end
+    return v == true
+end
+
+--- Signal weight to charge for a rule hit.
+--
+-- All block rules used to cost the flat `signals.waf_block` (5), which made
+-- vn_bot_0017 — a UserAgent match on ccbot / claudebot / dataforseo, i.e. the
+-- ordinary AI and search crawlers — as expensive as an XSS attempt. Five
+-- crawler requests inside the window flagged a verified search engine and
+-- held it at a flat 403 for the whole flag duration, with no challenge step
+-- in between to prove otherwise.
+--
+-- rule_signal_weights maps a rule *category* to its own weight; categories
+-- absent from the map keep the flat signal weight. Keying on category (a
+-- field the factory rules already carry) rather than rule id means an
+-- operator who adds their own bot rule gets the soft weight automatically.
+--
+-- @param rule table|nil: a WAF rule (nil-safe, e.g. for signals with no rule)
+-- @return number: points to charge (>= 1)
+function _M.signal_weight_for_rule(rule)
+    local base = cfg_val("signals").waf_block or DEFAULTS.signals.waf_block
+    if not rule then return base end
+    local by_cat = raw_cfg().rule_signal_weights
+    if type(by_cat) ~= "table" then return base end
+    local cat = rule.category
+    local w = cat and by_cat[cat]
+    if type(w) == "number" and w >= 1 then return w end
+    return base
+end
+
+--- Is this rule one that a verified crawler should be exempt from?
+--
+-- Only rules whose category carries an entry in rule_signal_weights — i.e.
+-- the soft categories. An attack rule is never skipped: a crawler fetching a
+-- URL whose query string carries SQL injection is still an injection worth
+-- blocking, and "it is Googlebot" is not a defence against that.
+--
+-- @param rule table
+-- @param ip string
+-- @return boolean
+function _M.is_crawler_exempt(rule, ip)
+    local by_cat = raw_cfg().rule_signal_weights
+    if type(by_cat) ~= "table" or not rule or not rule.category then return false end
+    if by_cat[rule.category] == nil then return false end
+    return cidr.match_any(ip, raw_cfg().crawler_ip_whitelist)
+end
+
 local function slot_size()
     return cfg_val("slot_size")
 end
@@ -311,11 +370,24 @@ local function get_whitelist()
     return DEFAULTS.whitelist
 end
 
-function _M.record_signal(ip, signal_type)
+--- Charge `signal_type` against an IP's score.
+--
+-- `rule` is optional: when given, its category may lower the weight (see
+-- signal_weight_for_rule). Signals with no rule behind them — geoip_block,
+-- fingerprint_block, not_found — keep the flat configured weight.
+--
+-- @param ip string
+-- @param signal_type string
+-- @param rule table|nil: the WAF rule that produced the signal
+function _M.record_signal(ip, signal_type, rule)
+    if not _M.is_enabled() then return end
     local signals = get_signals()
     local weight = signals[signal_type]
     if not weight or weight <= 0 then
         return
+    end
+    if rule then
+        weight = _M.signal_weight_for_rule(rule)
     end
     local s = shared()
     if not s then return end
@@ -378,6 +450,7 @@ local function compute_score(ip)
 end
 
 function _M.get_score(ip)
+    if not _M.is_enabled() then return 0 end
     local s = shared()
     if s then
         local cached = s:get("ip_rep:score_cache:" .. ip)
@@ -719,6 +792,7 @@ local function flagged_log_today(s)
 end
 
 function _M.flag_ip(ip, duration)
+    if not _M.is_enabled() then return end
     local s = shared()
     if not s then return end
     local ttl = duration or cfg_val("flag_duration")
@@ -745,6 +819,12 @@ function _M.flag_ip(ip, duration)
 end
 
 function _M.is_flagged(ip, opts)
+    -- Disabled means disabled: the filter plugin's 【前置-3】 shortcut keys off
+    -- this, so returning true would keep serving the 403 that the switch is
+    -- supposed to stop. Existing flags stay in the shared dict (harmless,
+    -- expires on its own TTL) and reappear if the subsystem is switched back
+    -- on inside their flag_duration.
+    if not _M.is_enabled() then return false end
     local s = shared()
     if not s then return false end
     local no_cache = opts and opts.no_cache
@@ -873,12 +953,9 @@ function _M.remove_whitelist(entry)
     wlg.bump_sequence()
 end
 
--- Parse a dotted-quad IPv4 to its integer form, or nil if not a valid IPv4.
-local function parse_ipv4(s)
-    local a, b, c, d = s:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-    if not a then return nil end
-    return (tonumber(a) * 16777216) + (tonumber(b) * 65536) + (tonumber(c) * 256) + tonumber(d)
-end
+-- Dotted-quad parsing and CIDR matching live in core/cidr.lua (shared with the
+-- verified-crawler range list so there is only one implementation).
+local parse_ipv4 = cidr.parse_ipv4
 
 -- Strict IPv6 format check: 8 groups (or fewer with a single `::`),
 -- each group 1-4 lowercase/uppercase hex digits, no embedded whitespace.
@@ -975,42 +1052,7 @@ function _M.validate_whitelist_entry(entry)
     return ok_octets(entry)
 end
 
--- Worker-local CIDR parse cache: the parsed subnet+mask depend only on the
--- CIDR string, which is immutable for a given whitelist entry, so this never
--- goes stale even when the whitelist is hot-reloaded. Avoids re-running the
--- string regex + mask loop for every IP lookup against every entry.
-local cidr_parse_cache = {}
-
-local function cidr_mask(cidr)
-    local parsed = cidr_parse_cache[cidr]
-    if parsed ~= nil then return parsed end
-    local result
-    local pos = cidr:find("/")
-    if pos then
-        local subnet = parse_ipv4(cidr:sub(1, pos - 1))
-        local bits = tonumber(cidr:sub(pos + 1))
-        if subnet and bits then
-            local mask = 0
-            for _ = 1, bits do
-                mask = (mask * 2) + 1
-            end
-            result = { subnet = subnet, mask = mask * (2 ^ (32 - bits)) }
-        end
-    end
-    cidr_parse_cache[cidr] = result
-    return result
-end
-
-local function ip_in_cidr(ip, cidr)
-    if ip == cidr then
-        return true
-    end
-    local ip_num = parse_ipv4(ip)
-    if not ip_num then return false end
-    local c = cidr_mask(cidr)
-    if not c then return false end
-    return bit.band(ip_num, c.mask) == bit.band(c.subnet, c.mask)
-end
+local ip_in_cidr = cidr.ip_in_cidr
 
 function _M.is_whitelisted(ip)
     local s = shared()
@@ -1139,8 +1181,12 @@ function _M.pending_count()
 end
 
 function _M.get_stats()
+    local enabled = _M.is_enabled()
+    if not shared() then
+        return { flagged = 0, pending = 0, flagged_today = 0,
+                 threshold = cfg_val("threshold"), enabled = enabled }
+    end
     local s = shared()
-    if not s then return { flagged = 0, pending = 0, flagged_today = 0, threshold = cfg_val("threshold") } end
     local flagged_count = #_M.list_flagged()
     local pending_count = _M.pending_count()
     local flagged_today = s:get(flagged_today_key()) or 0
@@ -1150,6 +1196,14 @@ function _M.get_stats()
         flagged_today = flagged_today,
         -- Exposed so the panel can highlight scores at/over the flag line.
         threshold = cfg_val("threshold"),
+        -- Whether scoring/flagging is actually running. The panel shows this
+        -- because the switch used to be inert: an operator who had set
+        -- enable=false still saw IPs being flagged and had no way to tell
+        -- the config was not being read.
+        enabled = enabled,
+        -- Size of the verified-crawler range list, so an empty list (the
+        -- shipped default) is visible rather than silently inert.
+        crawler_ip_count = #(raw_cfg().crawler_ip_whitelist or {}),
         -- Durable per-day records: which IPs were flagged today (incl.
         -- already-expired flags), newest first.
         flagged_log = flagged_log_today(s),
