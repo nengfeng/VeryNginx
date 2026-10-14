@@ -1267,7 +1267,7 @@
         <div v-if="repStats" class="grid grid-4 mb-16">
           <div class="stat-card"><div class="stat-label">已标记 IP</div><div class="stat-value">{{ repStats.flagged }}</div></div>
           <div class="stat-card"><div class="stat-label">待处理</div><div class="stat-value">{{ repStats.pending }}</div></div>
-          <div class="stat-card"><div class="stat-label">今日标记</div><div class="stat-value">{{ repStats.flagged_today }}</div></div>
+          <div class="stat-card"><div class="stat-label" title="今日触发「被标记」的次数；同一 IP 多次被标记会累加，因此该数 ≥ 下方「今日被标记 IP」的条数">今日标记次数</div><div class="stat-value">{{ repStats.flagged_today }}</div></div>
           <div class="stat-card"><div class="stat-label">白名单</div><div class="stat-value">{{ repWhitelist.length }}</div></div>
         </div>
         <!-- Flagged IPs -->
