@@ -333,6 +333,7 @@ python3 /opt/verynginx/tools/inject_tls_fingerprint.py \
   --include /opt/verynginx/nginx_conf/tls-fingerprint.conf --check
 ```
 
+- 该钩子自身做了降级保护：即使 Lua 模块加载失败或 JA4 计算出错，也只是「本次没有 JA4」，**不会影响握手**（早期版本未保护 `require`，模块一缺失就会掐死该站点的每一次 TLS 连接）。
 - 排查此类问题请看 **LNMP 的错误日志**（`nginx.conf` 里 `error_log` 指向 `/data/wwwlogs/`，如 `/data/wwwlogs/error_nginx.log`），不是 `/usr/local/nginx/logs/`。症状与日志对照：`no ssl_client_hello_by_lua* defined in server X`（alert）→ 正是本节说的钩子缺失。
 
 > **不安装 VeryNginx 时**，`lnmp vhost add` 生成的 vhost 与普通 LNMP 站点完全一致，不受任何影响。

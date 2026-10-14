@@ -433,7 +433,7 @@ auto_whitelist = { type = "table", default = {
 - **采集时机**：`core/tls_fingerprint.hello_phase()` 挂在 `ssl_client_hello_by_lua_block`，来源唯一（`nginx_conf/tls-fingerprint.conf`），指令不可叠加（重复会 `nginx -t` 失败）。握手期是唯一能看见原始 ClientHello 的阶段
 - **⚠️ 注入范围：必须覆盖该端口的【每个】SSL server 块（2026-10-14 线上事故）**：lua-nginx-module 把 client-hello 回调按 listen socket 安装——只要同端口上任一 server 定义了该指令，**未定义的其他 server 会在握手阶段被中止**，日志为 `no ssl_client_hello_by_lua* defined in server X`（alert 级），用户侧表现为 Cloudflare **525**，且**不只影响一个域**。早期实现按"WAF 托管（on_access.lua）"筛选注入，一次上线导致同端口的多个非托管 vhost 全部握手失败（回源 525，涉及域名不在此记录）。现在判据是「有 `ssl_certificate` 即注入」，非 WAF server 上该钩子只算指纹、无人读取，无副作用
 - **⚠️ 排查陷阱**：本机真实错误日志是 `/data/wwwlogs/error_nginx.log`（`crit` 级别），**不是** `/usr/local/nginx/logs/error.log`；排查线上故障必须先确认真实 error_log 路径，否则会得出"日志里什么都没有"的错误结论
-- **失败必须降级**：lua 侧全程 pcall + nil 返回。缺 clienthello getter、缺 vendored 模块、OpenSSL 怪癖 → 无 JA4，退回 JA3 或协商套件串，**绝不影响握手**
+- **失败必须降级**：lua 侧全程 pcall + nil 返回。缺 clienthello getter、缺 vendored 模块、OpenSSL 怪癖 → 无 JA4，退回 JA3 或协商套件串，**绝不影响握手**。**这条约束包含 `require` 本身**——未受保护的 `require` 在 SSL client-hello 回调里抛错时，nginx 记 `callback failed` 并中止握手（525），站点直接不可用；实测：lua_package_path 未覆盖 VeryNginx 树时会掐死每一次握手。nginx 片段因此写成 `local ok, mod = pcall(require, ...); if ok and mod then pcall(mod.hello_phase) end`
 - **命名空间**：指纹一律 `kind:value`。JA4（主）/ JA3（旧库）/ `tls:`（协商套件，**显式不可匹配**——它是连接协商结果不是客户端标识，匹配它等于把所有协商到同一套件的正常访客一起封了）。`fingerprint_db.match()` 先按 kind 分空间，再 exact/family
 - **section A 位宽**：JA4 = 10、JA4H = 12，family 切片依赖它；改 `resty/ja4*.lua` 的 A 段写法必须同步 `fingerprint_db.family_of()`
 - **infer_kind 位数陷阱**（已犯过一次）：JA4 A 段 10 字符、JA4H 12 字符，按 12/16 写正则会让无 `kind` 字段的 JA4 条目被判成 ja3、静默永不命中
