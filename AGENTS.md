@@ -430,7 +430,9 @@ auto_whitelist = { type = "table", default = {
 ### 7.6 TLS 指纹（tls_fingerprint 采集 + fingerprint_db 持久化）
 
 - **两条死路径（v17 前的结构性缺陷，已修）**：① `ja3.lua` 读 `$ssl_client_j3_hash`，而 LNMP 的 vanilla nginx（`--with-openssl`，无额外模块）根本没有该变量 → 恒 nil；② `plugin/filter/init.lua` 读 `ctx.request.ja3_fingerprint`，但**全仓无人写入**（唯一写入点在命中明细构建里，晚于执法）→ `fingerprint_db.match()` 从未执行。整条执法链（block/challenge/跨 IP 告警）出厂即死
-- **采集时机**：`core/tls_fingerprint.hello_phase()` 挂在 `ssl_client_hello_by_lua_block`（http 级，`nginx_conf/tls-fingerprint.conf` 单一来源，指令不可叠加）。握手期是唯一能看见原始 ClientHello 的阶段；该指令必须只 include 一次，重复会 `nginx -t` 失败
+- **采集时机**：`core/tls_fingerprint.hello_phase()` 挂在 `ssl_client_hello_by_lua_block`，来源唯一（`nginx_conf/tls-fingerprint.conf`），指令不可叠加（重复会 `nginx -t` 失败）。握手期是唯一能看见原始 ClientHello 的阶段
+- **⚠️ 注入范围：必须覆盖该端口的【每个】SSL server 块（2026-10-14 线上事故）**：lua-nginx-module 把 client-hello 回调按 listen socket 安装——只要同端口上任一 server 定义了该指令，**未定义的其他 server 会在握手阶段被中止**，日志为 `no ssl_client_hello_by_lua* defined in server X`（alert 级），用户侧表现为 Cloudflare **525**，且**不只影响一个域**。早期实现按"WAF 托管（on_access.lua）"筛选注入，一次上线导致同端口的多个非托管 vhost 全部握手失败（回源 525，涉及域名不在此记录）。现在判据是「有 `ssl_certificate` 即注入」，非 WAF server 上该钩子只算指纹、无人读取，无副作用
+- **⚠️ 排查陷阱**：本机真实错误日志是 `/data/wwwlogs/error_nginx.log`（`crit` 级别），**不是** `/usr/local/nginx/logs/error.log`；排查线上故障必须先确认真实 error_log 路径，否则会得出"日志里什么都没有"的错误结论
 - **失败必须降级**：lua 侧全程 pcall + nil 返回。缺 clienthello getter、缺 vendored 模块、OpenSSL 怪癖 → 无 JA4，退回 JA3 或协商套件串，**绝不影响握手**
 - **命名空间**：指纹一律 `kind:value`。JA4（主）/ JA3（旧库）/ `tls:`（协商套件，**显式不可匹配**——它是连接协商结果不是客户端标识，匹配它等于把所有协商到同一套件的正常访客一起封了）。`fingerprint_db.match()` 先按 kind 分空间，再 exact/family
 - **section A 位宽**：JA4 = 10、JA4H = 12，family 切片依赖它；改 `resty/ja4*.lua` 的 A 段写法必须同步 `fingerprint_db.family_of()`
@@ -1053,7 +1055,8 @@ test/
 - **判定仓库 blob 字节必须用 `git cat-file blob`**：`git show HEAD:file` 在 Windows（core.autocrlf=true）会经 smudge 转换输出，把 LF blob 显示成 CRLF——H-4（SRI 白屏）的两次误判都栽在这里。实测结论：dashboard 五个 JS 的 blob 均为纯 LF、与 SRI pin 逐字节吻合；工作区的 CRLF 是 .gitattributes 生效前的陈旧检出，`rm + git checkout --` 强制重建即可。**"工作区字节" ≠ "仓库字节" ≠ "部署字节"**，三者只有 install.py 复制链路会一一对应，其余都要先辨明。
 - **修复提交自带回归**：528ab67（clear_ip 调 clear_score）引入裸全局调用必崩——修复者最容易在新调用的命名上翻车。
 - **`ngx.exec` 防环与代理目标必须用请求变量，不能依赖 `ngx.ctx`**（2026-09-06 运行时实证）：容器运行时中 `ngx.exec` 触发的内部重定向会带着**全新状态**重跑 rewrite/access（`ngx.ctx._vn_redirected` 守卫不生效、`ngx.ctx.vn_proxy_target` 丢失）——proxy_pass 规则反复重匹配导致 nginx 以 `internal redirection cycle` 500。现行契约：`$vn_in_exec` 变量在 exec 前置位（in_server_block.conf 声明），`rule_engine.apply` 的 PROXY 分支见该标记直接 return；代理目标经 `$vn_proxy_host/port/scheme/sni` 变量传给 `@vn_proxy` 的 balancer（balancer 只读变量）。任何"跨 exec 传递状态"的新代码一律走请求变量。
-- **挑战类动作的完整契约**见 §7.2；**supply-chain**：install.py 校验 OpenResty tarball sha256（`openresty_pkg_sha256`，`VN_SKIP_CHECKSUM=1` 逃生）、Dockerfile 校验 Go tarball（go.dev 官方 JSON 的值）、tools/upgrade.sh 固定 `VN_PINNED_COMMIT`（每次发布更新；`VN_UPGRADE_COMMIT` 可覆盖）。upgrade.sh 曾整文件 CRLF（Linux 下 `` 会让 bash 逐行报错），已归一化 LF。
+- **挑战类动作的完整契约**见 §7.2；**supply-chain**：install.py 校验 OpenResty tarball sha256（`openresty_pkg_sha256`，`VN_SKIP_CHECKSUM=1` 逃生）、Dockerfile 校验 Go tarball（go.dev 官方 JSON 的值）、tools/upgrade.sh 固定 `VN_PINNED_COMMIT`（每次发布更新；`VN_UPGRADE_COMMIT` 可覆盖）。upgrade.sh 曾整文件 CRLF（Linux 下 `
+` 会让 bash 逐行报错），已归一化 LF。
 - **upgrade.sh 必须重建 helper**：helper 是独立编译的宿主二进制（`/usr/local/bin/firewall-helper`），§11 的修复（reconcile 守卫/conn deadline/flush 范围/allow-prefix）全在其中——只覆盖 `verynginx/` 树的升级会让已装机器的 Lua 与 helper 版本脱节。upgrade.sh Step 4c 现在会在 helper 已安装的机器上重建换装（ETXTBSY 先停单元 + tmp+rename、systemd 单元差异部署 + daemon-reload、二进制无变化跳过重启）；无 Go 时大声警告并给出手动命令。新机器不被自动安装 helper（升级脚本不做安装器的事）。
 - **metrics 索引 TTL 契约**（b390669 + 后续修复）：labeled（TTL=3600）索引条目随数据 TTL prune；**core（TTL=0）永不 prune**（数据永不过期却按 INDEX_TTL 剪索引，会让低频 core 系列周期性从 /metrics 消失，直到下次写入）。`emit_dict` 对 data 已消失的索引条目跳过导出，core 索引常驻是有界且安全的。
 

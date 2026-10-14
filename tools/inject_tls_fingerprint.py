@@ -129,10 +129,17 @@ def inject_file(path, snippet_path, dry_run):
         inner = text[ob + 1:cb]
         if any(a <= start <= c for a, _b, c in streams):
             continue  # stream{} server — L4 proxying, not an HTTP vhost
-        if not HANDLER_RE.search(inner):
-            continue  # not VeryNginx-managed
         if not SSL_RE.search(inner):
             continue  # no TLS here: the directive would fail nginx -t
+        # NOTE: do NOT restrict this to VeryNginx-managed servers (those with
+        # on_access.lua). lua-nginx-module installs the SSL client-hello
+        # callback per listen socket: once ANY server block on :443 defines
+        # ssl_client_hello_by_lua*, every OTHER server without it aborts the
+        # handshake with "no ssl_client_hello_by_lua* defined in server X"
+        # (NGX_LOG_ALERT) — which surfaces to users as Cloudflare 525. The
+        # hook is harmless on non-WAF servers (it only computes a fingerprint
+        # and stores it on ngx.ctx; nothing reads it there), so it must go
+        # into EVERY SSL server block, not just the managed ones.
         if HAS_HOOK_RE.search(inner):
             results.append({"file": path, "action": "SKIP", "detail": "hook already present"})
             continue
