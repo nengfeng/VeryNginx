@@ -307,6 +307,34 @@ location /verynginx/ { }
 
 改完执行 `nginx -t && systemctl reload nginx` 生效。
 
+#### ⚠️ 新增站点后必须确认 TLS 握手钩子（v2.3.0 起）
+
+**每个含 SSL 的 server 块都必须有这一行**（`ssl_client_hello_by_lua*` 的工作方式所致：同端口上任一 server 定义了它，其余未定义的 server 会在握手阶段被中止，用户侧是 **Cloudflare 525 / `tlsv1 alert internal error`**）：
+
+```nginx
+include /opt/verynginx/nginx_conf/tls-fingerprint.conf;
+```
+
+- 它只能放在**有 `ssl_certificate` 的 server 块里**——放进纯 HTTP server 会让 `nginx -t` 直接失败（`no ssl configured for the server`）。
+- `lnmp vhost add` 只写 WAF 的三条处理器，**不会写这一行**。已内置该注入的 LNMP（`/root/lnmp/vhost.sh` 里带 `tls-fingerprint` 追加逻辑）不受影响；未内置的版本请在加完站点后执行一次：
+
+```bash
+python3 /opt/verynginx/tools/inject_tls_fingerprint.py \
+  --nginx-conf /usr/local/nginx/conf/nginx.conf \
+  --include /opt/verynginx/nginx_conf/tls-fingerprint.conf --backup
+nginx -t && systemctl reload nginx
+```
+
+- **每次新增域名/站点后，用审计模式自查**（只读，发现缺失即退出码非 0）：
+
+```bash
+python3 /opt/verynginx/tools/inject_tls_fingerprint.py \
+  --nginx-conf /usr/local/nginx/conf/nginx.conf \
+  --include /opt/verynginx/nginx_conf/tls-fingerprint.conf --check
+```
+
+- 排查此类问题请看 **LNMP 的错误日志**（`nginx.conf` 里 `error_log` 指向 `/data/wwwlogs/`，如 `/data/wwwlogs/error_nginx.log`），不是 `/usr/local/nginx/logs/`。症状与日志对照：`no ssl_client_hello_by_lua* defined in server X`（alert）→ 正是本节说的钩子缺失。
+
 > **不安装 VeryNginx 时**，`lnmp vhost add` 生成的 vhost 与普通 LNMP 站点完全一致，不受任何影响。
 
 ---

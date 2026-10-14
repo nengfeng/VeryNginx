@@ -115,6 +115,36 @@ def expand_includes(conf_path, masked):
     return files
 
 
+def check_file(path, snippet_path):
+    """只审计：该文件里每个 SSL server 是否都有钩子。返回缺失数量。"""
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError as e:
+        print("  [ERROR ] %s %s" % (path, e))
+        return 0
+    masked = mask_comments_strings(text)
+    streams = stream_spans(masked)
+    missing = 0
+    total = 0
+    for start, ob, cb in server_blocks(masked):
+        inner = text[ob + 1:cb]
+        if any(a <= start <= c for a, _b, c in streams):
+            continue
+        if not SSL_RE.search(inner):
+            continue  # 非 TLS server：放该指令会让 nginx -t 失败
+        total += 1
+        name = re.search(r"server_name\s+([^;]+);", inner)
+        label = name.group(1).strip() if name else "(no server_name)"
+        if HAS_HOOK_RE.search(inner):
+            print("  [OK     ] %s  %s" % (os.path.basename(path), label))
+        else:
+            missing += 1
+            print("  [MISSING] %s  %s" % (os.path.basename(path), label))
+    if total == 0 and not missing:
+        print("  [NONE   ] %s  (no SSL server block)" % os.path.basename(path))
+    return missing
+
+
 def inject_file(path, snippet_path, dry_run):
     try:
         text = open(path, encoding="utf-8").read()
@@ -172,6 +202,9 @@ def main():
     ap.add_argument("--include", dest="snippet", default=DEFAULT_SNIPPET)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--backup", action="store_true")
+    ap.add_argument("--check", action="store_true",
+                    help="只审计不改写：列出缺少钩子的 SSL server，有缺失则退出码非 0。"
+                         "新增域名/站点后跑一次，确认 TLS 不会被 client-hello 回调中止。")
     args = ap.parse_args()
 
     if not os.path.isfile(args.snippet):
@@ -188,6 +221,20 @@ def main():
         for p in targets:
             shutil.copy2(p, "%s.pre-ja4.%s" % (p, stamp))
         print("backup: *.pre-ja4.%s" % stamp)
+
+    if args.check:
+        missing = 0
+        for p in dict.fromkeys(targets):
+            missing += check_file(p, args.snippet)
+        if missing:
+            print("MISSING: %d 个 SSL server 缺少 %s —— 它们的 TLS 握手会被中止"
+                  "（用户侧表现为 Cloudflare 525）。修复："
+                  "python3 %s --nginx-conf %s --include %s --backup"
+                  % (missing, os.path.basename(args.snippet),
+                     os.path.abspath(__file__), conf, args.snippet))
+            return 1
+        print("OK: 所有 SSL server 均已包含握手钩子")
+        return 0
 
     total = 0
     for p in dict.fromkeys(targets):
