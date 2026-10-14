@@ -150,3 +150,123 @@ describe("crawler_ranges source overrides (deployment inside China)", function()
         assert.are.equal(5, #srcs, "the built-in source count must not change")
     end)
 end)
+
+describe("crawler_ranges apply refuses to leave memory ahead of disk", function()
+    -- Both of these were live bugs on the first run of the panel button, and
+    -- both are invisible in a unit test that never calls apply():
+    --
+    --   * config.save() takes the config table as its first argument, so a
+    --     bare call() raises inside config.lua AFTER the in-memory list has
+    --     already been replaced.
+    --   * that failure left memory holding 708 ranges while the file held
+    --     none: crawlers exempt until the next restart, then blocked, with no
+    --     record of why.
+    --
+    -- The rollback below is what keeps a failed save from being a silent
+    -- policy change.
+    local config
+
+    -- This busted runs a describe-level setup ONCE, so each example sets its
+    -- own starting list; a shared fixture set in setup is nulled by the first
+    -- example's teardown and the second silently asserts against nothing.
+    local function given(existing)
+        config = config or require "core.config"
+        config.ip_reputation = config.ip_reputation or {}
+        config.ip_reputation.crawler_ip_whitelist = existing or { "10.0.0.0/8" }
+    end
+
+    setup(function()
+        given()
+    end)
+
+    teardown(function()
+        config.ip_reputation.crawler_ip_whitelist = nil
+        config.ip_reputation.crawler_ip_whitelist_sources = nil
+        config.ip_reputation.crawler_sources = nil
+    end)
+
+    local function with_fetch_stub(results, fn)
+        package.loaded["core.crawler_ranges"] = nil
+        local m = require "core.crawler_ranges"
+        m.fetch = function() return results end
+        local ok, err = pcall(fn, m)
+        package.loaded["core.crawler_ranges"] = nil
+        if not ok then error(err, 0) end
+    end
+
+    it("rolls the list back when saving fails", function()
+        given()
+        local saved_config = config.save
+        config.save = function() return false, "simulated disk failure" end
+        with_fetch_stub({
+            { key = "google", ok = true, count = 2, url = "u",
+              ranges = { "66.249.64.0/19", "192.178.6.224/27" } },
+        }, function(m)
+            local res = m.apply()
+            assert.is_false(res.ok)
+            assert.is_nil(res.message:match("^no vendor"), "it reached the save step")
+            assert.truthy(res.message:match("simulated disk failure"))
+            assert.are.same({ "10.0.0.0/8" }, config.ip_reputation.crawler_ip_whitelist,
+                "a failed save must not leave a list in memory that is not on disk")
+        end)
+        config.save = saved_config
+    end)
+
+    it("passes the config table to save(), not nothing", function()
+        given()
+        local seen
+        local saved_config = config.save
+        config.save = function(c) seen = c; return true end
+        with_fetch_stub({
+            { key = "google", ok = true, count = 1, url = "u",
+              ranges = { "66.249.64.0/19" } },
+        }, function(m)
+            local res = m.apply()
+            assert.is_true(res.ok)
+            assert.is_table(seen, "save() dereferences its first argument")
+            assert.are.equal(1, res.written)
+            assert.are.equal(1, res.before)
+        end)
+        config.save = saved_config
+        config.ip_reputation.crawler_ip_whitelist = nil
+    end)
+
+    it("writes nothing at all when no vendor answered", function()
+        given()
+        local called = false
+        local saved_config = config.save
+        config.save = function() called = true; return true end
+        with_fetch_stub({
+            { key = "google", ok = false, error = "HTTP 403", url = "u" },
+            { key = "bing", ok = false, error = "HTTP 404", url = "u" },
+        }, function(m)
+            local res = m.apply()
+            assert.is_false(res.ok)
+            assert.are.equal(0, res.written)
+            assert.is_false(called, "an all-failed fetch must not touch the config file")
+            assert.are.same({ "10.0.0.0/8" }, config.ip_reputation.crawler_ip_whitelist)
+        end)
+        config.save = saved_config
+    end)
+
+    it("merges and dedups across vendors", function()
+        given()
+        local saved_config = config.save
+        config.save = function() return true end
+        with_fetch_stub({
+            { key = "google", ok = true, count = 2, url = "u",
+              ranges = { "66.249.64.0/19", "1.2.3.4/24" } },
+            { key = "bing", ok = true, count = 2, url = "u",
+              ranges = { "157.55.39.0/24", "1.2.3.0/24" } },   -- same netblock, other spelling
+        }, function(m)
+            local res = m.apply()
+            assert.is_true(res.ok)
+            -- 4 inputs collapse to 3: 1.2.3.4/24 normalises onto 1.2.3.0/24.
+            assert.are.equal(3, res.written)
+            local list = config.ip_reputation.crawler_ip_whitelist
+            assert.is_true(#list == 3)
+        end)
+        config.save = saved_config
+        config.ip_reputation.crawler_ip_whitelist = nil
+    end)
+end)

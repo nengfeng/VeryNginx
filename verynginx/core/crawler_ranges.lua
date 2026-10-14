@@ -256,7 +256,14 @@ function _M.apply()
     local merged, total, provenance = {}, 0, {}
     for _, r in ipairs(results) do
         if r.ok then
-            for _, net in ipairs(r.ranges) do merged[net] = true end
+            -- Normalise again here rather than trusting fetch() to have done
+            -- it. It is idempotent, and "1.2.3.4/24" and "1.2.3.0/24" are the
+            -- same netblock — a merge that skipped this would write both and
+            -- report a count larger than the list it actually produced.
+            for _, raw_net in ipairs(r.ranges or {}) do
+                local net = normalize_entry(raw_net)
+                if net then merged[net] = true end
+            end
             total = total + (r.count or 0)
         end
         -- Dropped before the response goes out: it is the whole list, once
@@ -283,15 +290,25 @@ function _M.apply()
         return { ok = false, written = 0, total = total, results = results,
                  message = "ip_reputation section missing from config" }
     end
-    local before = #(ir.crawler_ip_whitelist or {})
+    -- Snapshot what is in force before touching it. The live table is what the
+    -- exemption path reads, so a save that fails after the mutation would leave
+    -- memory holding a list the disk does not have: crawlers exempt now, blocked
+    -- again after the next restart, and nothing in between to explain the change.
+    local previous = ir.crawler_ip_whitelist
+    local previous_prov = ir.crawler_ip_whitelist_sources
     ir.crawler_ip_whitelist = out
     ir.crawler_ip_whitelist_sources = provenance
-    local ok, err = config.save()
+    -- save() takes the config table as its first argument. Calling it bare
+    -- raises inside config.lua on the first field it tries to read.
+    local ok, err = config.save(config)
     if not ok then
+        ir.crawler_ip_whitelist = previous
+        ir.crawler_ip_whitelist_sources = previous_prov
         return { ok = false, written = 0, total = total, results = results,
-                 message = "fetched " .. #out .. " ranges but saving the config failed: " .. tostring(err) }
+                 message = "fetched " .. #out ..
+                     " ranges but saving the config failed: " .. tostring(err) }
     end
-    return { ok = true, written = #out, total = total, before = before,
+    return { ok = true, written = #out, total = total, before = #(previous or {}),
              results = results }
 end
 
