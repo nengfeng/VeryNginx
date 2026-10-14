@@ -280,6 +280,19 @@ _M.schema = {
                 pending_ttl     = leaf({ type = "integer", default = 600, min = 60, max = 86400 }),
                 whitelist       = leaf({ type = "array", default = {}, items = "string" }),
                 crawler_ip_whitelist = leaf({ type = "array", default = {}, items = "string" }),
+                -- Per-vendor overrides for the panel's fetch button. Reachability
+                -- is a property of where this server is: from inside China,
+                -- developers.google.com and www.bing.com commonly cannot be
+                -- reached at all, and retrying never helps. A `mirror` redirects
+                -- the fetch to a reachable copy while the vendor's official URL
+                -- stays in the record as the source of truth. Entries overlay
+                -- the built-in source list by `key`:
+                --
+                --   [ { "key": "google",
+                --       "mirror": "https://<境内可达镜像>/common-crawlers.json" } ]
+                --
+                -- `url` wins over `mirror` when both are given.
+                crawler_sources = leaf({ type = "array", default = {}, items = "table" }),
                 crawler_ip_verified = leaf({ type = "array", default = {}, items = "string" }),
                 -- DNS identity check for vendors that publish no IP list
                 -- (Baiduspider). Deliberately a LIST of resolvers rather than

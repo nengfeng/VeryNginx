@@ -129,6 +129,56 @@
       }
     }
 
+    // ---- Crawler range fetch (panel button) ----
+    // The notice that says the list is empty is the one place an operator
+    // without a shell can act on it, so the fetch lives here as well as in
+    // tools/fetch_crawler_ips.py.
+    const repFetchBusy = ref(false);
+    const repFetchResult = ref(null);
+    const repFetchPartial = ref(false);
+
+    async function repFetchCrawlers(apply) {
+      if (repFetchBusy.value) return;
+      if (apply && !await showConfirm({
+        title: '拉取并写入爬虫 IP 段',
+        message: '将从各厂商官方地址拉取已公布的爬虫网段，合并写入 '
+          + 'ip_reputation.crawler_ip_whitelist。\n\n'
+          + '• 只在至少一个厂商返回可用名单时才写入；全部失败则原样保留现有名单\n'
+          + '• 写入的名单会替换当前列表（不是追加）\n'
+          + '• 每个来源的条数与厂商自报的发布时间都会记入配置，便于日后核对',
+        type: 'primary',
+      })) return;
+
+      repFetchBusy.value = true;
+      repFetchResult.value = null;
+      repFetchPartial.value = false;
+      repError.value = '';
+      try {
+        const r = await api('POST', '/verynginx/reputation/crawler/fetch',
+          apply ? { apply: true } : { apply: false });
+        const d = r.data || {};
+        repFetchResult.value = d;
+        // "Partial" means some vendor answered and some did not. Saying so
+        // matters: a silent partial write is indistinguishable from a vendor
+        // shrinking its range.
+        const rs = d.results || [];
+        repFetchPartial.value = rs.some(x => x.ok) && rs.some(x => !x.ok);
+        if (d.preview) {
+          const got = rs.filter(x => x.ok).length;
+          showToast(got
+            ? '试拉取完成：' + got + '/' + rs.length + ' 个厂商可达，未写入任何配置'
+            : '试拉取完成：没有任何厂商可达，未写入任何配置', got ? 'info' : 'error');
+        } else if (d.ok) {
+          showToast('已写入 ' + d.written + ' 条网段（原有 ' + d.before + ' 条）', 'success');
+          loadRepData();
+        }
+      } catch (e) {
+        repError.value = e.message;
+      } finally {
+        repFetchBusy.value = false;
+      }
+    }
+
     async function repPersist() {
       if (!await showConfirm({
         title: '持久化声誉数据',
@@ -312,6 +362,10 @@
     view('repAddWhitelist', repAddWhitelist);
     view('repRemoveWhitelist', repRemoveWhitelist);
     view('repPersist', repPersist);
+    view('repFetchCrawlers', repFetchCrawlers);
+    view('repFetchBusy', repFetchBusy);
+    view('repFetchResult', repFetchResult);
+    view('repFetchPartial', repFetchPartial);
     view('repLookup', repLookup);
     view('repDetailModal', repDetailModal);
     view('repOpenDetail', repOpenDetail);

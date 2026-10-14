@@ -130,6 +130,38 @@ local function handle_reputation_persist()
     return json.encode({ ret = "success", persisted = (wid == 0), worker = wid })
 end
 
+--- GET /reputation/crawler/sources — current list size and last-fetch record.
+local function handle_reputation_crawler_status()
+    local ranges = require "core.crawler_ranges"
+    return json.encode({ ret = "success", data = ranges.status() })
+end
+
+--- POST /reputation/crawler/fetch
+--
+-- `apply=false` previews: it reports exactly what a real run would see, per
+-- vendor, without writing. An operator needs that, because the interesting
+-- failure here is "this host cannot reach three of the five vendors" — and
+-- that is indistinguishable from success unless each vendor is named.
+local function handle_reputation_crawler_fetch()
+    local ranges = require "core.crawler_ranges"
+    local body = ngx.req.get_body_data()
+    local apply = true
+    if body and body ~= "" then
+        local ok, dec = pcall(json.decode, body)
+        if ok and type(dec) == "table" and dec.apply == false then apply = false end
+    end
+    if apply then
+        local res = ranges.apply()
+        ngx.status = res.ok and 200 or 502
+        return json.encode({ ret = res.ok and "success" or "failed", data = res })
+    end
+    local preview = ranges.fetch()
+    for _, r in ipairs(preview) do r.ranges = nil end
+    ngx.status = 200
+    return json.encode({ ret = "success",
+                         data = { ok = true, preview = true, results = preview } })
+end
+
 function _M.register(api)
     api.register("GET",    "/reputation/stats",     handle_reputation_stats,            true)
     api.register("GET",    "/reputation/flagged",   handle_reputation_flagged,          true)
@@ -139,6 +171,10 @@ function _M.register(api)
     api.register("POST",   "/reputation/whitelist", handle_reputation_whitelist_add,    true)
     api.register("DELETE", "/reputation/whitelist", handle_reputation_whitelist_remove, true)
     api.register("POST",   "/reputation/persist",   handle_reputation_persist,          true)
+    api.register("GET",    "/reputation/crawler/sources",
+                handle_reputation_crawler_status, true)
+    api.register("POST",   "/reputation/crawler/fetch",
+                handle_reputation_crawler_fetch,   true)
 end
 
 return _M
