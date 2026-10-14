@@ -286,6 +286,14 @@ end
 -- URL whose query string carries SQL injection is still an injection worth
 -- blocking, and "it is Googlebot" is not a defence against that.
 --
+-- Three sources can put an IP on this list, and they are kept separate so
+-- their provenance stays auditable:
+--   crawler_ip_whitelist  — ranges a vendor publishes (fetched, not remembered)
+--   crawler_ip_verified   — individual addresses confirmed by DNS reverse +
+--                          forward lookup, written by core/crawler_verify
+--                          and by tools/verify_crawlers.py
+--   the live verdict cache — see core/crawler_verify.verdict()
+--
 -- @param rule table
 -- @param ip string
 -- @return boolean
@@ -293,7 +301,13 @@ function _M.is_crawler_exempt(rule, ip)
     local by_cat = raw_cfg().rule_signal_weights
     if type(by_cat) ~= "table" or not rule or not rule.category then return false end
     if by_cat[rule.category] == nil then return false end
-    return cidr.match_any(ip, raw_cfg().crawler_ip_whitelist)
+    if cidr.match_any(ip, raw_cfg().crawler_ip_whitelist) then return true end
+    if cidr.match_any(ip, raw_cfg().crawler_ip_verified) then return true end
+    -- Lazy require: the verdict cache is only consulted once a vendor's
+    -- User-Agent actually claimed this IP, and most requests never get there.
+    local ok, cv = pcall(require, "core.crawler_verify")
+    if ok and cv.is_verified(ip) then return true end
+    return false
 end
 
 local function slot_size()
