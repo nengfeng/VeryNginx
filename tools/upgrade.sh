@@ -85,7 +85,7 @@ info "=== Step 3: 拉取最新代码 ==="
 # 分支的人手里，等于没有 pin（这正是旧版 pin 被判为假修复的原因）。
 # 前进方式：查 release 说明确认目标 commit，显式 VN_UPGRADE_COMMIT=<sha>
 # 覆盖（脚本会大声警告）；升级部署的新代码会携带新的锚供下次使用。
-VN_PINNED_COMMIT="bd48f022af5e65407b88bcc41388ae3aa8980513"
+VN_PINNED_COMMIT="a200e79a4834755f51c47be6c1862588c7d9f956"
 VN_UPGRADE_COMMIT="${VN_UPGRADE_COMMIT:-${VN_PINNED_COMMIT}}"
 if [ -n "${VN_UPGRADE_COMMIT:-}" ] && [ "${VN_UPGRADE_COMMIT}" != "${VN_PINNED_COMMIT}" ]; then
     warn "=========================================================="
