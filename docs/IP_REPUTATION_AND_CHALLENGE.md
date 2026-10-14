@@ -122,8 +122,31 @@ default_config = {
         -- "127.0.0.1",
         -- "10.0.0.0/8",
     },
+
+    -- 分类权重：category -> 该类规则命中一次记多少分。
+    -- 未列出的分类沿用 signals.waf_block。bot 为软分类：ccbot /
+    -- claudebot / dataforseo 是普通 AI 与搜索爬虫，一次 5 分意味着
+    -- 5 次请求就把搜索引擎送进名单并在整个冷却期内被 403。
+    rule_signal_weights = {
+        bot = 1,
+    },
+
+    -- 已验证爬虫的 IPv4 网段（裸地址亦可）。**仅对上面列出的软分类生效**：
+    -- 攻击类规则永不豁免——爬虫去请求带注入载荷的 URL，那仍然是注入。
+    -- 默认为空是刻意的：各厂商在各自的 URL 上发布并各自更新，固化进代码
+    -- 的名单会静默过期却仍在扩大信任边界。用 tools/fetch_crawler_ips.py 拉取。
+    crawler_ip_whitelist = {},
 }
 ```
+
+> **`enable` 曾经形同虚设**：在 2026-10-14 之前，全树没有任何代码读取该键，
+> 出厂默认值是 `false` 而记录/标记照常运行。现已由 `ip_reputation.is_enabled()`
+> 在记录、标记、`get_score`、`is_flagged` 四个入口统一把关——关闭后前置-3 的
+> 403 也一并停止。**键缺失视为开启**：早于该开关存在的配置文件描述的是一个正在
+> 运行的实例，若按"缺失即关闭"处理，升级会静默解除所有标记。
+>
+> 标记本身是惰性的：`is_flagged()` 在得分越过阈值的那一刻才写入 flag，
+> 所以"分数到了 25"与"名单里出现"之间可能差一次请求。
 
 ### 2.6 核心 API
 
@@ -200,6 +223,37 @@ ip_reputation.restore()                   -- 从磁盘恢复
 ---
 
 ## 三、方案 B：Challenge 动作实现
+
+### 3.0 实现状态（2026-10-14 复核）
+
+代码是完整的：`plugin/browser_verify/`（cookie_verify / javascript_verify）、
+`rule_engine` 的 challenge 分支、`support/verify_javascript.html`、
+`ip_reputation` 的 pending / challenge_fail 闭环、`plugin/filter` 的两阶段
+执行（硬 block 规则先跑，challenge 类规则可被 cookie 跳过）都在。
+
+但有两点必须说清楚，否则容易高估它的防护力：
+
+**一、产线上从未启用。** 运行态 27 条规则的动作分布是 `block 10 / log 17 /
+challenge 0`，且 `config.rule.browser_verify` 为 null。因此整条 challenge
+路径在生产中没有任何规则会走到——它目前是**死代码**，不是"正在保护你"。
+
+**二、它的"JavaScript 挑战"没有计算量。** `javascript_verify.challenge()`
+在**服务端**算好 `sign(ctx, "javascript")`（md5 of 槽位 + IP + UA + 种子），
+再用 `gsub("INFOCOOKIE", js_sign)` 注入页面；页面脚本只是
+`setCookie('verynginx_sign_javascript', data['cookie'], 600)`。也就是说：
+
+- 没有任何 proof-of-work，没有运算耗时，没有时序校验
+- 任何 HTTP 客户端多请求一次、把 HTML 里的值正则出来，即可重放
+- 签名绑定 IP + UA + 600 秒时隙，因此能挡住**跨 IP / 跨 UA 重放**和过期重放
+
+结论：它挡的是"不执行 JS 的裸客户端顺带被放过"，对**有脚本能力的攻击者
+防护接近于零**（多一次请求的成本）。文档 3.1 机制 D 里担心的正是这一点——
+攻击者用真实浏览器执行一次 JS 拿到 cookie 后即可跳过 challenge 类规则，
+这也是硬 block 规则必须始终执行的原因。
+
+若要让 challenge 具备实际意义，需要补的是：服务端下发随机 nonce、
+客户端完成一个可验证的计算（如 hashcash / WebCrypto 派生）、服务端校验
+并对耗时做下限判定。这属于独立的工作量，未包含在当前实现中。
 
 ### 3.1 现状分析
 
