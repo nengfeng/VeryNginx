@@ -549,6 +549,46 @@ local function normalize_defaults(config, schema, opts)
 end
 
 -- ---------------------------------------------------------------------------
+-- Expand the JSON-string matcher alias into a real `matcher` table.
+--
+-- The frequency editor (and the template library it draws from) stores the
+-- matcher as `matcherJson`, a JSON *string*. Nothing downstream ever read it:
+-- compile_runtime_snapshot() only resolves `rule.matcher`, validate_rule() only
+-- validates `rule.matcher`, and matcher.resolve() only looks at `_matcher_def`
+-- / `rule.matcher`. A rule carrying just `matcherJson` therefore resolved to
+-- nil and the frequency plugin skipped it — silently, with no log — so every
+-- rule created from a template matched nothing, forever.
+--
+-- This runs BEFORE validate_config() on purpose: validate_rule() is what
+-- rejects malformed IPs and CIDR in frequency matchers, so expanding after
+-- validation would let those constraints be bypassed by hiding the matcher in
+-- the string field.
+--
+-- An explicit `matcher` always wins; a matcherJson that fails to decode is
+-- left in place so the operator can see and fix it (and the plugin warns).
+-- ---------------------------------------------------------------------------
+local function expand_matcher_json(config)
+    local groups = config and config.rule
+    if type(groups) ~= "table" then
+        return
+    end
+    for _, rules in pairs(groups) do
+        if type(rules) == "table" then
+            for _, rule in ipairs(rules) do
+                if type(rule) == "table" and rule.matcher == nil
+                   and type(rule.matcherJson) == "string"
+                   and rule.matcherJson ~= "" then
+                    local ok, decoded = pcall(json.decode, rule.matcherJson)
+                    if ok and type(decoded) == "table" then
+                        rule.matcher = decoded
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- Validate a single rule for reference integrity
 -- ---------------------------------------------------------------------------
 local _ok_action, _action_init = pcall(require, "action.init")
@@ -1155,6 +1195,7 @@ function _M.load_from_file()
         end
     end
 
+    expand_matcher_json(config)
     local ok, err_or_normalized = validate_config(config)
     if not ok then
         ngx.log(ngx.ERR, "config validation failed: ", err_or_normalized)
@@ -1435,7 +1476,9 @@ function _M.save(config, opts)
         return false, msg
     end
 
-    -- validate
+    -- validate (after expanding the matcherJson alias so the frequency
+    -- matcher constraints below actually see those matchers)
+    expand_matcher_json(config)
     local ok, err_or_normalized = validate_config(config)
     if not ok then
         release_save_lock(lock_key, lock_token)
@@ -1585,6 +1628,12 @@ end
 -- Exposed for testing (not part of public API)
 function _M.validate_config(config)
     return validate_config(config)
+end
+
+-- Exposed for testing: the matcherJson alias expansion that runs ahead of
+-- validation on both the load and the atomic_mutate path.
+function _M.expand_matcher_json(config)
+    return expand_matcher_json(config)
 end
 
 -- Make config read-only (except for local_hash which is mutated at runtime)

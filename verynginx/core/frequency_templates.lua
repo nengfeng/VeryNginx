@@ -204,6 +204,22 @@ function _M.apply(name, overrides)
     if rule.id == nil or rule.id == "" then
         rule.id = "freq_" .. tostring(ngx.time())
     end
+    -- Materialise the matcher. The templates carry it as `matcherJson` (a JSON
+    -- string) because that is the form the frequency editor round-trips, but
+    -- only `matcher` is ever consumed by matcher.resolve() — a rule that kept
+    -- the string form resolved to nil and matched nothing, silently and
+    -- forever. Decode it here so a template-applied rule is enforceable the
+    -- moment it is saved; matcherJson is left in place for the editor's
+    -- round-trip.
+    if rule.matcher == nil and type(rule.matcherJson) == "string" then
+        local dec_ok, decoded = pcall(json.decode, rule.matcherJson)
+        if dec_ok and type(decoded) == "table" then
+            rule.matcher = decoded
+        end
+    end
+    if rule.matcher == nil then
+        return nil, "template has no usable matcher"
+    end
     return rule, nil
 end
 

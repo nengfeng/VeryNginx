@@ -80,6 +80,47 @@ describe("frequency_templates", function()
         end
     end)
 
+    -- The templates carry the matcher as `matcherJson`, a JSON string, but
+    -- only `matcher` is ever consumed by matcher.resolve(). A template-applied
+    -- rule that kept the string form resolved to nil and matched nothing, with
+    -- no error anywhere — the panel showed a configured rule that could never
+    -- fire. apply() must materialise it.
+    it("apply() materialises the matcher table from matcherJson", function()
+        local tpl = require "core.frequency_templates"
+        for _, name in ipairs({ "login_bruteforce", "api_abuse", "crawler",
+                                "global_cc", "sensitive_api", "per_user",
+                                "host_based", "aggressive_block" }) do
+            local rule = tpl.apply(name)
+            assert.truthy(rule, name)
+            assert.are.equal("table", type(rule.matcher),
+                name .. " ships without a matcher table")
+            assert.is_truthy(rule.matcherJson ~= nil or next(rule.matcher) ~= nil)
+        end
+        assert.are.equal("/login", tpl.apply("login_bruteforce").matcher.URI.value)
+        assert.are.equal("/api/", tpl.apply("api_abuse").matcher.URI.value)
+    end)
+
+    it("apply() keeps matcherJson for the editor round-trip", function()
+        local tpl = require "core.frequency_templates"
+        local rule = tpl.apply("login_bruteforce")
+        assert.are.equal('{"URI":{"operator":"≈","value":"/login"}}', rule.matcherJson)
+    end)
+
+    it("apply() honours a matcherJson override", function()
+        local tpl = require "core.frequency_templates"
+        local rule = tpl.apply("global_cc",
+            { matcherJson = '{"URI":{"operator":"≈","value":"/custom"}}' })
+        assert.are.equal("table", type(rule.matcher))
+        assert.are.equal("/custom", rule.matcher.URI.value)
+    end)
+
+    it("apply() rejects a malformed matcherJson override", function()
+        local tpl = require "core.frequency_templates"
+        local rule, err = tpl.apply("global_cc", { matcherJson = "{not json" })
+        assert.is_nil(rule)
+        assert.truthy(err)
+    end)
+
     it("apply() returns error for unknown template", function()
         local tpl = require "core.frequency_templates"
         local rule, err = tpl.apply("nonexistent")

@@ -28,6 +28,11 @@ local ev = require "core.kernel_blocking.evidence"
 -- recomputes only when it changes (avoids O(#rules) scan per request).
 local _v2_cache = { generation = -1, active = false }
 
+-- Rules already warned about, keyed "<rule id>@<config generation>". A config
+-- save bumps the generation, so an operator who fixes the matcher gets a fresh
+-- warning if it is still broken, without per-request log spam.
+local _warned_matcher = {}
+
 local function is_v2_active()
     local s = ngx.shared.frequency_limit
     if not s then
@@ -80,6 +85,23 @@ function _M.on_access(ctx)
 
         local matcher_def = matcher.resolve(rule)
         if not matcher_def then
+            -- A rule with no resolvable matcher matches nothing, forever, and
+            -- the failure is otherwise invisible: the panel renders it as a
+            -- configured rule and the plugin just skips it. Warn once per rule
+            -- per config generation rather than per request — this sits on the
+            -- request path, so an unconditional log would flood the error log
+            -- on any busy site.
+            local gen = ngx.shared.frequency_limit
+                and ngx.shared.frequency_limit:get("fl:v2:config_generation") or -1
+            local wkey = tostring(rule.id) .. "@" .. tostring(gen)
+            if not _warned_matcher[wkey] then
+                _warned_matcher[wkey] = true
+                ngx.log(ngx.WARN,
+                        "frequency_limit: rule '", tostring(rule.id),
+                        "' has no resolvable matcher and will never match ",
+                        "(checked matcherJson=", tostring(rule.matcherJson),
+                        ", matcher=", type(rule.matcher))
+            end
             goto continue
         end
 
