@@ -1,6 +1,6 @@
 {
-  "version": 17,
-  "timestamp": "2026-10-13T09:55:51Z",
+  "version": 18,
+  "timestamp": "2026-10-14T01:40:00Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -31,17 +31,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "\\bunion\\b(?:[\\s/*!]+(?:all|distinct))?[\\s/*!\\d(]*select\\b[\\s/*!\\d(]*(?:(?:\\*|\\(|\\d|null\\b|distinct\\b|'[^']*'|\\\"[^\\\"]*\\\"|[\\w$]+\\s*\\(|[\\w$]+\\s*,)|(?=[\\s\\S]{0,200}?['\\\"()\\d=;*,!@#%+<>&|~-]|[\\s\\S]{0,200}?\\b(?:passwords?|passwd|usernames?|admins?|schemas?|versions?|databases?|table_name|column_name|information_schema|group_concat|concat|char)\\b)[^;]{0,100}?\\b(?:from|into|limit|where|having)\\b)|(?:['\\\"()=*;])[\\s\\S]{0,20}?\\bunion\\b(?:[\\s/*!]+(?:all|distinct))?[\\s/*!\\d(]*select\\b[\\s/*!\\d(]*[^;]{0,100}?\\b(?:from|into|limit|where|having)\\b"
+                "value": "\\bunion\\b(?:[\\s/*!]+(?:all|distinct))?(?:[\\s(!\\d]|/\\*(?:[\\s\\S]*?\\*/|[!\\d]*)|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*select\\b(?:[\\s(!\\d]|/\\*(?:[\\s\\S]*?\\*/|[!\\d]*)|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*(?:(?:\\*|\\(|\\d|null\\b|distinct\\b|'[^']*'|\\\"[^\\\"]*\\\"|[\\w$]+\\s*\\(|[\\w$]+\\s*,)|(?=[\\s\\S]{0,200}?['\\\"()\\d=;*,!@#%+<>&|~-]|[\\s\\S]{0,200}?\\b(?:passwords?|passwd|usernames?|admins?|schemas?|versions?|databases?|table_name|column_name|information_schema|group_concat|concat|char)\\b)[^;]{0,100}?\\b(?:from|into|limit|where|having)\\b)|(?:['\\\"()=*;])[\\s\\S]{0,20}?\\bunion\\b(?:[\\s/*!]+(?:all|distinct))?(?:[\\s(!\\d]|/\\*(?:[\\s\\S]*?\\*/|[!\\d]*)|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*select\\b(?:[\\s(!\\d]|/\\*(?:[\\s\\S]*?\\*/|[!\\d]*)|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*[^;]{0,100}?\\b(?:from|into|limit|where|having)\\b"
               }
             }
           ]
         }
       },
-      "description": "Detects UNION-based SQL injection attempts in request parameters (UNION(SELECT) and UNION DISTINCT included; bare-word column lists require an attack marker so tutorial prose stays out).",
+      "description": "Detects UNION-based SQL injection attempts in request parameters (UNION(SELECT) and UNION DISTINCT included; bare-word column lists require an attack marker so tutorial prose stays out). v18: the UNION/SELECT separator also accepts SQL comments, not just blank characters — an arbitrary comment body (/*x*/), MySQL conditional comments with the SELECT inside them (/*!50000SELECT*/, which the old character class matched only because it ate /,*,! and the digits), and the two line comments (-- and #). The '--' body is required to be empty, which is what MySQL actually honours: '-- select 3 items' is prose, '-- -\\nselect' is an injection.",
       "tags": [],
-      "version": 7,
+      "version": 8,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T09:37:42Z",
+      "updated_at": "2026-10-14T01:40:00Z",
       "created_by": "system"
     },
     {
@@ -73,17 +73,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "(?:\\b(?:or|and)\\b|\\|\\||&&)(?:\\s|/\\*[\\s\\S]*?\\*/)*['\\\"]?(?:\\s|/\\*[\\s\\S]*?\\*/)*\\d+(?:\\s|/\\*[\\s\\S]*?\\*/)*(?:=|<>|!=|<=|>=|<|>|\\bLIKE\\b|\\bRLIKE\\b|\\bREGEXP\\b|\\bIN\\b|\\bBETWEEN\\b)(?:\\s|/\\*[\\s\\S]*?\\*/)*(?:\\(\\s*)?\\d+|['\\\"](?:\\s|/\\*[\\s\\S]*?\\*/)*(?:\\b(?:or|and)\\b|\\|\\||&&)(?:\\s|/\\*[\\s\\S]*?\\*/)*['\\\"][^'\\\\\\\"]*['\\\"](?:\\s|/\\*[\\s\\S]*?\\*/)*(?:=|<>|!=|<=|>=|<|>|\\bLIKE\\b|\\bRLIKE\\b|\\bREGEXP\\b|\\bIN\\b|\\bBETWEEN\\b)(?:\\s|/\\*[\\s\\S]*?\\*/)*(?:\\(\\s*)?['\\\"]"
+                "value": "(?:\\b(?:or|and)\\b|\\|\\||&&)(?:\\s|/\\*[\\s\\S]*?\\*/|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*['\\\"]?(?:\\s|/\\*[\\s\\S]*?\\*/|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*\\d+(?:\\s|/\\*[\\s\\S]*?\\*/|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*(?:=|<>|!=|<=|>=|<|>|\\bLIKE\\b|\\bRLIKE\\b|\\bREGEXP\\b|\\bIN\\b|\\bBETWEEN\\b)(?:\\s|/\\*[\\s\\S]*?\\*/|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*(?:\\(\\s*)?\\d+|['\\\"](?:\\s|/\\*[\\s\\S]*?\\*/|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*(?:\\b(?:or|and)\\b|\\|\\||&&)(?:\\s|/\\*[\\s\\S]*?\\*/|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*['\\\"][^'\\\\\\\"]*['\\\"](?:\\s|/\\*[\\s\\S]*?\\*/|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*(?:=|<>|!=|<=|>=|<|>|\\bLIKE\\b|\\bRLIKE\\b|\\bREGEXP\\b|\\bIN\\b|\\bBETWEEN\\b)(?:\\s|/\\*[\\s\\S]*?\\*/|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*(?:\\(\\s*)?['\\\"]"
               }
             }
           ]
         }
       },
-      "description": "Detects tautology-based SQLi like ' OR 1=1 (comment-obfuscated gaps and LIKE/IN/BETWEEN covered).",
+      "description": "Detects tautology-based SQLi like ' OR 1=1 (comment-obfuscated gaps and LIKE/IN/BETWEEN covered). v18: the gap between the boolean operator and the compared literals also tolerates line comments (' OR-- -\\n1=1), which previously slipped through because only block comments were accepted there.",
       "tags": [],
-      "version": 6,
+      "version": 7,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T09:37:42Z",
+      "updated_at": "2026-10-14T01:40:00Z",
       "created_by": "system"
     },
     {
@@ -171,6 +171,48 @@
       "version": 6,
       "created_at": "2026-10-11T10:45:00Z",
       "updated_at": "2026-10-13T09:37:42Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_sqli_0005",
+      "name": "SQL Injection — Stacked Query After Breakout",
+      "category": "sqli",
+      "severity": "high",
+      "action": "log",
+      "enable": true,
+      "priority": 20,
+      "matcher": {
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "Composite": {
+                "operator": "NOT",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "(?i)^/(?:phpmyadmin|phpminiadmin|adminer)(?:\\.php)?(?:/|$)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Args": {
+                "name_operator": "*",
+                "operator": "≈",
+                "value": "(?:['\\\"()=*;,]|\\d)\\s*;\\s*(?:select|insert|update)\\b(?:[\\s(!\\d]|/\\*(?:[\\s\\S]*?\\*/|[!\\d]*)|--[ \\t-]*(?=\\r?\\n|$)|[#][^\\r\\n]*)*(?:\\*|into\\b|[\\w$]+\\s*(?:,|\\()|[\\w$]+\\s+(?:from|into|set|values)\\b)"
+              }
+            }
+          ]
+        }
+      },
+      "description": "Detects a second query stacked onto a string breakout (\"1'; SELECT password FROM users\"), which vn_sqli_0001 cannot see: that rule needs UNION, and vn_sqli_0003 only covers DDL/DML verbs at log. Precision comes from demanding both an SQL-ish character immediately before the semicolon and a column-list shape after the verb, so prose like \"click; select a plan from the menu\" stays out. UNION-stacked payloads are left to vn_sqli_0001, which already matches them. Action is log for the first release: the pattern is new and its prose surface has only been measured against a synthetic corpus.",
+      "tags": [],
+      "version": 1,
+      "created_at": "2026-10-14T01:40:00Z",
+      "updated_at": "2026-10-14T01:40:00Z",
       "created_by": "system"
     },
     {

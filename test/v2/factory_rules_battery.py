@@ -36,6 +36,12 @@ Coverage contract (learned the hard way — the v14 rce_0007 review):
      path/flag/URL/sensitive-word argument guard. Accepted misses
      ("; ps aux", "; make install", "; cat passwd without slash is now
      caught by marker word") are asserted as misses, not ignored.
+  7. v18 sqli review round: comment-based UNION/SELECT separators (arbitrary
+     comment bodies, MySQL conditional comments, -- and #), line comments in
+     the tautology gaps, and stacked SELECT after a string breakout as a new
+     log-level rule. Pins cover both halves of each precision argument — the
+     accept shape AND the prose that must stay clear — plus the conditional-
+     comment regression trap and the non-viable same-line '-- -' payload.
   5. P0 review-round fixes (v16: sqli union/select-shape bypasses,
      tautology comment/LIKE gaps, sleep-prefix/info_schema prose FPs,
      xss event/verb-table gaps, ssrf userinfo bypass) each carry their own
@@ -171,12 +177,12 @@ def main():
     for rid, pat in (("vn_rce_0007", bp), ("vn_rce_0025", lp)):
         uris = regex_values(by[rid]["matcher"])
         check(NEW_EX in uris, f"{rid} keeps the admin-path exemption")
-    check(d.get("version") == 17, f"file version == 17 (got {d.get('version')})")
-    check(len(d["rules"]) == 26, f"26 rules (got {len(d['rules'])})")
+    check(d.get("version") == 18, f"file version == 18 (got {d.get('version')})")
+    check(len(d["rules"]) == 27, f"27 rules (got {len(d['rules'])})")
     check(by["vn_rce_0007"]["version"] >= 7, "vn_rce_0007 v7 (anchored, suppressor gone)")
     check(by["vn_rce_0025"]["version"] >= 2, "vn_rce_0025 v2 (merged command list)")
-    check(by["vn_sqli_0001"]["version"] >= 7, "vn_sqli_0001 v7 (union-shape bypasses closed)")
-    check(by["vn_sqli_0002"]["version"] >= 6, "vn_sqli_0002 v6 (comment/LIKE gaps closed)")
+    check(by["vn_sqli_0001"]["version"] >= 8, "vn_sqli_0001 v8 (comment/line-comment separators)")
+    check(by["vn_sqli_0002"]["version"] >= 7, "vn_sqli_0002 v7 (line-comment gaps closed)")
     check(by["vn_sqli_0004"]["version"] >= 6, "vn_sqli_0004 v6 (sleep-prefix/info_schema prose fixed)")
     check(by["vn_xss_0005"]["version"] >= 5, "vn_xss_0005 v5 (event families added)")
     check(by["vn_xss_0006"]["version"] >= 7, "vn_xss_0006 v7 (verb-table redesign)")
@@ -409,6 +415,35 @@ def main():
         # value (covered by the backward-marker branch); sqlmap probes use
         # NULL (covered by the strong branch).
         ("1 union select name from t", False),
+        # v18: SQL comments as UNION/SELECT separators.
+        ("1' UNION/*x*/SELECT 1,2,3", True),
+        ("1' UNION-- -\nSELECT 1,2,3", True),
+        ("1' UNION--\nSELECT 1,2,3", True),
+        ("1' UNION#\nSELECT 1,2,3", True),
+        ("1' UNION#x\nSELECT 1,2,3", True),
+        # Same reason as the accepted miss below: the SELECT sits on the
+        # commented-out remainder of the line.
+        ("-1' UNION/**/-- -SELECT 1,2,3", False),
+        ("1'/*x*/UNION-- -\nSELECT 1,2,3", True),
+        # v18 trap guard: v16 made /*!50000SELECT*/ match by letting the
+        # character class eat /,*,! and the digits. A naive "swallow whole
+        # comments" separator would delete the SELECT and regress this.
+        ("1' UNION/*!50000SELECT*/ 1,2,3", True),
+        ("1' UNION/**!50000*/SELECT 1,2,3", True),
+        ("1' UnIoN/*!40000SeLeCt*/1,2,3", True),
+        # '--' must have an empty body: MySQL honours only that, and a word
+        # after the dashes is prose ("union -- select 3 items").
+        ("the union -- select 3 items from the list", False),
+        ("press go -- select 5 rows from the table below", False),
+        ("union-- select 4 names from the roster", False),
+        ("please union the lists and select one option from the menu", False),
+        ("trade union will select 5 delegates from the union", False),
+        ("the credit union select rates from the table daily", False),
+        # Accepted misses, asserted not ignored: '-- -' followed by SELECT on
+        # the SAME line is not a working payload (MySQL comments out the rest
+        # of the line), and NUL is rejected inside a query.
+        ("1' UNION-- -SELECT 1,2,3", False),
+        ("1' union\x00select 1,2,3", False),
     ], "vn_sqli_0001")
 
     pin(re.compile(args_pattern(by["vn_sqli_0002"]), re.I), [
@@ -424,9 +459,60 @@ def main():
         ("' OR 'a'='a", True),
         ("cats or dogs, 1<2", False),
         ("do you like tea or coffee", False),
+        # v18: line comments in the gaps around the comparison.
+        ("' OR-- -\n1=1-- -", True),
+        ("' or#\n1=1#", True),
+        ("1 AND-- -\n1=1", True),
+        ("cats and dogs 3", False),
         # Known FP (P1, block): "bake 30 min or 1<2 hours" still hits.
         # Pinned in prose, not asserted, pending a value-shape guard.
     ], "vn_sqli_0002")
+
+    # vn_sqli_0003 had no behavioural pins at all before v18; its verb list is
+    # the reason the rule stays at log, so pin both sides explicitly.
+    pin(re.compile(args_pattern(by["vn_sqli_0003"]), re.I), [
+        ("id=1; DROP TABLE users", True),
+        ("id=1;TRUNCATE TABLE t", True),
+        ("1; exec master..xp_cmdshell", True),
+        ("1&&insert into t values(1)", True),
+        ("1; grant all on *.* to x", True),
+        # These DO hit — that is precisely why the action is log, not block.
+        # Pinned as hits so nobody "fixes" the pattern into a block rule by
+        # accident, and so the cost of promoting it stays visible.
+        ("wait; create an account now", True),
+        ("ok; update: fixed in v2", True),
+        ("steps 3; delete the old rows", True),
+        # SELECT-stacked is not this rule's job: vn_sqli_0003 has no select
+        # verb, so it must stay clear and let vn_sqli_0005 / vn_sqli_0001 own it.
+        ("1'; SELECT password FROM users", False),
+    ], "vn_sqli_0003")
+
+    # vn_sqli_0005 (v18, ships at log): stacked query after a string breakout.
+    pin(re.compile(args_pattern(by["vn_sqli_0005"]), re.I), [
+        ("1'; SELECT password FROM users-- -", True),
+        ("1'; select * from admin", True),
+        ("1; select id,name from users", True),
+        ("' OR 1=1; SELECT 1,2,3", True),
+        ("1'; select/**/1,2,3", True),
+        ("1); select * from t", True),
+        ("x'; update users set admin=1 where id=2", True),
+        ("1'; insert into users values(1,'a')", True),
+        ("1';\nSELECT\n* from admin", True),
+        # Precision comes from the SQL-ish char before ';' AND a column shape
+        # after the verb; both halves are load-bearing.
+        ("click; select a plan from the menu", False),
+        ("steps 3; select the checkbox to continue", False),
+        ("hint: union; select one from a to z", False),
+        ("press; select all and copy", False),
+        ("1; select the right font from the list below", False),
+        ("\u5907\u6ce8; \u8bf7 select \u59d3\u540d from \u540d\u5355", False),
+        ("the plugin will select and insert the row automatically", False),
+        # Left to other rules on purpose: UNION-stacked is vn_sqli_0001's
+        # (it matches with or without the semicolon), DDL/DML verbs are
+        # vn_sqli_0003's.
+        ("'; union select 1,2,3", False),
+        ("1'; DROP TABLE users", False),
+    ], "vn_sqli_0005")
 
     pin(re.compile(args_pattern(by["vn_sqli_0004"]), re.I), [
         ("1' AND SLEEP(5)--+", True),
@@ -517,9 +603,9 @@ def main():
         for v in regex_values(r.get("matcher") or {}):
             if "phpmyadmin" in v.lower():
                 ex_vals.append((r["id"], v))
-    check(len(ex_vals) == 15 and all(v == NEW_EX for _, v in ex_vals),
-          f"15 exemption sites carry the .php-tolerant pattern "
-          f"(14 v14 rules + vn_rce_0025; got {len(ex_vals)})")
+    check(len(ex_vals) == 16 and all(v == NEW_EX for _, v in ex_vals),
+          f"16 exemption sites carry the .php-tolerant pattern "
+          f"(14 v14 rules + vn_rce_0025 + vn_sqli_0005; got {len(ex_vals)})")
     ex = re.compile(NEW_EX, re.I)
     for uri in ["/phpMyAdmin/", "/adminer.php", "/phpminiadmin.php", "/adminer.php/server"]:
         check(bool(ex.match(uri)), f"exempt: {uri}")
