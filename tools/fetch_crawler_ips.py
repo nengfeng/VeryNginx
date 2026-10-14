@@ -47,22 +47,28 @@ IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 # json_pointer: dotted path into a decoded document whose prefixes are NOT
 # reachable by _json_v4's shape probing (plain-text sources leave it None).
 #
-# Three of these publish a machine-readable JSON. The other two cannot be
-# fetched and are listed so the failure is expected and explained rather than
-# looking like a bug: DuckDuckGo renders the list client-side (its initial
-# HTML contains no addresses at all), and Baidu publishes no public range
-# file — its documented check is reverse DNS plus a forward-confirming lookup,
-# with the ranges visible only inside the logged-in webmaster portal. Third
-# party "Baiduspider IP段" blog posts are exactly the kind of remembered list
-# this tool exists to avoid.
+# Four of these publish a machine-readable JSON. Baidu cannot be fetched and is
+# listed so the failure is expected and explained rather than looking like a
+# bug: it publishes no public range file at all — its documented check is
+# reverse DNS plus a forward-confirming lookup, with the ranges visible only
+# inside the logged-in webmaster portal. Third party "Baiduspider IP段" blog
+# posts are exactly the kind of remembered list this tool exists to avoid.
+#
+# Note on sizes: DuckDuckGo publishes several hundred individual /32s, so the
+# merged list runs to ~700 entries and match_any() walks all of them on a bot
+# rule match. Measured against the real 708-entry list on this box: 156 us for
+# a full miss, 124 us for a Google /27 hit, and ~1 us when an early entry
+# matches on string equality. That path is only reached once a bot rule's
+# matcher has already matched, so it is a rare request, and the narrow /32s
+# mean the exemption grants nothing beyond the exact addresses DuckDuckGo says
+# it crawls from.
 SOURCES = {
     "google":  ("https://developers.google.com/static/crawling/ipranges/common-crawlers.json", None,
                 "Googlebot, Google-InspectionTool, GoogleOther, Google-Read-Aloud, "
                 "Google-Extended, Storebot-Google, GoogleProducer, APIs-Google"),
     "bing":    ("https://www.bing.com/toolbox/bingbot.json", None, "Bingbot"),
     "apple":   ("https://search.developer.apple.com/applebot.json", None, "Applebot"),
-    "duckduckgo": ("https://duckduckgo.com/ips", None,
-                   "DuckDuckBot — client-rendered, NOT fetchable; paste by hand"),
+    "duckduckgo": ("https://duckduckgo.com/duckduckbot.json", None, "DuckDuckBot"),
     "baidu":   ("https://ziyuan.baidu.com/ziyuan/help", None,
                 "Baiduspider — no public range file; reverse-DNS + forward confirm"),
 }
