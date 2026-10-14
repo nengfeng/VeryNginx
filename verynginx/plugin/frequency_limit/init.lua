@@ -114,7 +114,7 @@ function _M.on_access(ctx)
                 local enc_dim = limiter.build_key_v2(rule.key or "ip", ctx)
                 key = "fl:v2:count:" .. enc_id .. ":" .. enc_dim
             else
-                key = limiter.build_key(rule.key or "ip", ctx)
+                key = limiter.build_key(rule.key or "ip", ctx, rule.id)
             end
             local current = shared:incr(key, 1, 0, window)
 

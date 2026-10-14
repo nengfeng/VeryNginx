@@ -15,18 +15,30 @@ local ip_enc = require "core.kernel_blocking.ip_encoding"
 --- Build a rate limit key based on dimension (full, v1 format).
 -- @param key_def string|table: dimension like "ip", "uri", "user", or {"ip","uri"}
 -- @param ctx table: request context
+-- @param rule_id string|nil: when given, the counter is namespaced per rule.
+--   The v1 namespace originally had no rule id, so two rules on the same
+--   dimension shared ONE counter ("fl:ip:1.2.3.4"), and the plugin increments
+--   the counter once per matching rule — a 30-request burst against two
+--   ip-keyed rules counted 60, halving every configured threshold and letting
+--   one rule's window decide another's lifetime. Callers on the request path
+--   must pass the id.
 -- @return string: rate limit key with "fl:" prefix (legacy v1)
-function _M.build_key(key_def, ctx)
+function _M.build_key(key_def, ctx, rule_id)
+    local dim
     if type(key_def) == "table" then
         local parts = {}
-        for _, dim in ipairs(key_def) do
-            table.insert(parts, _M._dimension_value(dim, ctx))
+        for _, d in ipairs(key_def) do
+            table.insert(parts, _M._dimension_value(d, ctx))
         end
-        return "fl:combo:" .. table.concat(parts, ":")
+        dim = "combo:" .. table.concat(parts, ":")
+    else
+        dim = tostring(key_def) .. ":" .. _M._dimension_value(key_def, ctx)
     end
 
-    local val = _M._dimension_value(key_def, ctx)
-    return "fl:" .. tostring(key_def) .. ":" .. val
+    if rule_id == nil or rule_id == "" then
+        return "fl:" .. dim
+    end
+    return "fl:v1:" .. tostring(rule_id) .. ":" .. dim
 end
 
 --- Build a v2 dimension value (encoded, no prefix).

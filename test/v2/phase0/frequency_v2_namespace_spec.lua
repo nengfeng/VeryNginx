@@ -76,6 +76,34 @@ describe("limiter v2 build_key_v2", function()
         assert.falsy(enc:find("^ip:"))
     end)
 
+    -- Two rules on the same dimension used to share ONE counter, and the
+    -- plugin increments once per matching rule, so a burst against two
+    -- ip-keyed rules counted double against both thresholds. The v1 key must
+    -- be namespaced per rule id on the request path.
+    it("namespaces the v1 key by rule id", function()
+        local ctx = { request = { remote_addr = "10.0.0.1" } }
+        local a = limiter.build_key("ip", ctx, "freq_global_cc")
+        local b = limiter.build_key("ip", ctx, "freq_burst_cc")
+        assert.truthy(a:find("freq_global_cc", 1, true))
+        assert.truthy(b:find("freq_burst_cc", 1, true))
+        assert.are_not.equal(a, b)
+    end)
+
+    it("keeps the legacy key shape when no rule id is given", function()
+        local ctx = { request = { remote_addr = "10.0.0.1" } }
+        local legacy = limiter.build_key("ip", ctx)
+        assert.are.equal("fl:ip:10.0.0.1", legacy)
+    end)
+
+    it("namespaces combo keys by rule id too", function()
+        local ctx = { request = { remote_addr = "10.0.0.1",
+                                  host = "gongyi.info" } }
+        local a = limiter.build_key({"host","ip"}, ctx, "freq_host_based")
+        local b = limiter.build_key({"host","ip"}, ctx, "freq_other")
+        assert.are_not.equal(a, b)
+        assert.truthy(a:find("combo:", 1, true))
+    end)
+
     it("returns full key with v1 build_key", function()
         local ctx = { request = { remote_addr = "10.0.0.1" } }
         local key = limiter.build_key("ip", ctx)
