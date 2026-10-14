@@ -60,6 +60,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .login-box .field{margin-bottom:16px}
 .login-box .field label{display:block;font-size:13px;font-weight:600;margin-bottom:4px;color:var(--muted)}
 .error{background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
+/* Advisory, not an error: states a configured-but-inert condition (a disabled
+   subsystem, an empty allow-list). Amber rather than red so it is not mistaken
+   for a failure, and carries the same padding/rhythm as .error. */
+.notice{background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
 .login-box button.primary{width:100%;padding:12px;font-size:15px}
 /* Password row: input takes all remaining width; the visibility toggle stays
    compact. (.login-box button width:100% used to leak onto .pass-toggle and

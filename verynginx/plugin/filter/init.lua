@@ -135,6 +135,18 @@ local function evaluate_rules(rules, ctx, ip)
 
         local action = rule.action or "log"
 
+        -- Verified-crawler exemption. Checked BEFORE the hit is recorded so a
+        -- skipped rule leaves no trace in the rule statistics either — a
+        -- crawler that is let through should not look like a rule that
+        -- matched, and the panel's per-rule hit counts stay meaningful.
+        -- Only soft categories qualify (see ip_reputation.is_crawler_exempt);
+        -- attack rules always run. With no crawler_ip_whitelist configured
+        -- match_any() is false for every IP and this is one extra table
+        -- lookup on a path that already did a full matcher evaluation.
+        if ip_reputation.is_crawler_exempt(rule, ip) then
+            goto continue
+        end
+
         waf_manager.record_hit(rule.id, ctx, action)
 
         if action == "accept" then
@@ -142,7 +154,7 @@ local function evaluate_rules(rules, ctx, ip)
             ctx.set_action(ctx, "accept")
             return true
         elseif action == "block" then
-            ip_reputation.record_signal(ip, "waf_block")
+            ip_reputation.record_signal(ip, "waf_block", rule)
             if config.kernel_ip_blocking and config.kernel_ip_blocking.enabled then
                 if not evidence then evidence = require "core.kernel_blocking.evidence" end
                 evidence.record_waf_block_evidence(ip)
@@ -150,7 +162,7 @@ local function evaluate_rules(rules, ctx, ip)
             ctx.set_action(ctx, "block", { code = rule.code or 403, response = rule.response })
             return true
         elseif action == "challenge" then
-            ip_reputation.record_signal(ip, "waf_challenge")
+            ip_reputation.record_signal(ip, "waf_challenge", rule)
             if ngx.ctx.is_flagged then
                 ctx.set_action(ctx, "block", { code = 403, response = rule.response })
                 return true
