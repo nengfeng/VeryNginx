@@ -44,19 +44,27 @@ UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
 IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 
 # key -> (url, json_pointer_or_None, note)
-# json_pointer: dotted path into the decoded JSON, e.g. "prefixes.IPv4"
+# json_pointer: dotted path into a decoded document whose prefixes are NOT
+# reachable by _json_v4's shape probing (plain-text sources leave it None).
+#
+# Three of these publish a machine-readable JSON. The other two cannot be
+# fetched and are listed so the failure is expected and explained rather than
+# looking like a bug: DuckDuckGo renders the list client-side (its initial
+# HTML contains no addresses at all), and Baidu publishes no public range
+# file — its documented check is reverse DNS plus a forward-confirming lookup,
+# with the ranges visible only inside the logged-in webmaster portal. Third
+# party "Baiduspider IP段" blog posts are exactly the kind of remembered list
+# this tool exists to avoid.
 SOURCES = {
-    "google":  ("https://www.google.com/bots.txt", None,
-                "Googlebot + Google-InspectionTool + GoogleOther"),
-    "bing":    ("https://www.bing.com/bingbot.json", "prefixes.IPv4",
-                "Bingbot"),
-    "duckduckgo": ("https://duckduckgo.com/ips", None, "DuckDuckBot"),
-    "apple":   ("https://support.apple.com/en-us/HT205249", None,
-                "Applebot — page is JS-rendered; needs manual paste if empty"),
+    "google":  ("https://developers.google.com/static/crawling/ipranges/common-crawlers.json", None,
+                "Googlebot, Google-InspectionTool, GoogleOther, Google-Read-Aloud, "
+                "Google-Extended, Storebot-Google, GoogleProducer, APIs-Google"),
+    "bing":    ("https://www.bing.com/toolbox/bingbot.json", None, "Bingbot"),
+    "apple":   ("https://search.developer.apple.com/applebot.json", None, "Applebot"),
+    "duckduckgo": ("https://duckduckgo.com/ips", None,
+                   "DuckDuckBot — client-rendered, NOT fetchable; paste by hand"),
     "baidu":   ("https://ziyuan.baidu.com/ziyuan/help", None,
-                "Baiduspider — page is JS-rendered; needs manual paste if empty"),
-    "yandex":  ("https://yandex.com/robots.txt", None,
-                "YandexBot — not published as IP ranges"),
+                "Baiduspider — no public range file; reverse-DNS + forward confirm"),
 }
 
 
@@ -84,6 +92,40 @@ def _pluck(text, pointer):
         else:
             return text
     return cur if isinstance(cur, (list, str)) else text
+
+
+def _json_v4(data):
+    """Pull the IPv4 prefixes out of a decoded crawler-range document.
+
+    Two shapes are in the wild and neither is guessable from the other:
+      * Google's common-crawlers.json — {"prefixes": [{"ipv4Prefix": ...},
+                                                     {"ipv6Prefix": ...}]}
+        i.e. a flat array tagged per entry by key name.
+      * {"prefixes": {"IPv4": [...], "IPv6": [...]}} — bucketed by version.
+    Probing for the first that actually yields addresses keeps a vendor
+    re-shaping its JSON from silently emptying the list.
+    """
+    if not isinstance(data, dict):
+        return []
+    prefixes = data.get("prefixes", data)
+    if isinstance(prefixes, dict):
+        for key in ("IPv4", "ipv4", "ipv4Prefix", "prefixesIPv4"):
+            if isinstance(prefixes.get(key), list):
+                return [x for x in prefixes[key] if isinstance(x, str)]
+        return []
+    if isinstance(prefixes, list):
+        out = []
+        for entry in prefixes:
+            if isinstance(entry, str):
+                out.append(entry)
+            elif isinstance(entry, dict):
+                # Accept ipv4Prefix / ipv4_prefix / any *4* tagged key.
+                for key, val in entry.items():
+                    if isinstance(val, str) and ("ipv4" in key.lower()
+                                                 or key.lower().startswith("ipv4")):
+                        out.append(val)
+        return out
+    return []
 
 
 def _normalize(items):
@@ -140,9 +182,23 @@ def fetch(only=None):
             failures.append((key, url, str(exc)))
             print("  [FAIL] %-11s %s — %s" % (key, url, exc), file=sys.stderr)
             continue
-        cidrish = _pluck(body, pointer)
+        cidrish = None
+        try:
+            decoded = json.loads(body)
+        except json.JSONDecodeError:
+            decoded = None
+        if decoded is not None:
+            # Structured source: read exactly the IPv4 fields. A regex sweep
+            # over the serialised JSON would also pick up the ipv6Prefix
+            # values and mangle them into IPv4-shaped garbage.
+            v4 = _json_v4(decoded)
+            cidrish = "\n".join(v4) if v4 else ""
+            stamp = decoded.get("creationTime") if isinstance(decoded, dict) else None
+        else:
+            cidrish = _pluck(body, pointer)
+            stamp = None
         cidrish = re.sub(r"(?m)^#.*$", "", cidrish)   # drop comment lines
-        # Hand the raw text to the exact-token matcher. Substring extraction
+        # Hand the text to the exact-token matcher. Substring extraction
         # here would double-count every CIDR's network address as a /32.
         nets = _normalize([cidrish])
         if not nets:
@@ -150,8 +206,10 @@ def fetch(only=None):
             print("  [WARN] %-11s %s — parsed 0 ranges (JS-rendered page?)" % (key, url),
                   file=sys.stderr)
             continue
-        result[key] = {"url": url, "note": note, "nets": nets}
-        print("  [ OK ] %-11s %-3d ranges  %s" % (key, len(nets), url), file=sys.stderr)
+        result[key] = {"url": url, "note": note, "nets": nets, "published_at": stamp}
+        print("  [ OK ] %-11s %-3d ranges  %s%s" % (
+            key, len(nets), url, "  (published %s)" % stamp if stamp else ""),
+            file=sys.stderr)
     return result, failures
 
 
@@ -182,6 +240,11 @@ def main():
         provenance.append({"source": key, "url": result[key]["url"],
                            "note": result[key]["note"],
                            "count": len(result[key]["nets"]),
+                           # When the vendor dates its own list, keep that date:
+                           # Bing's has read 2024-01-03 for a long time, and
+                           # knowing a list is stale is different from not
+                           # knowing it exists.
+                           "published_at": result[key].get("published_at"),
                            "fetched_at": datetime.now(timezone.utc).isoformat()})
     merged = _normalize(merged)
 
