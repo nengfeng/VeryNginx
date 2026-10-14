@@ -280,6 +280,34 @@ _M.schema = {
                 pending_ttl     = leaf({ type = "integer", default = 600, min = 60, max = 86400 }),
                 whitelist       = leaf({ type = "array", default = {}, items = "string" }),
                 crawler_ip_whitelist = leaf({ type = "array", default = {}, items = "string" }),
+                crawler_ip_verified = leaf({ type = "array", default = {}, items = "string" }),
+                -- DNS identity check for vendors that publish no IP list
+                -- (Baiduspider). Deliberately a LIST of resolvers rather than
+                -- a fixed pair: this server is outside China where 8.8.8.8 and
+                -- 1.1.1.1 answer in ~20ms, but a deployment inside China will
+                -- not reach them at all. Reachability is re-probed at runtime,
+                -- so the same config works from either side.
+                crawler_verify = {
+                    type = "object",
+                    default = {
+                        enabled = false,
+                        resolvers = { "8.8.8.8", "1.1.1.1", "223.5.5.5", "119.29.29.29" },
+                        min_agreement = 2,
+                        timeout_ms = 1200,
+                        verify_ttl_pass = 86400,
+                        verify_ttl_fail = 3600,
+                        rate_limit_per_minute = 60,
+                        vendors = {
+                            baidu = {
+                                enabled = true,
+                                ua_pattern = "(?i)baiduspider",
+                                domains = { "crawl.baidu.com", "baidu.com", "baidu.jp" },
+                                require_forward_confirm = true,
+                            },
+                        },
+                    },
+                    preserve_unknown = true,
+                },
                 rule_signal_weights = {
                     type = "object",
                     default = { bot = 1 },

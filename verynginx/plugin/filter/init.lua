@@ -9,6 +9,7 @@ local config = require "core.config"
 local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 local ip_reputation = require "core.ip_reputation"
+local crawler_verify = require "core.crawler_verify"
 local tls_fingerprint = require "core.tls_fingerprint"
 local javascript_verify = require "plugin.browser_verify.javascript_verify"
 local metrics = require "core.metrics"
@@ -139,11 +140,36 @@ local function evaluate_rules(rules, ctx, ip)
         -- skipped rule leaves no trace in the rule statistics either — a
         -- crawler that is let through should not look like a rule that
         -- matched, and the panel's per-rule hit counts stay meaningful.
-        -- Only soft categories qualify (see ip_reputation.is_crawler_exempt);
-        -- attack rules always run. With no crawler_ip_whitelist configured
-        -- match_any() is false for every IP and this is one extra table
-        -- lookup on a path that already did a full matcher evaluation.
-        if ip_reputation.is_crawler_exempt(rule, ip) then
+        --
+        -- Two independent routes to "let it through":
+        --   1. the source IP is inside a range the vendor publishes
+        --   2. the User-Agent claims a vendor we verify by DNS, and that
+        --      check has not yet condemned it
+        -- Route 2's verdict is decided OFF the request path (a timer), so
+        -- the first contact is always allowed and the result lands in the
+        -- cache for everyone after it. That ordering is deliberate: a DNS
+        -- outage must never start blocking a real crawler, and a first
+        -- request costing a scraper one page is not worth a wrong 403.
+        --
+        -- Attack categories are exempt from neither route: a crawler
+        -- fetching a URL carrying an injection is still an injection.
+        local exempt = ip_reputation.is_crawler_exempt(rule, ip)
+        if not exempt and crawler_verify.is_enabled() then
+            local claimed = crawler_verify.claimed_vendor(ctx.request.user_agent)
+            if claimed then
+                local verdict = crawler_verify.verdict(ip)
+                if verdict ~= crawler_verify.VERDICT_FAKE then
+                    -- verified, or not yet decided: let it through and make
+                    -- sure a verdict is on its way.
+                    if not verdict then
+                        crawler_verify.schedule(ip, claimed)
+                    end
+                    exempt = true
+                end
+                -- verdict == fake: fall through to the normal block path.
+            end
+        end
+        if exempt then
             goto continue
         end
 
