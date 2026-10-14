@@ -10,6 +10,15 @@ local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 local ip_reputation = require "core.ip_reputation"
 local crawler_verify = require "core.crawler_verify"
+
+-- Synthetic rule identity for the DNS-verdict block, so the panel shows these
+-- under a name an operator can recognise. It is deliberately NOT in
+-- waf-rules.json: there is no matcher to configure, and a rule the UI could
+-- disable would silently turn the DNS check off.
+local CRAWLER_IDENTITY_RULE_ID = "vn_crawler_identity"
+local CRAWLER_IDENTITY_RULE = { id = CRAWLER_IDENTITY_RULE_ID,
+                                name = "Crawler Identity — DNS-verified vendor",
+                                category = "bot", severity = "low" }
 local tls_fingerprint = require "core.tls_fingerprint"
 local javascript_verify = require "plugin.browser_verify.javascript_verify"
 local metrics = require "core.metrics"
@@ -154,6 +163,17 @@ local function evaluate_rules(rules, ctx, ip)
         -- Attack categories are exempt from neither route: a crawler
         -- fetching a URL carrying an injection is still an injection.
         local exempt = ip_reputation.is_crawler_exempt(rule, ip)
+        if not exempt and ctx.get_data and ctx.get_data(ctx, "crawler:verified_claim") then
+            -- 【前置-3.5】already cleared this request's identity by DNS, or
+            -- left it undecided — and "undecided" is not a reason to block.
+            -- Soft-category rules must not second-guess that; attack
+            -- categories still run, since a crawler carrying an injection
+            -- payload is still an injection.
+            local rsw = config.ip_reputation and config.ip_reputation.rule_signal_weights
+            if type(rsw) == "table" and rsw[rule.category] ~= nil then
+                exempt = true
+            end
+        end
         if not exempt and crawler_verify.is_enabled() then
             local claimed = crawler_verify.claimed_vendor(ctx.request.user_agent)
             if claimed then
@@ -307,6 +327,49 @@ function _M.on_access(ctx)
                 ip_reputation.record_signal(ip, "fingerprint_challenge")
             end
             ctx.set_data(ctx, "fingerprint:match", match)
+        end
+    end
+
+    -- 【前置-3.5】DNS 身份裁决 ——
+    --
+    -- For vendors configured under ip_reputation.crawler_verify (Baiduspider
+    -- publishes no IP list, so its identity can only be checked by reverse +
+    -- forward DNS), the DNS verdict is the authority — not the rule set.
+    --
+    -- This has to run independently of the rules, because no factory rule
+    -- matches these User-Agents: vn_bot_0016/0017 cover ccbot / claudebot /
+    -- dataforseo and nothing else, so a request claiming Baiduspider matches
+    -- no rule at all and the impersonators this exists to catch sail straight
+    -- through. Tying the check to rule matching would have made the whole
+    -- feature dead code that only fires for vendors a rule already blocks.
+    --
+    -- Three outcomes, and only the third one is a 403:
+    --   verified  a real crawler — let through, uncounted
+    --   unknown   first contact, or our DNS did not answer — let through, and
+    --             make sure a verdict is on its way. NEVER block here: a DNS
+    --             outage must not start 403ing a search engine.
+    --   fake      DNS answered and the answer was "not you" — blocked, and
+    --             scored at the soft category weight so a lone impersonator
+    --             never reaches the flag threshold by itself.
+    if crawler_verify.is_enabled() then
+        local claimed = crawler_verify.claimed_vendor(ctx.request.user_agent)
+        if claimed then
+            local verdict = crawler_verify.verdict(ip)
+            if verdict == crawler_verify.VERDICT_FAKE then
+                waf_manager.record_hit(CRAWLER_IDENTITY_RULE_ID, ctx, "block")
+                ip_reputation.record_signal(ip, "waf_block", CRAWLER_IDENTITY_RULE)
+                ctx.set_data(ctx, "crawler:identity", "fake:" .. claimed)
+                ctx.set_action(ctx, "block", { code = 403, response = "forbidden_json" })
+                return true
+            end
+            if not verdict then
+                crawler_verify.schedule(ip, claimed)
+            end
+            -- Verified or undecided: this request is treated as a verified
+            -- crawler by the soft-category rules below, so a bot rule cannot
+            -- block a crawler we have no evidence against.
+            ctx.set_data(ctx, "crawler:identity", verdict or "pending")
+            ctx.set_data(ctx, "crawler:verified_claim", true)
         end
     end
 

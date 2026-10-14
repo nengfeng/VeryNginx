@@ -361,3 +361,50 @@ describe("ip_reputation exemption consults all three sources", function()
         end
     end)
 end)
+
+describe("crawler identity gate runs independently of the rule set", function()
+    -- The failure this pins down: no factory rule matches a Baiduspider
+    -- User-Agent (vn_bot_0016/0017 cover ccbot / claudebot / dataforseo), so
+    -- a check that only ran inside rule evaluation would never execute and
+    -- every impersonator would pass. The gate therefore has to decide on its
+    -- own, before rules are consulted.
+
+    local cv, config
+
+    setup(function()
+        cv = require "core.crawler_verify"
+        config = require "core.config"
+    end)
+
+    local function cfg_on()
+        config.ip_reputation.crawler_verify = base_cfg()
+    end
+
+    it("recognises that no factory rule would ever match Baiduspider", function()
+        local d = require "dkjson"
+        local raw = d.decode(io.open("verynginx/configs/waf-rules.default.json"):read("*a"))
+        local hit = false
+        for _, r in ipairs(raw.rules) do
+            if r.category == "bot" then
+                local blob = d.encode(r.matcher or {})
+                if blob:lower():find("baidu", 1, true) then hit = true end
+            end
+        end
+        assert.is_false(hit,
+            "if a factory bot rule ever matches Baiduspider, the independent gate "
+            .. "needs re-checking against it (double scoring / double blocking)")
+    end)
+
+    it("produces a verdict for a UA that no rule matches", function()
+        cfg_on()
+        local fake = { ptr = { { ptr = "cruz.ns.cloudflare.com." } }, a = { { a = "1.2.3.4" } } }
+        install_dns({ ["9.9.9.9"] = fake, ["8.8.4.4"] = fake })
+        with_pcre(function()
+            assert.are.equal("baidu",
+                cv.claimed_vendor("Mozilla/5.0 (compatible; Baiduspider/2.0)"))
+        end)
+        assert.are.equal(cv.VERDICT_FAKE, cv.verify_sync("1.2.3.4", "baidu"))
+        config.ip_reputation.crawler_verify = nil
+        cleanup_dns()
+    end)
+end)
