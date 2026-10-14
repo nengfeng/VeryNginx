@@ -1270,8 +1270,39 @@
           IP 声誉计分当前<b>已关闭</b>（配置项 <code>ip_reputation.enable = false</code>）：不再记录信号、不再自动标记，此前已标记的 IP 也不再被拦截。重新开启后，仍在有效期内（默认 600 秒）的标记会恢复生效。
         </div>
         <div v-else-if="repStats && repStats.crawler_ip_count === 0" class="notice">
-          提示：已验证爬虫 IP 段名单为空（<code>ip_reputation.crawler_ip_whitelist</code>），bot 类规则目前对所有来源一律拦截，包括搜索引擎与 AI 爬虫。可用 <code>tools/fetch_crawler_ips.py</code> 从各厂商官方地址拉取后填入。
-          提示：已验证爬虫 IP 段名单为空（<code>ip_reputation.crawler_ip_whitelist</code>），bot 类规则目前对所有来源一律拦截，包括搜索引擎与 AI 爬虫。可用 <code>tools/fetch_crawler_ips.py</code> 从各厂商官方地址拉取后填入。
+          <div><b>已验证爬虫 IP 段名单为空</b>（<code>ip_reputation.crawler_ip_whitelist</code>）：bot 类规则目前对所有来源一律拦截，包括搜索引擎与 AI 爬虫。</div>
+          <div style="margin-top:8px">
+            <button class="outline small" @click="repFetchCrawlers(false)" :disabled="repFetchBusy"
+                    title="只向各厂商官方地址发一次请求，报告谁能取到、取到多少，不写入任何配置">试拉取（不写入）</button>
+            <button class="primary small" @click="repFetchCrawlers(true)" :disabled="repFetchBusy"
+                    style="margin-left:8px"
+                    title="从各厂商官方地址拉取并合并写入 crawler_ip_whitelist；至少一个厂商成功才会写入，全部失败则原样保留现有名单">{{ repFetchBusy ? '拉取中…' : '拉取并写入' }}</button>
+          </div>
+          <div v-if="repFetchResult" style="margin-top:10px;font-size:12px">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="text-align:left;padding:3px 6px">厂商</th>
+                <th style="text-align:left;padding:3px 6px">结果</th>
+                <th style="text-align:left;padding:3px 6px">说明</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="r in repFetchResult.results" :key="r.key">
+                  <td style="padding:3px 6px"><code>{{ r.key }}</code></td>
+                  <td style="padding:3px 6px">
+                    <span v-if="r.ok" style="color:var(--success)">{{ r.count }} 条</span>
+                    <span v-else style="color:var(--danger)">失败</span>
+                  </td>
+                  <td style="padding:3px 6px;color:var(--muted)">
+                    <span v-if="r.ok">{{ r.published_at || '未标注发布时间' }}</span>
+                    <span v-else>{{ r.error }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="repFetchPartial" style="margin-top:8px;color:var(--muted)">
+              部分厂商未取到——这通常不是它们缩小了网段，而是<b>这台服务器到它们的站点不通</b>。部署在境内时 google / bing / duckduckgo 常不可达；可在 <code>ip_reputation.crawler_sources</code> 里给对应厂商配 <code>mirror</code>（一个境内可达的镜像地址），官方地址仍保留在记录里作为出处。未在名单内的厂商，其爬虫仍会被 bot 规则拦截，但不再因爬取而被计分。
+            </div>
+          </div>
         </div>
         <!-- Stats -->
         <div v-if="repStats" class="grid grid-4 mb-16">
