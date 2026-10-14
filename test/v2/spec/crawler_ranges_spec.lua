@@ -185,6 +185,10 @@ describe("crawler_ranges apply refuses to leave memory ahead of disk", function(
         config.ip_reputation.crawler_sources = nil
     end)
 
+    -- apply() goes through config.atomic_mutate: the mutator receives a deep
+    -- COPY of the config data, and only a successful save makes it live. The
+    -- stub therefore applies the mutator to a copy and, on success, copies it
+    -- back — the same contract, so a test cannot pass by mutating in place.
     local function with_fetch_stub(results, fn)
         package.loaded["core.crawler_ranges"] = nil
         local m = require "core.crawler_ranges"
@@ -194,10 +198,23 @@ describe("crawler_ranges apply refuses to leave memory ahead of disk", function(
         if not ok then error(err, 0) end
     end
 
-    it("rolls the list back when saving fails", function()
+    local function stub_atomic(save_ok, save_err)
+        local saved = config.atomic_mutate
+        config.atomic_mutate = function(mutator)
+            if not save_ok then return false, save_err or "simulated save failure" end
+            local snapshot = { ip_reputation = config.ip_reputation }
+            local ok, res, merr = pcall(mutator, snapshot)
+            if not ok then return false, tostring(res) end
+            if res == nil then return false, tostring(merr or "mutator returned nil") end
+            config.ip_reputation = snapshot.ip_reputation
+            return true
+        end
+        return saved
+    end
+
+    it("leaves the live list untouched when saving fails", function()
         given()
-        local saved_config = config.save
-        config.save = function() return false, "simulated disk failure" end
+        local restore = stub_atomic(false, "simulated disk failure")
         with_fetch_stub({
             { key = "google", ok = true, count = 2, url = "u",
               ranges = { "66.249.64.0/19", "192.178.6.224/27" } },
@@ -209,33 +226,45 @@ describe("crawler_ranges apply refuses to leave memory ahead of disk", function(
             assert.are.same({ "10.0.0.0/8" }, config.ip_reputation.crawler_ip_whitelist,
                 "a failed save must not leave a list in memory that is not on disk")
         end)
-        config.save = saved_config
+        config.atomic_mutate = restore
     end)
 
-    it("passes the config table to save(), not nothing", function()
+    it("hands the mutator a plain data table, never the module", function()
         given()
         local seen
-        local saved_config = config.save
-        config.save = function(c) seen = c; return true end
+        local restore = stub_atomic(true)
+        local saved_mutate = config.atomic_mutate
+        config.atomic_mutate = function(mutator)
+            local snapshot = { ip_reputation = config.ip_reputation }
+            local ok, res, merr = pcall(mutator, snapshot)
+            if not ok then return false, tostring(res) end
+            if res == nil then return false, tostring(merr or "mutator returned nil") end
+            seen = res
+            config.ip_reputation = snapshot.ip_reputation
+            return true
+        end
         with_fetch_stub({
             { key = "google", ok = true, count = 1, url = "u",
               ranges = { "66.249.64.0/19" } },
         }, function(m)
             local res = m.apply()
             assert.is_true(res.ok)
-            assert.is_table(seen, "save() dereferences its first argument")
+            assert.is_table(seen, "the mutator must receive a table")
+            assert.is_nil(seen.schema, "passing the module is what broke JSON encoding")
+            assert.is_nil(seen.save)
             assert.are.equal(1, res.written)
             assert.are.equal(1, res.before)
         end)
-        config.save = saved_config
+        config.atomic_mutate = saved_mutate
         config.ip_reputation.crawler_ip_whitelist = nil
     end)
 
     it("writes nothing at all when no vendor answered", function()
         given()
         local called = false
-        local saved_config = config.save
-        config.save = function() called = true; return true end
+        local restore = stub_atomic(true)
+        config.atomic_mutate = function(mutator) called = true; return mutator(
+            { ip_reputation = config.ip_reputation }) end
         with_fetch_stub({
             { key = "google", ok = false, error = "HTTP 403", url = "u" },
             { key = "bing", ok = false, error = "HTTP 404", url = "u" },
@@ -246,13 +275,12 @@ describe("crawler_ranges apply refuses to leave memory ahead of disk", function(
             assert.is_false(called, "an all-failed fetch must not touch the config file")
             assert.are.same({ "10.0.0.0/8" }, config.ip_reputation.crawler_ip_whitelist)
         end)
-        config.save = saved_config
+        config.atomic_mutate = restore
     end)
 
     it("merges and dedups across vendors", function()
         given()
-        local saved_config = config.save
-        config.save = function() return true end
+        local restore = stub_atomic(true)
         with_fetch_stub({
             { key = "google", ok = true, count = 2, url = "u",
               ranges = { "66.249.64.0/19", "1.2.3.4/24" } },
@@ -266,7 +294,7 @@ describe("crawler_ranges apply refuses to leave memory ahead of disk", function(
             local list = config.ip_reputation.crawler_ip_whitelist
             assert.is_true(#list == 3)
         end)
-        config.save = saved_config
+        config.atomic_mutate = restore
         config.ip_reputation.crawler_ip_whitelist = nil
     end)
 end)

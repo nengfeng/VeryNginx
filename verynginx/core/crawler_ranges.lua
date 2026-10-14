@@ -285,30 +285,33 @@ function _M.apply()
     for net in pairs(merged) do out[#out + 1] = net end
     table.sort(out, function(x, y) return sort_key(x) < sort_key(y) end)
 
-    local ir = config.ip_reputation
-    if type(ir) ~= "table" then
-        return { ok = false, written = 0, total = total, results = results,
-                 message = "ip_reputation section missing from config" }
-    end
-    -- Snapshot what is in force before touching it. The live table is what the
-    -- exemption path reads, so a save that fails after the mutation would leave
-    -- memory holding a list the disk does not have: crawlers exempt now, blocked
-    -- again after the next restart, and nothing in between to explain the change.
-    local previous = ir.crawler_ip_whitelist
-    local previous_prov = ir.crawler_ip_whitelist_sources
-    ir.crawler_ip_whitelist = out
-    ir.crawler_ip_whitelist_sources = provenance
-    -- save() takes the config table as its first argument. Calling it bare
-    -- raises inside config.lua on the first field it tries to read.
-    local ok, err = config.save(config)
+    -- atomic_mutate, not a direct write plus config.save():
+    --   * it deep-copies the config data first, so the live table the
+    --     exemption path reads is only replaced once the write succeeded —
+    --     mutating it in place and rolling back by hand left, on the first
+    --     live run, memory holding 708 ranges while the file held none
+    --   * it takes the same save lock the dashboard's config editor uses, so a
+    --     concurrent edit cannot interleave
+    --   * it hands the mutator the plain data table. Passing the module to
+    --     save() instead is what produced "type 'function' is not supported
+    --     by JSON": the module carries schema and every function on it.
+    local before
+    local ok, err = config.atomic_mutate(function(cfg)
+        local ir = cfg.ip_reputation
+        if type(ir) ~= "table" then
+            return nil, "ip_reputation section missing from config"
+        end
+        before = #(ir.crawler_ip_whitelist or {})
+        ir.crawler_ip_whitelist = out
+        ir.crawler_ip_whitelist_sources = provenance
+        return cfg
+    end)
     if not ok then
-        ir.crawler_ip_whitelist = previous
-        ir.crawler_ip_whitelist_sources = previous_prov
         return { ok = false, written = 0, total = total, results = results,
                  message = "fetched " .. #out ..
                      " ranges but saving the config failed: " .. tostring(err) }
     end
-    return { ok = true, written = #out, total = total, before = #(previous or {}),
+    return { ok = true, written = #out, total = total, before = before or 0,
              results = results }
 end
 
