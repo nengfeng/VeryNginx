@@ -5,7 +5,7 @@
 
 local _M = {}
 
---- Resolve a response definition into a standard { code, content_type, body } table.
+--- Resolve a response definition into a standard { code, content_type, body, headers } table.
 -- @param response_def string|table: template name or inline response object
 -- @return table: { code, content_type, body }
 function _M.resolve(response_def)
@@ -13,12 +13,14 @@ function _M.resolve(response_def)
         local config = require "core.config"
         local template = config.response[response_def]
         if not template then
-            return { code = 500, content_type = "text/plain", body = "response template not found" }
+            return { code = 500, content_type = "text/plain",
+                     body = "response template not found" }
         end
         return {
             code = template.code,
             content_type = template.content_type or "text/plain",
-            body = template.body or ""
+            body = template.body or "",
+            headers = template.headers,
         }
     end
 
@@ -26,7 +28,8 @@ function _M.resolve(response_def)
         return {
             code = response_def.code,
             content_type = response_def.content_type or "text/plain",
-            body = response_def.body or ""
+            body = response_def.body or "",
+            headers = response_def.headers,
         }
     end
 

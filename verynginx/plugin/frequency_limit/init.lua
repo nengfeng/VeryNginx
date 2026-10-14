@@ -105,9 +105,24 @@ function _M.on_access(ctx)
                 end
 
                 ctx.set_data(ctx, "frequency_limit:limited", true)
+                -- `response` must name a template registered under
+                -- config.response — action/response.lua looks the string up
+                -- there and serves "response template not found" when it
+                -- misses. The old default was the human phrase "Too Many
+                -- Requests", so every block-action frequency rule answered
+                -- with that internal error string as its body (HTTP 429 with
+                -- body "response template not found"). Point at the shipped
+                -- template instead, which carries the Retry-After header.
+                -- The type/emptiness guard matters because "" is truthy in
+                -- Lua: `rule.response or default` would let a blank value
+                -- through to the lookup and fail there.
+                local resp_name = rule.response
+                if type(resp_name) ~= "string" or resp_name == "" then
+                    resp_name = "too_many_requests"
+                end
                 ctx.set_action(ctx, "block", {
                     code = rule.code or 429,
-                    response = rule.response or "Too Many Requests"
+                    response = resp_name
                 })
                 return
             end

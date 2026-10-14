@@ -56,6 +56,30 @@ describe("frequency_templates", function()
         assert.are.equal("ip", rule.key)
     end)
 
+    -- v20: the crawler and global-CC templates used to ship code = 200 with a
+    -- description promising a JS challenge that the limiter never issues —
+    -- it hardcodes action "block", and the challenge branch needs action type
+    -- "challenge". A block answering 200 reads as success to clients, logs,
+    -- the dashboard's block counters and any CDN in front.
+    it("no template ships a 2xx block code", function()
+        local tpl = require "core.frequency_templates"
+        for _, t in ipairs(tpl.list()) do
+            local rule = tpl.apply(t.name)
+            assert.truthy(rule)
+            assert.is_true(rule.code >= 400,
+                t.name .. " ships block code " .. tostring(rule.code))
+            assert.are.equal("block", rule.action)
+        end
+    end)
+
+    it("no template description promises a JS challenge", function()
+        local tpl = require "core.frequency_templates"
+        for _, t in ipairs(tpl.list()) do
+            assert.is_nil(t.description:match("人机验证"),
+                t.name .. " still claims a JS challenge the limiter never issues")
+        end
+    end)
+
     it("apply() returns error for unknown template", function()
         local tpl = require "core.frequency_templates"
         local rule, err = tpl.apply("nonexistent")

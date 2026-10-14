@@ -55,6 +55,22 @@ local function _no_backend_error()
     return ngx.exit(502)
 end
 
+--- Copy a response template's optional `headers` table onto the reply.
+--- Content-Type is set by the caller afterwards, so a template may override
+--- every other header (Retry-After on a 429, for example) without having to
+--- re-declare the content type.
+local function _apply_response_headers(resp)
+    local headers = resp and resp.headers
+    if type(headers) ~= "table" then
+        return
+    end
+    for name, value in pairs(headers) do
+        if type(name) == "string" and type(value) == "string" then
+            ngx.header[name] = value
+        end
+    end
+end
+
 function _M.apply(ctx, phase)
     local action = ctx.action_result
     if not action then
@@ -70,6 +86,18 @@ function _M.apply(ctx, phase)
     if action.type == RESULT.BLOCK then
         local resp = response.resolve(action.data.response) or {}
         ngx.status = action.data.code or resp.code or 403
+        -- A block must never answer with a 2xx. Clients, access logs, the
+        -- dashboard's block-rate counters and every CDN in front of us read a
+        -- 200 as "served successfully" — and a cache in front may store and
+        -- replay the body for legitimate users. The JS-challenge action is a
+        -- separate type (RESULT.CHALLENGE below) and legitimately exits 200,
+        -- so nothing legitimate depends on a 2xx here.
+        if type(ngx.status) == "number" and ngx.status < 400 then
+            ngx.log(ngx.WARN, "rule_engine: block action requested status ",
+                    ngx.status, " — refusing, using 403 instead")
+            ngx.status = 403
+        end
+        _apply_response_headers(resp)
         ngx.header["Content-Type"] = resp.content_type or "text/plain"
         ngx.say(resp.body or "Forbidden")
         return ngx.exit(ngx.status)
@@ -78,6 +106,7 @@ function _M.apply(ctx, phase)
     elseif action.type == RESULT.RESPONSE then
         local resp = response.resolve(action.data.response) or {}
         ngx.status = action.data.code or resp.code or 200
+        _apply_response_headers(resp)
         ngx.header["Content-Type"] = resp.content_type or "text/plain"
         ngx.say(resp.body or "")
         return ngx.exit(ngx.status)

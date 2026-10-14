@@ -1,126 +1,167 @@
 {
-    "version": "2.0",
-    "base_uri": "/verynginx",
-    "cookie_prefix": "verynginx",
-    "config_save_lock_ttl": 60,
-    "security": {
-        "session_ttl": 28800,
-        "csrf": true,
-        "rate_limit": {
-            "login": "30/m",
-            "config_save": "30/m"
-        }
-    },
-    "body": {
-        "max_size": 1048576,
-        "max_args": 100,
-        "max_field": 1048576,
-        "on_error": "log",
-        "scan_exempt": []
-    },
-    "plugin": {
-        "filter": { "enable": true, "priority": 100, "critical": true },
-        "frequency_limit": { "enable": true, "priority": 200, "critical": true },
-        "browser_verify": { "enable": false, "priority": 300, "critical": true },
-        "router": { "enable": true, "priority": 400, "critical": false },
-        "proxy_pass": { "enable": true, "priority": 500, "critical": true },
-        "static_file": { "enable": true, "priority": 600, "critical": false },
-        "summary": { "enable": true, "priority": 900, "critical": false }
-    },
-    "auth_strategy": "session",
-    "statistics": {
-        "buckets": ["1m", "5m", "1h", "all"],
-        "flush_interval": 60,
-        "persist_interval": 300,
-        "max_uri_keys": 10000,
-        "max_hosts": 50
-    },
-    "observability": {
-        "metrics": true,
-        "trace_header": "X-Request-Id",
-        "plugin_timing": true
-    },
-    "proxy": {
-        "health_check_interval": 5
-    },
-    "matcher": {},
-    "rule": {},
-    "backend_upstream": {},
-    "response": {
-        "forbidden_json": {
-            "code": 403,
-            "content_type": "application/json",
-            "body": "{\"error\":\"forbidden\"}"
-        }
-    },
-    "admin": [
-        {
-            "user": "verynginx",
-            "password_hash": "",
-            "enable": true
-        }
-    ],
-    "geoip": {
-        "enable": false,
-        "geodb_path": "",
-        "whitelist": [],
-        "blocklist": [],
-        "block_continents": [],
-        "auto_update": true,
-        "update_interval_hours": 168,
-        "use_cdn": false
-    },
-    "fingerprints": {
-        "enable": true,
-        "auto_block_scanners": true,
-        "entries": [],
-        "ja4": {
-            "enable": true,
-            "http_enable": false
-        }
-    },
-    "kernel_ip_blocking": {
-        "enabled": false,
-        "mode": "observe",
-        "topology": "unknown",
-        "fail_policy": "open",
-        "helper_socket": "/run/verynginx/firewall-helper.sock",
-        "scope": "web",
-        "protected_addresses": [],
-        "protected_ports": [],
-        "batch_interval": 1,
-        "reconcile_interval": 30,
-        "max_entries": {
-            "scanner": 100000,
-            "cc": 50000,
-            "manual": 10000
-        },
-        "scanner": {
-            "enabled": true,
-            "require_flagged": true,
-            "min_hard_blocks": 3,
-            "max_ttl": 86400
-        },
-        "cc": {
-            "enabled": true,
-            "enforce_ready": false,
-            "rule_ids": [],
-            "ttl": 300,
-            "max_ttl": 1800,
-            "min_violation_windows": 3,
-            "require_challenge_fail": true
-        },
-        "ipv4": {
-            "enabled": true
-        },
-        "ipv6": {
-            "enabled": false,
-            "prefix_aggregation": false
-        },
-        "promotion_rate_limit": {
-            "limit": 1000,
-            "interval": 60,
-            "burst": 1000
-        }
+  "version": "2.0",
+  "base_uri": "/verynginx",
+  "cookie_prefix": "verynginx",
+  "config_save_lock_ttl": 60,
+  "security": {
+    "session_ttl": 28800,
+    "csrf": true,
+    "rate_limit": {
+      "login": "30/m",
+      "config_save": "30/m"
     }
+  },
+  "body": {
+    "max_size": 1048576,
+    "max_args": 100,
+    "max_field": 1048576,
+    "on_error": "log",
+    "scan_exempt": []
+  },
+  "plugin": {
+    "filter": {
+      "enable": true,
+      "priority": 100,
+      "critical": true
+    },
+    "frequency_limit": {
+      "enable": true,
+      "priority": 200,
+      "critical": true
+    },
+    "browser_verify": {
+      "enable": false,
+      "priority": 300,
+      "critical": true
+    },
+    "router": {
+      "enable": true,
+      "priority": 400,
+      "critical": false
+    },
+    "proxy_pass": {
+      "enable": true,
+      "priority": 500,
+      "critical": true
+    },
+    "static_file": {
+      "enable": true,
+      "priority": 600,
+      "critical": false
+    },
+    "summary": {
+      "enable": true,
+      "priority": 900,
+      "critical": false
+    }
+  },
+  "auth_strategy": "session",
+  "statistics": {
+    "buckets": [
+      "1m",
+      "5m",
+      "1h",
+      "all"
+    ],
+    "flush_interval": 60,
+    "persist_interval": 300,
+    "max_uri_keys": 10000,
+    "max_hosts": 50
+  },
+  "observability": {
+    "metrics": true,
+    "trace_header": "X-Request-Id",
+    "plugin_timing": true
+  },
+  "proxy": {
+    "health_check_interval": 5
+  },
+  "matcher": {},
+  "rule": {},
+  "backend_upstream": {},
+  "response": {
+    "forbidden_json": {
+      "code": 403,
+      "content_type": "application/json",
+      "body": "{\"error\":\"forbidden\"}"
+    },
+    "too_many_requests": {
+      "code": 429,
+      "content_type": "text/plain",
+      "body": "429 Too Many Requests\n",
+      "headers": {
+        "Retry-After": "60"
+      }
+    }
+  },
+  "admin": [
+    {
+      "user": "verynginx",
+      "password_hash": "",
+      "enable": true
+    }
+  ],
+  "geoip": {
+    "enable": false,
+    "geodb_path": "",
+    "whitelist": [],
+    "blocklist": [],
+    "block_continents": [],
+    "auto_update": true,
+    "update_interval_hours": 168,
+    "use_cdn": false
+  },
+  "fingerprints": {
+    "enable": true,
+    "auto_block_scanners": true,
+    "entries": [],
+    "ja4": {
+      "enable": true,
+      "http_enable": false
+    }
+  },
+  "kernel_ip_blocking": {
+    "enabled": false,
+    "mode": "observe",
+    "topology": "unknown",
+    "fail_policy": "open",
+    "helper_socket": "/run/verynginx/firewall-helper.sock",
+    "scope": "web",
+    "protected_addresses": [],
+    "protected_ports": [],
+    "batch_interval": 1,
+    "reconcile_interval": 30,
+    "max_entries": {
+      "scanner": 100000,
+      "cc": 50000,
+      "manual": 10000
+    },
+    "scanner": {
+      "enabled": true,
+      "require_flagged": true,
+      "min_hard_blocks": 3,
+      "max_ttl": 86400
+    },
+    "cc": {
+      "enabled": true,
+      "enforce_ready": false,
+      "rule_ids": [],
+      "ttl": 300,
+      "max_ttl": 1800,
+      "min_violation_windows": 3,
+      "require_challenge_fail": true
+    },
+    "ipv4": {
+      "enabled": true
+    },
+    "ipv6": {
+      "enabled": false,
+      "prefix_aggregation": false
+    },
+    "promotion_rate_limit": {
+      "limit": 1000,
+      "interval": 60,
+      "burst": 1000
+    }
+  }
 }
