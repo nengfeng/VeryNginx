@@ -188,6 +188,16 @@
         load: loadStatus,
         pages: ['dashboard'],
     });
+    // Sampled alongside the overview poll so the card is populated without the
+    // operator having to find a button. Cheap: one capacity/free_space read per
+    // dict plus one key-name scan of at most 1024 keys.
+    registerPoll('dictDiag', {
+        interval: 300000,
+        immediate: true,
+        active: () => page.value === 'dashboard' && dashTab.value === 'overview',
+        run: () => loadDictDiag(),
+    });
+
     registerPoll('overview', {
         active: () => page.value === 'dashboard' && dashTab.value === 'overview',
         interval: 5000,
@@ -265,6 +275,33 @@
     const gOverview = shared.createStaleGuard();
     const gWafTrend = shared.createStaleGuard();
     const overviewError = ref('');
+    // Shared-dict composition. The watermark above comes from /metrics and has
+    // reported two mutually exclusive states eleven minutes apart — once
+    // claiming vn_config was empty while it held hundreds of keys. This reads
+    // capacity()/free_space() directly and samples key names per namespace, so
+    // the card can show the key count next to the percentage and let an
+    // operator see when the two disagree instead of trusting either alone.
+    const dictDiag = ref([]);
+    const dictDiagBusy = ref(false);
+
+    async function loadDictDiag() {
+      if (dictDiagBusy.value) return;
+      dictDiagBusy.value = true;
+      try {
+        const r = await api('GET', '/verynginx/dicts');
+        dictDiag.value = (r && r.data) || [];
+        // Merge the sampled key count onto the existing cards so the
+        // percentage and the key count sit in the same place.
+        for (const d of dictDiag.value) {
+          const card = (overview.value && overview.value.dicts || []).find(x => x.name === d.name);
+          if (card) { card.keys = d.sampled_keys; card.keysSampled = d.sample_truncated; }
+        }
+      } catch (e) {
+        console.warn('Dict diagnostics failed:', e.message);
+      } finally {
+        dictDiagBusy.value = false;
+      }
+    }
     const statusError = ref('');
     async function loadStats() {
       const tok = gStats.mark();
@@ -639,6 +676,9 @@
     ctx('parsePrometheus', parsePrometheus);
     ctx('loadVersion', loadVersion);
     ctx('loadOverview', loadOverview);
+    view('dictDiag', dictDiag);
+    view('dictDiagBusy', dictDiagBusy);
+    view('loadDictDiag', loadDictDiag);
     view('loadStats', loadStats);
     view('loadStatus', loadStatus);
     view('loadConfig', loadConfig);

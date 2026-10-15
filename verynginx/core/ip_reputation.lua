@@ -429,11 +429,29 @@ function _M.record_ua(ip, ua_string)
     local s = shared()
     if not s then return end
     local slot = current_slot()
+    local count_key = "ip_rep:ua_count:" .. ip .. ":" .. slot
+
+    -- Cap the WRITE side at the same bound the scoring side already applies.
+    -- Until now MAX_UA_DISTINCT capped only the diversity factor computed from
+    -- these keys, while `add` created one key per distinct User-Agent with no
+    -- limit at all. That makes shared-dict key creation a function of a request
+    -- header: a single source rotating its User-Agent mints an unbounded
+    -- number of keys inside one 60-second slot, and those keys evict everyone
+    -- else's reputation state. Not observed here — the busiest IP presented 4
+    -- distinct User-Agents a minute — but it is an amplification path an
+    -- attacker does not have to try hard to find.
+    --
+    -- Read the count before adding, so a capped source keeps sending requests
+    -- (its score stops growing) without creating further keys. Two workers can
+    -- race past the check and overshoot by one; the scoring side clamps anyway,
+    -- so an occasional extra key is harmless.
+    local seen_count = s:get(count_key) or 0
+    if seen_count >= MAX_UA_DISTINCT then return end
+
     local hash = ngx.crc32_short(ua_string or "")
     local seen_key = "ip_rep:ua_seen:" .. ip .. ":" .. slot .. ":" .. hash
     local is_new = s:add(seen_key, 1, window_size())
     if is_new then
-        local count_key = "ip_rep:ua_count:" .. ip .. ":" .. slot
         s:incr(count_key, 1, 0, window_size())
         -- Invalidate score cache: the UA diversity factor has changed
         s:delete("ip_rep:score_cache:" .. ip)
