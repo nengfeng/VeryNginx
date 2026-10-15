@@ -27,7 +27,21 @@ function _M._collect_worker_stats()
 
     -- Connection metrics are not available from timer context;
     -- they are exposed via the /status API endpoint during request processing.
-    -- Shared dict usage (approximate)
+    -- Shared dict usage.
+    --
+    -- The percentage alone is not actionable, and has been misread twice on
+    -- this host. capacity()-free_space() reports the slab pool, and the pool is
+    -- sized by the worst traffic the dict has ever seen: ip_reputation read
+    -- 99.9% of 16 MB while holding 114 keys — about 140 KB per key, which is
+    -- not a quantity that can exist — and an nginx restart drops the figure to
+    -- 0.7% without a single real entry changing.
+    --
+    -- So the key count is exported beside it. A percentage can then be checked
+    -- rather than believed: 99.9% with 114 keys is a large pool, not a full
+    -- dict, and no threshold should fire on it.
+    --
+    -- One decimal place instead of a floored integer: flooring turned a real
+    -- 0.7% into "0%", which made a live dict look like an empty one.
     local shared_dicts = {"vn_config", "vn_locks", "vn_rate_limit", "vn_session",
                           "statistics", "metrics", "metrics_labeled", "healthcheck",
                           "dns_cache", "frequency_limit", "ip_reputation"}
@@ -38,10 +52,15 @@ function _M._collect_worker_stats()
             local free_space = shared:free_space()
             local used = capacity - free_space
             if capacity > 0 then
-                local pct = math.floor((used / capacity) * 100)
+                local pct = math.floor((used / capacity) * 1000) / 10
                 metrics.gauge("shared_dict_usage_pct", pct, { dict = name })
                 metrics.gauge("shared_dict_usage_bytes", used, { dict = name })
                 metrics.gauge("shared_dict_capacity_bytes", capacity, { dict = name })
+                -- Sampled, not a census: get_keys() returns at most 1024 keys.
+                -- Enough to tell a real population from a handful.
+                local okk, keys = pcall(function() return shared:get_keys(0) end)
+                local n = (okk and type(keys) == "table") and #keys or -1
+                metrics.gauge("shared_dict_keys", n, { dict = name })
             end
         end
     end
