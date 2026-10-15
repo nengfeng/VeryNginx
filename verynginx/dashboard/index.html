@@ -182,8 +182,50 @@
             <div class="stat-label">共享字典: {{ d.name }}</div>
             <div class="stat-value" style="font-size:20px" :style="{color: d.pct > 80 ? '#ef4444' : d.pct > 60 ? '#eab308' : ''}">{{ d.pct.toFixed(1) }}%</div>
             <div style="font-size:11px;color:var(--muted)">{{ formatBytes(d.used) }} / {{ formatBytes(d.cap) }}</div>
+            <!-- 键数与水位并列，因为两者会互相矛盾：ip_reputation 曾报 99.9%
+                 却只有一百多个键，而 9.48MB/13 个键在物理上不成立 ——
+                 说明 capacity()-free_space() 描述的是 slab 分配器状态，不是实际存量。
+                 只看水位会把「内存池涨上去没缩回来」误报成「字典满了」。 -->
+            <div v-if="d.keys != null" style="font-size:11px;color:var(--muted);margin-top:2px">
+              键数 {{ d.keys }}{{ d.keysSampled ? '+（截断）' : '' }}
+            </div>
           </div>
         </div>
+        <!-- 字典内容构成：水位只说「满不满」，不说「满的是什么」 -->
+        <div class="card mb-16" v-if="dictDiag && dictDiag.length">
+          <div class="flex flex-between mb-8" style="align-items:center">
+            <strong>共享字典内容</strong>
+            <button class="outline small" @click="loadDictDiag" :disabled="dictDiagBusy"
+                    title="重新直读各字典的 capacity/free_space，并按命名空间采样键名">重新采样</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+            键名采样自最多 1024 个键（ngx.shared 没有全量枚举接口），所以「键数」是<b>样本</b>而非普查；
+            「估算占用」按样本占比推算，slab 固定开销与碎片会让它偏离真值。
+            与上方水位对不上时<b>以键数为准</b>：水位反映的是分配器状态，不是存了多少数据。
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>字典</th><th>水位</th><th>报告占用</th><th>采样键数</th><th>主要构成（按样本键数）</th></tr></thead>
+              <tbody>
+                <tr v-for="d in dictDiag" :key="d.name">
+                  <td><code>{{ d.name }}</code></td>
+                  <td :style="{color: d.used_pct > 80 ? '#b91c1c' : d.used_pct > 60 ? '#a16207' : ''}">{{ d.used_pct.toFixed(1) }}%</td>
+                  <td>{{ formatBytes(d.used_bytes) }} / {{ formatBytes(d.capacity_bytes) }}</td>
+                  <td>{{ d.sampled_keys != null ? d.sampled_keys : '—' }}<span v-if="d.sample_truncated" style="color:var(--muted)"> (截断)</span></td>
+                  <td style="font-size:12px;color:var(--muted)">
+                    <template v-if="(d.namespaces || []).length">
+                      <span v-for="(n, i) in d.namespaces.slice(0, 6)" :key="n.label">
+                        {{ n.label }} <b style="color:var(--text)">{{ n.keys }}</b><span v-if="i < Math.min(d.namespaces.length, 6) - 1"> · </span>
+                      </span>
+                      <span v-if="d.namespaces.length > 6"> · …共 {{ d.namespaces.length }} 组</span>
+                    </template>
+                    <span v-else>（取不到键名）</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div></oldString>
         <!-- Third row: top URIs + plugin errors -->
         <div class="grid grid-2 mb-16">
           <div class="card">

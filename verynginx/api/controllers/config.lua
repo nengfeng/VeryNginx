@@ -211,6 +211,27 @@ local function handle_get_version()
     return json.encode({ ret = "success", data = { version = ver.get(), commit = ver.commit() } })
 end
 
+--- GET /dicts - shared-dict occupancy and what is in them
+--
+-- Separate from /metrics on purpose. That gauge is collected once a minute by
+-- worker 0 and has been observed reporting two mutually exclusive states
+-- eleven minutes apart — one of which claimed vn_config was empty while the
+-- rules were demonstrably running. Reading capacity() and free_space() here,
+-- per request, gives a figure that cannot go stale between collections, and
+-- the namespace sample answers the question a watermark cannot: not "how
+-- full" but "full of what".
+local function handle_get_dicts()
+    local diag = require "core.dict_diag"
+    local args = ngx.req.get_uri_args()
+    local out = { ret = "success", data = diag.snapshot_all() }
+    -- ?probe=1 adds the write test. Separate from the default because it
+    -- writes: a snapshot is free to serve, a probe is not.
+    if args.probe == "1" then
+        out.probe = diag.probe_all()
+    end
+    return json.encode(out)
+end
+
 function _M.register(api)
     api.register("GET", "/config", handle_get_config, true)
     api.register("POST", "/config", handle_set_config, true)
@@ -224,6 +245,7 @@ function _M.register(api)
     api.register("GET", "/config/export", handle_export_config, true)
     api.register("POST", "/config/import", handle_import_config, true)
     api.register("GET", "/version", handle_get_version, true)
+    api.register("GET", "/dicts", handle_get_dicts, true)
 end
 
 return _M
