@@ -30,6 +30,17 @@ local DEFAULTS = {
     ja3_cross_ip_threshold = 5,   -- min distinct IPs sharing same JA3 to trigger alert
     -- Shared dict capacity
     shared_dict_alert_threshold = 80,  -- alert when dict usage exceeds this percentage
+    -- A high percentage alone is not evidence of a full dict, so a second
+    -- condition applies. It is bytes-per-key, NOT a key count: measured on a
+    -- real 32k zone, the key count saturates (191 keys filled it completely,
+    -- and stayed at 191 while later writes evicted earlier ones), so any
+    -- absolute key floor is either unreachable on a small dict or arbitrary on
+    -- a large one. Bytes-per-key scales with the zone instead.
+    --
+    -- High level + small values means a genuinely crowded dict. High level +
+    -- large values means a big pool holding a few big items — which is what
+    -- ip_reputation's 114 keys / ~140 KB each turned out to be.
+    shared_dict_alert_max_bytes_per_key = 4096,
     -- Detection window
     window_seconds = 360,           -- 1 hour evaluation window (6x per day)
 }
@@ -51,6 +62,8 @@ local function cfg()
         fp_pass_rate_threshold = c.fp_pass_rate_threshold or DEFAULTS.fp_pass_rate_threshold,
         fp_min_challenges = c.fp_min_challenges or DEFAULTS.fp_min_challenges,
         shared_dict_alert_threshold = c.shared_dict_alert_threshold or DEFAULTS.shared_dict_alert_threshold,
+        shared_dict_alert_max_bytes_per_key = c.shared_dict_alert_max_bytes_per_key
+            or DEFAULTS.shared_dict_alert_max_bytes_per_key,
         window_seconds = c.window_seconds or DEFAULTS.window_seconds,
         nameservers = c.nameservers or DEFAULTS.nameservers,
     }
@@ -495,6 +508,33 @@ function _M.evaluate()
     end
 
     -- 5) Shared dict capacity monitoring
+    --
+    -- Water level AND bytes-per-key, not water level alone.
+    --
+    -- capacity()-free_space() reports the slab pool, and that pool is sized by
+    -- the worst traffic the dict has ever seen, not by the current contents.
+    -- It has been read wrong twice on this host: ip_reputation once reported
+    -- 99.9% of 16 MB while holding 114 keys — about 140 KB per key, which is
+    -- not a quantity that can exist — and an nginx restart dropped the figure
+    -- to 0.7% with no real entry changing. An alert keyed on that number alone
+    -- fires on a large pool and stays silent on a genuinely crowded dict, which
+    -- is backwards.
+    --
+    -- The second condition is bytes-per-key, and the key count is deliberately
+    -- NOT the criterion. Measured on a real 32k zone here: 1 key → 12288 B/key,
+    -- 40 keys → 409, 114 → 215, 191 → 171 at 100%. Two consequences. First, a
+    -- dict packed with small values has a low bytes-per-key, which is what
+    -- "genuinely full" looks like. Second, the key count SATURATES — the count
+    -- stopped at 191 while the dict was at 100% and further writes only evicted
+    -- earlier entries, because get_keys is capped and eviction is invisible to
+    -- it. An absolute key floor would therefore be unreachable on a small dict
+    -- and arbitrary on a large one, and would silently suppress the alert
+    -- forever. get_keys is still read, because it is what turns bytes into a
+    -- per-key figure.
+    --
+    -- A dict whose keys cannot be read alerts on the level alone. Being unable
+    -- to enumerate is one fewer diagnostic, not grounds for silence, and the
+    -- level alone is the reading that has misled this deployment before.
     local dict_names = {"vn_config", "vn_locks", "vn_rate_limit", "vn_session",
                         "statistics", "metrics", "metrics_labeled", "healthcheck", "dns_cache",
                         "frequency_limit", "ip_reputation"}
@@ -504,14 +544,44 @@ function _M.evaluate()
             local capacity = dict:capacity()
             local free_space = dict:free_space()
             if capacity > 0 then
-                local used_pct = math.floor(((capacity - free_space) / capacity) * 100)
+                local used = capacity - free_space
+                local used_pct = math.floor((used / capacity) * 100)
                 if used_pct >= conf.shared_dict_alert_threshold then
-                    fire_alert("shared_dict_high_usage", name, {
-                        dict = name,
-                        usage_pct = used_pct,
-                        capacity_kb = math.floor(capacity / 1024),
-                        free_kb = math.floor(free_space / 1024),
-                    })
+                    local keys = -1
+                    local okk, list = pcall(function() return dict:get_keys(0) end)
+                    if okk and type(list) == "table" then
+                        keys = #list
+                    end
+                    local crowded = keys < 1
+                    local bytes_per_key = -1
+                    if keys > 0 then
+                        bytes_per_key = math.floor(used / keys)
+                        crowded = bytes_per_key <= conf.shared_dict_alert_max_bytes_per_key
+                    end
+                    if crowded then
+                        fire_alert("shared_dict_high_usage", name, {
+                            dict = name,
+                            usage_pct = used_pct,
+                            capacity_kb = math.floor(capacity / 1024),
+                            free_kb = math.floor(free_space / 1024),
+                            used_kb = math.floor(used / 1024),
+                            keys = keys,
+                            keys_counted = keys >= 0,
+                            bytes_per_key = bytes_per_key,
+                            max_bytes_per_key_allowed = conf.shared_dict_alert_max_bytes_per_key,
+                            -- At the level ngx.shared.DICT evicts by LRU and
+                            -- reports success, so "full" here is the state
+                            -- where counters start disappearing without any
+                            -- error being raised.
+                            eviction_possible = true,
+                        })
+                    else
+                        ngx.log(ngx.INFO, "alerting: shared dict ", name, " at ",
+                            used_pct, "% but ", bytes_per_key, " B/key over ",
+                            keys, " keys (limit ", conf.shared_dict_alert_max_bytes_per_key,
+                            ") — a large pool holding a few large values, not a ",
+                            "crowded dict; alert suppressed")
+                    end
                 end
             end
         end
