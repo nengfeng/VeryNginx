@@ -1311,6 +1311,73 @@
           <div class="stat-card"><div class="stat-label" title="今日触发「被标记」的次数；同一 IP 多次被标记会累加，因此该数 ≥ 下方「今日被标记 IP」的条数">今日标记次数</div><div class="stat-value">{{ repStats.flagged_today }}</div></div>
           <div class="stat-card"><div class="stat-label">白名单</div><div class="stat-value">{{ repWhitelist.length }}</div></div>
         </div>
+        <!-- 已验证爬虫名单：常驻但安静。一条非空名单本身不说明它有多新、覆盖了谁、
+             少了谁，而「名单为空」那条提示在有名单之后就消失了——若无此卡片，
+             页面看上去一切正常，却没有任何地方说明覆盖面。各厂商会自行变更网段，
+             过期的名单会静默扩大信任边界，所以这里始终显示拉取时间。 -->
+        <div class="card mb-16" v-if="repCrawlerInfo && repCrawlerInfo.count > 0">
+          <div class="flex flex-between mb-8" style="align-items:center">
+            <div>
+              <strong>已验证爬虫 IP 段名单</strong>
+              <span style="margin-left:8px;color:var(--muted);font-size:12px">
+                共 <b style="color:var(--text)">{{ repCrawlerInfo.count }}</b> 段
+                <template v-if="repCrawlerFetchedAt(repCrawlerInfo)">
+                  · 上次拉取 {{ repCrawlerFetchedAt(repCrawlerInfo) }}
+                </template>
+                · DNS 逐一验证 {{ repCrawlerInfo.verified_count }} 个
+              </span>
+            </div>
+            <div class="flex gap-8">
+              <button class="outline small" @click="repFetchCrawlers(false)" :disabled="repFetchBusy">试拉取</button>
+              <button class="outline small" @click="repFetchCrawlers(true)" :disabled="repFetchBusy">刷新名单</button>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr>
+                <th>厂商</th><th>段数</th><th>厂商发布时间</th><th>拉取时间</th><th>取自</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="s in repCrawlerInfo.sources" :key="s.source">
+                  <td><code>{{ s.source }}</code></td>
+                  <td>
+                    <span v-if="s.ok">{{ s.count }}</span>
+                    <span v-else style="color:var(--danger)" :title="s.error">未取到</span>
+                  </td>
+                  <td style="color:var(--muted)">{{ s.ok ? (s.published_at || '未标注') : '—' }}</td>
+                  <td style="color:var(--muted)">{{ s.ok ? s.fetched_at : '—' }}</td>
+                  <td style="color:var(--muted);font-size:12px">
+                    <span :title="s.url">{{ s.url }}</span>
+                  </td>
+                </tr>
+                <tr v-if="!repCrawlerInfo.sources || !repCrawlerInfo.sources.length">
+                  <td colspan="5" style="color:var(--muted)">
+                    该名单不是通过本面板拉取的，配置里没有记录来源。若要核对出处，请查看
+                    <code>ip_reputation.crawler_ip_whitelist_sources</code>，或点「刷新名单」重新拉取一遍。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.7">
+            <div><b>作用范围</b>：仅对<b>软分类规则</b>（<code>bot</code>，权重 1 分）生效。
+              注入、跨站、RCE 等攻击类规则<b>永不豁免</b>——爬虫去请求带注入载荷的 URL，那仍然是注入。</div>
+            <div v-if="repCrawlerFailed(repCrawlerInfo).length" style="margin-top:4px;color:var(--muted)">
+              <b>{{ repCrawlerFailed(repCrawlerInfo).length }} 个厂商未取到</b>：
+              <span v-for="(s, i) in repCrawlerFailed(repCrawlerInfo)" :key="s.source">
+                <code>{{ s.source }}</code><span :title="s.error">（{{ s.error }}）</span><span v-if="i < repCrawlerFailed(repCrawlerInfo).length - 1">、</span>
+              </span>
+              —— 通常不是它们缩小了网段，而是<b>这台服务器到它们的站点不通</b>。
+              部署在境内时 google / bing / duckduckgo 常不可达，可在
+              <code>ip_reputation.crawler_sources</code> 里给对应厂商配 <code>mirror</code>（境内可达的镜像地址），官方地址仍保留为出处。
+              <b style="color:var(--text)">未在名单内的厂商，其爬虫仍会被 bot 规则拦截</b>，只是不再因爬取被计分。
+            </div>
+            <div style="margin-top:4px"><b>百度</b>不公开发布任何 IP 段，因此不在此名单中——它靠 DNS 反向+正向校验识别
+              （<code>ip_reputation.crawler_verify</code>），单次拉取失败属预期，不是故障。</div>
+            <div style="margin-top:4px"><b>刷新会替换</b>整份名单（不是追加）。各厂商会自行调整网段，建议定期刷新；
+              长期不刷新的名单会静默失准。</div>
+          </div>
+        </div>
         <!-- Flagged IPs -->
         <div class="card mb-16">
           <div class="flex flex-between mb-8">

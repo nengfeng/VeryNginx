@@ -55,15 +55,17 @@
       const tok = gRepData.mark();
       repError.value = '';
       try {
-        const [sd, fd, wd] = await Promise.all([
+        const [sd, fd, wd, cd] = await Promise.all([
           api('GET', '/verynginx/reputation/stats'),
           api('GET', '/verynginx/reputation/flagged'),
           api('GET', '/verynginx/reputation/whitelist'),
+          api('GET', '/verynginx/reputation/crawler/sources'),
         ]);
         if (!gRepData.isCurrent(tok)) return;
         repStats.value = sd.data;
         repFlagged.value = fd.data || [];
         repWhitelist.value = wd.data || [];
+        repCrawlerInfo.value = cd.data || null;
       } catch (e) {
         if (gRepData.isCurrent(tok)) repError.value = e.message;
       }
@@ -133,9 +135,24 @@
     // The notice that says the list is empty is the one place an operator
     // without a shell can act on it, so the fetch lives here as well as in
     // tools/fetch_crawler_ips.py.
+    //
+    // repCrawlerInfo is the persistent answer to "what is actually in the
+    // list, and when did we last get it": the notice disappears once a list
+    // exists, and without this the page would show a working setup with no
+    // indication of its coverage, its age, or which vendors never arrived.
     const repFetchBusy = ref(false);
     const repFetchResult = ref(null);
     const repFetchPartial = ref(false);
+    const repCrawlerInfo = ref(null);
+
+    function repCrawlerFailed(info) {
+      return ((info && info.sources) || []).filter(s => !s.ok);
+    }
+    function repCrawlerFetchedAt(info) {
+      const ok = ((info && info.sources) || []).filter(s => s.ok);
+      if (!ok.length) return '';
+      return ok.map(s => s.fetched_at).sort().slice(-1)[0] || '';
+    }
 
     async function repFetchCrawlers(apply) {
       if (repFetchBusy.value) return;
@@ -366,6 +383,9 @@
     view('repFetchBusy', repFetchBusy);
     view('repFetchResult', repFetchResult);
     view('repFetchPartial', repFetchPartial);
+    view('repCrawlerInfo', repCrawlerInfo);
+    view('repCrawlerFailed', repCrawlerFailed);
+    view('repCrawlerFetchedAt', repCrawlerFetchedAt);
     view('repLookup', repLookup);
     view('repDetailModal', repDetailModal);
     view('repOpenDetail', repOpenDetail);
