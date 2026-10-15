@@ -17,6 +17,7 @@ local matcher = require "matcher.init"
 local limiter = require "plugin.frequency_limit.limiter"
 local ip_enc = require "core.kernel_blocking.ip_encoding"
 local ev = require "core.kernel_blocking.evidence"
+local dict_guard = require "core.dict_guard"
 
 -- Check if v2 counter namespace is active (migration complete + cutover done).
 -- v2 is enabled when:
@@ -116,9 +117,28 @@ function _M.on_access(ctx)
             else
                 key = limiter.build_key(rule.key or "ip", ctx, rule.id)
             end
-            local current = shared:incr(key, 1, 0, window)
+            local current, ierr = shared:incr(key, 1, 0, window)
 
-            if current and current > limit then
+            -- Fail CLOSED when the counter could not be recorded.
+            --
+            -- The counter dict is declared `noevict`, so this only fires when
+            -- it has no allocatable space left. The previous
+            -- `if current and current > limit` read the nil as "not counted",
+            -- which would have turned a full dict into no rate limiting at all
+            -- — precisely when something is deliberately filling the dict. The
+            -- default eviction policy had the mirror-image failure: it looked
+            -- like success while quietly discarding some other IP's counter.
+            --
+            -- Treating it as over the limit keeps the control working, and makes
+            -- a genuinely full dict produce 429s instead of silence. That is
+            -- the visible failure the WARN below exists to report.
+            if current == nil then
+                dict_guard.write_failed("frequency_limit.count", "incr", ierr)
+                ctx.set_data(ctx, "frequency_limit:counter_unrecorded", true)
+                current = limit + 1
+            end
+
+            if current > limit then
                 -- Record CC violation evidence on FIRST transition past limit
                 -- (current == limit + 1 means this request just crossed the threshold)
                 if v2 and current == limit + 1 then

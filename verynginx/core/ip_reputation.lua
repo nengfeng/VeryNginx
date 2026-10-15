@@ -407,12 +407,25 @@ function _M.record_signal(ip, signal_type, rule)
     if not s then return end
     local slot = current_slot()
     local key = "ip_rep:waf:" .. ip .. ":" .. slot
-    s:incr(key, weight, 0, window_size())
+    -- The dict is declared `noevict`, so a failure here means no allocatable
+    -- space — not a silently evicted neighbour. Both writes are checked: a
+    -- reputation score that quietly stops accumulating is the same class of
+    -- failure as one that quietly discards, and now both surface as a
+    -- throttled WARN instead of being noticed in a screenshot much later.
+    local _, werr = s:incr(key, weight, 0, window_size())
+    if werr then
+        dict_guard.write_failed("ip_rep.signal", "incr", werr)
+        return
+    end
     -- Per-signal event counter. The waf slot above only stores the summed
     -- points, which loses the signal *type* — this companion counter is what
     -- lets the panel answer "why was this IP flagged". Same window/TTL, so
     -- both expire together.
-    s:incr("ip_rep:sig:" .. ip .. ":" .. signal_type .. ":" .. slot, 1, 0, window_size())
+    local _, serr = s:incr("ip_rep:sig:" .. ip .. ":" .. signal_type .. ":" .. slot,
+                           1, 0, window_size())
+    if serr then
+        dict_guard.write_failed("ip_rep.signal_detail", "incr", serr)
+    end
     -- Invalidate score cache since weights changed
     s:delete("ip_rep:score_cache:" .. ip)
 end
@@ -422,7 +435,13 @@ function _M.increment_req(ip)
     if not s then return end
     local slot = current_slot()
     local key = "ip_rep:req:" .. ip .. ":" .. slot
-    s:incr(key, 1, 0, window_size())
+    -- Checked for the same reason as record_signal: this counter is what
+    -- satisfies min_requests, so losing writes silently would quietly disable
+    -- the guard that stops a lone request from flagging an address.
+    local _, rerr = s:incr(key, 1, 0, window_size())
+    if rerr then
+        dict_guard.write_failed("ip_rep.req", "incr", rerr)
+    end
 end
 
 function _M.record_ua(ip, ua_string)
