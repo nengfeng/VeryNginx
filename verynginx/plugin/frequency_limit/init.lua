@@ -117,25 +117,29 @@ function _M.on_access(ctx)
             else
                 key = limiter.build_key(rule.key or "ip", ctx, rule.id)
             end
-            local current, ierr = shared:incr(key, 1, 0, window)
+            local current, ierr, iforc = shared:incr(key, 1, 0, window)
 
-            -- Fail CLOSED when the counter could not be recorded.
+            -- Fail CLOSED when the counter could not be recorded at all.
             --
-            -- The counter dict is declared `noevict`, so this only fires when
-            -- it has no allocatable space left. The previous
-            -- `if current and current > limit` read the nil as "not counted",
-            -- which would have turned a full dict into no rate limiting at all
-            -- — precisely when something is deliberately filling the dict. The
-            -- default eviction policy had the mirror-image failure: it looked
-            -- like success while quietly discarding some other IP's counter.
-            --
-            -- Treating it as over the limit keeps the control working, and makes
-            -- a genuinely full dict produce 429s instead of silence. That is
-            -- the visible failure the WARN below exists to report.
+            -- The previous `if current and current > limit` read a nil as "not
+            -- counted" and let the request through, so a dict with no room left
+            -- would have switched rate limiting off — precisely when something
+            -- is deliberately filling it. Treating it as over the limit keeps
+            -- the control working, and turns a silent hole into visible 429s.
             if current == nil then
                 dict_guard.write_failed("frequency_limit.count", "incr", ierr)
                 ctx.set_data(ctx, "frequency_limit:counter_unrecorded", true)
                 current = limit + 1
+            elseif iforc then
+                -- The counter WAS written, so limiting is working and must not
+                -- be turned into a block here. But it only fitted because some
+                -- other key was evicted by LRU, which outranks expiry: another
+                -- subject's counter is now gone and they will appear to have
+                -- made no requests at all. lua_shared_dict has no noevict
+                -- policy argument, so this cannot be prevented — it can only
+                -- be reported.
+                dict_guard.evicted_other("frequency_limit.count", "incr")
+                ctx.set_data(ctx, "frequency_limit:counter_forced", true)
             end
 
             if current > limit then

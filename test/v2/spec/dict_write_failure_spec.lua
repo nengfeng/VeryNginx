@@ -90,7 +90,12 @@ describe("ip_reputation reports a dropped write", function()
         package.preload["core.dict_guard"] = function()
             return setmetatable({
                 write_failed = function(scope, op, err)
-                    fired[#fired + 1] = { scope = scope, op = op, err = err }
+                    fired[#fired + 1] = { scope = scope, op = op, err = err,
+                                          kind = "failed" }
+                end,
+                evicted_other = function(scope, op)
+                    fired[#fired + 1] = { scope = scope, op = op,
+                                          kind = "evicted_other" }
                 end,
             }, { __index = real_guard })
         end
@@ -132,6 +137,31 @@ describe("ip_reputation reports a dropped write", function()
         rep().increment_req("198.51.100.92")
         fake.incr = real
         assert.is_true(#fired > 0, "increment_req must report a dropped write")
+        assert.are.equal("ip_rep.req", fired[1].scope)
+    end)
+
+    -- The case a plain `if not ok` cannot see: ngx.shared.DICT returns a
+    -- normal value and reports success, having made room by evicting another
+    -- key by LRU. lua_shared_dict has no noevict policy, so this is the
+    -- default behaviour at high water and the only signal is the third
+    -- return value.
+    it("reports a write that succeeded only by evicting another key", function()
+        local real = fake.incr
+        fake.incr = function() return 5, nil, true end
+        fired = {}
+        rep().record_signal("198.51.100.94", "waf_block")
+        fake.incr = real
+        assert.is_true(#fired > 0, "a forcible write must be reported")
+        assert.are.equal("ip_rep.signal", fired[1].scope)
+    end)
+
+    it("treats a forcible request-counter write as reported, not dropped", function()
+        local real = fake.incr
+        fake.incr = function() return 1, nil, true end
+        fired = {}
+        rep().increment_req("198.51.100.95")
+        fake.incr = real
+        assert.is_true(#fired > 0, "a forcible request write must be reported")
         assert.are.equal("ip_rep.req", fired[1].scope)
     end)
 
