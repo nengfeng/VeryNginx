@@ -55,19 +55,31 @@
       const tok = gRepData.mark();
       repError.value = '';
       try {
-        const [sd, fd, wd, cd] = await Promise.all([
+        const [sd, fd, wd] = await Promise.all([
           api('GET', '/verynginx/reputation/stats'),
           api('GET', '/verynginx/reputation/flagged'),
           api('GET', '/verynginx/reputation/whitelist'),
-          api('GET', '/verynginx/reputation/crawler/sources'),
         ]);
         if (!gRepData.isCurrent(tok)) return;
         repStats.value = sd.data;
         repFlagged.value = fd.data || [];
         repWhitelist.value = wd.data || [];
-        repCrawlerInfo.value = cd.data || null;
       } catch (e) {
         if (gRepData.isCurrent(tok)) repError.value = e.message;
+        return;
+      }
+      // Deliberately a separate request, not a fourth Promise.all entry. In
+      // that array it would be one more reason for the whole page to fail, so a
+      // route missing on an older build — or one bad response — would take the
+      // flagged IPs and the score down with it. This one is decoration; failing
+      // it must cost nothing but the decoration.
+      if (gRepData.isCurrent(tok)) {
+        try {
+          const cd = await api('GET', '/verynginx/reputation/crawler/sources');
+          if (gRepData.isCurrent(tok)) repCrawlerInfo.value = cd.data || null;
+        } catch (e) {
+          if (gRepData.isCurrent(tok)) repCrawlerInfo.value = null;
+        }
       }
     }
 
