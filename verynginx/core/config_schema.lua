@@ -94,7 +94,21 @@ function _M.normalize_node(schema_node, raw_value, opts)
                     add_err("string too long (max_len=" .. schema_node.max_len .. ")")
                     val = deep_copy(default)
                 end
-                if schema_node.pattern and not val:match(schema_node.pattern) then
+                -- A declared default is valid by definition: it is the value the schema itself
+                -- substitutes when a key is absent, so rejecting it would make
+                -- "unset" permanently illegal. alerting.webhook_url had
+                -- default = "" alongside pattern = "^https://", and every config
+                -- save logged a warning about its own default. Note that Lua
+                -- patterns have no alternation, so widening the pattern instead
+                -- would not work: "|" is a literal there, not an or.
+                --
+                -- This skips only an exact match against the default; a value the
+                -- operator set to something else is still checked.
+                local is_default = schema_node.default ~= nil
+                    and type(schema_node.default) == "string"
+                    and val == schema_node.default
+                if schema_node.pattern and not is_default
+                    and not val:match(schema_node.pattern) then
                     add_err("string does not match pattern '" .. schema_node.pattern .. "'")
                     val = deep_copy(default)
                 end
