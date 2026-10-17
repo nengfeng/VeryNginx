@@ -2,7 +2,17 @@ local _M = {}
 
 local config = require "core.config"
 local bit = require "core.bit_compat"
-local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
+-- dkjson directly, not cjson-with-dkjson-fallback. This module persists the
+-- flagged list to disk with json.encode(payload, { indent = true }), and
+-- cjson's encode takes exactly one argument: it raised "bad argument #1 to
+-- 'encode' (expected 1 argument)" on every persist, so
+-- ip-reputation-flagged.json was never produced and only a zero-byte .tmp was
+-- left behind. Invisible because error_log was at crit, and untested because
+-- the test environment has no cjson and the fallback quietly used dkjson.
+--
+-- core/config and core/kernel_blocking already require dkjson directly for the
+-- same reason; this keeps the persistence path uniform.
+local json = require "dkjson"
 local wlg = require "core.kernel_blocking.whitelist_generation"
 local cidr = require "core.cidr"
 local random = require "core.random"

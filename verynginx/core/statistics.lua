@@ -8,7 +8,17 @@
 local _M = {}
 local config = require "core.config"
 local dict_guard = require "core.dict_guard"
-local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
+-- dkjson directly, not cjson-with-dkjson-fallback. This module writes state to
+-- disk with json.encode(payload, { indent = true }), and cjson's encode takes
+-- exactly one argument: it raised "bad argument #1 to 'encode' (expected 1
+-- argument)" on every persist, so statistics.json was never produced and only a
+-- zero-byte statistics.json.tmp was left behind. That went unnoticed because
+-- error_log was set to crit, which discards error-level output, and the test
+-- environment has no cjson so the fallback silently used dkjson and passed.
+--
+-- Every other module that persists to disk (core/config, kernel_blocking) already
+-- requires dkjson directly, so this also makes the choice consistent.
+local json = require "dkjson"
 
 -- Log request sample rate: 1-in-10 requests update shdict stats
 local LOG_SAMPLE_RATE = 10
