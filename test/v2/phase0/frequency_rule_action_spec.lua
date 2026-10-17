@@ -195,7 +195,60 @@ describe("frequency rule save: action must survive an edit", function()
         assert.are.equal(7, mock_config.rule.frequency_limit[1].limit)
     end)
 
-    it("reads the rule list under the save lock, not before it", function()
+    it("keeps the stored matcher when the panel sends none", function()
+        -- The failure this exists for. The panel shows '{}' as a placeholder
+        -- when a rule carries a named matcher and has no control for `action`;
+        -- when it then posts, finalMatcher stays undefined and `matcher` is
+        -- left out of the payload entirely. Replacing the rule dropped it, and
+        -- matcher.resolve() then returned nil so the plugin skipped the rule
+        -- forever — silently, because error_log was at crit. freq_burst_cc was
+        -- dead this way after an ordinary edit.
+        mock_config.rule.frequency_limit = {
+            { id = "freq_keep", key = "ip", limit = 50, window = 2, code = 429,
+              action = "block", enable = true, matcher = { _sorted_conditions = {} } },
+        }
+        local res = post_rule(panel_payload("freq_keep", { limit = 60 }))
+        assert.are.equal("success", res.ret)
+        local r = stored("freq_keep")
+        assert.are.equal(60, r.limit, "the edit is applied")
+        assert.is_truthy(r.matcher,
+            "an edit that did not mention the matcher must not delete it")
+    end)
+
+it("accepts a matcher the panel does send, and drops the stale digest", function()
+        -- _matcher_def is derived from matcher and rebuilt on save, and
+        -- matcher.resolve() prefers it. Carrying the old digest alongside a new
+        -- matcher would make the change invisible.
+        mock_config.rule.frequency_limit = {
+            { id = "freq_chg", key = "ip", limit = 5, window = 60, code = 429,
+              action = "block", enable = true,
+              matcher = { _sorted_conditions = {} },
+              _matcher_def = { _sorted_conditions = {}, _matcher_crc = 111 } },
+        }
+        local res = post_rule(panel_payload("freq_chg", {
+            matcher = { URI = { value = "/admin" } },
+        }))
+        assert.are.equal("success", res.ret)
+        local r = stored("freq_chg")
+        assert.is_truthy(r.matcher.URI, "the new matcher must be stored")
+        assert.are.equal("/admin", r.matcher.URI.value)
+        assert.is_nil(r._matcher_def,
+            "the derived digest must be dropped, not carried over stale")
+    end)
+
+it("still preserves fields the panel has no control for", function()
+        mock_config.rule.frequency_limit = {
+            { id = "freq_extra", key = "ip", limit = 5, window = 60, code = 429,
+              action = "block", enable = true, matcher = {},
+              some_future_field = "keep me" },
+        }
+        local res = post_rule(panel_payload("freq_extra", { limit = 9 }))
+        assert.are.equal("success", res.ret)
+        assert.are.equal("keep me", stored("freq_extra").some_future_field,
+            "an unknown field must survive an edit, not be silently dropped")
+    end)
+
+it("reads the rule list under the save lock, not before it", function()
         -- A concurrent save to this group between the handler's read and the
         -- lock used to be discarded, because the whole group was written from
         -- a pre-lock snapshot. Adding a rule inside the mutator must survive.

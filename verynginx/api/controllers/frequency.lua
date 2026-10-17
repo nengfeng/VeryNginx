@@ -103,26 +103,54 @@ local function handle_frequency_rule_save()
         if not cfg.rule then cfg.rule = {} end
         local list = cfg.rule.frequency_limit or {}
 
-        -- `action` has to be filled in: it is required by the shared rule
-        -- validator but is not part of the rate limiter's own contract —
-        -- nothing in plugin/frequency_limit reads it, and the panel has no
-        -- control for it. The rule editor posts
-        -- {id, key, limit, window, code, enable, matcher}, so replacing a rule
-        -- wholesale dropped the stored action and the edit then failed
-        -- validation with "unknown action 'nil'" — the rule could not be edited
-        -- from the panel at all. Templates already set action="block"; carry an
-        -- existing rule's value over when there is one, otherwise match them.
+        -- The panel posts a PARTIAL rule: {id, key, limit, window, code, enable} plus
+        -- a matcher only when it has one to send. It has no control for
+        -- `action`, and it sends no matcher at all when the box still shows the
+        -- '{}' placeholder. Replacing the stored rule with that payload is what
+        -- broke twice, and the second break was the worse one:
+        --
+        --   action  missing -> the shared rule validator rejected the save,
+        --              "unknown action 'nil'". Loud, so it was survivable.
+        --   matcher missing -> matcher.resolve() returned nil and the plugin
+        --              skipped the rule entirely: it counted nothing, blocked
+        --              nothing, and only said so once per config generation in
+        --              a warning that error_log was set to crit, so nobody saw
+        --              it. freq_burst_cc — the 50-per-2s burst limiter, the one
+        --              rule positioned to catch a fast CC — was dead on arrival.
+        --
+        -- So the save is a merge, not a replacement: start from the stored rule
+        -- and overlay what the client actually sent. That ends the class of bug
+        -- rather than one instance of it, including fields added later that the
+        -- panel has no control for yet.
+        --
+        -- The cost is that omitting a field no longer clears it. That is
+        -- acceptable here and is not a workaround: a rate-limit rule with no
+        -- matcher matches nothing forever, so "clear the matcher" is not an
+        -- operation with a useful meaning, and `enable` is always sent.
+        local existing
+        for _, r in ipairs(list) do
+            if r.id == rule.id then existing = r break end
+        end
+
         local merged = {}
-        for k, v in pairs(rule) do merged[k] = v end
+        if existing then
+            for k, v in pairs(existing) do merged[k] = v end
+        end
+        for k, v in pairs(rule) do
+            if v ~= nil then merged[k] = v end
+        end
+        -- _matcher_def is derived from matcher and rebuilt on every save (see
+        -- the pre-resolve pass in core/config.lua), and matcher.resolve()
+        -- prefers it. Carrying a stale digest alongside a NEW matcher would
+        -- make the change invisible, so drop it whenever the client sent one.
+        if rule.matcher ~= nil then
+            merged._matcher_def = nil
+        end
+        -- action is required by the shared validator but read by nothing in
+        -- plugin/frequency_limit; every stored rule and every template uses
+        -- "block", so that is the fallback for a brand-new rule.
         if type(merged.action) ~= "string" or merged.action == "" then
-            local carried
-            for _, r in ipairs(list) do
-                if r.id == merged.id and type(r.action) == "string" and r.action ~= "" then
-                    carried = r.action
-                    break
-                end
-            end
-            merged.action = carried or "block"
+            merged.action = "block"
         end
 
         local updated = false
