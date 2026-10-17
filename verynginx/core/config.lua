@@ -129,6 +129,11 @@ _M.schema = {
             },
             children = {
                 enabled           = leaf({ type = "boolean", default = false }),
+                -- Empty means "no webhook configured", which is the DEFAULTS value and what
+                -- alerting.send_webhook returns on. The pattern still rejects a
+                -- configured-but-invalid URL; the empty default is admitted by
+                -- config_schema, which does not hold a declared default to its
+                -- own pattern.
                 webhook_url       = leaf({ type = "string", default = "", pattern = "^https://" }),
                 hit_spike_multiplier = leaf({ type = "number", default = 3.0, min = 1.0, max = 100.0 }),
                 hit_spike_min_hits   = leaf({ type = "integer", default = 10, min = 1, max = 10000 }),
