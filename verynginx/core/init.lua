@@ -110,6 +110,10 @@ function _M.init_worker()
     observability.init()
     statistics.init()
     health_check.init()
+    -- Reclaim expired shared-dict values. Without it a 1-second-TTL rate-limit
+    -- counter never frees its slot, and the zone fills with invisible dead
+    -- entries that get_keys() will not show. Self-guards on worker id 0.
+    require("core.shdict_maintenance").init()
     waf_manager.init_worker()
     local alerting = require "core.alerting"
     alerting.init()
