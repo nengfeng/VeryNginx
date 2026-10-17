@@ -95,21 +95,48 @@ local function handle_frequency_rule_save()
                 message = "id must be 1-64 chars of [A-Za-z0-9_-]" })
         end
     end
-    if not config.rule then config.rule = {} end
-    local rules = config.rule.frequency_limit or {}
-    local updated = false
-    for i, r in ipairs(rules) do
-        if r.id == rule.id then
-            rules[i] = rule
-            updated = true
-            break
-        end
-    end
-    if not updated then
-        rules[#rules + 1] = rule
-    end
     local mok, merr = config.atomic_mutate(function(cfg)
-        cfg.rule.frequency_limit = rules
+        -- Everything is resolved inside the mutator, which receives the config
+        -- deep-copied under the save lock. Building the list outside and
+        -- assigning it in here wrote the whole group from a pre-lock read, so a
+        -- change another worker saved in between was silently discarded.
+        if not cfg.rule then cfg.rule = {} end
+        local list = cfg.rule.frequency_limit or {}
+
+        -- `action` has to be filled in: it is required by the shared rule
+        -- validator but is not part of the rate limiter's own contract —
+        -- nothing in plugin/frequency_limit reads it, and the panel has no
+        -- control for it. The rule editor posts
+        -- {id, key, limit, window, code, enable, matcher}, so replacing a rule
+        -- wholesale dropped the stored action and the edit then failed
+        -- validation with "unknown action 'nil'" — the rule could not be edited
+        -- from the panel at all. Templates already set action="block"; carry an
+        -- existing rule's value over when there is one, otherwise match them.
+        local merged = {}
+        for k, v in pairs(rule) do merged[k] = v end
+        if type(merged.action) ~= "string" or merged.action == "" then
+            local carried
+            for _, r in ipairs(list) do
+                if r.id == merged.id and type(r.action) == "string" and r.action ~= "" then
+                    carried = r.action
+                    break
+                end
+            end
+            merged.action = carried or "block"
+        end
+
+        local updated = false
+        for i, r in ipairs(list) do
+            if r.id == merged.id then
+                list[i] = merged
+                updated = true
+                break
+            end
+        end
+        if not updated then
+            list[#list + 1] = merged
+        end
+        cfg.rule.frequency_limit = list
         return cfg
     end)
     if not mok then
@@ -200,21 +227,23 @@ local function handle_template_apply()
         return json.encode({ ret = "failed", message = vimerr })
     end
     -- Save the rule via the same path as handle_frequency_rule_save.
-    if not config.rule then config.rule = {} end
-    local rules = config.rule.frequency_limit or {}
-    local updated = false
-    for i, r in ipairs(rules) do
-        if r.id == rule.id then
-            rules[i] = rule
-            updated = true
-            break
-        end
-    end
-    if not updated then
-        rules[#rules + 1] = rule
-    end
     local mok, merr = config.atomic_mutate(function(cfg)
-        cfg.rule.frequency_limit = rules
+        -- Resolved under the save lock rather than from a pre-lock read, for
+        -- the reason given in handle_frequency_rule_save.
+        if not cfg.rule then cfg.rule = {} end
+        local list = cfg.rule.frequency_limit or {}
+        local updated = false
+        for i, r in ipairs(list) do
+            if r.id == rule.id then
+                list[i] = rule
+                updated = true
+                break
+            end
+        end
+        if not updated then
+            list[#list + 1] = rule
+        end
+        cfg.rule.frequency_limit = list
         return cfg
     end)
     if not mok then
