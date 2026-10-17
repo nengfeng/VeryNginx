@@ -6,6 +6,60 @@ _M.default_enable = true
 _M.critical = true
 
 local config = require "core.config"
+
+-- Throttle for the per-match line below.
+--
+-- That line fires once per request per matching log-mode rule, with no
+-- limiting. It was harmless while error_log ran at crit and nothing below
+-- crit was ever written; it is not harmless at warn, which is the level the
+-- diagnostics need in order to exist at all. Log-mode rules recorded 5154
+-- hits on this host in one day, so raising the level without this would bury
+-- the messages the level was raised for — dict_guard's write failures, the
+-- forced-eviction warnings, upstream errors behind the 502s.
+--
+-- Per rule and per worker, one line per interval, with the suppressed count
+-- attached so "it is still matching" stays answerable. Rule hits are already
+-- counted in metrics and recorded in waf-recent-hits.json, so the line is a
+-- visibility aid, not a record of record.
+local MATCH_LOG_INTERVAL = 60
+local match_log_last = {}
+local match_log_skipped = {}
+-- Indirected so a test can drive the window without waiting a real minute.
+local match_log_now = function() return ngx.now() end
+
+--- Log a log-mode rule match, at most once per rule per interval.
+local function log_rule_match(rule_id, rule_name)
+    local now = match_log_now()
+    local last = match_log_last[rule_id]
+    if last and (now - last) < MATCH_LOG_INTERVAL then
+        match_log_skipped[rule_id] = (match_log_skipped[rule_id] or 0) + 1
+        return
+    end
+    local skipped = match_log_skipped[rule_id] or 0
+    match_log_skipped[rule_id] = nil
+    match_log_last[rule_id] = now
+    if skipped > 0 then
+        ngx.log(ngx.WARN, "waf: rule matched [", rule_id, "] ", rule_name,
+            " (", skipped, " more suppressed in the last ",
+            MATCH_LOG_INTERVAL, "s)")
+    else
+        ngx.log(ngx.WARN, "waf: rule matched [", rule_id, "] ", rule_name)
+    end
+end
+
+--- Test seams: the throttle is the part worth pinning, and both it and its
+-- clock are locals. Exposing them lets a test drive the window without standing
+-- up the whole request path or waiting. Not used by production code.
+_M._test_log_rule_match = log_rule_match
+
+function _M._test_match_log_reset(now_override)
+    match_log_last = {}
+    match_log_skipped = {}
+    if now_override then
+        match_log_now = now_override
+    end
+end
+
 local matcher = require "matcher.init"
 local waf_manager = require "waf-rule-manager"
 local ip_reputation = require "core.ip_reputation"
@@ -225,7 +279,7 @@ local function evaluate_rules(rules, ctx, ip)
             ctx.set_data(ctx, "reputation:challenge_response", true)
             return true
         elseif action == "log" then
-            ngx.log(ngx.WARN, "waf: rule matched [", rule.id, "] ", rule.name)
+            log_rule_match(rule.id, rule.name)
         end
 
         ::continue::

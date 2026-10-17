@@ -88,7 +88,12 @@ function _M.init()
         end
         if total > 0 then
             table.sort(names)
-            ngx.log(ngx.NOTICE, "shdict maintenance: reclaimed ",
+            -- WARN, not NOTICE: this module first shipped logging at NOTICE and
+            -- produced no output at all, because error_log was running at crit
+            -- and nothing below crit is written. A sweep that reclaims nothing
+            -- is normal and stays at INFO; one that gives back real space is
+            -- worth seeing in the same log as dict_guard's warnings.
+            ngx.log(ngx.WARN, "shdict maintenance: reclaimed ",
                 math.floor(total / 1024), "KB from expired values (",
                 table.concat(names, ", "), ")")
         end
