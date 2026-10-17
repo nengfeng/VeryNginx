@@ -252,6 +252,11 @@ local METADATA = {
     -- worst traffic the dict has ever seen. A high percentage alongside a low
     -- key count is a large pool, not a full dict.
     shared_dict_keys = { type = "gauge", help = "Shared dict sampled key count" },
+      -- Expired values hold their slab slot until flush_expired() runs, and
+      -- get_keys() will not list them, so a zone can look small while being
+      -- mostly dead entries. This is what the last sweep gave back.
+      shared_dict_reclaimed_bytes = { type = "gauge", help = "Bytes reclaimed by the last expired-value sweep" },
+      shared_dict_sweeps_total = { type = "counter", help = "Expired-value sweep count" },
     plugin_duration_seconds_count = { type = "counter", help = "Total plugin duration count" },
     plugin_duration_seconds_sum = { type = "counter", help = "Total plugin duration sum" },
     verynginx_kernel_block_candidates = { type = "gauge", help = "Kernel blocking candidate count" },
