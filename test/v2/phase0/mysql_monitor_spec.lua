@@ -71,6 +71,30 @@ describe("mysql monitor", function()
             "an unconfigured monitor must not run a query at all")
     end)
 
+    it("uses a lua-resty-mysql that can actually load here", function()
+        -- The vendored library must depend on nothing but "bit", which LuaJIT
+        -- provides. From v0.23 on, lua-resty-mysql requires resty.sha256 at
+        -- load time, for MySQL 8's caching_sha2_password authentication. That
+        -- module ships only with OpenResty: this host runs a self-compiled
+        -- lua-nginx-module, the rock is not on luarocks.org's 5.1 tree, and
+        -- luarocks.openresty.org is not reachable from here. A newer release
+        -- would not load at all.
+        local f = io.open("verynginx/resty/mysql.lua", "r")
+        assert.is_truthy(f, "the driver must be vendored in the repository")
+        local body = f:read("*a")
+        f:close()
+        local requires = {}
+        for m in body:gmatch('require%s+"([^"]+)"') do
+            requires[m] = true
+        end
+        assert.is_truthy(requires["bit"], "bit is required and LuaJIT provides it")
+        for name in pairs(requires) do
+            assert.are.equal("bit", name,
+                "the vendored driver must not depend on " .. name ..
+                " — it is not available on this host")
+        end
+    end)
+
     it("talks to MySQL over a cosocket, not by forking the CLI", function()
         -- The collector used to shell out to the mysql client with io.popen.
         -- Forking inside an nginx worker is not something to do routinely (the

@@ -164,8 +164,14 @@ local function get_conn()
     return conn
 end
 
---- Run a query and return the rows as tab-separated strings.
--- The same shape the CLI client produced, so the parsing above is unchanged.
+--- Run a query and return its rows.
+--
+-- The rows are HASHES keyed by column name, not arrays: lua-resty-mysql only
+-- produces arrays when compact_arrays is set, and the default is off. The
+-- first version of this iterated the row with #row, which is 0 for a hash, so
+-- every value came back empty and the collector reported zeroes without
+-- reporting an error. The queries below therefore alias their columns and
+-- the callers read them by name.
 local function query(sql)
     local c = cfg()
     if not c.enabled then return nil end
@@ -178,22 +184,14 @@ local function query(sql)
         drop_conn()
         return nil, qerr
     end
-    local out = {}
-    for i = 1, #res do
-        local row = res[i]
-        if type(row) == "table" then
-            local parts = {}
-            for j = 1, #row do
-                local v = row[j]
-                if v == nil or v == ngx.null then v = "" end
-                parts[j] = tostring(v)
-            end
-            out[#out + 1] = table.concat(parts, "\t")
-        else
-            out[#out + 1] = tostring(row)
-        end
-    end
-    return out
+    return res
+end
+
+--- Read one column of a row by name, tolerating a NULL.
+local function field(row, name)
+    local v = row[name]
+    if v == nil or v == ngx.null then return nil end
+    return v
 end
 
 --- Normalise a query into a shape: literals become ?, so the same statement
@@ -213,14 +211,16 @@ function _M.collect()
 
     local status = {}
     local rows = query(
-        "SHOW GLOBAL STATUS WHERE Variable_name IN " ..
+        "SELECT VARIABLE_NAME AS var_name, VARIABLE_VALUE AS var_value " ..
+        "FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME IN " ..
         "('Threads_connected','Threads_running','Max_used_connections'," ..
         "'Slow_queries','Questions','Uptime','Aborted_connects')")
     if not rows then return nil, "status query failed" end
-    for _, line in ipairs(rows) do
-        local k, v = line:match("^(%S+)%s+(%S+)$")
-        if k then
-            status[k:lower()] = tonumber(v) or v
+    for _, row in ipairs(rows) do
+        local k = field(row, "var_name")
+        local v = field(row, "var_value")
+        if k and v then
+            status[string.lower(k)] = tonumber(v) or v
         end
     end
 
@@ -243,12 +243,13 @@ function _M.collect()
         tables[db] = {}
         for _, t in ipairs(list) do
             local r = query(string.format(
-                "SELECT TABLE_ROWS, ROUND((DATA_LENGTH+INDEX_LENGTH)/1048576,1) " ..
+                "SELECT TABLE_ROWS AS row_est, " ..
+                "ROUND((DATA_LENGTH+INDEX_LENGTH)/1048576,1) AS size_mb " ..
                 "FROM information_schema.TABLES WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
                 string.format("%q", db), string.format("%q", t)))
             if r and r[1] then
-                local rows_est, mb = r[1]:match("^(%d+)%s+(%S+)$")
-                rows_est = tonumber(rows_est) or 0
+                local rows_est = tonumber(field(r[1], "row_est")) or 0
+                local mb = tonumber(field(r[1], "size_mb")) or 0
                 local prev, prev_ts = 0, 0
                 if shared then
                     prev = tonumber(shared:get("mysql:rows:" .. db .. ":" .. t) or 0) or 0
@@ -256,7 +257,7 @@ function _M.collect()
                 end
                 tables[db][t] = {
                     rows = rows_est,
-                    mb = tonumber(mb) or 0,
+                    mb = mb,
                     previous_rows = prev,
                     growth = rows_est - prev,
                     window_s = (prev_ts > 0) and (ngx.now() - prev_ts) or nil,
@@ -274,12 +275,13 @@ function _M.collect()
     -- COUNT(DISTINCT ...) were running at once, each holding a table scan.
     local running = {}
     local proc = query(
-        "SELECT INFO, TIME FROM information_schema.PROCESSLIST " ..
+        "SELECT INFO AS q, TIME AS t FROM information_schema.PROCESSLIST " ..
         "WHERE COMMAND <> 'Sleep' AND INFO IS NOT NULL ORDER BY TIME DESC LIMIT 50")
     if proc then
         local counts = {}
-        for _, line in ipairs(proc) do
-            local info, t = line:match("^(.*)%s+(%d+)$")
+        for _, row in ipairs(proc) do
+            local info = field(row, "q")
+            local t = field(row, "t")
             if info and info ~= "" then
                 local shape = normalize_sql(info)
                 counts[shape] = (counts[shape] or 0) + 1
