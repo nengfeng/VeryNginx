@@ -684,8 +684,29 @@ end
 local _ok_action, _action_init = pcall(require, "action.init")
 
 local function validate_rule(rule, rule_idx, rule_group, config)
-    -- Check action is known
-    if _ok_action and _action_init then
+    -- Check action is known — but only when the rule names one.
+    --
+    -- Every group under config.rule is a PLUGIN rule group (browser_verify,
+    -- static_file, proxy_pass, redirect, scheme_lock, uri_rewrite,
+    -- frequency_limit). WAF rules live in config.waf_rules and are validated
+    -- by waf-rule-manager, which does require an action.
+    --
+    -- No plugin group reads rule.action. Each plugin sets its own action at
+    -- run time through ctx.set_action(), and the only consumer of rule.action
+    -- in the rule engine — rule_engine.execute() — has no callers at all.
+    -- The plugins use their own field names instead: proxy_host/upstream for
+    -- proxy_pass, root/path/expires for static_file, replace_re/to_uri for
+    -- uri_rewrite.
+    --
+    -- Requiring an action here therefore made it impossible to configure a
+    -- rule in any of those groups: a static_file or proxy_pass rule was
+    -- rejected with "unknown action 'nil'". It only ever passed for
+    -- frequency_limit, whose rules carry an action:"block" that nothing reads.
+    --
+    -- A rule that DOES name an action must still name a valid one, so a typo
+    -- is still caught.
+    if rule.action ~= nil and rule.action ~= ""
+        and _ok_action and _action_init then
         local handler = _action_init.get and _action_init.get(rule.action)
         if not handler then
             return false, string.format("rule.%s[%d]: unknown action '%s'", rule_group, rule_idx, tostring(rule.action))
