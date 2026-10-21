@@ -731,7 +731,13 @@
             name,
             active: spec.active,
             interval: spec.interval,
-            load: spec.load,
+            // A poller may declare its loader as `load` or as `run`. The
+            // dict-diagnostics poller used `run:`, and only `load` was copied
+            // here, so `run` was silently dropped, poll.load stayed undefined,
+            // and every tick of that poller failed with
+            // "poll.load is not a function" — on the overview tab, once a
+            // minute, for as long as the panel was open there. Accept both.
+            load: spec.load || spec.run,
             timer: null,
             // Declared pages this poller covers. Used by refreshPollActivePages
             // so the badge knows which page to show on without depending on
