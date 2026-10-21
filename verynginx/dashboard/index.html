@@ -201,9 +201,20 @@
           </div>
           <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
             <b>每 IP 请求数</b>是判断「是不是分布式爬虫」的关键：正常访客约 0.2，
-            爬虫若每个 IP 只打一次则会接近 1.0 并伴随 IP 数暴涨。
-            状态码分布里 <b>499/502/504</b> 意味着请求到达后端却没拿到结果——这是后端被打垮的信号，
-            不是拦截。
+            爬虫若每个 IP 只打一次则会接近 1.0 并伴随 IP 数暴涨（正常访客会多次请求，比值远大于 1）。
+            状态码里 <b>5xx / 499 / 504</b> 意味着请求到了后端却没拿到结果——这是后端被打垮的信号；
+            <b>403 是 WAF 正在拦、429 是限流在工作</b>，都不算故障。
+          </div>
+
+          <!-- 异常：把「哪里不对」直接摆出来，而不是让人自己从数字里找 -->
+          <div v-if="(live.anomalies||[]).length" style="margin-bottom:12px">
+            <div v-for="(a, i) in live.anomalies" :key="i"
+                 style="padding:6px 10px;margin-bottom:4px;border-radius:4px;font-size:12px"
+                 :style="{background: a.level==='critical' ? 'rgba(239,68,68,.12)' :
+                                    a.level==='warn' ? 'rgba(245,158,11,.12)' : 'rgba(79,138,240,.10)',
+                          color: a.level==='critical' ? '#b91c1c' : a.level==='warn' ? '#a16207' : 'inherit'}">
+              <b>{{ a.host }}</b> · {{ a.text }}
+            </div>
           </div>
 
           <div v-for="h in live.hosts" :key="h.host" style="margin-bottom:16px;
@@ -212,6 +223,9 @@
               <code style="font-size:13px">{{ h.host }}</code>
               <span style="font-size:11px" :style="{color: h.failing_pct > 20 ? '#b91c1c' : 'var(--muted)'}">
                 失败率 {{ h.failing_pct }}%
+                <span v-if="h.baseline && h.baseline.requests_median != null" style="color:var(--muted)">
+                  · 该站平时 {{ h.baseline.requests_median }} 请求/分（中位数）
+                </span>
               </span>
             </div>
 
@@ -235,7 +249,7 @@
                 <div class="stat-label">状态码</div>
                 <div class="stat-value" style="font-size:13px;font-weight:500">
                   <span v-for="(n, c) in h.status" :key="c"
-                        :style="{color: (+c >= 400 && +c !== 429) ? '#b91c1c' : 'inherit'}">
+                        :style="{color: liveIsFailure(c) ? '#b91c1c' : 'inherit'}">
                     {{ c }}:{{ n }}
                   </span>
                 </div>
@@ -267,6 +281,69 @@
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 数据库：2026-10 事故里真正被打垮的是它，而 WAF 侧一个数都没有 -->
+        <div class="card mb-16" v-if="live && live.backend && live.backend.mysql">
+          <div class="flex flex-between mb-8" style="align-items:center">
+            <strong>数据库</strong>
+            <span style="font-size:11px;color:var(--muted)">
+              采集于 {{ live.backend.mysql.collected_at ? new Date(live.backend.mysql.collected_at*1000).toLocaleTimeString() : '—' }}
+            </span>
+          </div>
+          <div class="grid grid-4 mb-8">
+            <div class="stat-card" style="padding:8px">
+              <div class="stat-label">运行中查询 / 连接</div>
+              <div class="stat-value" style="font-size:16px">
+                {{ live.backend.mysql.status.threads_running != null ? live.backend.mysql.status.threads_running : '—' }}
+                <span style="font-size:12px;color:var(--muted)">/ {{ live.backend.mysql.status.threads_connected || '—' }}</span>
+              </div>
+            </div>
+            <div class="stat-card" style="padding:8px">
+              <div class="stat-label">慢查询累计</div>
+              <div class="stat-value" style="font-size:16px"
+                   :style="{color: (live.backend.mysql.status.slow_queries||0) > 100000 ? '#a16207' : ''}">
+                {{ live.backend.mysql.status.slow_queries || 0 }}
+              </div>
+            </div>
+            <div class="stat-card" style="padding:8px">
+              <div class="stat-label">历史最大连接</div>
+              <div class="stat-value" style="font-size:16px">
+                {{ live.backend.mysql.status.max_used_connections || '—' }}
+              </div>
+            </div>
+            <div class="stat-card" style="padding:8px">
+              <div class="stat-label">总查询数</div>
+              <div class="stat-value" style="font-size:16px">{{ live.backend.mysql.status.questions || 0 }}</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px">
+            表行数（只增不减的表就是泄漏）
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>表</th><th>行数</th><th>大小</th><th>较上次</th></tr></thead>
+              <tbody>
+                <template v-for="(ts, db) in (live.backend.mysql.tables||{})">
+                  <tr v-for="(v, t) in ts" :key="db + ':' + t">
+                    <td><code>{{ db }}.{{ t }}</code></td>
+                    <td><b>{{ v.rows }}</b></td>
+                    <td>{{ v.mb }} MB</td>
+                    <td :style="{color: v.growth > 0 ? '#a16207' : 'var(--muted)'}">
+                      {{ v.growth > 0 ? '+' + v.growth : (v.growth || 0) }}
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="(live.backend.mysql.running||[]).length" style="margin-top:10px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:4px">正在跑的查询（按形状归并）</div>
+            <div v-for="(q, i) in live.backend.mysql.running.slice(0, 4)" :key="i"
+                 style="font-size:11px;color:var(--muted);word-break:break-all">
+              ×{{ q.concurrent }}　{{ q.shape }}
             </div>
           </div>
         </div>

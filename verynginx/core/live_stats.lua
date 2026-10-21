@@ -227,6 +227,19 @@ function _M.record(ctx)
     -- began — which is the intended window.
     dict_guard.incr(shared, "stats.live", base .. ":req", 1, 0, MINUTE_TTL)
 
+    -- Failures, counted here rather than read back from the statistics engine:
+    -- the history rollup runs on a timer and needs the number for the minute
+    -- it is folding, and the 1m bucket is flushed away under it.
+    --
+    -- Narrow on purpose — see _M.is_backend_failure. 403 is the WAF blocking
+    -- and 429 is the rate limiter working; neither is a backend failure, and
+    -- counting them here would make the history show a site in trouble
+    -- precisely when the defence is doing its job.
+    local status = tonumber(ngx.var.status) or 0
+    if _M.is_backend_failure(status) then
+        dict_guard.incr(shared, "stats.live", base .. ":fail", 1, 0, MINUTE_TTL)
+    end
+
     local ip = req.remote_addr or "?"
     sample_add(shared, base .. ":ip", ip)
 
@@ -345,6 +358,369 @@ function _M.hosts(minutes)
         end
     end
     return out
+end
+
+-- ---------------------------------------------------------------------------
+-- History and baselines
+-- ---------------------------------------------------------------------------
+--
+-- The live minute data above lives for 15 minutes, which is enough for a
+-- sparkline but not for a baseline. A number without a baseline is not an
+-- alarm: "74%" means nothing until you know what this host normally does.
+--
+-- History is kept as ONE KEY PER HOST, holding a text series of
+-- "minute,requests,distinct_clients,failures" records separated by ";":
+--
+--   hist:<host>    the last 180 minutes
+--   histH:<host>   the last 168 hours
+--
+-- One key per host rather than one per host per minute, and that matters
+-- twice over. The statistics dict already answers /dicts with 678 KB because
+-- it held 7,272 namespaces; a per-minute key layout would have added about a
+-- thousand more. And a NEW shared dict would have needed a full nginx
+-- restart — shared-memory zones are created by the master, not by a reload —
+-- which on a live box means clearing the rate-limit counters, the reputation
+-- data and the statistics at once. Twelve keys need no restart and add
+-- nothing measurable to the dictionary listing.
+--
+-- The hour row keeps the MAX distinct clients seen in any minute of the hour
+-- rather than a sum: summing distinct counts over minutes counts the same
+-- person repeatedly, and a union of the samples is not available.
+
+local HIST_MINUTES = 180
+local HIST_HOURS = 168
+
+-- Kept in the statistics dict rather than in a dedicated one, for the reason
+-- above. A separate zone would need a master restart to exist.
+local function hist_dict()
+    return ngx.shared.statistics
+end
+
+local function encode_records(records)
+    local parts = {}
+    for _, r in ipairs(records) do
+        parts[#parts + 1] = table.concat({ r.ts, r.requests, r.distinct_ips, r.fails }, ",")
+    end
+    return table.concat(parts, ";")
+end
+
+local function decode_records(raw)
+    local out = {}
+    if not raw or raw == "" then return out end
+    for rec in raw:gmatch("[^;]+") do
+        local ts, req, ips, fails = rec:match("^(%d+),(%d+),(%d+),(%d+)$")
+        if ts then
+            out[#out + 1] = {
+                ts = tonumber(ts),
+                requests = tonumber(req) or 0,
+                distinct_ips = tonumber(ips) or 0,
+                fails = tonumber(fails) or 0,
+            }
+        end
+    end
+    return out
+end
+
+--- Append or replace one record in a series, keeping the newest N.
+local function series_put(raw, rec, keep)
+    local records = decode_records(raw)
+    local replaced = false
+    for i, r in ipairs(records) do
+        if r.ts == rec.ts then
+            records[i] = rec
+            replaced = true
+            break
+        end
+    end
+    if not replaced then
+        records[#records + 1] = rec
+    end
+    table.sort(records, function(a, b) return a.ts < b.ts end)
+    while #records > keep do table.remove(records, 1) end
+    return encode_records(records)
+end
+
+--- Fold one minute of live data into the history.
+-- Called from the maintenance timer, not per request.
+function _M.roll_history()
+    local live = ngx.shared.statistics
+    local hist = hist_dict()
+    if not live or not hist then return end
+    local now = os.time()
+    local minute_ts = now - (now % 60)
+    for _, host in ipairs(_M.hosts(2)) do
+        local base = PREFIX .. host .. ":" .. os.date("%Y%m%d%H%M", minute_ts)
+        local req = tonumber(live:get(base .. ":req") or 0) or 0
+        local ips = sample_distinct(live:get(base .. ":ip"))
+        local fails = tonumber(live:get(base .. ":fail") or 0) or 0
+        if req > 0 or ips > 0 then
+            local rec = { ts = minute_ts, requests = req, distinct_ips = ips, fails = fails }
+            local raw = hist:get("hist:" .. host)
+            hist:set("hist:" .. host, series_put(raw, rec, HIST_MINUTES))
+            -- The hour row: same counters, summed except the distinct clients,
+            -- which take the maximum.
+            local hour_ts = minute_ts - (minute_ts % 3600)
+            local hraw = hist:get("histH:" .. host)
+            local hrecords = decode_records(hraw)
+            local hrec
+            for i, r in ipairs(hrecords) do
+                if r.ts == hour_ts then hrec = r; hrecords[i] = nil break end
+            end
+            hrec = hrec or { ts = hour_ts, requests = 0, distinct_ips = 0, fails = 0 }
+            hrec.requests = hrec.requests + req
+            hrec.distinct_ips = math.max(hrec.distinct_ips, ips)
+            hrec.fails = hrec.fails + fails
+            hrecords[#hrecords + 1] = hrec
+            table.sort(hrecords, function(a, b) return a.ts < b.ts end)
+            while #hrecords > HIST_HOURS do table.remove(hrecords, 1) end
+            hist:set("histH:" .. host, encode_records(hrecords))
+        end
+    end
+end
+
+--- Read a host's per-minute history, oldest first.
+function _M.history(host, minutes)
+    local hist = hist_dict()
+    if not hist then return {} end
+    local records = decode_records(hist:get("hist:" .. host))
+    -- The stored series holds the whole retained window; the caller asks for
+    -- the most recent slice of it.
+    minutes = math.min(minutes or HIST_MINUTES, HIST_MINUTES)
+    if #records > minutes then
+        local trimmed = {}
+        for i = #records - minutes + 1, #records do trimmed[#trimmed + 1] = records[i] end
+        records = trimmed
+    end
+    local out = {}
+    for _, r in ipairs(records) do
+        out[#out + 1] = {
+            ts = r.ts,
+            minute = os.date("%H:%M", r.ts),
+            requests = r.requests,
+            distinct_ips = r.distinct_ips,
+            fails = r.fails,
+            fail_pct = (r.requests > 0) and math.floor((r.fails / r.requests) * 1000) / 10 or 0,
+            req_per_ip = (r.distinct_ips > 0) and (r.requests / r.distinct_ips) or nil,
+        }
+    end
+    return out
+end
+
+--- Read a host's per-hour history, oldest first.
+function _M.hour_history(host, hours)
+    local hist = hist_dict()
+    if not hist then return {} end
+    local records = decode_records(hist:get("histH:" .. host))
+    hours = math.min(hours or HIST_HOURS, HIST_HOURS)
+    if #records > hours then
+        local trimmed = {}
+        for i = #records - hours + 1, #records do trimmed[#trimmed + 1] = records[i] end
+        records = trimmed
+    end
+    local out = {}
+    for _, r in ipairs(records) do
+        out[#out + 1] = {
+            ts = r.ts,
+            hour = os.date("%m-%d %H", r.ts),
+            requests = r.requests,
+            distinct_ips = r.distinct_ips,
+            fails = r.fails,
+            fail_pct = (r.requests > 0) and math.floor((r.fails / r.requests) * 1000) / 10 or 0,
+            req_per_ip = (r.distinct_ips > 0) and (r.requests / r.distinct_ips) or nil,
+        }
+    end
+    return out
+end
+
+local function percentile(values, p)
+    if #values == 0 then return nil end
+    local sorted = {}
+    for _, v in ipairs(values) do sorted[#sorted + 1] = v end
+    table.sort(sorted)
+    local idx = math.floor(p * #sorted) + 1
+    if idx < 1 then idx = 1 end
+    if idx > #sorted then idx = #sorted end
+    return sorted[idx]
+end
+
+local function median(values)
+    return percentile(values, 0.5)
+end
+
+--- What is normal for this host.
+--
+-- Two windows, because they answer different questions. The minute median
+-- over the last three hours answers "is right now unusual for this host".
+-- The hour median over the last week answers "is this host unusual at all",
+-- which is what catches a slow-burn incident that never looks like a spike.
+function _M.baseline(host)
+    local minutes = _M.history(host, HIST_MINUTES)
+    local hours = _M.hour_history(host, HIST_HOURS)
+    local mreq, mips, mratio = {}, {}, {}
+    for _, m in ipairs(minutes) do
+        if m.requests > 0 then
+            mreq[#mreq + 1] = m.requests
+            mips[#mips + 1] = m.distinct_ips
+            if m.req_per_ip then mratio[#mratio + 1] = m.req_per_ip end
+        end
+    end
+    local hreq = {}
+    for _, h in ipairs(hours) do
+        if h.requests > 0 then hreq[#hreq + 1] = h.requests end
+    end
+    return {
+        minutes_covered = #minutes,
+        hours_covered = #hours,
+        requests_median = median(mreq),
+        requests_p90 = percentile(mreq, 0.9),
+        distinct_ips_median = median(mips),
+        req_per_ip_median = median(mratio),
+        hour_requests_median = median(hreq),
+        hour_requests_p90 = percentile(hreq, 0.9),
+    }
+end
+
+--- Does this status code mean the BACKEND failed?
+--
+-- Narrow on purpose. 5xx is the backend or the path to it failing; 499 is the
+-- client giving up on a response that never came; 408/504/524 are timeouts.
+--
+-- 403 is the WAF blocking, 404 is the backend answering correctly, and 429 is
+-- the rate limiter working. None of them is a backend failure, and treating
+-- them as one produces a panel that screams while the defence is doing its
+-- job — which is worse than no alarm at all.
+function _M.is_backend_failure(code)
+    local c = tonumber(code) or 0
+    if c >= 500 then return true end
+    return c == 499 or c == 408 or c == 504 or c == 524
+end
+
+--- Deviation signals for one host.
+-- The panel renders these; it does not have to re-derive them.
+function _M.anomalies(host, series)
+    local out = {}
+    local base = _M.baseline(host)
+    local latest = series and series[#series]
+    if not latest then return out end
+
+    -- Distributed scraping: many clients, each making about ONE request.
+    --
+    -- The ratio is the wrong way round to think about it. A normal visitor
+    -- makes several requests (the page, its ajax calls, a profile lookup), so
+    -- a normal site's requests-per-client is well ABOVE 1. The scraper that
+    -- took this site down was 1.01 across 3,662 addresses: every client made
+    -- exactly one request and vanished. So the signal is a ratio NEAR ONE with
+    -- a lot of clients — not a low ratio.
+    --
+    -- The client count is checked against this host's own baseline as well,
+    -- because a small site can legitimately have twenty clients a minute.
+    local ratio = latest.req_per_ip
+    local ips = latest.distinct_ips or 0
+    local baseline_ips = base.distinct_ips_median
+    local many_new_clients = (not baseline_ips) or ips > baseline_ips * 3
+    if ratio and ips >= 20 and ratio <= 1.2 and many_new_clients then
+        out[#out + 1] = {
+            level = "warn",
+            kind = "diverse_scraping",
+            text = string.format(
+                "%d 个不同客户端，每 IP 仅 %.2f 次请求 —— 分布式爬虫特征（正常访客会多次请求）",
+                ips, ratio),
+        }
+    end
+
+    -- Volume against this host's own baseline.
+    if base.requests_p90 and latest.requests > base.requests_p90 * 3
+        and latest.requests > 20 then
+        out[#out + 1] = {
+            level = "warn",
+            kind = "volume_spike",
+            text = string.format("请求 %d/分，是该站 p90 基线（%d）的 %.1f 倍",
+                latest.requests, base.requests_p90, latest.requests / base.requests_p90),
+        }
+    end
+
+    -- Failure share. What counts as a failure is narrow on purpose: 5xx, 499
+    -- (the client gave up before a response arrived) and the timeout codes.
+    --
+    -- 403 is the WAF blocking, which is the system WORKING — counting it as a
+    -- failure would have the panel cry wolf exactly when the defence is doing
+    -- its job, and on this deployment the bot rule alone produces a steady
+    -- stream of 403s. 404 is the backend answering correctly, and 429 is the
+    -- rate limiter doing what it was configured to do.
+    local status = _M.host_status_counts(host)
+    local total, failing = 0, 0
+    for code, n in pairs(status) do
+        total = total + n
+        local c = tonumber(code) or 0
+        if _M.is_backend_failure(c) then failing = failing + n end
+    end
+    if total > 0 and failing / total > 0.2 then
+        out[#out + 1] = {
+            level = "critical",
+            kind = "backend_failing",
+            text = string.format("后端失败率 %.0f%%（%d/%d 个请求到了后端却没拿到结果）",
+                failing / total * 100, failing, total),
+        }
+    end
+
+    -- A traffic shape that did not exist an hour ago.
+    for _, sh in ipairs(latest.shapes or {}) do
+        if sh.first_seen and (os.time() - sh.first_seen) < 3600
+            and sh.count >= math.max(5, (latest.requests or 0) * 0.2) then
+            out[#out + 1] = {
+                level = "info",
+                kind = "new_shape",
+                text = string.format("新的流量形状（占比 %.0f%%）：%s",
+                    (latest.requests or 0) > 0 and sh.count / latest.requests * 100 or 0,
+                    (sh.shape or ""):sub(1, 90)),
+            }
+        end
+    end
+    return out
+end
+
+--- Host-level status counts for the current minute, read from the live data.
+function _M.host_status_counts(host)
+    local shared = ngx.shared.statistics
+    if not shared then return {} end
+    -- The live module does not keep a status breakdown per minute; the
+    -- statistics engine keeps it per host per bucket. Reading the 1m bucket is
+    -- the freshest view, and the rollup keeps it available.
+    local statistics = require "core.statistics"
+    local st = statistics.get_host_status(host, "1m")
+    local out = {}
+    for code, n in pairs(st) do
+        out[code] = n
+    end
+    return out
+end
+
+--- Start the history rollup timer.
+-- Worker 0 only: the rollup writes one row per host per minute, and running
+-- it in every worker would multiply that and contend on the same keys.
+function _M.init()
+    if not ngx.timer or not ngx.timer.every then return end
+    if ngx.worker.id() ~= 0 then return end
+    -- Every 60s, slightly after the minute turns over, so the minute being
+    -- folded is the one that just ended.
+    ngx.timer.every(60, function(premature)
+        if premature then return end
+        local ok, err = pcall(function() _M.roll_history() end)
+        if not ok then
+            ngx.log(ngx.WARN, "live_stats: history rollup failed: ", tostring(err))
+        end
+    end)
+    -- The database collector runs here too, so its reading is available
+    -- without the panel having to trigger it.
+    ngx.timer.every(60, function(premature)
+        if premature then return end
+        local ok, mysql = pcall(function()
+            return require("core.mysql_monitor").collect()
+        end)
+        if not ok then
+            ngx.log(ngx.WARN, "mysql_monitor: collection failed: ", tostring(mysql))
+        end
+    end)
 end
 
 return _M

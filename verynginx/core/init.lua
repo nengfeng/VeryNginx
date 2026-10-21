@@ -114,6 +114,9 @@ function _M.init_worker()
     -- counter never frees its slot, and the zone fills with invisible dead
     -- entries that get_keys() will not show. Self-guards on worker id 0.
     require("core.shdict_maintenance").init()
+    -- Traffic history, the baselines derived from it, and the database
+    -- collector. Worker 0 only.
+    require("core.live_stats").init()
     waf_manager.init_worker()
     local alerting = require "core.alerting"
     alerting.init()

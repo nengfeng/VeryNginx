@@ -354,9 +354,18 @@
       return s.requests / s.distinct_ips;
     }
 
+    // Does this status mean the BACKEND failed? Same rule as the server side
+    // (core/live_stats.is_backend_failure): 5xx, 499 and the timeouts.
+    // 403 is the WAF blocking and 429 is the rate limiter working — colouring
+    // those red would report the defence as a failure.
+    function liveIsFailure(code) {
+      const c = Number(code);
+      if (c >= 500) return true;
+      return c === 499 || c === 408 || c === 504 || c === 524;
+    }
+
     // A sparkline for one series field, scaled to its own maximum.
-    function liveLine(h, field) {
-      const s = (h && h.series) || [];
+    function liveLine(h, field) {      const s = (h && h.series) || [];
       if (s.length < 2) return '';
       const w = 100, hpx = 50;
       const step = w / (s.length - 1);
@@ -753,6 +762,7 @@
     view('liveLast', liveLast);
     view('liveRatio', liveRatio);
     view('liveLine', liveLine);
+    view('liveIsFailure', liveIsFailure);
     view('loadStats', loadStats);
     view('loadStatus', loadStatus);
     view('loadConfig', loadConfig);
