@@ -71,15 +71,39 @@ describe("mysql monitor", function()
             "an unconfigured monitor must not run a query at all")
     end)
 
-    it("uses an absolute client path", function()
-        -- A bare "mysql" is not on an nginx worker's PATH.
+    it("talks to MySQL over a cosocket, not by forking the CLI", function()
+        -- The collector used to shell out to the mysql client with io.popen.
+        -- Forking inside an nginx worker is not something to do routinely (the
+        -- workers here are 77-119 MB resident), and it made the collector
+        -- depend on an external binary — one that an nginx worker's PATH does
+        -- not contain, so the collection silently returned empty.
+        --
+        -- Comments are stripped first: the file explains the old approach, and
+        -- the word appears there.
         local src = io.open("verynginx/core/mysql_monitor.lua", "r")
         local body = src:read("*a")
         src:close()
-        assert.is_truthy(body:find("/usr/local/mariadb/bin/mysql", 1, true),
-            "the default client must be an absolute path")
-        assert.is_truthy(body:find("resolve_client", 1, true),
-            "and the path must be resolvable from the config")
+        -- Lua comments: block /* */ and line --. The file explains the old
+        -- approach, and the word appears in that explanation.
+        local code = body:gsub("/%*.-%*/", " "):gsub("%-%-[^\n]*", " ")
+        assert.is_truthy(code:find("resty.mysql", 1, true),
+            "the collector must use the MySQL driver")
+        assert.is_falsy(code:find("io.popen", 1, true),
+            "and must not fork the command-line client any more")
+        assert.is_falsy(code:find("/usr/local/mariadb/bin/mysql", 1, true),
+            "no dependency on an external client path")
+    end)
+
+    it("reads the credentials from the defaults-file, not the config", function()
+        -- The config is served to the panel, so a database password must not
+        -- be in it.
+        local src = io.open("verynginx/core/mysql_monitor.lua", "r")
+        local body = src:read("*a")
+        src:close()
+        assert.is_truthy(body:find("read_credentials", 1, true),
+            "the credentials must be read from the defaults-file")
+        assert.is_truthy(body:find("cnf", 1, true),
+            "and the file must be named by the config")
     end)
 
     it("reports the row count and the growth since the previous reading", function()
