@@ -155,12 +155,25 @@ local function host_view(host, minutes)
     for _, n in pairs(status) do total = total + n end
     local failing = 0
     for code, n in pairs(status) do
-        local c = tonumber(code) or 0
-        if c >= 400 and c ~= 429 then failing = failing + n end
+        -- Same definition as the anomaly check: 5xx, 499 and the timeouts.
+        -- 403 is the WAF blocking and 429 is the rate limiter working, so
+        -- counting them as failures would report the defence as a failure.
+        if live_stats.is_backend_failure(code) then failing = failing + n end
     end
+    -- What is normal for this host, so the current minute can be judged
+    -- against something instead of against nothing.
+    local baseline = live_stats.baseline(host)
+    local anomalies = live_stats.anomalies(host, series)
     return {
         host = host,
         series = series,
+        -- The longer per-minute history and the hourly view. These are what
+        -- turn a snapshot into a trend: "74%" means nothing, "74% and climbing
+        -- since 14:00" is an alarm.
+        history = live_stats.history(host, 180),
+        hours = live_stats.hour_history(host, 168),
+        baseline = baseline,
+        anomalies = anomalies,
         status = status,
         status_total = total,
         -- Share of the host's traffic that came back as an error other than a
@@ -181,11 +194,26 @@ local function handle_live()
     end
     table.sort(hosts, function(a, b) return a.host < b.host end)
 
+    -- Every anomaly across every host, most severe first, so the operator
+    -- sees what is wrong without reading each host.
+    local anomalies = {}
+    for _, h in ipairs(hosts) do
+        for _, a in ipairs(h.anomalies or {}) do
+            a.host = h.host
+            anomalies[#anomalies + 1] = a
+        end
+    end
+    local order = { critical = 1, warn = 2, info = 3 }
+    table.sort(anomalies, function(a, b)
+        return (order[a.level] or 9) < (order[b.level] or 9)
+    end)
+
     local data = {
         generated_at = ngx.now(),
         sample_rate = 10,
         minutes = minutes,
         hosts = hosts,
+        anomalies = anomalies,
         backend = {
             -- These come straight from nginx's own counters, in the request
             -- context — no extra scrape. "writing" high with "waiting" high
@@ -198,6 +226,10 @@ local function handle_live()
                 waiting = tonumber(ngx.var.connections_waiting) or 0,
             },
             fpm = fpm_status(),
+            -- The database the site runs on. On 2026-10 this was the component
+            -- that was actually overloaded while the WAF's own panel showed a
+            -- healthy site.
+            mysql = require("core.mysql_monitor").last(),
             disk = disk_usage(),
             logs = log_sizes(),
         },

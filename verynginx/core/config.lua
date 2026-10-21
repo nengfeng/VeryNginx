@@ -32,6 +32,10 @@ _M.schema = {
         admin = leaf({ type = "table", default = {} }),
         matcher = leaf({ type = "table", default = {} }),
         rule = leaf({ type = "table", default = {} }),
+        -- Optional database visibility. Off unless enabled, and the credentials
+        -- live in a file the config points at rather than in the config
+        -- itself, which is served to the panel.
+        mysql_monitor = leaf({ type = "table", default = {} }),
         backend_upstream = leaf({ type = "table", default = {} }),
         response = leaf({ type = "table", default = {} }),
         plugin = leaf({
