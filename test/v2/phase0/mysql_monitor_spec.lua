@@ -71,28 +71,50 @@ describe("mysql monitor", function()
             "an unconfigured monitor must not run a query at all")
     end)
 
-    it("uses a lua-resty-mysql that can actually load here", function()
-        -- The vendored library must depend on nothing but "bit", which LuaJIT
-        -- provides. From v0.23 on, lua-resty-mysql requires resty.sha256 at
-        -- load time, for MySQL 8's caching_sha2_password authentication. That
-        -- module ships only with OpenResty: this host runs a self-compiled
-        -- lua-nginx-module, the rock is not on luarocks.org's 5.1 tree, and
-        -- luarocks.openresty.org is not reachable from here. A newer release
-        -- would not load at all.
+    it("uses a lua-resty-mysql whose dependencies are all satisfiable here", function()
+        -- The driver is vendored (like resty/http.lua) rather than taken from
+        -- the machine's luarocks tree, which only carries v0.15 and whose
+        -- newer releases live on a server this host cannot reach.
+        --
+        -- v0.23 and later require resty.sha256 at LOAD time, for MySQL 8's
+        -- caching_sha2_password authentication. That module is part of
+        -- lua-resty-string, so it is vendored too, with resty/sha.lua, which is
+        -- its only dependency besides ffi. ffi and bit come from LuaJIT.
+        --
+        -- The point of this test is that every require in the vendored tree
+        -- resolves to something this host actually has — either a LuaJIT
+        -- builtin or another vendored file. A version whose dependency is
+        -- missing would fail to LOAD, and the collector would silently report
+        -- nothing, which is the failure mode this whole exercise is about.
+        local vendored = { "resty/mysql.lua", "resty/sha256.lua", "resty/sha.lua" }
+        local available = {
+            ["bit"] = true,    -- LuaJIT
+            ["ffi"] = true,    -- LuaJIT
+        }
+        for _, rel in ipairs(vendored) do
+            local f = io.open("verynginx/" .. rel, "r")
+            assert.is_truthy(f, rel .. " must be vendored in the repository")
+            local body = f:read("*a")
+            f:close()
+            local mod = rel:match("resty/(.+%.lua)$")
+            available[mod:gsub("%.lua$", "")] = true
+            for m in body:gmatch('require%s+"([^"]+)"') do
+                available[m] = true
+            end
+        end
+        -- Everything the driver needs must be present.
         local f = io.open("verynginx/resty/mysql.lua", "r")
-        assert.is_truthy(f, "the driver must be vendored in the repository")
         local body = f:read("*a")
         f:close()
-        local requires = {}
         for m in body:gmatch('require%s+"([^"]+)"') do
-            requires[m] = true
+            assert.is_truthy(available[m],
+                "the vendored driver requires '" .. m ..
+                "', which is neither a LuaJIT builtin nor vendored here")
         end
-        assert.is_truthy(requires["bit"], "bit is required and LuaJIT provides it")
-        for name in pairs(requires) do
-            assert.are.equal("bit", name,
-                "the vendored driver must not depend on " .. name ..
-                " — it is not available on this host")
-        end
+        assert.is_truthy(available["resty.sha256"],
+            "resty.sha256 must be vendored: the driver requires it at load time")
+        assert.is_truthy(available["resty.sha"],
+            "resty.sha must be vendored: resty.sha256 requires it")
     end)
 
     it("talks to MySQL over a cosocket, not by forking the CLI", function()
