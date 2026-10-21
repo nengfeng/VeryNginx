@@ -528,7 +528,29 @@ end
 -- Runtime config store (immutable via read-only metatable at end of file)
 -- ---------------------------------------------------------------------------
 _M.local_hash = nil
-_M.attempted_hash = nil
+-- attempted_hash is per-worker bookkeeping: the last remote config hash this
+-- worker tried to load. It is a module LOCAL, not a field on _M, because the
+-- module table is read-only from the moment its metatable is installed (see
+-- the bottom of this file) and only `local_hash` is exempted there. Writing
+-- _M.attempted_hash at runtime therefore hit the read-only guard and raised
+-- "config is readonly, use config.save()" — inside check_update(), which
+-- on_rewrite.lua calls on 1 request in 100 with no pcall around it. The
+-- effect: after any dashboard config save, every worker whose hash was stale
+-- aborted 1-in-100 requests with a 500, and because the assignment itself
+-- threw, attempted_hash was never recorded, so the reload never succeeded and
+-- the worker stayed on the old config until the next nginx reload. The
+-- dashboard's own edits did not take effect on the serving workers.
+local attempted_hash = nil
+
+--- Test seam: substitute the shared dict check_update() reads.
+-- Not used by production code. Kept in a module LOCAL for the same reason
+-- attempted_hash is: the module table is read-only once its metatable is
+-- installed, and writing a field on it from a test would hit that guard —
+-- the very failure this file documents.
+local test_shared = nil
+function _M._test_set_shared(shared)
+    test_shared = shared
+end
 
 -- Forward declaration: atomic_write_json is defined further below (after
 -- copy_file) but is referenced inside load_from_file, which appears earlier.
@@ -1080,12 +1102,12 @@ end
 -- Hot-reload check: compare shared dict hash, zero file I/O on miss
 -- ---------------------------------------------------------------------------
 function _M.check_update()
-    local shared = ngx.shared.vn_config
+    local shared = test_shared or ngx.shared.vn_config
     if not shared then
         return
     end
     local remote_hash = shared:get("config_hash")
-    if remote_hash and remote_hash ~= _M.local_hash and remote_hash ~= _M.attempted_hash then
+    if remote_hash and remote_hash ~= _M.local_hash and remote_hash ~= attempted_hash then
         -- Only attempt a given remote hash once: if load_from_file fails
         -- (e.g. corrupt config.json that we deliberately keep serving the
         -- previous in-memory config for), we must not loop re-reading it on
@@ -1097,7 +1119,7 @@ function _M.check_update()
         if shared:get("config_save_lock") then
             return
         end
-        _M.attempted_hash = remote_hash
+        attempted_hash = remote_hash
         _M.load_from_file()
     end
 end
