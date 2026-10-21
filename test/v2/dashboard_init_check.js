@@ -177,6 +177,37 @@ if (dups.length > 0) {
     else pass('all ctx helpers destructured where used');
 }
 
+// 9. Every registerPoll() must declare a loader the registry understands.
+//    The registry copies `load` (and now `run`); a poller declared with any
+//    other key had its loader silently dropped, leaving poll.load undefined
+//    and every tick of that poller failing with "poll.load is not a
+//    function". The dict-diagnostics poller used `run:` and failed exactly
+//    that way on the overview tab.
+{
+    const commonSrc = fs.readFileSync(path.join(DASH, 'vn-common.js'), 'utf8');
+    // The keys the registry actually honours, read out of the registry itself
+    // rather than assumed: `load: spec.load || spec.run` accepts both.
+    const accepted = [...commonSrc.matchAll(/load:\s*(spec\.[^,\n]+)/g)]
+        .flatMap(m => m[1].split('||').map(s => s.trim().replace(/^spec\./, '')));
+    const acceptedSet = new Set(accepted);
+    const bad = [];
+    for (const f of MODULE_FILES) {
+        const src = fs.readFileSync(path.join(DASH, f), 'utf8');
+        const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+        for (const m of code.matchAll(/registerPoll\(\s*'([^']+)'\s*,\s*\{([\s\S]*?)\n\s*\}\s*\)/g)) {
+            const [, name, body] = m;
+            const decls = [...body.matchAll(/(\w+)\s*:/g)].map(x => x[1]);
+            const loaders = decls.filter(d => acceptedSet.has(d));
+            if (loaders.length === 0) {
+                bad.push(`${f}: registerPoll('${name}') declares no loader ` +
+                    `(the registry only honours: ${[...acceptedSet].join(', ')})`);
+            }
+        }
+    }
+    if (bad.length > 0) fail(`poller(s) without a usable loader: ${bad.join('; ')}`);
+    else pass('every poller declares a loader the registry understands');
+}
+
 // 8. Every array-typed API assignment must pass through asList(). A single
 //    null hole from the backend crashes the v-for render subtree (field bug
 //    class: "Cannot read properties of null (reading 'id')"). Object-shaped
