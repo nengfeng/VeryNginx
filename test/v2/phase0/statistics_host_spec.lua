@@ -23,6 +23,14 @@ local function new_mock_dict()
         store[key] = cur
         return cur
     end
+    -- add(): only creates the key, and reports whether it did. The live traffic
+    -- collector uses it to detect a shape's first sighting without a
+    -- read-modify-write on the hot path.
+    function dict:add(key, value, ttl)
+        if store[key] ~= nil then return false, "exists" end
+        store[key] = value
+        return true
+    end
     function dict:delete(key) store[key] = nil; return true end
     dict._store = store
     return dict
@@ -36,7 +44,16 @@ _G.ngx.var = {
     body_bytes_sent = "100",
     request_time = "0.05",
     server_name = "example.com",
+    http_cookie = nil,
+    http_referer = nil,
 }
+-- crc32_long: used by the live traffic collector to hash client addresses
+-- into its bounded sample.
+_G.ngx.crc32_long = _G.ngx.crc32_long or function(s)
+    local h = 5381
+    for i = 1, #s do h = (h * 33 + s:byte(i)) % 4294967296 end
+    return h
+end
 
 -- ---- config fake (statistics-only; resolve_path for persist/restore) ----
 local function make_fake_config()
