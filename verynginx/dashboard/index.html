@@ -191,6 +191,140 @@
             </div>
           </div>
         </div>
+        <!-- 实时流量：面板此前只看「WAF 已经判定过的流量」，攻击伪装得像浏览器时这里是一片空白 -->
+        <div class="card mb-16" v-if="live && live.hosts && live.hosts.length">
+          <div class="flex flex-between mb-8" style="align-items:center">
+            <strong>实时流量</strong>
+            <span style="font-size:11px;color:var(--muted)">
+              采样 1/{{ live.sample_rate }} 请求 · 最近 {{ live.minutes }} 分钟
+            </span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+            <b>每 IP 请求数</b>是判断「是不是分布式爬虫」的关键：正常访客约 0.2，
+            爬虫若每个 IP 只打一次则会接近 1.0 并伴随 IP 数暴涨。
+            状态码分布里 <b>499/502/504</b> 意味着请求到达后端却没拿到结果——这是后端被打垮的信号，
+            不是拦截。
+          </div>
+
+          <div v-for="h in live.hosts" :key="h.host" style="margin-bottom:16px;
+               border-top:1px solid var(--border);padding-top:10px">
+            <div class="flex flex-between" style="align-items:center;margin-bottom:6px">
+              <code style="font-size:13px">{{ h.host }}</code>
+              <span style="font-size:11px" :style="{color: h.failing_pct > 20 ? '#b91c1c' : 'var(--muted)'}">
+                失败率 {{ h.failing_pct }}%
+              </span>
+            </div>
+
+            <div class="grid grid-4 mb-8">
+              <div class="stat-card" style="padding:8px">
+                <div class="stat-label">请求/分（采样）</div>
+                <div class="stat-value" style="font-size:18px">{{ liveLast(h).requests || 0 }}</div>
+              </div>
+              <div class="stat-card" style="padding:8px">
+                <div class="stat-label">不同 IP 数</div>
+                <div class="stat-value" style="font-size:18px">{{ liveLast(h).distinct_ips || 0 }}</div>
+              </div>
+              <div class="stat-card" style="padding:8px">
+                <div class="stat-label">每 IP 请求数</div>
+                <div class="stat-value" style="font-size:18px"
+                     :style="{color: liveRatio(h) != null && liveRatio(h) < 0.6 && (liveLast(h).distinct_ips||0) > 20 ? '#b91c1c' : ''}">
+                  {{ liveRatio(h) != null ? liveRatio(h).toFixed(2) : '—' }}
+                </div>
+              </div>
+              <div class="stat-card" style="padding:8px">
+                <div class="stat-label">状态码</div>
+                <div class="stat-value" style="font-size:13px;font-weight:500">
+                  <span v-for="(n, c) in h.status" :key="c"
+                        :style="{color: (+c >= 400 && +c !== 429) ? '#b91c1c' : 'inherit'}">
+                    {{ c }}:{{ n }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 每分钟迷你趋势：请求数与不同 IP 数 -->
+            <svg width="100%" height="56" style="display:block;margin:4px 0 2px">
+              <polyline :points="liveLine(h, 'requests')" fill="none" stroke="#4f8af0" stroke-width="1.6" />
+              <polyline :points="liveLine(h, 'distinct_ips')" fill="none" stroke="#f0a04f" stroke-width="1.6"
+                        stroke-dasharray="3 2" />
+            </svg>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
+              <span>蓝=请求数 橙虚线=不同IP数</span>
+              <span>{{ (h.series[0]||{}).minute }} → {{ (h.series[h.series.length-1]||{}).minute }}</span>
+            </div>
+
+            <!-- 流量形状：哪个 UA / 路径 / 有无 cookie 组合占了大头 -->
+            <div v-if="(h.shapes||[]).length" style="margin-top:8px">
+              <table>
+                <thead><tr><th>流量形状（UA族 / 路径形状 / cookie / referer）</th><th>占比</th><th>首次出现</th></tr></thead>
+                <tbody>
+                  <tr v-for="s in h.shapes.slice(0, 5)" :key="s.hash">
+                    <td style="font-size:11px;word-break:break-all;color:var(--muted)">{{ s.shape }}</td>
+                    <td><b>{{ s.count }}</b></td>
+                    <td style="font-size:11px;color:var(--muted)">
+                      {{ s.first_seen ? new Date(s.first_seen * 1000).toLocaleTimeString() : '—' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 后端健康：攻击时真正被打垮的往往不是 WAF，而是后端 -->
+        <div class="card mb-16" v-if="live && live.backend">
+          <div class="flex flex-between mb-8" style="align-items:center">
+            <strong>后端与容量</strong>
+            <span style="font-size:11px;color:var(--muted)">FPM 池 / 磁盘 / 日志增长</span>
+          </div>
+          <div class="grid grid-4 mb-8">
+            <div class="stat-card" style="padding:8px">
+              <div class="stat-label">FPM 活跃/上限</div>
+              <div class="stat-value" style="font-size:18px"
+                   :style="{color: (live.backend.fpm.active_processes || 0) > (live.backend.fpm.max_active_processes || 300) * 0.8 ? '#b91c1c' : ''}">
+                {{ live.backend.fpm.active_processes != null ? live.backend.fpm.active_processes : '—' }}
+                <span style="font-size:12px;color:var(--muted)">/ {{ live.backend.fpm.max_active_processes || '—' }}</span>
+              </div>
+            </div>
+            <div class="stat-card" style="padding:8px">
+              <div class="stat-label">FPM 监听队列（峰值）</div>
+              <div class="stat-value" style="font-size:18px"
+                   :style="{color: (live.backend.fpm.max_listen_queue||0) > 0 ? '#b91c1c' : ''}">
+                {{ live.backend.fpm.max_listen_queue != null ? live.backend.fpm.max_listen_queue : '—' }}
+              </div>
+            </div>
+            <div class="stat-card" style="padding:8px">
+              <div class="stat-label">磁盘已用</div>
+              <div class="stat-value" style="font-size:18px"
+                   :style="{color: (live.backend.disk.used_pct||0) > 85 ? '#b91c1c' : ''}">
+                {{ live.backend.disk.used_pct != null ? live.backend.disk.used_pct + '%' : '—' }}
+              </div>
+            </div>
+            <div class="stat-card" style="padding:8px">
+              <div class="stat-label">Nginx 写入/等待</div>
+              <div class="stat-value" style="font-size:18px"
+                   :style="{color: (live.backend.nginx.writing||0) > 500 ? '#a16207' : ''}">
+                {{ live.backend.nginx.writing }}/{{ live.backend.nginx.waiting }}
+              </div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px">日志大小与增长速率</div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>日志</th><th>当前大小</th><th>增长</th></tr></thead>
+              <tbody>
+                <tr v-for="l in (live.backend.logs||[])" :key="l.name">
+                  <td><code>{{ l.name }}</code></td>
+                  <td>{{ formatBytes(l.bytes) }}</td>
+                  <td :style="{color: (l.growth_bps||0) > 1048576 ? '#b91c1c' : ''}">
+                    {{ l.growth_bps != null ? formatBytes(l.growth_bps) + '/s' : '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- 字典内容构成：水位只说「满不满」，不说「满的是什么」 -->
         <div class="card mb-16" v-if="dictDiag && dictDiag.length">
           <div class="flex flex-between mb-8" style="align-items:center">
@@ -2780,7 +2914,7 @@
 </template>
 </div>
   <script src="/verynginx/static/vn-common.js?v=2.2.1-2"></script>
-  <script src="/verynginx/static/vn-dashboard.js?v=2.2.1-3"></script>
+  <script src="/verynginx/static/vn-dashboard.js?v=2.2.1-4"></script>
   <script src="/verynginx/static/vn-config.js?v=2.2.1-2"></script>
   <script src="/verynginx/static/vn-waf.js?v=2.2.1-5"></script>
   <script src="/verynginx/static/vn-frequency.js?v=2.2.1-2"></script>

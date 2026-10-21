@@ -22,7 +22,22 @@ local json = require "dkjson"
 
 -- Log request sample rate: 1-in-10 requests update shdict stats
 local LOG_SAMPLE_RATE = 10
-local _common_codes = { "200", "301", "302", "304", "400", "401", "403", "404", "405", "500", "502", "503" }
+-- Status codes recorded per entry.
+--
+-- 429, 499 and 504 were missing, and they are precisely the codes that
+-- describe a site under stress: 429 is the rate limiter firing, 499 is the
+-- client giving up on a request that never completed, 504 is the upstream
+-- timing out. During the 2026-10 incident 99.4% of inbound requests ended
+-- in 499/502 and none of it could be shown, because the code that would
+-- have shown it was not in this list. The Cloudflare codes are included
+-- because this deployment sits behind Cloudflare and 52x is how it reports
+-- an origin failure.
+--
+-- Only codes that actually occur create a key, so widening the list does not
+-- grow the dict for traffic that never returns them.
+local _common_codes = { "200", "301", "302", "304", "400", "401", "403", "404",
+                        "405", "408", "413", "429", "499", "500", "502", "503",
+                        "504", "520", "521", "522", "523", "524" }
 
 -- ---------------------------------------------------------------------------
 -- LRU index helpers (stored in shared dict)
@@ -215,7 +230,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Per-request logging
 -- ---------------------------------------------------------------------------
-function _M.log_request(_)
+function _M.log_request(ctx)
     -- Sample: only LOG_SAMPLE_RATE-in-1 update detailed stats
     if math.random(LOG_SAMPLE_RATE) ~= 1 then return end
 
@@ -237,13 +252,49 @@ function _M.log_request(_)
     dict_guard.incr(shared, "stats.1m", key .. ":time", time, 0)
     local code_idx = status
     dict_guard.incr(shared, "stats.1m", key .. ":status_" .. code_idx, 1, 0)
+    -- Host-level status rollup.
+    --
+    -- The per-uri status counters above answer "which paths return errors",
+    -- but the question an operator has during an incident is "what fraction of
+    -- this host's traffic is failing" — and per-uri counters cannot answer it
+    -- without summing thousands of entries (the statistics dict held 7,272
+    -- namespaces, which is why /dicts answered with 678 KB).
+    --
+    -- Cardinality is hosts x codes, not hosts x uris x codes, so this stays
+    -- small. The key carries the same bucket prefix as every other counter,
+    -- so it takes part in the 1m -> 5m -> 1h -> all rollup.
+    dict_guard.incr(shared, "stats.1m", "1m:hst:" .. host .. ":" .. code_idx, 1, 0)
     -- Update per-host uri LRU and global host LRU on sampled requests
     lru_add(shared, "index:1m:" .. host, uri, per_host)
     lru_add(shared, "hosts:1m", host, get_max_hosts())
+
+    -- Live traffic shape: distinct-client ratio, request fingerprint. This is
+    -- the dimension the per-uri counters cannot express — see core/live_stats.
+    require("core.live_stats").record(ctx)
 end
 
 -- ---------------------------------------------------------------------------
 -- get_top_paths  — return the top-N URIs by request count
+-- ---------------------------------------------------------------------------
+--- Status-code distribution for one host, across the given bucket.
+-- Reads the host-level rollup (hst:<bucket>:<host>:<code>) rather than
+-- summing per-uri entries: the per-uri form needs one read per URI, and the
+-- statistics dict holds thousands.
+-- @return table code -> count
+function _M.get_host_status(host, bucket)
+    local shared = ngx.shared.statistics
+    if not shared then return {} end
+    bucket = bucket or "1m"
+    local out = {}
+    for _, c in ipairs(_common_codes) do
+        local n = tonumber(shared:get(bucket .. ":hst:" .. host .. ":" .. c) or 0) or 0
+        if n > 0 then
+            out[c] = n
+        end
+    end
+    return out
+end
+
 -- ---------------------------------------------------------------------------
 function _M.get_top_paths(limit, host)
     local shared = ngx.shared.statistics
@@ -326,6 +377,19 @@ function _M._flush_bucket(src_bucket, dst_bucket)
             end
         end
         shared:delete("index:" .. src_bucket .. ":" .. host)
+        -- Roll the host-level status counters up as well. They are not in the
+        -- uri LRU list, so the loop above never touches them; without this
+        -- they would stay in the 1m bucket and die with it, and the panel
+        -- would only ever be able to show the last minute.
+        for _, c in ipairs(_common_codes) do
+            local src_hst = src_bucket .. ":hst:" .. host .. ":" .. c
+            local sc = tonumber(shared:get(src_hst) or 0) or 0
+            if sc > 0 then
+                dict_guard.incr(shared, "stats.rollup",
+                    dst_bucket .. ":hst:" .. host .. ":" .. c, sc, 0)
+                shared:delete(src_hst)
+            end
+        end
         -- Carry the host forward into the destination bucket's host index
         if flushed then
             lru_add(shared, "hosts:" .. dst_bucket, host, max_hosts)

@@ -56,6 +56,7 @@ local CONTROLLERS = {
     "frequency",
     "plugins",
     "kernel_blocking",
+    "live",
 }
 
 for _, name in ipairs(CONTROLLERS) do

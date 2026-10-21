@@ -204,6 +204,15 @@
         load: loadOverview,
         pages: ['dashboard'],
     });
+    // The live view is what shows an attack that the WAF did not recognise,
+    // so it polls faster than the overview and is sampled alongside it.
+    registerPoll('live', {
+        active: () => page.value === 'dashboard' && dashTab.value === 'overview',
+        interval: 5000,
+        immediate: true,
+        load: loadLive,
+        pages: ['dashboard'],
+    });
     registerPoll('wafTrend', {
         active: () => page.value === 'dashboard' && dashTab.value === 'overview',
         interval: 30000,
@@ -303,6 +312,63 @@
       }
     }
     const statusError = ref('');
+
+    // ---- Live traffic ----
+    //
+    // The panel used to show only what the WAF had already decided about, so
+    // an attack that looks like ordinary browsing left it blank. This is the
+    // view of the traffic itself: how many distinct clients, how many requests
+    // each one makes, what the backend answered, and what the backend itself
+    // is doing. The per-minute series is what turns "74%" into "74% and
+    // climbing", which is the difference between a number and an alarm.
+    const live = ref(null);
+    const liveBusy = ref(false);
+
+    async function loadLive() {
+      if (liveBusy.value) return;
+      liveBusy.value = true;
+      try {
+        const r = await api('GET', '/verynginx/live?minutes=10');
+        if (r && r.ret === 'success') live.value = r.data || null;
+      } catch (e) {
+        // A failed poll must not clear the last good reading: an operator
+        // looking at a stale card is better off than one looking at nothing.
+        console.warn('Live traffic failed:', e.message);
+      } finally {
+        liveBusy.value = false;
+      }
+    }
+
+    // The most recent minute of a host's series.
+    function liveLast(h) {
+      const s = (h && h.series) || [];
+      return s.length ? s[s.length - 1] : {};
+    }
+
+    // Requests per distinct client. Below ~0.6 reads as "one request per
+    // client", the signature of a scraper spreading itself over many
+    // addresses. Null when there is nothing to divide.
+    function liveRatio(h) {
+      const s = liveLast(h);
+      if (!s.requests || !s.distinct_ips) return null;
+      return s.requests / s.distinct_ips;
+    }
+
+    // A sparkline for one series field, scaled to its own maximum.
+    function liveLine(h, field) {
+      const s = (h && h.series) || [];
+      if (s.length < 2) return '';
+      const w = 100, hpx = 50;
+      const step = w / (s.length - 1);
+      let max = 0;
+      for (const p of s) { const v = p[field] || 0; if (v > max) max = v; }
+      if (max <= 0) return '';
+      return s.map((p, i) => {
+        const v = (p[field] || 0);
+        const y = hpx - (v / max) * (hpx - 4) - 2;
+        return (i * step).toFixed(1) + ',' + y.toFixed(1);
+      }).join(' ');
+    }
     async function loadStats() {
       const tok = gStats.mark();
       statsError.value = '';
@@ -679,6 +745,14 @@
     view('dictDiag', dictDiag);
     view('dictDiagBusy', dictDiagBusy);
     view('loadDictDiag', loadDictDiag);
+    view('live', live);
+    // The three helpers are referenced by the template, so they belong in the
+    // template-visible scope (view), not in ctx(). loadLive is NOT: it is
+    // driven by the poll, and exporting it would put a binding in the render
+    // scope that nothing renders — which the dashboard init check rejects.
+    view('liveLast', liveLast);
+    view('liveRatio', liveRatio);
+    view('liveLine', liveLine);
     view('loadStats', loadStats);
     view('loadStatus', loadStatus);
     view('loadConfig', loadConfig);
