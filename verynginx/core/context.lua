@@ -635,6 +635,14 @@ local ctx_methods = {
     clear_action = _M.clear_action,
     set_data = _M.set_data,
     get_data = _M.get_data,
+    -- Exposed as a ctx method because three call sites use it that way:
+    -- plugin/browser_verify/cookie_verify.lua, plugin/browser_verify/
+    -- javascript_verify.lua and action/scheme_lock.lua all call
+    -- ctx:get_safe_host(). It was missing here, so ctx:get_safe_host() was nil
+    -- and the browser_verify challenge died with
+    -- "attempt to call method 'get_safe_host' (a nil value)" — a 500 on every
+    -- challenged request, from code paths that had never been enabled.
+    get_safe_host = _M.get_safe_host,
 }
 ctx_mt = { __index = ctx_methods }
 
