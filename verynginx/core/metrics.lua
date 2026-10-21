@@ -36,6 +36,14 @@ local function is_labeled(name)
         or name == "ip_reputation_score"
 end
 
+--- Test seam: substitute the shared dict the index lock is taken on.
+-- Not used by production code. Kept in a module LOCAL so it does not collide
+-- with the read-only guards other modules install on their own tables.
+local test_shared = nil
+function _M._test_set_shared(shared)
+    test_shared = shared
+end
+
 local function shared_for(name)
     local labeled = ngx.shared[LABELED_DICT]
     if labeled and is_labeled(name) then return labeled end
@@ -104,7 +112,7 @@ end
 -- Index entries carry per-entry timestamps; every write prunes entries older
 -- than the data TTL, keeping the index bounded even under high label churn.
 local function index_add(s, key, data_ttl)
-    local locks = ngx.shared.vn_locks
+    local locks = test_shared or ngx.shared.vn_locks
     if not locks then return end
     local token = get_random().bytes(8)
     local retries = 0
@@ -116,7 +124,26 @@ local function index_add(s, key, data_ttl)
                 key)
             return
         end
-        ngx.sleep(INDEX_LOCK_SLEEP)
+        -- ngx.sleep is not permitted in every phase. log_by_lua* rejects it
+        -- with "API disabled in the context of log_by_lua*", and a throw
+        -- there aborts the whole phase: on_log.lua never reached
+        -- plugin.execute_log(ctx), so the request's log hooks were skipped and
+        -- the metric's index entry was lost.
+        --
+        -- This path is not rare. The index lock is a single global key, so it
+        -- is contended exactly when the site is busy — which is when the log
+        -- phase runs most. The error log carried 367 such aborts per ten
+        -- minutes, and 1.98 GB of log per day.
+        --
+        -- Give up the wait rather than the phase: the index entry is rebuilt
+        -- by the next request, so a missed one costs a single unexported
+        -- metric sample.
+        local ok_sleep, sleep_err = pcall(ngx.sleep, INDEX_LOCK_SLEEP)
+        if not ok_sleep then
+            ngx.log(ngx.WARN, "metrics: cannot wait for the index lock here (",
+                tostring(sleep_err), "); skipping the index update for ", key)
+            return
+        end
     end
     -- Prune + renew in one lock-held read-modify-write, so no concurrent
     -- writer's append is silently overwritten (AGENTS §12.2).

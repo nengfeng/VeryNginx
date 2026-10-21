@@ -59,8 +59,14 @@ local INDEX_COMPACT_THRESHOLD = 32
 local FLAG_LOG_TTL = 172800
 local FLAG_LOG_MAX = 100
 
+--- Test seam: substitute the shared dict. Not used by production code.
+local test_shared = nil
+function _M._test_set_shared(shared)
+    test_shared = shared
+end
+
 local function shared()
-    return ngx.shared[SHARED_DICT_NAME]
+    return test_shared or ngx.shared[SHARED_DICT_NAME]
 end
 
 -- ---------------------------------------------------------------------------
@@ -82,8 +88,18 @@ local function index_lock_acquire(s)
             return token
         end
         attempts = attempts + 1
+        -- ngx.sleep is not permitted in every phase; log_by_lua* rejects it
+        -- with "API disabled in the context of log_by_lua*", and the throw
+        -- aborts the whole phase. The existence check alone is not enough —
+        -- the function exists, it is the phase that forbids it. Give up the
+        -- wait instead of the phase; the index entry is rebuilt by the next
+        -- request.
+        local ok_sleep = true
         if ngx.sleep then
-            ngx.sleep(INDEX_LOCK_SLEEP)
+            ok_sleep = pcall(ngx.sleep, INDEX_LOCK_SLEEP)
+        end
+        if not ok_sleep then
+            return nil
         end
     end
     return nil
