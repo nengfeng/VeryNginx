@@ -5,9 +5,17 @@
 
 local plugin = require "core.plugin"
 local rule_engine = require "core.rule_engine"
+local phase_guard = require "core.phase_guard"
 
 local ctx = ngx.ctx.vn_ctx
 if not ctx then
+    return
+end
+
+-- Re-entry guard: the proxy path's internal redirect re-enters this
+-- phase, and the pipeline must run once per request. See
+-- core/phase_guard.lua for why the marker cannot live in ngx.ctx.
+if phase_guard.already_ran("vn_access_ran") then
     return
 end
 
