@@ -1,12 +1,11 @@
 -- -*- coding: utf-8 -*-
 -- @Date    : 2026-07-12
 -- @Author  : VeryNginx v2
--- @Disc    : Frequency Rule ID management + v2 counter namespace helpers
+-- @Disc    : Frequency Rule ID management
 
 local _M = {}
 
 local config = require "core.config"
-local random = require "core.random"
 
 -- ---------------------------------------------------------------------------
 -- Returns a stable ID for a frequency rule by its array index.
@@ -39,6 +38,13 @@ end
 -- Returns migration status:
 --   { status = "pending", total = N, with_id = M, missing = K }
 --   or { status = "completed", total = N, id_count = M, ids = {...} }
+--
+-- READ-ONLY. This used to assign the missing ids itself and save the config
+-- from inside a status read — a GET request writing the configuration, with
+-- an atomic_mutate on the hot path of every panel poll. Ids are assigned when
+-- a rule is saved (api/controllers/frequency.lua) and by the migration tool
+-- (core/frequency/rule_id_migration.lua); the frequency plugin tolerates a
+-- rule without one, so there is nothing to fix silently here.
 -- ---------------------------------------------------------------------------
 function _M.get_migration_status()
     local rules = config.rule and config.rule.frequency_limit
@@ -59,98 +65,10 @@ function _M.get_migration_status()
             end
         end
     end
-    -- Auto-assign IDs to rules missing them (migration on read).
-    if missing > 0 and total > 0 then
-        local cfg_mod = require "core.config"
-        for _, rule in ipairs(rules) do
-            if rule and type(rule) == "table" and (not rule.id or rule.id == "") then
-                -- Same generator as the save path (api/controllers/frequency.lua):
-                -- two shapes for one semantic invites format drift, and the old
-                -- second-precision + 9000-value scheme could collide when two
-                -- rules migrated within the same second.
-                rule.id = "freq_" .. tostring(ngx.time()) .. "_" .. random.hex(6)
-                ids[#ids + 1] = rule.id
-            end
-        end
-        cfg_mod.atomic_mutate(function(cfg)
-            cfg.rule.frequency_limit = rules
-            return cfg
-        end)
-        return { status = "completed", total = total, id_count = total, ids = ids }
-    end
     if with_id == total and total > 0 then
         return { status = "completed", total = total, id_count = with_id, ids = ids }
     end
     return { status = "pending", total = total, with_id = with_id, missing = missing }
-end
-
--- ---------------------------------------------------------------------------
--- V2 key builder contract:
--- limiter.build_key() returns ONLY the dimension portion (no prefix).
--- The caller assembles the full key namespace:
---   Count:        fl:v2:count:<encoded_rule_id>:<encoded_dimension>
---   CC violation: fl:v2:kernel:violation:<encoded_rule_id>:<ip>:<slot>
--- ---------------------------------------------------------------------------
-local function rule_key(rule_or_id)
-    local id
-    if type(rule_or_id) == "table" then
-        id = rule_or_id.id
-    else
-        id = rule_or_id
-    end
-    if not id or id == "" then
-        error("frequency rule has not been assigned a stable ID (run migration first)")
-    end
-    return "fl:v2:count:" .. id
-end
-
-function _M.counter_namespace(rule_or_id)
-    return rule_key(rule_or_id)
-end
-
--- ---------------------------------------------------------------------------
--- Check if v2 counter namespace has been cut over (i.e., migration done).
--- ---------------------------------------------------------------------------
-function _M.is_cutover_complete()
-    local status = _M.get_migration_status()
-    -- No rules means nothing to migrate — treat as already cut over.
-    if status.status == "no_rules" then
-        local s = ngx.shared.frequency_limit
-        if s and not s:get("fl:v2:cutover_epoch") then
-            s:set("fl:v2:cutover_epoch", tostring(ngx.time()))
-            s:incr("fl:v2:config_generation", 1, 0)
-        end
-        return true
-    end
-    if status.status == "completed" then
-        -- Verify shared-state cutover_epoch; write if missing (e.g. dict evicted)
-        local s = ngx.shared.frequency_limit
-        if s then
-            if s:get("fl:v2:cutover_epoch") then
-                return true
-            end
-            -- dict may have been cleared; restore marker from persisted status
-            local epoch = status.cutover_epoch or tostring(ngx.time())
-            s:set("fl:v2:cutover_epoch", epoch)
-            s:incr("fl:v2:config_generation", 1, 0)
-            return true
-        end
-    end
-    return false
-end
-
--- ---------------------------------------------------------------------------
--- Record first-exceed evidence for CC promotion (called by init.lua).
--- Returns true if evidence was newly recorded (transition point).
--- ---------------------------------------------------------------------------
-function _M.record_violation_if_first(rule, ip, _ctx)
-    if not rule or not ip then return false end
-    local id = type(rule) == "table" and rule.id or rule
-    if not id then return false end
-    local ev = require "core.kernel_blocking.evidence"
-    local window = (type(rule) == "table" and rule.window) or 60
-    ev.record_cc_violation_evidence(id, ip, window)
-    return true
 end
 
 return _M

@@ -449,8 +449,6 @@ function _M.status(_)
         health = health,
         helper_instance_id = health and (health.instance_id or health.helper_instance_id) or nil,
         migration = matrix.migration,
-        counter_namespace = matrix.counter_namespace,
-        cutover_epoch = matrix.cutover_epoch,
         cc_rules = matrix.cc_rules,
         lifecycle = matrix.lifecycle,
         whitelist_generation = {

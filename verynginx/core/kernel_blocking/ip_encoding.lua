@@ -1,12 +1,21 @@
 -- -*- coding: utf-8 -*-
 -- @Date    : 2026-07-12
 -- @Author  : VeryNginx v2
--- @Disc    : Kernel blocking IP encoding utilities + v2 key builder.
---             v2 contract: limiter.build_key() returns dimension-only,
---             caller assembles full namespace.
+-- @Disc    : Kernel blocking IP encoding utilities + counter key builder.
+--             limiter.build_key() returns the dimension only (encoded); the
+--             caller assembles the full storage key from the helpers below.
 --
---   Count key:  fl:v2:count:<enc_rule_id>:<enc_dimension>
---   CC evidence: fl:v2:kernel:violation:<enc_rule_id>:<ip>:<slot>
+--   Count key:  fl:count:<enc_rule_id>:<enc_dimension>
+--   CC evidence: fl:cc:violation:<enc_rule_id>:<ip>:<slot>
+--
+-- There is ONE counter namespace. There used to be two — a raw one
+-- ("fl:v1:<id>:ip:<value>") and this length-prefixed one — with a runtime
+-- switch between them. The switch bought nothing: both built the dimension
+-- from the same code, so IP canonicalisation and URI normalisation were
+-- identical, and the only difference was the encoding. The raw encoding could
+-- not tell two dimension splits apart (host="a" + ip=2001:db8::1 and
+-- host="a:2001" + ip=db8::1 produced the same key). One namespace, one
+-- encoding, no switch, no cutover epoch.
 
 local _M = {}
 
@@ -137,21 +146,32 @@ function _M.encode_dimension(dim)
     return len_prefix(dim)
 end
 
--- Build v2 counter storage key.
--- @param rule_id string: stable frequency rule ID (from migration)
--- @param dim_enc string: encoded dimension value (from limiter.build_key v2)
+-- Build the frequency counter storage key.
+-- @param rule_id_enc string: encoded rule id (encode_rule_id)
+-- @param dim_enc string: encoded dimension value (limiter.build_key)
 -- @return string: full shared-dict key
-function _M.v2_count_key(rule_id, dim_enc)
-    return "fl:v2:count:" .. rule_id .. ":" .. dim_enc
+function _M.count_key(rule_id_enc, dim_enc)
+    return "fl:count:" .. rule_id_enc .. ":" .. dim_enc
 end
 
--- Build v2 CC violation evidence key.
--- @param rule_id string: stable frequency rule ID
+-- Counter key for a rule that has no stable id yet.
+--
+-- Kept in its own namespace so it can never collide with an id-bearing key:
+-- an encoded rule id always starts with its length byte, so the literal below
+-- is not something an encoded id can produce.
+-- @param dim_enc string: encoded dimension value
+-- @return string: full shared-dict key
+function _M.count_key_noid(dim_enc)
+    return "fl:count:legacy:" .. dim_enc
+end
+
+-- Build the CC violation evidence key.
+-- @param rule_id_enc string: encoded rule id
 -- @param ip string: canonical IP
 -- @param slot number: evidence_slot = floor(time / rule.window)
 -- @return string: full shared-dict key
-function _M.v2_violation_key(rule_id, ip, slot)
-    return "fl:v2:kernel:violation:" .. rule_id .. ":" .. ip .. ":" .. tostring(slot)
+function _M.violation_key(rule_id_enc, ip, slot)
+    return "fl:cc:violation:" .. rule_id_enc .. ":" .. ip .. ":" .. tostring(slot)
 end
 
 return _M

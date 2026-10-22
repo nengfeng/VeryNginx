@@ -146,13 +146,24 @@ function _M.compute(opts)
         end
     end
 
-    -- Frequency migration / v2 cutover gates for CC install
+    -- Frequency rule id coverage (informational only).
+    --
+    -- The counter namespace used to be gated on a "cutover" that only the
+    -- kernel-blocking panel could perform: the cutover marker was written by
+    -- is_cutover_complete(), which was called from here, and the panel was
+    -- the only caller. CC promotion therefore depended on the very panel
+    -- that would have consumed the evidence, and the marker was never
+    -- written in the first place because "core.frequency" did not resolve
+    -- under the production lua_package_path (a directory-style module needs
+    -- a "?/init.lua" entry, and the pcall swallowed the error).
+    --
+    -- There is ONE counter namespace now, so there is nothing to cut over.
+    -- The id coverage is still reported: a rule without a stable id does not
+    -- get its own counter.
     local migration = { status = "unknown" }
-    local cutover = false
-    local ok_freq, freq = pcall(require, "core.frequency")
+    local ok_freq, freq = pcall(require, "core.frequency.init")
     if ok_freq and freq then
         migration = freq.get_migration_status() or migration
-        cutover = freq.is_cutover_complete and freq.is_cutover_complete() or false
     end
 
     -- auto_ready: all prerequisites for CC enforce are met but enforce_ready
@@ -161,20 +172,7 @@ function _M.compute(opts)
     if global_mode == "enforce" and configured.cc_enabled and
         type(rule_ids) == "table" and #rule_ids > 0 and
         not configured.cc_enforce_ready then
-        local mig_ok = (migration.status == "completed" or migration.status == "no_rules")
-        if mig_ok and cutover then
-            cc_auto_ready = global_reachable
-        end
-    end
-
-    if cc_mode == "enforce" then
-        if migration.status ~= "completed" and migration.status ~= "no_rules" then
-            cc_reachable = false
-            push_reason(cc_reasons, "counter_namespace_not_v2")
-        elseif not cutover and migration.status == "completed" then
-            cc_reachable = false
-            push_reason(cc_reasons, "counter_namespace_not_v2")
-        end
+        cc_auto_ready = global_reachable
     end
 
     local cc_rules = {}
@@ -186,13 +184,9 @@ function _M.compute(opts)
         end
         local reasons = {}
         if not ref_valid then push_reason(reasons, "invalid_rule_ref") end
-        if not cutover then push_reason(reasons, "counter_namespace_not_v2") end
         cc_rules[#cc_rules + 1] = {
             rule_id = rid,
             reference_valid = ref_valid,
-            counter_namespace = cutover and "v2" or "v1",
-            cutover_epoch = (ngx.shared.frequency_limit
-                and ngx.shared.frequency_limit:get("fl:v2:cutover_epoch")) or nil,
             effective_mode = cc_mode,
             install_reachable = cc_reachable and ref_valid or false,
             reason_codes = reasons,
@@ -218,8 +212,6 @@ function _M.compute(opts)
             },
         },
         migration = migration,
-        counter_namespace = cutover and "v2" or "v1",
-        cutover_epoch = (ngx.shared.frequency_limit and ngx.shared.frequency_limit:get("fl:v2:cutover_epoch")) or nil,
         cc_rules = cc_rules,
         lifecycle = {
             global_activation_generation = lifecycle.global_activation_generation,

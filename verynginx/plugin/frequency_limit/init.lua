@@ -2,8 +2,8 @@
 -- @Date    : 2026-07-12
 -- @Author  : VeryNginx v2
 -- @Disc    : frequency limit plugin - rate limit requests by matcher rules
---             Supports v1 (legacy) and v2 (post-migration) key namespaces.
---             v2 enables CC violation evidence recording for kernel blocking.
+--             One counter namespace; CC violation evidence is recorded for the
+--             rules the kernel-blocking CC policy references.
 
 local _M = {}
 
@@ -19,51 +19,46 @@ local ip_enc = require "core.kernel_blocking.ip_encoding"
 local ev = require "core.kernel_blocking.evidence"
 local dict_guard = require "core.dict_guard"
 
--- Check if v2 counter namespace is active (migration complete + cutover done).
--- v2 is enabled when:
---   1. All frequency rules have stable IDs (migration complete)
---   2. The cutover has been performed (cutover_epoch recorded in shared state)
+-- Rules already warned about, keyed "<rule key>@<config hash>". The config
+-- hash changes on every save, so an operator who fixes the problem gets a
+-- fresh warning, without per-request log spam. The table is reset when the
+-- hash changes so it cannot grow without bound across saves.
+local _warned = {}
+local _warned_hash = nil
+
+local function warn_once(key, ...)
+    local hash = config.local_hash or "nohash"
+    if hash ~= _warned_hash then
+        _warned = {}
+        _warned_hash = hash
+    end
+    if _warned[key] then return end
+    _warned[key] = true
+    ngx.log(ngx.WARN, ...)
+end
+
+-- Is this rule referenced by the kernel-blocking CC policy?
 --
--- Cached per-worker with generation invalidation. Config saves bump
--- fl:v2:config_generation in shared dict; worker checks generation and
--- recomputes only when it changes (avoids O(#rules) scan per request).
-local _v2_cache = { generation = -1, active = false }
-
--- Rules already warned about, keyed "<rule id>@<config generation>". A config
--- save bumps the generation, so an operator who fixes the matcher gets a fresh
--- warning if it is still broken, without per-request log spam.
-local _warned_matcher = {}
-
-local function is_v2_active()
-    local s = ngx.shared.frequency_limit
-    if not s then
-        _v2_cache = { generation = -1, active = false }
-        return false
+-- Only those rules produce CC evidence. The promotion side reads evidence for
+-- exactly the rules in cc.rule_ids, so evidence written for any other rule is
+-- a dict write nobody reads. This used to be gated on the v2 namespace
+-- instead, which meant the evidence chain only ran once the counter namespace
+-- had been cut over — and the cutover could not happen without the very
+-- kernel-blocking panel that would have consumed the evidence.
+--
+-- The list is a handful of entries and this is only asked on the first
+-- transition past a limit, never per request.
+local function cc_referenced(rule_id)
+    local kb = config.kernel_ip_blocking
+    if not kb or kb.enabled ~= true then return false end
+    local cc = kb.cc
+    if not cc or cc.enabled == false then return false end
+    local ids = cc.rule_ids
+    if type(ids) ~= "table" then return false end
+    for _, id in ipairs(ids) do
+        if id == rule_id then return true end
     end
-
-    local gen = s:get("fl:v2:config_generation") or 0
-    if _v2_cache.generation == gen then
-        return _v2_cache.active
-    end
-
-    -- Recompute
-    local rules = config.rule and config.rule.frequency_limit
-    local active = false
-    if rules and type(rules) == "table" and #rules > 0 then
-        local all_have_id = true
-        for _, rule in ipairs(rules) do
-            if not rule or not rule.id or rule.id == "" then
-                all_have_id = false
-                break
-            end
-        end
-        if all_have_id and s:get("fl:v2:cutover_epoch") ~= nil then
-            active = true
-        end
-    end
-
-    _v2_cache = { generation = gen, active = active }
-    return active
+    return false
 end
 
 function _M.on_access(ctx)
@@ -77,9 +72,7 @@ function _M.on_access(ctx)
         return
     end
 
-    local v2 = is_v2_active()
-
-    for _, rule in ipairs(rules) do
+    for idx, rule in ipairs(rules) do
         if rule.enable == false then
             goto continue
         end
@@ -89,33 +82,35 @@ function _M.on_access(ctx)
             -- A rule with no resolvable matcher matches nothing, forever, and
             -- the failure is otherwise invisible: the panel renders it as a
             -- configured rule and the plugin just skips it. Warn once per rule
-            -- per config generation rather than per request — this sits on the
+            -- per config hash rather than per request — this sits on the
             -- request path, so an unconditional log would flood the error log
             -- on any busy site.
-            local gen = ngx.shared.frequency_limit
-                and ngx.shared.frequency_limit:get("fl:v2:config_generation") or -1
-            local wkey = tostring(rule.id) .. "@" .. tostring(gen)
-            if not _warned_matcher[wkey] then
-                _warned_matcher[wkey] = true
-                ngx.log(ngx.WARN,
-                        "frequency_limit: rule '", tostring(rule.id),
-                        "' has no resolvable matcher and will never match ",
-                        "(checked matcherJson=", tostring(rule.matcherJson),
-                        ", matcher=", type(rule.matcher))
-            end
+            warn_once("matcher:" .. tostring(rule.id or ("#" .. idx)),
+                "frequency_limit: rule '", tostring(rule.id),
+                "' has no resolvable matcher and will never match ",
+                "(checked matcherJson=", tostring(rule.matcherJson),
+                ", matcher=", type(rule.matcher))
             goto continue
         end
 
         if matcher.test(matcher_def, ctx) then
             local limit = rule.limit or 60
             local window = rule.window or 60
+            local enc_dim = limiter.build_key(rule.key or "ip", ctx)
             local key
-            if v2 then
-                local enc_id = ip_enc.encode_rule_id(rule.id)
-                local enc_dim = limiter.build_key_v2(rule.key or "ip", ctx)
-                key = "fl:v2:count:" .. enc_id .. ":" .. enc_dim
+            if rule.id and rule.id ~= "" then
+                key = ip_enc.count_key(ip_enc.encode_rule_id(rule.id), enc_dim)
             else
-                key = limiter.build_key(rule.key or "ip", ctx, rule.id)
+                -- No stable id: count under a rule-less key and say so once.
+                -- Two such rules would share one counter, which is exactly the
+                -- collision the per-rule id exists to prevent — the operator
+                -- fixes it by saving the rule in the panel, which assigns an
+                -- id.
+                warn_once("noid:" .. tostring(idx),
+                    "frequency_limit: rule #", tostring(idx),
+                    " has no stable id; its counter is not isolated from other ",
+                    "id-less rules (save the rule in the panel to assign one)")
+                key = ip_enc.count_key_noid(enc_dim)
             end
             local current, ierr, iforc = shared:incr(key, 1, 0, window)
 
@@ -145,7 +140,8 @@ function _M.on_access(ctx)
             if current > limit then
                 -- Record CC violation evidence on FIRST transition past limit
                 -- (current == limit + 1 means this request just crossed the threshold)
-                if v2 and current == limit + 1 then
+                if current == limit + 1 and rule.id and rule.id ~= ""
+                    and cc_referenced(rule.id) then
                     local ip = ip_enc.canonical_ip(ctx.request.remote_addr)
                     ev.record_cc_violation_evidence(rule.id, ip, window)
                 end

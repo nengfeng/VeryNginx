@@ -603,7 +603,6 @@ local function evaluate_cc_candidates()
 		(kb_cfg.cc.enforce_ready == true)
 
 	local min_windows = (kb_cfg.cc.min_violation_windows) or 3
-	local rule_window = (kb_cfg.cc.ttl) or 300  -- use ttl as window base
 
 	local seen = {}
 	local work = {}
@@ -658,8 +657,14 @@ local function evaluate_cc_candidates()
 			end
 		end
 
-        -- Count violation windows
-        local violations = evidence.count_cc_violations(ip, rule_window, min_windows + 2)
+        -- Count violation windows.
+        --
+        -- The window is NOT cc.ttl: the evidence slots are written on the
+        -- RULE's window (floor(time / rule.window)), so probing on a
+        -- different grid (cc.ttl = 300 against rule.window = 60) looks at slot
+        -- numbers the writer never produced and the count stays 0 forever.
+        -- The reader resolves each referenced rule's own window.
+        local violations = evidence.count_cc_violations(ip, min_windows + 2)
 
         -- Design §6.4: require_challenge_fail for strict CC promotion.
         local require_cf = true

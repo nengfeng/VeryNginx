@@ -19,7 +19,6 @@
       counters: { installed: 0, candidates: 0, rejected: 0, degraded: 0, rate_limited: 0, paused: 0, installed_scanner: 0, installed_cc: 0, installed_manual: 0, desired: 0, drift: 0 },
       promotion_bucket: { tokens_available: 0, rate_limited_recent: 0 },
       migration: { status: 'unknown' },
-      counter_namespace: 'v1',
       cc_rules: [],
       lifecycle: {},
       whitelist_generation: {},
@@ -94,8 +93,7 @@
       scanner_disabled: { title: '扫描器策略已禁用', advice: '如果需要扫描器晋升，请启用扫描器策略。' },
       cc_disabled: { title: 'CC 策略已禁用', advice: '启用 CC 策略并配置规则 ID。' },
       no_rule_ids: { title: '未配置 CC 规则 ID', advice: '在内核封禁 CC 下添加频率规则 ID。' },
-      cc_not_enforce_ready: { title: 'CC 未就绪执行', advice: '完成迁移/切换/校准，然后设置 cc.enforce_ready=true。' },
-      counter_namespace_not_v2: { title: '频率计数器命名空间不是 v2', advice: '运行频率规则 ID 迁移并完成 v2 切换。' },
+      cc_not_enforce_ready: { title: 'CC 未就绪执行', advice: '先在观察模式下校准 CC 策略，再设置 cc.enforce_ready=true。' },
       invalid_rule_ref: { title: 'CC 规则引用无效', advice: '修复或移除无效的规则 ID 以使所有引用可解析。' },
       helper_unreachable: { title: 'Helper 不可达', advice: '恢复 Helper 进程/套接字。' },
     };
@@ -137,7 +135,6 @@
     const kbChecklist = computed(() => {
       const c = kbStatus.value.configured || {};
       const m = kbStatus.value.migration || {};
-      const ns = kbStatus.value.counter_namespace;
       const healthOk = kbStatus.value.health && kbStatus.value.health.state === 'ok';
       const hasRules = (c.cc_rule_ids && c.cc_rule_ids.length) || (kbStatus.value.cc_rules && kbStatus.value.cc_rules.length);
       return [
@@ -147,8 +144,7 @@
         { id: 'scope', label: '已配置受保护地址和端口', ok: (c.protected_addresses||[]).length > 0 && (c.protected_ports||[]).length > 0 },
         { id: 'helper', label: 'Helper 健康', ok: !!healthOk },
         { id: 'cc_rules', label: 'CC 规则 ID 已配置（如使用 CC）', ok: !!hasRules || c.cc_enabled === false },
-        { id: 'migration', label: '频率 ID 迁移已完成', ok: m.status === 'completed' || m.status === 'no_rules' },
-        { id: 'v2', label: 'v2 counter namespace 已切换', ok: ns === 'v2' || m.status === 'no_rules' },
+          { id: 'migration', label: '频率规则 ID 已分配（每条规则独立计数）', ok: m.status === 'completed' || m.status === 'no_rules' },
         { id: 'cc_ready', label: 'CC enforce_ready 已确认（如需 CC 执行）', ok: !!c.cc_enforce_ready || c.cc_enabled === false, auto_ready: kbStatus.value.effective && kbStatus.value.effective.cc && kbStatus.value.effective.cc.auto_ready },
       ];
     });

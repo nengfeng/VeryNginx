@@ -6,10 +6,10 @@
 <title>VeryNginx v2 管理面板</title>
 <!-- Theme bootstrap: sets data-theme from localStorage before first paint so
      dark-theme users don't get a light FOUC. Must precede the stylesheet. -->
-<script src="/verynginx/static/theme-init.js?v=2.2.1-2"></script>
+<script src="/verynginx/static/theme-init.js?v=2.2.1-3"></script>
 <!-- Vue 3: vendored local copy with SRI (no CDN fallback - would be blocked by the
      page CSP script-src 'self' and is an unnecessary supply-chain surface) -->
-<script src="/verynginx/static/vue.global.prod.js?v=2.2.1-2" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
+<script src="/verynginx/static/vue.global.prod.js?v=2.2.1-3" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="/verynginx/static/style.css?v=2.2.1-3">
 </head>
 <body>
@@ -2183,9 +2183,9 @@
             <div class="stat-sub">限流 {{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.rate_limited_recent) || kbStatus.counters.rate_limited || 0 }} · 候选 {{ kbStatus.counters.candidates || 0 }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">迁移 / NS</div>
+            <div class="stat-label">规则 ID 覆盖</div>
             <div class="stat-value" style="font-size:16px">{{ (kbStatus.migration && kbStatus.migration.status) || '-' }}</div>
-            <div class="stat-sub">{{ kbStatus.counter_namespace || 'v1' }} · 期望 {{ kbStatus.counters.desired || 0 }} · 漂移 {{ kbStatus.counters.drift || 0 }}</div>
+            <div class="stat-sub">期望 {{ kbStatus.counters.desired || 0 }} · 漂移 {{ kbStatus.counters.drift || 0 }}</div>
           </div>
         </div>
 
@@ -2324,12 +2324,11 @@
         <div class="card mb-16" v-if="(kbStatus.cc_rules||[]).length">
           <h3 style="font-size:14px;margin-bottom:8px">CC 规则就绪</h3>
           <table class="data-table">
-             <thead><tr><th>规则 ID</th><th>引用</th><th>NS</th><th>模式</th><th>安装</th><th>原因</th></tr></thead>
+             <thead><tr><th>规则 ID</th><th>引用</th><th>模式</th><th>安装</th><th>原因</th></tr></thead>
             <tbody>
               <tr v-for="r in kbStatus.cc_rules" :key="r.rule_id">
                 <td style="font-family:monospace;font-size:12px">{{ r.rule_id }}</td>
                  <td><span :class="r.reference_valid?'tag tag-ok':'tag tag-err'">{{ r.reference_valid ? '有效' : '无效' }}</span></td>
-                 <td>{{ r.counter_namespace }}</td>
                  <td>{{ r.effective_mode }}</td>
                  <td><span :class="r.install_reachable?'tag tag-ok':'tag tag-warn'">{{ r.install_reachable ? '是' : '否' }}</span></td>
                  <td style="font-size:12px">{{ (r.reason_codes||[]).join(', ') || '-' }}</td>
@@ -2531,14 +2530,12 @@
                 <div class="kb-rule-bar" :style="{width: r.install_reachable ? '100%' : (r.reference_valid ? '60%' : '20%')}"/>
               </div>
               <div class="kb-rule-meta">
-                <span>NS: {{ r.counter_namespace }}</span>
                 <span v-if="r.warmup_until">预热至 {{ formatKbTime(r.warmup_until) }}</span>
-                <span v-if="r.cutover_epoch">世代 {{ r.cutover_epoch }}</span>
                 <span v-if="r.reason_codes && r.reason_codes.length" class="kb-rule-reasons">{{ r.reason_codes.join(', ') }}</span>
               </div>
               <!-- Expandable detail -->
               <div class="kb-rule-detail" v-if="expandedCcRules.has(r.rule_id)">
-                <pre style="font-size:11px;max-height:120px;overflow:auto">{{ JSON.stringify({reference_valid:r.reference_valid, counter_namespace:r.counter_namespace, cutover_epoch:r.cutover_epoch, warmup_until:r.warmup_until, effective_mode:r.effective_mode, install_reachable:r.install_reachable, reason_codes:r.reason_codes}, null, 2) }}</pre>
+                <pre style="font-size:11px;max-height:120px;overflow:auto">{{ JSON.stringify({reference_valid:r.reference_valid, warmup_until:r.warmup_until, effective_mode:r.effective_mode, install_reachable:r.install_reachable, reason_codes:r.reason_codes}, null, 2) }}</pre>
               </div>
               <button class="kb-rule-toggle" @click="toggleCcRule(r.rule_id)">{{ expandedCcRules.has(r.rule_id) ? '▲' : '▼' }}</button>
             </div>
@@ -2992,14 +2989,14 @@
 </div>
   <script src="/verynginx/static/vn-common.js?v=2.2.1-3"></script>
   <script src="/verynginx/static/vn-dashboard.js?v=2.2.1-4"></script>
-  <script src="/verynginx/static/vn-config.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-config.js?v=2.2.1-3"></script>
   <script src="/verynginx/static/vn-waf.js?v=2.2.1-5"></script>
-  <script src="/verynginx/static/vn-frequency.js?v=2.2.1-2"></script>
-  <script src="/verynginx/static/vn-iploc.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-frequency.js?v=2.2.1-3"></script>
+  <script src="/verynginx/static/vn-iploc.js?v=2.2.1-3"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.2.1-6"></script>
   <script src="/verynginx/static/vn-advanced.js?v=2.2.1-3"></script>
-  <script src="/verynginx/static/vn-kb.js?v=2.2.1-2"></script>
-  <script src="/verynginx/static/app.js?v=2.2.1-2"></script>
+  <script src="/verynginx/static/vn-kb.js?v=2.2.1-3"></script>
+  <script src="/verynginx/static/app.js?v=2.2.1-3"></script>
   <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->
 </body>
 </html>

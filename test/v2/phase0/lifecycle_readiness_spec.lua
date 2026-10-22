@@ -135,13 +135,16 @@ describe("Readiness matrix", function()
     end)
 
     it("CC auto_ready=true when all prerequisites met but enforce_ready=false", function()
-        -- Mock frequency module: migration completed + cutover done
+        -- Mock frequency module. The module is registered under its real name:
+        -- "core.frequency" is a directory-style module and does NOT resolve
+        -- under the production lua_package_path (no "?/init.lua" entry), so
+        -- requiring it by that name failed silently and took the whole CC
+        -- chain down with it.
         local freq_mod = {
             get_migration_status = function() return { status = "completed" } end,
-            is_cutover_complete = function() return true end,
             id_to_index_map = function() return { freq_rule_1 = 1 } end,
         }
-        package.loaded["core.frequency"] = freq_mod
+        package.loaded["core.frequency.init"] = freq_mod
         mock_config.kernel_ip_blocking.cc.enforce_ready = false
         local m = readiness.compute({ health = { state = "ok" } })
         assert.are.equal("observe", m.effective.cc.mode)
@@ -151,10 +154,9 @@ describe("Readiness matrix", function()
     it("CC auto_ready=false when global mode is observe", function()
         local freq_mod = {
             get_migration_status = function() return { status = "completed" } end,
-            is_cutover_complete = function() return true end,
             id_to_index_map = function() return { freq_rule_1 = 1 } end,
         }
-        package.loaded["core.frequency"] = freq_mod
+        package.loaded["core.frequency.init"] = freq_mod
         mock_config.kernel_ip_blocking.mode = "observe"
         mock_config.kernel_ip_blocking.cc.enforce_ready = false
         local m = readiness.compute({ health = { state = "ok" } })
@@ -162,16 +164,19 @@ describe("Readiness matrix", function()
         mock_config.kernel_ip_blocking.mode = "enforce"
     end)
 
-    it("CC auto_ready=false when migration not completed", function()
+    it("CC auto_ready does not depend on the frequency id coverage", function()
+        -- There is one counter namespace and no cutover any more, so the id
+        -- coverage is informational only: a pending migration must not keep
+        -- the operator from activating CC.
         local freq_mod = {
             get_migration_status = function() return { status = "pending" } end,
-            is_cutover_complete = function() return false end,
             id_to_index_map = function() return { freq_rule_1 = 1 } end,
         }
-        package.loaded["core.frequency"] = freq_mod
+        package.loaded["core.frequency.init"] = freq_mod
         mock_config.kernel_ip_blocking.cc.enforce_ready = false
         local m = readiness.compute({ health = { state = "ok" } })
-        assert.is_false(m.effective.cc.auto_ready)
+        assert.is_true(m.effective.cc.auto_ready)
+        assert.is_false(m.migration.status == "completed")
     end)
 
     it("flush_owned('auto') preserves manual_drop entries", function()

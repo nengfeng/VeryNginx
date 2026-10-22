@@ -106,30 +106,42 @@ describe("Scanner evidence", function()
     end)
 end)
 
--- CC evidence counting: distinct violation slots across all configured rule
--- ids, probing slots backward from the current one. Zero coverage historically
+-- CC evidence counting: distinct violation slots of the referenced rules,
+-- probing slots backward from the current one. Zero coverage historically
 -- (audit M-20); it gates CC enforce readiness (§4.5 auto_ready).
+--
+-- The slot width is the RULE's window, because that is what the writer uses
+-- (evidence_slot = floor(ngx.time() / rule.window)). The reader used to be
+-- handed cc.ttl instead: 300s slots and 60s slots are different numbers, the
+-- probe never met the evidence, and CC promotion was unreachable without any
+-- error anywhere.
 describe("count_cc_violations", function()
     local W = 60
 
     local function vkey(rule, ip, slot)
-        return "fl:v2:kernel:violation:" .. rule .. ":" .. ip .. ":" .. slot
+        local ip_enc = require "core.kernel_blocking.ip_encoding"
+        return ip_enc.violation_key(ip_enc.encode_rule_id(rule), ip, slot)
+    end
+
+    local function save_cfg(rules, rule_ids)
+        config.save({
+            version = "2.0", admin = {}, matcher = {},
+            rule = { frequency_limit = rules or {} },
+            kernel_ip_blocking = { cc = { rule_ids = rule_ids or { "r1", "r2" } } },
+        })
     end
 
     before_each(function()
         setup_ngx()
         -- config is readonly (use config.save()): the recursive schema fills
         -- every other kernel_ip_blocking field from its defaults.
-        config.save({
-            version = "2.0", admin = {}, matcher = {}, rule = {},
-            kernel_ip_blocking = { cc = { rule_ids = { "r1", "r2" } } },
-        })
+        save_cfg(nil, { "r1", "r2" })
         _G.ngx.shared.frequency_limit:flush_all()
         package.loaded["core.kernel_blocking.evidence"] = nil
         ev = require "core.kernel_blocking.evidence"
     end)
 
-    it("counts distinct slots across all CC rule ids, per IP", function()
+    it("counts distinct slots of the referenced rules, per IP", function()
         local cur = math.floor(ngx.time() / W)
         local s = _G.ngx.shared.frequency_limit
         s:set(vkey("r1", "9.9.9.9", cur), true)
@@ -137,25 +149,59 @@ describe("count_cc_violations", function()
         s:set(vkey("r1", "9.9.9.9", cur - 2), true)
         s:set(vkey("r2", "9.9.9.9", cur), true)      -- same slot as r1#1: not distinct
         s:set(vkey("r1", "other-ip", cur), true)     -- different IP: not counted
-        assert.are.equal(3, ev.count_cc_violations("9.9.9.9", W, 10))
+        assert.are.equal(3, ev.count_cc_violations("9.9.9.9", 10))
+    end)
+
+    it("reads the evidence on the rule's own window grid", function()
+        -- The rule's window is 60, cc.ttl is 300 (the default). The evidence
+        -- was written on the 60s grid; a reader on the 300s grid finds
+        -- nothing at all.
+        save_cfg({ { id = "r1", window = 60, limit = 10 } }, { "r1" })
+        package.loaded["core.kernel_blocking.evidence"] = nil
+        ev = require "core.kernel_blocking.evidence"
+
+        local cur = math.floor(ngx.time() / 60)
+        local s = _G.ngx.shared.frequency_limit
+        s:set(vkey("r1", "5.5.5.5", cur), true)
+        assert.are.equal(1, ev.count_cc_violations("5.5.5.5", 10))
+    end)
+
+    it("counts the referenced rules separately and keeps the strongest", function()
+        -- r1 has one window, r2 has three: the result is the strongest rule,
+        -- not the sum. Summing would let one violation of three different
+        -- rules inside a single window count as three "violation windows",
+        -- which is not what min_violation_windows means.
+        save_cfg({ { id = "r1", window = 60, limit = 10 },
+                   { id = "r2", window = 60, limit = 10 } }, { "r1", "r2" })
+        package.loaded["core.kernel_blocking.evidence"] = nil
+        ev = require "core.kernel_blocking.evidence"
+
+        local cur = math.floor(ngx.time() / 60)
+        local s = _G.ngx.shared.frequency_limit
+        s:set(vkey("r1", "6.6.6.6", cur), true)
+        s:set(vkey("r2", "6.6.6.6", cur), true)
+        s:set(vkey("r2", "6.6.6.6", cur - 1), true)
+        s:set(vkey("r2", "6.6.6.6", cur - 2), true)
+        assert.are.equal(3, ev.count_cc_violations("6.6.6.6", 10))
     end)
 
     it("breaks at slot < 0 instead of probing negative slots", function()
-        local s = _G.ngx.shared.frequency_limit
-        -- window = 2 * ngx.time() → current_slot == 0. A violation at slot 0
-        -- counts; a planted key for slot -1 must NOT (AGENTS §12.2
+        -- A rule window of 2 * ngx.time() → current_slot == 0. A violation at
+        -- slot 0 counts; a planted key for slot -1 must NOT (AGENTS §12.2
         -- negative-slot guard: probe loop breaks, never reads negative slots).
+        save_cfg({ { id = "r1", window = ngx.time() * 2, limit = 10 } }, { "r1" })
+        package.loaded["core.kernel_blocking.evidence"] = nil
+        ev = require "core.kernel_blocking.evidence"
+
+        local s = _G.ngx.shared.frequency_limit
         s:set(vkey("r1", "8.8.8.8", 0), true)
         s:set(vkey("r1", "8.8.8.8", -1), true)
-        assert.are.equal(1, ev.count_cc_violations("8.8.8.8", ngx.time() * 2, 10))
+        assert.are.equal(1, ev.count_cc_violations("8.8.8.8", 10))
     end)
 
     it("returns 0 when no CC rule ids are configured", function()
         -- config is readonly: re-save with an empty rule_ids list.
-        config.save({
-            version = "2.0", admin = {}, matcher = {}, rule = {},
-            kernel_ip_blocking = { cc = { rule_ids = {} } },
-        })
-        assert.are.equal(0, ev.count_cc_violations("7.7.7.7", W, 10))
+        save_cfg(nil, {})
+        assert.are.equal(0, ev.count_cc_violations("7.7.7.7", 10))
     end)
 end)

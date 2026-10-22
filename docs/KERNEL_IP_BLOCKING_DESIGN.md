@@ -573,23 +573,25 @@ new_id = "freq_m1_" + base64url_no_padding(full 32-byte digest)
 - Dashboard、Raw JSON、import、通用规则编辑器和专用 Frequency API 在迁移后都必须保留并验证 ID；修改 ID 是显式计数重置操作。
 - 该迁移独立于 `kernel_ip_blocking.enabled`，因为 v2 key 影响所有 frequency rules。
 
-#### Frequency Counter Key v2 与冷切换
+#### Frequency Counter Key 与命名空间
 
-现有限频原始计数 key 必须加入 rule ID，避免两条使用相同 `key` 维度的规则互相污染。v2 使用版本化命名空间：
-
-```text
-fl:v2:count:<encoded_rule_id>:<encoded_dimension_key>
-```
-
-超限窗口证据复用 `lua_shared_dict frequency_limit`，建议 key：
+限频原始计数 key 必须加入 rule ID，避免两条使用相同 `key` 维度的规则互相污染。计数只有**一套**命名空间：
 
 ```text
-fl:v2:kernel:violation:<encoded_rule_id>:<canonical_ip>:<evidence_slot>
+fl:count:<encoded_rule_id>:<encoded_dimension_key>
 ```
+
+超限窗口证据复用 `lua_shared_dict frequency_limit`，key：
+
+```text
+fl:cc:violation:<encoded_rule_id>:<canonical_ip>:<evidence_slot>
+```
+
+> 历史上存在两套命名空间：raw 的 `fl:v1:<id>:ip:<value>` 与长度前缀的 `fl:v2:count:...`，运行时切换。两套的**语义完全相同**（同一个 `_dimension_value()`：同样的 IP 规范化、同样的 URI 归一化、同样的按规则隔离），差别只在编码，而 raw 编码分不清两维度切分（`host="a" + ip=2001:db8::1` 与 `host="a:2001" + ip=db8::1` 产生同一个 key）。切换机制还带来一串副作用：一个只能在 KB 面板里完成的 "cutover"、一个 `cutover_epoch` 概念、以及 CC 晋升被这个切换卡住。现已合并为单命名空间，切换机制、epoch 与相关门禁一并删除。
 
 其中：
 
-- `limiter.build_key()` 的 v2 契约只返回规范化的维度部分，不再返回带 `fl:` 前缀的完整存储 key；调用方统一拼装上述命名空间。
+- `limiter.build_key()` 只返回规范化的维度部分（已编码），不再返回带 `fl:` 前缀的完整存储 key；调用方统一拼装上述命名空间。
 - `rule_id` 和所有可变维度必须使用无分隔符碰撞的长度前缀编码、URL-safe 编码或固定摘要，不能直接用冒号拼接原始值。IPv4/IPv6 必须先规范化。
 - 保留现有限频“计数 key 首次创建后按 `rule.window` TTL 过期”的窗口语义，不改成对齐时间槽。
 - 晋升证据单独使用 `evidence_slot = floor(ngx.time() / rule.window)`，它只用于把超限事件归入稳定、可汇总的观察槽，不改变原始限频行为。
@@ -600,17 +602,16 @@ fl:v2:kernel:violation:<encoded_rule_id>:<canonical_ip>:<evidence_slot>
 - 维护有界的 CC 候选索引，不能依赖 `/frequency/stats` 或 `get_keys()` 枚举。
 - 计数 key 和证据 key 都不写持久化快照；流量恢复后可重新生成。
 
-首次部署 v2 采用明确的冷切换契约：
+命名空间只有一套（见上），因此没有 "cutover" 这一步。切换到当前 key 形态时遵循：
 
-1. 完成并回读验证 Frequency Rule ID Migration；验证失败不得建立 v2 namespace。
-2. 所有 frequency rules 同时切换到 v2 key，不只切换 `cc.rule_ids` 引用的规则。
-3. 不对旧 `fl:*` key 双读、双写或转换；旧 key 不枚举、不删除，按原 TTL 自然过期。
-4. 所有活动限频窗口在切换时重新开始，客户端可能在最长一个 `rule.window` 内获得一次新额度。升级状态和发布说明必须明确显示该行为。
-5. CC violation evidence 从空历史开始，旧计数不能解释为连续超限窗口。共享状态记录 `counter_namespace="v2"` 和统一 `cutover_epoch`。
-6. 只有全部证据都晚于 `cutover_epoch` 且已满足 `min_violation_windows` 时才允许 CC 自动晋升；在此之前状态为 `warming_up`。
-7. graceful reload 期间不得让旧、新 worker 长期同时执行不同 key 语义。部署流程必须在迁移验证后完成 OpenResty 冷重启；首期不实现 dual-read/dual-write。
-8. 回滚到旧代码会再次重置窗口，不做反向状态转换。
-9. `/frequency/stats` 只枚举规范的 v2 counter 命名空间，不能把旧 key 或 violation marker 混入原始限频统计。
+1. 每条 frequency rule 必须有稳定 ID；缺失的规则在面板保存时补齐（ID 缺失的规则计数不与其他规则隔离，插件会写一条告警）。
+2. 不对旧 `fl:v1:*` key 双读、双写或转换；旧 key 不枚举、不删除，按原 TTL 自然过期。
+3. 所有活动限频窗口在切换时重新开始，客户端可能在最长一个 `rule.window` 内获得一次新额度。升级状态和发布说明必须明确显示该行为。
+4. CC violation evidence 只为 `cc.rule_ids` 引用的规则记录，且只在该规则**首次**越限时写一条（`current == rule.limit + 1`）。
+5. 证据槽宽固定为 `floor(ngx.time() / rule.window)`：**写侧与读侧必须用同一个窗口**。读侧必须按被引用规则各自的 `rule.window` 探测，不能用 `cc.ttl`——两者的槽号不在同一网格上，永远对不上，`min_violation_windows` 也就永远不成立。
+6. 证据的"不早于某个时刻"由 lifecycle 的 `evidence_not_before` / `policy_evidence_not_before` 保证（绑定 KB 激活），不再有独立的 `cutover_epoch`。
+7. graceful reload 期间不得让旧、新 worker 长期同时执行不同 key 语义；由于只有一套命名空间，这里只涉及"旧 key 与新 key"的一次性自然过期。
+8. `/frequency/stats` 只枚举当前的 counter 命名空间，不能把 violation marker 混入原始限频统计。
 
 初始策略示意：
 
@@ -1448,7 +1449,6 @@ scope_validation_pending
 scope_unvalidated
 scope_digest_mismatch
 allow_refresh_pending
-counter_namespace_not_v2
 warming_up
 family_disabled
 capacity
@@ -1463,8 +1463,6 @@ policy-level reachability 与单个 candidate 的拒绝结果分开记录。每�
 ```text
 rule_id
 reference_valid
-counter_namespace
-cutover_epoch
 warmup_until
 effective_mode
 install_reachable
@@ -1514,13 +1512,13 @@ reason_codes[]
 `GET /kernel-blocking/status` 至少返回：
 
 - configured global state、effective global/scanner/CC mode、global/policy-scoped `install_reachable`、health 和固定 `reason_codes[]`，结构遵循 11.5。
-- Frequency ID migration 状态和映射摘要、`counter_namespace`、`cutover_epoch`，以及每条 CC 引用规则的 reference、warm-up 和 reachability 状态。
+- Frequency 规则 ID 覆盖状态，以及每条 CC 引用规则的 reference、warm-up 和 reachability 状态。
 - 控制面 whitelist generation、Helper installed allow generation、canonical digest 和 `allow_refresh_pending`。
 - Promotion 桶的配置、状态来源 `survived_reload|cold_empty|reconfigured`、当前可用 token、最后补充时间和近期 `rate_limited` 数量。
 - `helper_instance_id`、configured/installed scope digest、本机地址摘要、scope validation state 和 table generation。
 - global/policy activation generations、`evidence_not_before`、dispatch queue 深度、最近 IPC Protocol v1 错误码和 scheduler lease 状态。
 - **IPC 统计**：连接状态、请求计数、错误计数、最后错误码。
-- **Per-rule CC reachability**：每条 `cc.rule_ids` 引用规则的 `rule_id`、`reference_valid`、`counter_namespace`、`cutover_epoch`、`warmup_until`、`effective_mode`、`install_reachable`、`reason_codes[]`。
+- **Per-rule CC reachability**：每条 `cc.rule_ids` 引用规则的 `rule_id`、`reference_valid`、`warmup_until`、`effective_mode`、`install_reachable`、`reason_codes[]`。
 - disabled 或 policy disabled 时仍存在的实际内核条目数量，并返回 `disabled_with_active_entries` 警告。
 
 状态响应的最低结构示意：
@@ -1669,8 +1667,8 @@ verynginx_kernel_block_promotion_tokens
 - 检测 UFW、Docker、`iptables-nft` 和已有 `table inet verynginx`。
 - 不覆盖用户的 `/etc/nftables.conf`，不清空已有 nftables table。
 - capability 不满足时保持 Lua WAF 可用，并明确报告内核封禁不可用。
-- 首次引入 Frequency Counter Key v2 的部署顺序固定为：备份配置；在旧 limiter 运行时执行 Frequency Rule ID Migration；原子持久化并回读验证；验证成功后执行 OpenResty 冷重启；建立 `counter_namespace=v2` 和 `cutover_epoch`。不得使用 graceful reload 混跑旧、新 key。
-- ID migration 或回读验证失败时中止冷切换并继续使用完整旧 limiter 语义；发布说明明确 ID 映射、所有活动限频窗口重置以及 CC 证据 warm-up。
+- 首次切换到当前 Frequency Counter Key 的部署顺序固定为：备份配置；确保每条 frequency rule 都有稳定 ID（面板保存即补齐，旧配置可用迁移工具一次性补齐）；原子持久化并回读验证；验证成功后 reload OpenResty。不得使用 graceful reload 混跑旧、新 key 语义。
+- ID 补齐或回读验证失败时中止切换并继续使用旧 limiter 语义；发布说明明确 ID 映射、所有活动限频窗口重置以及 CC 证据 warm-up。
 
 推荐模型：
 
@@ -1845,7 +1843,7 @@ observe 模式先回答：
 - 最大集合规模和每秒新增速率是多少？
 - 全局晋升桶在候选数据上会拒绝多少 `would_promote`，scanner 与 CC 是否互相挤占？
 
-Phase 1 开始前必须先完成并回读验证 Frequency Rule ID Migration，再执行 Frequency Counter Key v2 冷重启切换并记录统一 `cutover_epoch`。CC 数据只统计切换后产生的 violation marker；warm-up 完成前不得把历史不足误判为策略安全。
+Phase 1 开始前必须先完成并回读验证 Frequency Rule ID 覆盖（每条规则都有稳定 ID）。CC 数据只统计 KB 激活之后产生的 violation marker（lifecycle `evidence_not_before` 之后）；warm-up 完成前不得把历史不足误判为策略安全。
 
 Scanner 必须同时统计两个层次：
 
