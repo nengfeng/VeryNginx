@@ -60,9 +60,10 @@ local GROUPS = {
         { p = "fl:", label = "限流计数器(误入)" },
     },
     frequency_limit = {
-        { p = "fl:v2", label = "限流计数 v2" },
-        { p = "fl:v1", label = "限流计数 v1" },
-        { p = "fl:", label = "限流计数(无版本前缀)" },
+        { p = "fl:count", label = "限流计数" },
+        { p = "fl:cc:violation", label = "CC 违规证据" },
+        { p = "fl:v1", label = "限流计数 v1(遗留)" },
+        { p = "fl:", label = "限流计数(遗留/无版本前缀)" },
     },
 }
 

@@ -9,9 +9,16 @@ local _M = {}
 
 local ir = require "core.ip_reputation"
 local sm = require "core.kernel_blocking.state_machine"
+local ip_enc = require "core.kernel_blocking.ip_encoding"
 
 local SCANNER_DICT = "ip_reputation"
 local CC_DICT = "frequency_limit"
+
+-- The window the writer falls back to when a rule does not say otherwise.
+-- It MUST match the plugin's fallback (frequency_limit/init.lua: rule.window
+-- or 60): writer and reader have to agree on the slot grid or the reader
+-- probes slot numbers the writer never produced.
+local DEFAULT_WINDOW = 60
 
 -- ---------------------------------------------------------------------------
 -- Scanner block evidence
@@ -56,7 +63,7 @@ end
 
 -- ---------------------------------------------------------------------------
 -- CC violation evidence
--- Key: fl:v2:kernel:violation:<encoded_rule_id>:<canonical_ip>:<evidence_slot>
+-- Key: fl:cc:violation:<encoded_rule_id>:<canonical_ip>:<evidence_slot>
 -- Ø  Called when current == rule.limit + 1 (first transition past limit)
 -- Ø  Uses shared:add() — one evidence per counter lifetime
 -- Ø  evidence_slot = floor(ngx.time() / rule.window)
@@ -64,9 +71,9 @@ end
 -- Ø  Config schema restricts min_violation_windows ≤ 4, so window*5 is safe.
 -- ---------------------------------------------------------------------------
 function _M.record_cc_violation_evidence(rule_id, ip, window)
-    if not rule_id or not ip or not window then return end
+    if not rule_id or rule_id == "" or not ip or not window then return end
     local evidence_slot = math.floor(ngx.time() / window)
-    local key = "fl:v2:kernel:violation:" .. rule_id .. ":" .. ip .. ":" .. evidence_slot
+    local key = ip_enc.violation_key(ip_enc.encode_rule_id(rule_id), ip, evidence_slot)
     -- TTL must cover (min_violation_windows + 1) windows back; schema limits to 4,
     -- so window * 5 is sufficient. Use window * 5 for safety margin.
     local ttl = window * 5
@@ -82,17 +89,46 @@ end
 -- ---------------------------------------------------------------------------
 -- Count distinct evidence slots with at least one violation for an IP.
 -- Reads violation markers from all CC-referenced rule IDs.
--- Keys: fl:v2:kernel:violation:<rule_id>:<ip>:<evidence_slot>
+-- Keys: fl:cc:violation:<encoded_rule_id>:<ip>:<evidence_slot>
 -- We cannot use get_keys() on large dictionaries, so we probe slots
 -- backward from current slot for a bounded window span.
+--
+-- The slot width is the RULE's window, because that is what the writer uses:
+-- evidence_slot = floor(ngx.time() / rule.window). Reading with a different
+-- width probes a different grid entirely — 300s slots and 60s slots are
+-- different numbers, so the probe never meets the evidence it is looking for
+-- and the count stays 0 no matter how much abuse there is. The reader used to
+-- be handed cc.ttl (300) while the writer used rule.window (60): that made
+-- CC promotion unreachable, silently.
+--
+-- Each referenced rule is counted on its own grid; the result is the maximum
+-- across rules. Summing instead would let one violation of three different
+-- rules inside a single window count as three "violation windows", which is
+-- not what min_violation_windows means.
+--
 -- @param ip string
--- @param window number: rule window in seconds
--- @param max_slots number: maximum number of slots to probe
+-- @param max_slots number: maximum number of slots to probe per rule
 -- @return number: count of slots with at least one violation
 -- ---------------------------------------------------------------------------
-function _M.count_cc_violations(ip, window, max_slots)
-	if not ip or not window or window <= 0 then return 0 end
-	max_slots = max_slots or 10
+local function rule_windows(rule_ids)
+    local out = {}
+    local config = require "core.config"
+    local rules = config and config.rule and config.rule.frequency_limit
+    if type(rules) ~= "table" then return out end
+    for _, rule in ipairs(rules) do
+        if rule and rule.id and rule.id ~= "" then
+            for _, rid in ipairs(rule_ids) do
+                if rid == rule.id then
+                    out[rid] = tonumber(rule.window) or DEFAULT_WINDOW
+                end
+            end
+        end
+    end
+    return out
+end
+
+function _M.count_cc_violations(ip, max_slots)
+	if not ip or not max_slots or max_slots <= 0 then return 0 end
 	local config = require "core.config"
 	local kb_cfg = config and config.kernel_ip_blocking
 	local rule_ids = (kb_cfg and kb_cfg.cc and kb_cfg.cc.rule_ids) or {}
@@ -101,25 +137,26 @@ function _M.count_cc_violations(ip, window, max_slots)
 	local s = ngx.shared[CC_DICT]
 	if not s then return 0 end
 
-	local current_slot = math.floor(ngx.time() / window)
-	local count = 0
-	-- Probe slots backward from current
-	for slot_offset = 0, max_slots - 1 do
-		local slot = current_slot - slot_offset
-		if slot < 0 then break end
-		local found = false
-		for _, rule_id in ipairs(rule_ids) do
-			local key = "fl:v2:kernel:violation:" .. rule_id .. ":" .. ip .. ":" .. slot
+	local windows = rule_windows(rule_ids)
+	local now = ngx.time()
+	local best = 0
+	for _, rule_id in ipairs(rule_ids) do
+		local w = windows[rule_id] or DEFAULT_WINDOW
+		local current_slot = math.floor(now / w)
+		local enc_id = ip_enc.encode_rule_id(rule_id)
+		local count = 0
+		-- Probe slots backward from current
+		for slot_offset = 0, max_slots - 1 do
+			local slot = current_slot - slot_offset
+			if slot < 0 then break end
+			local key = ip_enc.violation_key(enc_id, ip, slot)
 			if s:get(key) ~= nil then
-				found = true
-				break
+				count = count + 1
 			end
 		end
-		if found then
-			count = count + 1
-		end
+		if count > best then best = count end
 	end
-	return count
+	return best
 end
 
 -- ---------------------------------------------------------------------------

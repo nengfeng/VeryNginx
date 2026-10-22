@@ -259,12 +259,12 @@ test/v2/spec/
    - 新契约: 只返回维度部分 (不返回带 `fl:` 前缀的完整 key)
    - rule_id 和所有可变 dimension 使用长度前缀编码、URL-safe 编码或固定摘要
    - IPv4/IPv6 必须先规范化
-   - **注意**: 当前 key 无 escaping/sanitization (limiter.lua L18, L22)，dimension value 中如果含 `:` 理论上会与分隔符碰撞。v2 编码默认使用长度前缀 + base64url 消除此风险
-   - `uri` dimension 使用 `statistics.normalize_uri()` 归一化 (limiter.lua L30-31)。v2 续约时归一化逻辑必须保持一致
+     - **注意**: raw 编码无 escaping/sanitization，dimension value 中含 `:` 会与分隔符碰撞。统一的长度前缀编码消除此风险（已实现）
+     - `uri` dimension 使用 `statistics.normalize_uri()` 归一化；`host` dimension 使用 `statistics.normalize_host()` 归一化
 
 2. **修改 `verynginx/plugin/frequency_limit/init.lua`**:
-   - 当前计数 key: `fl:v2:count:<encoded_rule_id>:<encoded_dimension_key>`
-   - CC violation evidence key: `fl:v2:kernel:violation:<encoded_rule_id>:<canonical_ip>:<evidence_slot>`
+   - 当前计数 key: `fl:count:<encoded_rule_id>:<encoded_dimension_key>`
+   - CC violation evidence key: `fl:cc:violation:<encoded_rule_id>:<canonical_ip>:<evidence_slot>`
    - 保留现有 "计数 key 首次创建后按 `rule.window` TTL 过期" 语义
    - evidence_slot = `floor(ngx.time() / rule.window)`
    - 当 `current == limit + 1` 时用 `shared:add()` 写入当前 slot marker
@@ -277,7 +277,7 @@ test/v2/spec/
    - 新建 `verynginx/core/kernel_blocking/ip_encoding.lua` 存放
 
 4. **冷切换契约**:
-   - 共享状态记录 `counter_namespace = "v2"` 和统一 `cutover_epoch`
+   - 只有一套命名空间，没有 `counter_namespace` 开关，也没有 `cutover_epoch`
    - 所有 active 计量窗口重置 (最长一个 `rule.window`)
    - 不对旧 `fl:*` key 双读、双写或转换
    - 回滚到旧代码会再次重置窗口
@@ -319,7 +319,7 @@ test/v2/spec/
 
 3. **新建 `verynginx/core/kernel_blocking/evidence.lua`**:
    - `record_waf_block_evidence(ip)`: scanner 用 — `shared:incr("ip_rep:kernel:waf_block:" .. ip .. ":" .. slot, 1, 0, window_size())`
-   - `record_cc_violation_evidence(rule_id, ip, window)`: CC 用 — `shared:add("fl:v2:kernel:violation:" .. rule_id .. ":" .. ip .. ":" .. slot, true, ttl)`
+   - `record_cc_violation_evidence(rule_id, ip, window)`: CC 用 — `shared:add("fl:cc:violation:" .. enc_rule_id .. ":" .. ip .. ":" .. slot, true, ttl)`
    - 两者遵循有界原子操作，不执行 IPC/JSON 通信/磁盘 I/O
 
 **影响文件**:
@@ -406,7 +406,7 @@ test/v2/spec/
 
 2. **`plugin/frequency_limit/init.lua`**:
    - 在 `current == limit + 1` 时调用 `evidence.record_cc_violation_evidence(rule.id, ip, rule.window)`
-   - 证据 key: `fl:v2:kernel:violation:<rule_id>:<ip>:<evidence_slot>`
+   - 证据 key: `fl:cc:violation:<encoded_rule_id>:<ip>:<evidence_slot>`；写侧窗口是 `rule.window`，读侧必须用同一个窗口
 
 **通用约束**:
 - 只有 `kernel_ip_blocking.enabled == true` 时执行写入
@@ -855,7 +855,7 @@ Phase 4 必须包含独立的紧急操作:
     "cc": { "mode": "observe", "install_reachable": false, "reason_codes": ["cc_not_enforce_ready"] }
   },
   "health": { "state": "ok", "helper_instance_id": "..." },
-  "migration": { "status": "completed", "cutover_epoch": 1783728000 },
+  "migration": { "status": "completed", "total": 3, "id_count": 3 },
   "whitelist_generation": { "control_plane": {"epoch": "...", "sequence": 5}, "helper_installed": {"epoch": "...", "sequence": 5} },
   "promotion_bucket": { "tokens_available": 850, "rate_limited_recent": 12 },
   "counters": { "scanner_candidates": 45, "cc_candidates": 12, "installed_scanner": 23, "installed_cc": 5, "installed_manual": 2 }

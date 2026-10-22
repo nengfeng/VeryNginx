@@ -2,10 +2,11 @@
 -- @Date    : 2026-07-12
 -- @Author  : VeryNginx v2
 -- @Disc    : Frequency Rule ID Migration tool (m1 scheme)
---             Run once during deployment/cc cutover. Idempotent.
+--             Run once on a configuration whose rules carry no stable ids.
+--             Idempotent.
 --
--- This module is NOT used during request serving — only during
--- migration/cold-switch operations via CLI or admin API.
+-- This module is NOT used during request serving — only as an explicit
+-- maintenance operation via CLI.
 
 local _M = {}
 
@@ -293,12 +294,6 @@ local function _migrate(skip_write)
     local save_ok, save_err = config.save(current)
     if not save_ok then
         return { ok = false, reason = "save failed: " .. tostring(save_err) }
-    end
-
-    -- Bump config generation so workers re-evaluate is_v2_active()
-    local s = ngx.shared.frequency_limit
-    if s then
-        s:incr("fl:v2:config_generation", 1, 0)
     end
 
     return { ok = true, changed = changed }
