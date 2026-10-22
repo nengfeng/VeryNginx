@@ -14,26 +14,28 @@ end
 
 -- Re-entry guard.
 --
--- The proxy path does an internal redirect (ngx.exec("@vn_proxy")) from this
--- phase. The redirect re-runs the server-level rewrite phase, where the
--- `set` directives reset every $vn_* request variable to its default, and it
--- discards ngx.ctx, so this phase re-enters with a fresh context that has no
--- way to know the pipeline already ran. A marker kept in an nginx request
--- variable cannot survive (the re-run `set` directives reset it -- measured
--- in production), so the marker lives in a per-worker table keyed by the
--- request id: see core/phase_guard.lua.
+-- Every internal redirect re-enters this phase with a fresh context: the
+-- index module (`/` -> `/index.php`), the try_files fallback, and the
+-- proxy path's ngx.exec("@vn_proxy"). The redirect discards ngx.ctx and
+-- re-runs the server-level `set` directives (which reset every $vn_*
+-- request variable), so no marker kept in ngx.ctx or in a request
+-- variable survives: the pipeline re-ran and the counting plugins
+-- (frequency limit, traffic statistics, ip_reputation) charged the
+-- client request once per pass. The marker lives in a per-worker table
+-- keyed by the request id — see core/phase_guard.lua.
 --
--- On the second pass, the proxy action decided in the first pass is
--- restored onto the fresh context so rule_engine.apply() below re-applies
--- the proxy target variables (which the redirect reset). The plugins are
--- NOT re-run: the counting plugins (frequency limit, traffic statistics,
--- ip_reputation) would charge the request twice.
+-- On the proxy path, the action decided in the first pass is restored
+-- onto the fresh context so rule_engine.apply() below re-applies the
+-- proxy target variables (which the redirect reset), and the exec is not
+-- repeated.
 local stored_action = phase_guard.stored_action()
 if not ctx.has_decision(ctx) then
+    if not phase_guard.marked() then
+        plugin.execute_access(ctx)
+        phase_guard.mark_run()
+    end
     if stored_action then
         ctx.set_action(ctx, "proxy", stored_action)
-    else
-        plugin.execute_access(ctx)
     end
 end
 

@@ -30,12 +30,13 @@ ngx.ctx.vn_ctx = ctx
 
 -- 3. Re-entry guard for the rewrite-phase actions.
 --
--- The proxy path's internal redirect re-enters this phase (see
--- core/phase_guard.lua for why no request-variable marker can survive it).
--- The actions must not run a second time: a rewrite action would rewrite
--- the URI a second time. The context is still created above, so the log
--- phase keeps its context.
-if phase_guard.executed() then
+-- When the pipeline already ran for this client request (any internal
+-- redirect re-enters the phases — see core/phase_guard.lua for why no
+-- request-variable marker survives it), the actions must not run a
+-- second time: a rewrite action would rewrite the URI a second time.
+-- The context is still created above, so the log phase keeps its
+-- context.
+if phase_guard.marked() then
     return
 end
 
