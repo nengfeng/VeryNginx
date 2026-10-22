@@ -7,6 +7,7 @@ local _M = {}
 local matcher = require "matcher.init"
 local action_registry = require "action.init"
 local response = require "action.response"
+local phase_guard = require "core.phase_guard"
 local static_file
 do
     local ok, mod = pcall(require, "plugin.static_file.init")
@@ -123,25 +124,32 @@ function _M.apply(ctx, phase)
             return _no_backend_error()
         end
         -- Set nginx variables for @vn_proxy location (proxy_set_header +
-        -- the balancer). Variables survive ngx.exec unconditionally; do NOT
-        -- carry the target in ngx.ctx — the internal redirect may re-run
-        -- phases with fresh ctx state, losing it (peer would fall back to
-        -- the upstream's 0.0.0.1 dummy server).
+        -- the balancer). Set on EVERY pass: the internal redirect re-runs
+        -- the server-level `set` directives, which reset these to their
+        -- defaults (see core/phase_guard.lua). Do NOT carry the target in
+        -- ngx.ctx — the redirect re-runs the phases with a fresh ctx,
+        -- losing it (peer would fall back to the upstream's 0.0.0.1 dummy
+        -- server).
         pcall(function()
             ngx.var.vn_proxy_host   = action.data.host
             ngx.var.vn_proxy_port   = action.data.port or "80"
             ngx.var.vn_proxy_scheme = action.data.scheme or "http"
             ngx.var.vn_proxy_sni    = action.data.sni or action.data.host or ""
         end)
-        -- Break the exec loop: if we already redirected once, the @vn_proxy
-        -- iteration must fall through to its content phase (which proxies),
-        -- not ngx.exec again — nginx aborts with 'internal redirection
-        -- cycle' after 10 uri_changes otherwise.
+        -- Second pass after the exec: the target variables were just
+        -- re-applied above, so fall through to the @vn_proxy content phase
+        -- (which proxies) — do NOT exec again. $vn_in_exec cannot guard
+        -- this: the redirect's re-run `set` directives reset it, so the
+        -- marker lives in the per-worker table keyed by the request id.
+        if phase_guard.executed() then
+            return
+        end
         local in_exec_ok, in_exec = pcall(function() return ngx.var.vn_in_exec end)
         if in_exec_ok and in_exec == "1" then
             return
         end
         pcall(function() ngx.var.vn_in_exec = "1" end)
+        phase_guard.mark_executed(action.data)
         return ngx.exec("@vn_proxy")
     elseif action.type == RESULT.STATIC then
         if not static_file or not static_file.serve then

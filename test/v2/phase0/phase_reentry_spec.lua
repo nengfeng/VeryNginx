@@ -1,28 +1,30 @@
 -- -*- coding: utf-8 -*-
--- Phase re-entry guards (Phase 0)
+-- Phase re-entry guard (Phase 0)
 --
 -- The proxy path does an internal redirect (ngx.exec("@vn_proxy")) from the
--- access phase, which re-enters the rewrite and access phases. ngx.exec()
--- discards ngx.ctx, so a marker kept in ngx.ctx cannot see the second pass:
--- the plugin pipeline ran twice and every request was counted twice (the
--- rate limiter, ip_reputation's request counter and the traffic statistics).
+-- access phase. The redirect re-runs the server-level rewrite phase, where
+-- the `set` directives reset every $vn_* request variable to its default,
+-- and it discards ngx.ctx: the second pass arrives with a fresh context and
+-- re-runs the whole plugin pipeline, charging every counting plugin twice.
 --
--- The markers live in nginx request variables, which DO survive the internal
--- redirect. These tests pin that behaviour.
+-- The marker lives in a per-worker table keyed by the request id
+-- (core/phase_guard.lua): request variables cannot survive the redirect
+-- (the re-run `set` directives reset them — measured in production), and
+-- $request_id is stable across the redirect. These tests pin that
+-- behaviour.
 
 package.path = "verynginx/?.lua;verynginx/lua_script/?.lua;" .. package.path
 
-local function setup_ngx()
-    if not _G.ngx then _G.ngx = {} end
-    local ngx = _G.ngx
-    function ngx.log() end
-    ngx.WARN = 6; ngx.ERR = 5; ngx.INFO = 4
-    ngx.time = function() return 1700000000 end
-    ngx.now = function() return 1700000000 end
-    ngx.md5 = function(s) return "x" end
-    ngx.ctx = {}
-    ngx.var = {}
-    return ngx
+local function setup_ngx(request_id)
+    _G.ngx = {
+        WARN = 6, ERR = 5, INFO = 4,
+        time = function() return 1700000000 end,
+        now = function() return 1700000000 end,
+        md5 = function(s) return "x" end,
+        ctx = {},
+        var = { request_id = request_id },
+    }
+    function _G.ngx.log() end
 end
 
 local function stub_pipeline(calls)
@@ -31,55 +33,94 @@ local function stub_pipeline(calls)
         execute_log = function(ctx) calls.log = calls.log + 1 end,
     }
     package.loaded["core.rule_engine"] = {
-        apply = function(ctx, phase) calls.apply = (calls.apply or 0) + 1; calls.phase = phase end,
+        apply = function(ctx, phase)
+            calls.apply = calls.apply + 1
+            calls.last_phase = phase
+            -- the stub does not exec: record what the real engine would do
+            if calls.on_apply then calls.on_apply(ctx, phase) end
+        end
     }
 end
 
 describe("access phase re-entry guard", function()
-    local calls
+    local calls, phase_guard
 
     before_each(function()
-        setup_ngx()
-        calls = { access = 0, log = 0, apply = 0 }
+        calls = { access = 0, apply = 0, log = 0 }
         stub_pipeline(calls)
+        -- a fresh module instance per test so the per-worker table does not
+        -- leak between cases
+        package.loaded["core.phase_guard"] = nil
+        phase_guard = require "core.phase_guard"
+        package.loaded["core.context"] = {
+            new = function()
+                return {
+                    request = {}, data = {},
+                    has_decision = function(ctx) return ctx.action_result ~= nil end,
+                    set_action = function(ctx, t, d) ctx.action_result = { type = t, data = d } end,
+                }
+            end,
+        }
+        package.loaded["core.metrics"] = { observe = function() end }
     end)
 
-    it("runs the plugin pipeline on the first pass", function()
-        _G.ngx.ctx.vn_ctx = { has_decision = function() return false end }
+    it("runs the pipeline on the first pass", function()
+        setup_ngx("rid-a1")
+        _G.ngx.ctx.vn_ctx = package.loaded["core.context"].new()
         dofile("verynginx/on_access.lua")
         assert.are.equal(1, calls.access)
         assert.are.equal(1, calls.apply)
     end)
 
-    it("does not run the pipeline again after the internal redirect", function()
-        -- ngx.exec() discarded ngx.ctx, so the second pass arrives with a
-        -- fresh context -- but the request variable still says the pipeline
-        -- already ran.
-        _G.ngx.ctx.vn_ctx = { has_decision = function() return false end }
-        _G.ngx.var.vn_access_ran = "1"
+    it("skips the plugins on the second pass but still applies the restored action", function()
+        setup_ngx("rid-a2")
+        local ctx_new = package.loaded["core.context"].new
+        -- first pass: the pipeline runs and the proxy path execs
+        _G.ngx.ctx.vn_ctx = ctx_new()
         dofile("verynginx/on_access.lua")
-        assert.are.equal(0, calls.access)
-        assert.are.equal(0, calls.apply)
+        assert.are.equal(1, calls.access)
+        -- the real rule_engine stores the proxy action and execs before the
+        -- redirect; simulate that here
+        phase_guard.mark_executed({ host = "example.invalid" })
+        -- second pass: the redirect re-entered the access phase with a
+        -- fresh context
+        _G.ngx.ctx = {}
+        _G.ngx.ctx.vn_ctx = ctx_new()
+        dofile("verynginx/on_access.lua")
+        assert.are.equal(1, calls.access, "the plugins must not run a second time")
+        assert.are.equal(2, calls.apply, "the decision is still applied (proxy target re-set)")
+        assert.are.equal("example.invalid", _G.ngx.ctx.vn_ctx.action_result.data.host)
     end)
 
-    it("marks the request so the second pass is skipped", function()
-        _G.ngx.ctx.vn_ctx = { has_decision = function() return false end }
+    it("drops the marker in the log phase so the table cannot grow unboundedly", function()
+        setup_ngx("rid-a3")
+        _G.ngx.ctx.vn_ctx = package.loaded["core.context"].new()
         dofile("verynginx/on_access.lua")
-        assert.are.equal("1", _G.ngx.var.vn_access_ran)
+        phase_guard.mark_executed({ host = "example.invalid" })
+        assert.is_true(phase_guard.executed())
+        dofile("verynginx/on_log.lua")
+        assert.is_falsy(phase_guard.executed())
     end)
 end)
 
 describe("rewrite phase re-entry guard", function()
-    local calls, actions
+    local actions, calls, phase_guard
 
     before_each(function()
-        setup_ngx()
-        calls = { access = 0, log = 0, apply = 0 }
         actions = { scheme = 0, redirect = 0, rewrite = 0 }
+        calls = { access = 0, apply = 0, log = 0 }
         stub_pipeline(calls)
+        package.loaded["core.phase_guard"] = nil
+        phase_guard = require "core.phase_guard"
         package.loaded["core.config"] = { check_update = function() end }
         package.loaded["core.context"] = {
-            new = function() return { request = {}, data = {} } end,
+            new = function()
+                return {
+                    request = {}, data = {},
+                    has_decision = function(ctx) return ctx.action_result ~= nil end,
+                    set_action = function(ctx, t, d) ctx.action_result = { type = t, data = d } end,
+                }
+            end,
         }
         package.loaded["action.scheme_lock"] = { run = function() actions.scheme = actions.scheme + 1 end }
         package.loaded["action.redirect"] = { run = function() actions.redirect = actions.redirect + 1 end }
@@ -87,26 +128,25 @@ describe("rewrite phase re-entry guard", function()
     end)
 
     it("runs the rewrite-phase actions on the first pass", function()
+        setup_ngx("rid-r1")
         dofile("verynginx/on_rewrite.lua")
         assert.are.equal(1, actions.scheme)
         assert.are.equal(1, actions.redirect)
         assert.are.equal(1, actions.rewrite)
     end)
 
-    it("does not run them again after the internal redirect", function()
-        -- The URI must not be rewritten a second time.
-        _G.ngx.var.vn_rewrite_ran = "1"
+    it("does not re-run the actions on the second pass, but still creates a context for the log phase", function()
+        setup_ngx("rid-r2")
         dofile("verynginx/on_rewrite.lua")
-        assert.are.equal(0, actions.scheme)
-        assert.are.equal(0, actions.redirect)
-        assert.are.equal(0, actions.rewrite)
-    end)
-
-    it("still creates a context on the second pass for the log phase", function()
-        -- ngx.exec() discarded the first pass's context, and the log phase
-        -- needs one (it reports the WAF latency and the request statistics).
-        _G.ngx.var.vn_rewrite_ran = "1"
+        assert.are.equal(1, actions.scheme)
+        -- simulate the exec the proxy path performed
+        phase_guard.mark_executed({ host = "example.invalid" })
+        -- second pass: the redirect re-entered the rewrite phase
+        _G.ngx.ctx = {}
         dofile("verynginx/on_rewrite.lua")
-        assert.is_truthy(_G.ngx.ctx.vn_ctx)
+        assert.are.equal(1, actions.scheme, "the scheme action must not run twice")
+        assert.are.equal(1, actions.redirect)
+        assert.are.equal(1, actions.rewrite, "a rewrite action must not rewrite the URI a second time")
+        assert.is_truthy(_G.ngx.ctx.vn_ctx, "the log phase still needs its context")
     end)
 end)

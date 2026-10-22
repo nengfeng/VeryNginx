@@ -5,6 +5,12 @@
 
 local plugin = require "core.plugin"
 local metrics = require "core.metrics"
+local phase_guard = require "core.phase_guard"
+
+-- Free this request's re-entry marker (see core/phase_guard.lua). It must
+-- run even when the context is missing: the marker is keyed by the request
+-- id, not by the context.
+phase_guard.drop()
 
 local ctx = ngx.ctx.vn_ctx
 if not ctx then
