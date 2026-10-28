@@ -96,7 +96,7 @@ sudo systemctl restart openresty
 ```
 
 脚本自动处理：备份配置 → 按 pin checkout 代码 → 替换 → 恢复配置 → 安装依赖，
-并报告所用 commit 落后 v2 分支多少个提交。
+并报告所用 commit 落后 main 分支多少个提交。
 
 **升级到更新的版本**：pin 是刻意固定的——前进需要显式的信任决定。查 release
 说明确认目标 commit 后：

@@ -75,7 +75,7 @@ info "备份完成于: ${BACKUP_DIR}"
 
 # ---- 拉取最新代码 ----
 info "=== Step 3: 拉取最新代码 ==="
-# 升级必须固定到具体 commit：浮动分支意味着任何能改写 v2 指针的人
+# 升级必须固定到具体 commit：浮动分支意味着任何能改写 main 指针的人
 # （包括被入侵的维护者账号）都能让所有跑升级脚本的机器直接部署恶意代码。
 # ---- 供应链信任模型（务必理解后再改）----
 # 升级的信任锚是【安装时部署的本脚本副本】：其 VN_PINNED_COMMIT 在安装时
@@ -109,9 +109,9 @@ git -C "${GIT_CLONE_DIR}" checkout --quiet "${VN_UPGRADE_COMMIT}" 2>&1 || {
 info "代码拉取完成 (commit: $(cd ${GIT_CLONE_DIR} && git rev-parse --short HEAD))"
 # Staleness visibility: an installed anchor is expected to lag the branch;
 # make the gap explicit so "升级成功" never silently means "冻结在旧代码".
-PIN_BEHIND=$(git -C "${GIT_CLONE_DIR}" rev-list --count "${VN_UPGRADE_COMMIT}..origin/v2" 2>/dev/null || echo "?")
+PIN_BEHIND=$(git -C "${GIT_CLONE_DIR}" rev-list --count "${VN_UPGRADE_COMMIT}..origin/main" 2>/dev/null || echo "?")
 if [ -n "${PIN_BEHIND}" ] && [ "${PIN_BEHIND}" != "0" ]; then
-    info "注意: 所用 commit 落后 v2 分支 ${PIN_BEHIND} 个提交；如需最新请查 release 说明后显式指定 VN_UPGRADE_COMMIT"
+    info "注意: 所用 commit 落后 main 分支 ${PIN_BEHIND} 个提交；如需最新请查 release 说明后显式指定 VN_UPGRADE_COMMIT"
 fi
 
 # ---- 部署新代码（覆盖式，不影响 openresty/ 和 configs/ 中的用户数据） ----
