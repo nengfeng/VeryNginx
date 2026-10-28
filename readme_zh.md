@@ -14,7 +14,7 @@
 - **每主机请求统计**：请求面板支持按主机过滤与聚合
 - **面板历史 tab 以撤销语义重做**：回滚可再撤销、删除可按条恢复；出厂漂移提示与逐条接受动作并排呈现
 - **运维修复**：GeoIP 校验与镜像下载报告、lua-resty-http 0.18.0、安装器升级时保留运行时配置、全新安装自动配置 Cloudflare 真实客户端 IP（`http_realip_module` + 官方网段）、`upgrade.sh` 会重新注入 TLS 指纹钩子（否则升级后 JA4 代码在、钩子不在，链路又空转）
-- **常驻门禁**：每条出厂规则都配 PCRE 正负样本回归测试集（`test/v2/factory_rules_battery.py`，477 项、逐命令族覆盖、真机 PCRE 双引擎对照），vendor 的 JA4 实现以 FoxIO 官方向量钉死（`test/v2/ja4_golden.lua`），另有 luacheck 0/0（103 文件）、spec 353、phase0 374 与面板绑定门禁
+- **常驻门禁**：每条出厂规则都配 PCRE 正负样本回归测试集（`test/v2/factory_rules_battery.py`，477 项、逐命令族覆盖、真机 PCRE 双引擎对照），vendor 的 JA4 实现以 FoxIO 官方向量钉死（`test/v2/ja4_golden.lua`），另有 luacheck 0/0（112 文件）、spec 433、phase0 475 与面板绑定门禁
 
 ---
 

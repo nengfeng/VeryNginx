@@ -14,7 +14,7 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 - **Per-host request statistics** — the request panel can filter and aggregate by host.
 - **Dashboard history tab redesigned around undo** — rollback is undoable, deletions restore per-entry; factory-drift hints and per-rule accept-action live next to it.
 - **Operational fixes** — GeoIP validation and mirror download reporting, lua-resty-http 0.18.0, installer preserves runtime config on upgrade, fresh installs auto-configure Cloudflare real client IP (`http_realip_module` with the official ranges), and `upgrade.sh` re-injects the TLS fingerprint hook so upgraded installs actually get it.
-- **Standing gates** — every factory rule ships with a PCRE positive/negative battery (`test/v2/factory_rules_battery.py`, 312 checks covering every command family, dual-engine verified against real PCRE), the vendored JA4 implementation is pinned to FoxIO's published vectors (`test/v2/ja4_golden.lua`), plus luacheck 0/0 over 103 files, 353 spec and 374 phase0 cases, and dashboard binding gates.
+- **Standing gates** — every factory rule ships with a PCRE positive/negative battery (`test/v2/factory_rules_battery.py`, 477 checks covering every command family, dual-engine verified against real PCRE), the vendored JA4 implementation is pinned to FoxIO's published vectors (`test/v2/ja4_golden.lua`), plus luacheck 0/0 over 112 files, 433 spec and 475 phase0 cases, and dashboard binding gates.
 
 ---
 
