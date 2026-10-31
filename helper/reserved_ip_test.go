@@ -3,11 +3,12 @@ package main
 import "testing"
 
 // TestIsReservedOrSpecialIP covers every branch of isReservedOrSpecialIP:
-//   IPv4: loopback, unspecified, broadcast, private (10/8, 172.16/12,
-//         192.168/16), CGNAT (100.64/10), multicast.
-//   IPv6: loopback, unspecified, link-local (fe80::/10), multicast
-//         (ff00::/8), ULA (fc00::/7).
-//   Public IPs must NOT be rejected.
+//
+//	IPv4: loopback, unspecified, broadcast, private (10/8, 172.16/12,
+//	      192.168/16), CGNAT (100.64/10), multicast.
+//	IPv6: loopback, unspecified, link-local (fe80::/10), multicast
+//	      (ff00::/8), ULA (fc00::/7).
+//	Public IPs must NOT be rejected.
 //
 // The full-expanded form 0000:0000:0000:0000:0000:0000:fccc:1234:abcd is
 // an intentional edge-case: net.ParseIP normalises it and the leading

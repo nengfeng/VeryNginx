@@ -35,15 +35,46 @@ local json = require "dkjson"
 local statistics = require "core.statistics"
 local live_stats = require "core.live_stats"
 
--- Where the log files live, and how many of them to report growth for.
+-- Where the log files live. The directory is the LNMP convention; the FILE
+-- LIST is discovered, not hardcoded. Baking one deployment's site names into
+-- the product both leaks those domains and leaves the panel empty on every
+-- other install. When lfs is unavailable, fall back to the two generic names.
 local LOG_DIR = "/data/wwwlogs"
-local LOG_FILES = {
-    "error_nginx.log",
-    "access_nginx.log",
-    "www.hostwyn.com_nginx.log",
-    "my.gongyi.info_nginx.log",
-    "gongyi.info_nginx.log",
-}
+local LOG_CACHE_TTL = 60
+local MAX_LOG_FILES = 32
+local FALLBACK_LOGS = { "error_nginx.log", "access_nginx.log" }
+
+local log_cache = { at = 0, names = nil }
+
+local function log_files()
+    local now = ngx.now()
+    if log_cache.names and (now - log_cache.at) < LOG_CACHE_TTL then
+        return log_cache.names
+    end
+    local names = {}
+    local ok, lfs = pcall(require, "lfs")
+    if ok then
+        local ok_dir, iter, dir_obj = pcall(lfs.dir, LOG_DIR)
+        if ok_dir then
+            for name in iter, dir_obj do
+                if name:match("%.log$") then
+                    names[#names + 1] = name
+                end
+            end
+        end
+    end
+    if #names == 0 then
+        for _, name in ipairs(FALLBACK_LOGS) do
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+    while #names > MAX_LOG_FILES do
+        table.remove(names)
+    end
+    log_cache.at, log_cache.names = now, names
+    return names
+end
 
 --- Read a file's size without pulling its contents into memory.
 -- The error log reached 1.98 GB in a day during the incident; reading it to
@@ -60,7 +91,14 @@ end
 -- statvfs is not exposed to Lua, so this shells out to df. The log volume was
 -- the one thing that grew unnoticed during the incident, so the panel reports
 -- it rather than leaving it to be noticed by accident.
+local disk_cache = { at = 0, value = nil }
+local DISK_CACHE_TTL = 30
+
 local function disk_usage()
+    local now = ngx.now()
+    if disk_cache.value and (now - disk_cache.at) < DISK_CACHE_TTL then
+        return disk_cache.value
+    end
     local out = {}
     local stat = io.popen("df -k " .. LOG_DIR .. " 2>/dev/null | tail -1")
     if not stat then return out end
@@ -74,6 +112,7 @@ local function disk_usage()
         end
     end
     stat:close()
+    disk_cache.at, disk_cache.value = now, out
     return out
 end
 
@@ -124,7 +163,7 @@ local function log_sizes()
     local shared = ngx.shared.metrics
     local out = {}
     local now = ngx.now()
-    for _, name in ipairs(LOG_FILES) do
+    for _, name in ipairs(log_files()) do
         local path = LOG_DIR .. "/" .. name
         local size = file_size(path)
         if size then

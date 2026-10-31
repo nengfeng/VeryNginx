@@ -30,6 +30,9 @@ jobs:
       - name: Check dashboard runtime init (factories + setup bindings)
         run: |
           node test/v2/dashboard_init_check.js
+      - name: Check dashboard cache tags track VERSION
+        run: |
+          node test/v2/check_cache_tags.js
 
   unit-tests:
     runs-on: ubuntu-latest

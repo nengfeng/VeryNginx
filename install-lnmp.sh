@@ -361,7 +361,9 @@ setup_admin_password() {
 VN_BACKUP_KEEP=5
 
 backup_nginx_conf() {
-  local bak="${NGINX_CONF}.bak.$(date +%Y%m%d-%H%M%S)"
+  local ts bak
+  ts="$(date +%Y%m%d-%H%M%S)"
+  bak="${NGINX_CONF}.bak.${ts}"
   cp "$NGINX_CONF" "$bak"
   info "Backup saved: ${bak}"
   # Prune old timestamped backups — unbounded growth across many installs.
@@ -1338,12 +1340,11 @@ check_geoip_deps() {
   local all_ok=true
 
   # 1. Check LuaJIT / FFI support
-  local has_luajit=false has_ffi=false
+  local has_luajit=false
   local detection_method=""
 
   if [ "$WEB_SERVER_TYPE" = "openresty" ]; then
     has_luajit=true
-    has_ffi=true
     detection_method="OpenResty built-in"
   fi
 
@@ -1351,7 +1352,6 @@ check_geoip_deps() {
   if [ "$has_luajit" = "false" ] && command -v ldd &>/dev/null; then
     if ldd "$WEB_SERVER_BIN" 2>/dev/null | grep -qi 'libluajit'; then
       has_luajit=true
-      has_ffi=true
       detection_method="ldd (linked to libluajit)"
     fi
   fi
@@ -1359,7 +1359,6 @@ check_geoip_deps() {
   # Check if luajit binary is available on the system
   if [ "$has_luajit" = "false" ] && command -v luajit &>/dev/null; then
     has_luajit=true
-    has_ffi=true
     detection_method="luajit binary found"
   fi
 
@@ -1367,7 +1366,6 @@ check_geoip_deps() {
   if [ "$has_luajit" = "false" ]; then
     if "$WEB_SERVER_BIN" -V 2>&1 | grep -qi 'luajit'; then
       has_luajit=true
-      has_ffi=true
       detection_method="nginx -V"
     fi
   fi

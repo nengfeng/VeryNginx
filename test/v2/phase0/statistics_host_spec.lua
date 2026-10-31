@@ -8,6 +8,7 @@ if not _G.ngx then _G.ngx = {} end
 _G.ngx.log = function() end
 _G.ngx.WARN = 6; _G.ngx.ERR = 5; _G.ngx.INFO = 7
 _G.ngx.now = function() return 1700000000 end
+_G.ngx.time = function() return 1700000000 end
 _G.ngx.worker = { id = function() return 0 end }
 _G.ngx.timer = { every = function() end, at = function() end }
 

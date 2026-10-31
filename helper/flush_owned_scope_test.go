@@ -17,7 +17,7 @@ func TestFlushOwnedAutoPreservesAllow(t *testing.T) {
 			backend.state[set]["ipv4"] = map[string]*setEntry{}
 		}
 		backend.state[set]["ipv4"][ip] = &setEntry{IP: ip, Family: "ipv4", Set: set}
-		backend.owned[set + ":ipv4:" + ip] = true
+		backend.owned[set+":ipv4:"+ip] = true
 	}
 	ip4("scanner_drop", "203.0.113.1")
 	ip4("cc_drop", "198.51.100.1")
@@ -70,7 +70,7 @@ func TestFlushOwnedAllRemovesEverything(t *testing.T) {
 			backend.state[set]["ipv4"] = map[string]*setEntry{}
 		}
 		backend.state[set]["ipv4"][ip] = &setEntry{IP: ip, Family: "ipv4", Set: set}
-		backend.owned[set + ":ipv4:" + ip] = true
+		backend.owned[set+":ipv4:"+ip] = true
 	}
 	add("scanner_drop", "203.0.113.1")
 	add("manual_drop", "192.0.2.1")

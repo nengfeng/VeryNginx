@@ -105,27 +105,13 @@ end
 -- ---------------------------------------------------------------------------
 -- Host normalization
 -- ---------------------------------------------------------------------------
--- Normalize ngx.var.host into a dict-key-safe token: lowercase, strip a
--- trailing dot, replace key-separator chars ([ ] :) in IPv6 literals, and
--- bound length so a hostile Host header cannot balloon dict keys.
+-- The rules live in core.hostname so the statistics engine, the frequency
+-- limiter and the live view cannot drift apart. Kept as a method here because
+-- existing callers (and the host-normalization spec) use this name.
+local hostname = require "core.hostname"
+
 function _M.normalize_host(host)
-    if not host or host == "" then
-        if ngx and ngx.var then
-            host = ngx.var.server_name or ""
-        else
-            host = ""
-        end
-    end
-    host = tostring(host):lower()
-    host = host:gsub("%.$", "")
-    host = host:gsub("[:%[%]]", "_")
-    if #host > 64 then
-        host = host:sub(1, 64)
-    end
-    if host == "" then
-        host = "_"
-    end
-    return host
+    return hostname.normalize(host)
 end
 
 -- Validate an external `host` query parameter (from /summary, /stats/top-paths,

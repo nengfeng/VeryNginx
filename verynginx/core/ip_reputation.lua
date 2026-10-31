@@ -1334,7 +1334,12 @@ function _M.persist()
         if ok_lfs then
             pcall(lfs.mkdir, dir)
         else
-            os.execute("mkdir -p '" .. dir .. "' 2>/dev/null")
+            -- Single-quote the path for the shell; escape any embedded quote
+            -- the standard way, so an install prefix cannot break out of the
+            -- command. (config.lua already rejects shell metacharacters in
+            -- config paths; this covers the module-root path too.)
+            local quoted = dir:gsub("'", "'\\''")
+            os.execute("mkdir -p '" .. quoted .. "' 2>/dev/null")
         end
     end
     local path = dir .. "ip-reputation-flagged.json"

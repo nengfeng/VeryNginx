@@ -54,6 +54,7 @@
 local _M = {}
 
 local dict_guard = require "core.dict_guard"
+local hostname = require "core.hostname"
 
 -- Host-minute key prefix. Distinct from the "1m:"/"5m:" bucket namespace so
 -- these never take part in the bucket rollup: they are a time series, and a
@@ -68,6 +69,11 @@ local MINUTE_TTL = 900
 -- Sample geometry. 256 hashes of 4 bytes plus a 4-byte cursor.
 local SAMPLE_SLOTS = 256
 local SAMPLE_BYTES = SAMPLE_SLOTS * 4 + 4
+
+-- Maximum distinct hosts kept in the per-minute list. A rotating or spoofed
+-- Host header must not be able to fill the 20 MB statistics dict with `lm:`
+-- namespaces; 256 is far above any real deployment's vhost count.
+local MAX_HOSTS_PER_MINUTE = 256
 
 -- Maximum distinct fingerprints kept per host-minute.
 local MAX_SHAPES = 32
@@ -206,19 +212,37 @@ function _M.record(ctx)
     if not shared then return end
 
     local req = ctx.request or {}
-    local host = req.host or "_"
-    local minute = os.date("%Y%m%d%H%M")
+    -- The same normalization the statistics engine and the frequency limiter
+    -- use: a raw Host header can carry ":"/"," (key and list separators) and
+    -- has no length bound, so using it verbatim would let one request invent
+    -- dict namespaces and forge host-list entries.
+    local host = hostname.normalize(req.host)
+    local minute = os.date("%Y%m%d%H%M", ngx.time())
     local base = PREFIX .. host .. ":" .. minute
 
     -- Enumerate the hosts of a minute so the reader can list them without a key
-    -- scan. Written once per host per minute: the add() returns true only the
-    -- first time, so the read-modify-write below is off the per-request path.
-    if shared:add(base .. ":seen", 1, MINUTE_TTL) then
-        local hkey = PREFIX .. "hosts:" .. minute
-        local list = shared:get(hkey) or ""
-        if not list:find(host, 1, true) then
-            dict_guard.set(shared, "stats.live", hkey,
-                list .. (list ~= "" and "," or "") .. host, MINUTE_TTL)
+    -- scan, and bound the per-minute cardinality. Membership is delimiter-aware:
+    -- a plain substring test treats "example.com" as already present when
+    -- "www.example.com" was recorded first, and the shorter host then never
+    -- appears in hosts().
+    local hkey = PREFIX .. "hosts:" .. minute
+    local list = shared:get(hkey) or ""
+    if not ("," .. list .. ","):find("," .. host .. ",", 1, true) then
+        local n = 0
+        if list ~= "" then n = select(2, list:gsub(",", "")) + 1 end
+        if n >= MAX_HOSTS_PER_MINUTE then
+            -- Over the cap: create no per-host keys for this minute.
+            return
+        end
+        -- Elect one writer so two workers cannot clobber each other's append.
+        -- add() returns true only for the first request of this host/minute,
+        -- so the read-modify-write below is off the per-request path.
+        if shared:add(base .. ":seen", 1, MINUTE_TTL) then
+            local cur = shared:get(hkey) or ""
+            if not ("," .. cur .. ","):find("," .. host .. ",", 1, true) then
+                dict_guard.set(shared, "stats.live", hkey,
+                    cur .. (cur ~= "" and "," or "") .. host, MINUTE_TTL)
+            end
         end
     end
 
@@ -260,7 +284,7 @@ function _M.record(ctx)
         -- First sighting: record when it appeared and what it looks like, so
         -- the panel can say "new since 14:38" and show the shape.
         dict_guard.set(shared, "stats.live", base .. ":fn:" .. hash,
-            os.time() .. "\0" .. raw, MINUTE_TTL)
+            ngx.time() .. "\0" .. raw, MINUTE_TTL)
         local shapes = read_list(shared, base .. ":fpl")
         shapes[hash] = true
         -- Keep the list bounded: beyond the cap, drop the shape whose own
@@ -299,7 +323,7 @@ function _M.host_series(host, minutes)
     minutes = minutes or 10
     if not shared then return {} end
     local out = {}
-    local now = os.time()
+    local now = ngx.time()
     for i = minutes - 1, 0, -1 do
         local t = now - i * 60
         local minute = os.date("%Y%m%d%H%M", t)
@@ -344,7 +368,7 @@ function _M.hosts(minutes)
     if not shared then return {} end
     local seen = {}
     local out = {}
-    local now = os.time()
+    local now = ngx.time()
     for i = 0, (minutes or 10) - 1 do
         local minute = os.date("%Y%m%d%H%M", now - i * 60)
         local list = shared:get(PREFIX .. "hosts:" .. minute)
@@ -440,14 +464,27 @@ local function series_put(raw, rec, keep)
     return encode_records(records)
 end
 
+-- The last minute already folded. A timer that fires twice in the same
+-- wall-clock minute (clock step, delayed callback) must not add that minute's
+-- counters to the hourly sum twice; series_put() would replace the minute row
+-- but the hour row is accumulated.
+local last_folded
+
 --- Fold one minute of live data into the history.
 -- Called from the maintenance timer, not per request.
 function _M.roll_history()
     local live = ngx.shared.statistics
     local hist = hist_dict()
     if not live or not hist then return end
-    local now = os.time()
-    local minute_ts = now - (now % 60)
+    local now = ngx.time()
+    -- Fold the minute that just ENDED, not the one in progress. The timer runs
+    -- every 60s but is not aligned to the wall clock, so reading the current
+    -- minute would write a snapshot taken at an arbitrary offset and lose
+    -- everything recorded after it; a host whose traffic began in the second
+    -- half of the minute would not be folded at all.
+    local minute_ts = now - (now % 60) - 60
+    if last_folded == minute_ts then return end
+    last_folded = minute_ts
     for _, host in ipairs(_M.hosts(2)) do
         local base = PREFIX .. host .. ":" .. os.date("%Y%m%d%H%M", minute_ts)
         local req = tonumber(live:get(base .. ":req") or 0) or 0
@@ -665,7 +702,7 @@ function _M.anomalies(host, series)
 
     -- A traffic shape that did not exist an hour ago.
     for _, sh in ipairs(latest.shapes or {}) do
-        if sh.first_seen and (os.time() - sh.first_seen) < 3600
+        if sh.first_seen and (ngx.time() - sh.first_seen) < 3600
             and sh.count >= math.max(5, (latest.requests or 0) * 0.2) then
             out[#out + 1] = {
                 level = "info",

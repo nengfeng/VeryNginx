@@ -73,6 +73,10 @@ describe("traffic history and baselines", function()
         for k in pairs(shared._v) do shared._v[k] = nil end
         _G.ngx.var.http_cookie = nil
         _G.ngx.var.http_referer = nil
+        -- The rollup remembers which minute it folded last; a fresh module per
+        -- test keeps that guard from leaking across cases.
+        package.loaded["core.live_stats"] = nil
+        live = require "core.live_stats"
     end)
 
     local function ctx(ip, ua, uri)
@@ -84,19 +88,54 @@ describe("traffic history and baselines", function()
     end
 
     it("folds a minute into the history and reads it back", function()
+        local completed = CLOCK - (CLOCK % 60)
         for _ = 1, 4 do live.record(ctx("10.0.0.1", "UA", "/a.php")) end
         for i = 1, 3 do live.record(ctx("10.0.0." .. i, "UA", "/a.php")) end
+        -- The timer fires after the minute has ended.
+        CLOCK = completed + 60 + 5
         live.roll_history()
 
         local hist = live.history("h.example.com", 180)
         assert.are.equal(1, #hist, "one minute was folded")
+        assert.are.equal(completed, hist[1].ts, "the completed minute was folded")
         assert.are.equal(7, hist[1].requests)
         assert.are.equal(3, hist[1].distinct_ips, "three distinct clients")
+    end)
+
+    it("does not fold the minute still in progress", function()
+        -- Four requests land in minute A, then the timer fires in minute B
+        -- with three more requests already recorded there. Folding the current
+        -- minute would either write B's partial row or lose A entirely.
+        local completed = CLOCK - (CLOCK % 60)
+        for _ = 1, 4 do live.record(ctx("10.0.0.1", "UA", "/a.php")) end
+        CLOCK = completed + 60 + 10
+        for _ = 1, 3 do live.record(ctx("10.0.0.2", "UA", "/a.php")) end
+        live.roll_history()
+
+        local hist = live.history("h.example.com", 180)
+        assert.are.equal(1, #hist)
+        assert.are.equal(completed, hist[1].ts)
+        assert.are.equal(4, hist[1].requests,
+            "only the completed minute is folded, not the one in progress")
+    end)
+
+    it("does not fold the same minute twice", function()
+        for _ = 1, 5 do live.record(ctx("10.0.0.1", "UA", "/a.php")) end
+        CLOCK = CLOCK - (CLOCK % 60) + 60 + 5
+        live.roll_history()
+        -- A second callback in the same wall-clock minute (clock step or a
+        -- delayed timer) must not add the minute to the hourly sum again.
+        live.roll_history()
+
+        local hours = live.hour_history("h.example.com", 168)
+        assert.are.equal(1, #hours)
+        assert.are.equal(5, hours[1].requests, "the hour row must not double count")
     end)
 
     it("keeps one key per host rather than one per minute", function()
         -- The namespace count is what made /dicts answer with 678 KB.
         for _ = 1, 3 do live.record(ctx("10.0.0.1", "UA", "/a.php")) end
+        CLOCK = CLOCK - (CLOCK % 60) + 60 + 5
         live.roll_history()
         local n = 0
         for k in pairs(shared._v) do
@@ -109,9 +148,9 @@ describe("traffic history and baselines", function()
         -- A few minutes of a steady 10 requests a minute.
         for _ = 1, 3 do
             for i = 1, 10 do live.record(ctx("10.0.0." .. i, "UA", "/a.php")) end
+            -- move past the minute being recorded, then fold it
+            CLOCK = CLOCK - (CLOCK % 60) + 60 + 5
             live.roll_history()
-            -- move to the next minute
-            CLOCK = CLOCK + 60
         end
         local b = live.baseline("h.example.com")
         assert.is_true(b.minutes_covered >= 1,

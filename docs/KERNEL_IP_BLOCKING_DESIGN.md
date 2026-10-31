@@ -4,7 +4,7 @@
 >
 > **日期**: 2026-07-11
 >
-> **状态**: 讨论阶段，尚未实现
+> **状态**: 已实现（Phase 0-6，2026-07-13；实现记录见 [KERNEL_IP_BLOCKING_IMPL_PLAN.md](KERNEL_IP_BLOCKING_IMPL_PLAN.md)）
 >
 > **适用范围**: 由项目自有 LNMP 脚本部署的 Linux 直连源站；仅支持该脚本声明的最近两个 Debian/Ubuntu 版本；内核执行层仅支持 nftables
 

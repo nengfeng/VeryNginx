@@ -39,6 +39,9 @@ end
 describe("live traffic shape collection", function()
 
     local shared, live, stats
+    -- Fixed clock: the live view keys everything by minute, so a test that
+    -- straddles a minute boundary would be flaky.
+    local CLOCK = 1700000000
 
     setup(function()
         if not _G.ngx then _G.ngx = {} end
@@ -76,6 +79,10 @@ describe("live traffic shape collection", function()
         for k in pairs(_G.ngx.shared) do rawset(_G.ngx.shared, k, nil) end
         _G.ngx.var.http_cookie = nil
         _G.ngx.var.http_referer = nil
+        -- Pin the clock for this describe: the module keys by minute, and a
+        -- real clock can step over a boundary mid-test.
+        _G.ngx.now = function() return CLOCK end
+        _G.ngx.time = function() return CLOCK end
     end)
 
     local function ctx(ip, ua, uri, args, cookie, referer)
@@ -85,6 +92,17 @@ describe("live traffic shape collection", function()
             request = { host = "www.example.com", remote_addr = ip or "1.2.3.4",
                         user_agent = ua or "UA", uri = uri or "/x.php" },
             get_uri_args = function() return args or {} end,
+        }
+    end
+
+    -- Same shape as ctx(), but with an arbitrary Host header.
+    local function ctx_host(host, ip)
+        _G.ngx.var.http_cookie = nil
+        _G.ngx.var.http_referer = nil
+        return {
+            request = { host = host, remote_addr = ip or "1.2.3.4",
+                        user_agent = "UA", uri = "/a.php" },
+            get_uri_args = function() return {} end,
         }
     end
 
@@ -169,7 +187,7 @@ describe("live traffic shape collection", function()
         live.record(ctx("1.1.1.1", "UA", "/a.php"))
         local s = live.host_series("www.example.com", 1)[1]
         assert.is_truthy(s.shapes[1].first_seen, "first_seen must be recorded")
-        assert.is_true(s.shapes[1].first_seen <= os.time())
+        assert.is_true(s.shapes[1].first_seen <= CLOCK)
     end)
 
     it("bounds the number of shapes it keeps", function()
@@ -203,5 +221,57 @@ describe("live traffic shape collection", function()
             if h == "www.example.com" then found = true end
         end
         assert.is_true(found, "the host must be listed")
+    end)
+
+    it("normalizes the Host header before it becomes a dict key", function()
+        -- The raw header is case-preserving and may carry a trailing root dot.
+        -- The statistics engine normalizes it; the live view must agree, or the
+        -- panel would show "WWW.Example.COM." and its history would never line
+        -- up with the per-host statistics.
+        live.record(ctx_host("WWW.Example.COM.", "10.0.0.1"))
+        local series = live.host_series("www.example.com", 1)
+        assert.are.equal(1, #series, "the normalized host has the data")
+        assert.are.equal(1, series[1].requests)
+        assert.are.equal("www.example.com", live.hosts(1)[1])
+    end)
+
+    it("does not hide a host that is a substring of an earlier one", function()
+        -- Membership used to be a plain substring test, so "example.com" was
+        -- considered already present after "www.example.com", and it silently
+        -- vanished from the host list (and therefore from history).
+        live.record(ctx_host("www.example.com", "10.0.0.1"))
+        live.record(ctx_host("example.com", "10.0.0.2"))
+        local found = {}
+        for _, h in ipairs(live.hosts(1)) do found[h] = true end
+        assert.is_true(found["www.example.com"])
+        assert.is_true(found["example.com"],
+            "a host must not be dropped just because it is a substring")
+        assert.is_truthy(live.host_series("example.com", 1)[1],
+            "and its minute data must be readable")
+    end)
+
+    it("a comma in the Host header cannot forge host-list entries", function()
+        -- "," is the list separator. Unnormalized, one request with
+        -- "evil.example,other.example" invented two hosts in the panel.
+        live.record(ctx_host("evil.example,other.example", "10.0.0.1"))
+        local hosts = live.hosts(1)
+        assert.are.equal(1, #hosts, "one request is one host: " .. #hosts)
+        for _, h in ipairs(hosts) do
+            assert.are_not.equal("evil.example", h)
+            assert.are_not.equal("other.example", h)
+        end
+        assert.are.equal("evil.example_other.example", hosts[1],
+            "the comma is normalized into the single key")
+    end)
+
+    it("caps how many hosts one minute can create", function()
+        -- A rotating Host header must not be able to fill the 20 MB
+        -- statistics dict with lm: namespaces by LRU-evicting real data.
+        for i = 1, 400 do
+            live.record(ctx_host("h" .. i .. ".example", "10.0.0.1"))
+        end
+        local hosts = live.hosts(1)
+        assert.is_true(#hosts <= 256,
+            "the per-minute host list is bounded, got " .. #hosts)
     end)
 end)
