@@ -8,6 +8,11 @@ local _M = {}
 local config = require "core.config"
 local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 
+-- Declared local: assigning this metatable to a global made the first request
+-- in every freshly started worker log "writing a global Lua variable
+-- ('ctx_mt')" from lua-nginx-module's write guard (observed on reload).
+local ctx_mt
+
 --- Create a new request context (metatable-based to avoid per-request closures).
 function _M.new()
     return setmetatable({
