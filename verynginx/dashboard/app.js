@@ -82,6 +82,18 @@
       const KNOWN_GROUPS = ['dashboard', 'protect', 'system', 'config', 'advanced', 'about'];
       const isKnown = (s) => KNOWN_GROUPS.includes(s) || KNOWN_SUB.includes(s);
 
+      // Document title follows the route: with several tabs open, "VeryNginx v2
+      // 管理面板" x6 is indistinguishable. Deep links also get a useful title
+      // when bookmarked.
+      const PAGE_TITLES = {
+        dashboard: '仪表盘', waf: 'WAF', frequency: '频率限制', reputation: 'IP 声誉',
+        geoip: 'GeoIP', kb: '内核封禁', config: '配置', advanced: '高级', about: '关于',
+      };
+      const applyTitle = () => {
+        const t = PAGE_TITLES[routeRefs.page.value] || '管理面板';
+        document.title = t + ' · VeryNginx v2';
+      };
+
       const buildHash = () => {
         const gp = routeRefs.groupPage.value;
         const p = routeRefs.page.value;
@@ -103,6 +115,7 @@
           // Empty hash: reset to dashboard (default group + page).
           routeRefs.groupPage.value = 'dashboard';
           routeRefs.page.value = 'dashboard';
+          applyTitle();
           return;
         }
         const segs = raw.split('/').map(s => decodeURIComponent(s));
@@ -155,6 +168,7 @@
           if (segs[2] === 'rules') set(routeRefs.wafRuleView, segs[3]);
           if (segs[2] === 'attacks') set(routeRefs.wafAttackView, segs[3]);
         } else if (page === 'kb') set(routeRefs.kbTab, segs[2]);
+        applyTitle();
       };
 
       // Writer: any navigation change updates the URL. PAGE switches push a
@@ -166,6 +180,7 @@
         [routeRefs.page, routeRefs.dashTab, routeRefs.cfgTab, routeRefs.advTab,
          routeRefs.wafTab, routeRefs.wafRuleView, routeRefs.wafAttackView, routeRefs.kbTab],
         (vals, olds) => {
+          applyTitle();
           const h = buildHash();
           if (window.location.hash === h) return;
           if (vals[0] !== olds[0]) window.location.hash = h;

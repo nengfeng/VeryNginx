@@ -6,20 +6,23 @@
 <title>VeryNginx v2 管理面板</title>
 <!-- Theme bootstrap: sets data-theme from localStorage before first paint so
      dark-theme users don't get a light FOUC. Must precede the stylesheet. -->
-<script src="/verynginx/static/theme-init.js?v=2.3.0-1"></script>
+<script src="/verynginx/static/theme-init.js?v=2.3.0-3"></script>
 <!-- Vue 3: vendored local copy with SRI (no CDN fallback - would be blocked by the
      page CSP script-src 'self' and is an unnecessary supply-chain surface) -->
-<script src="/verynginx/static/vue.global.prod.js?v=2.3.0-1" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.3.0-1">
+<script src="/verynginx/static/vue.global.prod.js?v=2.3.0-3" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.3.0-3">
 </head>
 <body>
 
 <div id="app" v-cloak>
-  <transition-group name="toastfx" tag="div" class="toast-stack">
+  <!-- Announcements: the container is the (static) live region so screen
+       readers announce toasts as they are appended. aria-atomic=false keeps a
+       new toast from re-reading the whole stack. -->
+  <transition-group name="toastfx" tag="div" class="toast-stack" aria-live="polite" aria-atomic="false">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
       <span class="toast-msg">{{ t.msg }}</span>
       <button v-if="t.actionLabel" class="toast-action" @click="t.onAction && t.onAction(); dismissToast(t.id)">{{ t.actionLabel }}</button>
-      <button class="toast-close" @click="dismissToast(t.id)" title="关闭">×</button>
+      <button class="toast-close" @click="dismissToast(t.id)" title="关闭" aria-label="关闭通知">×</button>
     </div>
   </transition-group>
   <!-- First-time intro tour -->
@@ -86,20 +89,25 @@
         <span></span><span></span><span></span>
       </button>
       <span class="brand">VeryNginx <small>v2{{ versionInfo.commit ? ' · ' + versionInfo.commit.slice(0,8) : '' }}</small></span>
-      <nav :class="{open: mobileNavOpen}">
-        <a :class="{active:groupPage==='dashboard'}" @click="navigateTo('dashboard');mobileNavOpen=false">仪表盘</a>
-        <a :class="{active:groupPage==='protect'}" @click="navigateTo('waf');mobileNavOpen=false">防护</a>
-        <a :class="{active:groupPage==='system'}" @click="navigateTo('kb');mobileNavOpen=false">系统</a>
-        <a :class="{active:groupPage==='config'}" @click="navigateTo('config');mobileNavOpen=false">配置</a>
-        <a :class="{active:groupPage==='advanced'}" @click="navigateTo('advanced');mobileNavOpen=false">高级</a>
-        <a :class="{active:groupPage==='about'}" @click="navigateTo('about');mobileNavOpen=false">关于</a>
+      <nav :class="{open: mobileNavOpen}" aria-label="主导航">
+        <button type="button" :class="{active:groupPage==='dashboard'}" @click="navigateTo('dashboard');mobileNavOpen=false">仪表盘</button>
+        <button type="button" :class="{active:groupPage==='protect'}" @click="navigateTo('waf');mobileNavOpen=false">防护</button>
+        <button type="button" :class="{active:groupPage==='system'}" @click="navigateTo('kb');mobileNavOpen=false">系统</button>
+        <button type="button" :class="{active:groupPage==='config'}" @click="navigateTo('config');mobileNavOpen=false">配置</button>
+        <button type="button" :class="{active:groupPage==='advanced'}" @click="navigateTo('advanced');mobileNavOpen=false">高级</button>
+        <button type="button" :class="{active:groupPage==='about'}" @click="navigateTo('about');mobileNavOpen=false">关于</button>
       </nav>
       <div class="user-area">
-        <span v-if="lastRefreshLabel && pollActivePages.includes(page)" class="refresh-badge" :title="autoRefreshPaused ? '自动刷新已暂停' : '自动刷新运行中'">
-          {{ autoRefreshPaused ? '⏸ 刷新已暂停' : lastRefreshLabel }}
-          <a style="cursor:pointer;margin-left:6px" @click="toggleAutoRefresh">{{ autoRefreshPaused ? '恢复' : '暂停' }}</a>
+        <!-- Freshness is about the last SUCCESSFUL load, not the last attempt:
+             a backend returning 502 used to keep showing "1 秒前". The badge
+             gains an error state instead, and 立即刷新 forces a retry. -->
+        <span v-if="pollActivePages.includes(page)" class="refresh-badge" :class="refreshStatus.level" :title="refreshStatus.level === 'err' ? refreshStatus.error : '自动刷新运行中'">
+          <span class="dot" :class="refreshStatus.level === 'err' ? 'red' : refreshStatus.level === 'ok' ? 'green' : 'gray'"></span>
+          <span>{{ autoRefreshPaused ? '刷新已暂停' : refreshStatus.text }}</span>
+          <button v-if="!autoRefreshPaused" type="button" class="linklike" @click="refreshNow" title="立即重新拉取当前页数据">刷新</button>
+          <button type="button" class="linklike" @click="toggleAutoRefresh">{{ autoRefreshPaused ? '恢复' : '暂停' }}</button>
         </span>
-        <button class="outline small" @click="toggleTheme" :title="theme==='dark'?'切换到浅色模式':'切换到深色模式'" style="padding:4px 8px">
+        <button class="outline small" @click="toggleTheme" :title="theme==='dark'?'切换到浅色模式':'切换到深色模式'" :aria-label="theme==='dark'?'切换到浅色模式':'切换到深色模式'" style="padding:4px 8px">
           {{ theme === 'dark' ? '☀' : '🌙' }}
         </button>
         <span>{{ store.user }}</span>
@@ -108,58 +116,62 @@
     </div>
 
     <!-- Group sub-navigation: shown under "防护" and "系统" -->
-    <div v-if="groupPage==='protect'" class="group-subnav">
-      <a :class="{active:page==='waf'}" @click="navigateTo('waf')">WAF</a>
-      <a :class="{active:page==='frequency'}" @click="navigateTo('frequency')">频率限制</a>
-      <a :class="{active:page==='reputation'}" @click="navigateTo('reputation')">IP 声誉</a>
+    <div v-if="groupPage==='protect'" class="group-subnav" aria-label="防护子导航">
+      <button type="button" :class="{active:page==='waf'}" @click="navigateTo('waf')">WAF</button>
+      <button type="button" :class="{active:page==='frequency'}" @click="navigateTo('frequency')">频率限制</button>
+      <button type="button" :class="{active:page==='reputation'}" @click="navigateTo('reputation')">IP 声誉</button>
     </div>
-    <div v-if="groupPage==='system'" class="group-subnav">
-      <a :class="{active:page==='geoip'}" @click="navigateTo('geoip')">GeoIP</a>
-      <a :class="{active:page==='kb'}" @click="navigateTo('kb')">内核封禁</a>
+    <div v-if="groupPage==='system'" class="group-subnav" aria-label="系统子导航">
+      <button type="button" :class="{active:page==='geoip'}" @click="navigateTo('geoip')">GeoIP</button>
+      <button type="button" :class="{active:page==='kb'}" @click="navigateTo('kb')">内核封禁</button>
     </div>
 
     <div id="main">
       <!-- Dashboard sub-tabs -->
-      <div v-if="page==='dashboard'" class="config-tabs" style="margin-bottom:16px">
-        <a :class="{active:dashTab==='overview'}" @click="dashTab='overview'">概览</a>
-        <a :class="{active:dashTab==='status'}" @click="dashTab='status'">连接</a>
-        <a :class="{active:dashTab==='stats'}" @click="dashTab='stats'">统计</a>
+      <div v-if="page==='dashboard'" class="config-tabs" style="margin-bottom:16px" aria-label="仪表盘子页">
+        <button type="button" :class="{active:dashTab==='overview'}" @click="dashTab='overview'">概览</button>
+        <button type="button" :class="{active:dashTab==='status'}" @click="dashTab='status'">连接</button>
+        <button type="button" :class="{active:dashTab==='stats'}" @click="dashTab='stats'">统计</button>
       </div>
 
       <!-- Overview -->
       <div v-if="page==='dashboard' && dashTab==='overview'">
         <h2 class="page-title">系统概览</h2>
-        <div class="page-desc">监控 VeryNginx 运行状态：连接数、请求速率、上游健康、WAF 命中和共享字典使用率。数字变红或变黄时说明需要关注。</div>
+        <details class="page-desc"><summary>说明</summary><div>监控 VeryNginx 运行状态：连接数、请求速率、上游健康、WAF 命中和共享字典使用率。数字变红或变黄时说明需要关注。</div></details>
+        <div v-if="overviewError" class="error">概览数据获取失败：{{ overviewError }}<span style="opacity:.75">（下方为最近一次成功的数据）</span></div>
+        <div v-if="(overview.partial_errors || []).length" class="notice">部分数据获取失败：{{ overview.partial_errors.join('、') }}</div>
         <div class="card mb-16 health-summary" :class="'health-summary-' + healthSummary.level">
           <span class="health-dot" :class="'health-dot-' + healthSummary.level"></span>{{ healthSummary.text }}
         </div>
-        <!-- Top row: connections + upstream -->
+        <!-- Top row: connections + upstream. `—` before the first successful
+             load: painting 0 connections during startup reads as a healthy
+             idle server, which is the opposite of what an operator needs. -->
         <div class="grid grid-4 mb-16">
           <div class="stat-card">
             <div class="stat-label">活跃连接</div>
-            <div class="stat-value" :style="{color: (overview.conn_active||0) > 1000 ? '#ef4444' : ''}">{{ overview.conn_active || 0 }}</div>
+            <div class="stat-value" :class="{'val-danger': overview.conn_active > 1000}">{{ numOrDash(overview.conn_active) }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">请求/分钟</div>
-            <div class="stat-value">{{ formatNumber(overview.req_rate || 0) }}</div>
+            <div class="stat-value">{{ numOrDash(overview.req_rate) }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">上游健康</div>
             <div class="stat-value">
-              <span :style="{color: overview.up_healthy === overview.up_total && overview.up_total > 0 ? '#22c55e' : overview.up_healthy > 0 ? '#eab308' : '#ef4444'}">
-                {{ overview.up_healthy || 0 }}
+              <span :class="overview.up_healthy === overview.up_total && overview.up_total > 0 ? 'val-ok' : overview.up_healthy > 0 ? 'val-warn' : (overview.up_total ? 'val-danger' : 'val-muted')">
+                {{ numOrDash(overview.up_healthy) }}
               </span>
-              <span style="font-size:18px;color:var(--muted)"> / {{ overview.up_total || 0 }}</span>
+              <span style="font-size:18px;color:var(--muted)"> / {{ numOrDash(overview.up_total) }}</span>
             </div>
           </div>
           <div class="stat-card">
             <div class="stat-label">WAF 命中/分钟</div>
-            <div class="stat-value" :style="{color: (overview.waf_hits||0) > 100 ? '#f97316' : ''}">{{ formatNumber(overview.waf_hits || 0) }}</div>
-            <div v-if="wafTrendLabel" style="font-size:11px;margin-top:2px" :style="{color: wafTrend.dir === 'up' ? '#f97316' : wafTrend.dir === 'down' ? '#22c55e' : 'var(--muted)'}">{{ wafTrendLabel }}</div>
+            <div class="stat-value" :class="{'val-warn': overview.waf_hits > 100}">{{ numOrDash(overview.waf_hits) }}</div>
+            <div v-if="wafTrendLabel" style="font-size:11px;margin-top:2px" :class="wafTrend.dir === 'up' ? 'val-warn' : wafTrend.dir === 'down' ? 'val-ok' : 'val-muted'">{{ wafTrendLabel }}</div>
           </div>
           <div class="stat-card" v-if="overview.flagged !== undefined">
             <div class="stat-label">已标记 IP</div>
-            <div class="stat-value" :style="{color: (overview.flagged||0) > 0 ? '#ef4444' : ''}">{{ overview.flagged }}</div>
+            <div class="stat-value" :class="{'val-danger': overview.flagged > 0}">{{ numOrDash(overview.flagged) }}</div>
           </div>
         </div>
         <!-- Attack trend: current hour vs previous hour baseline -->
@@ -169,7 +181,7 @@
             <span style="font-size:12px;color:var(--muted)">上一小时 {{ wafTrend.prev }} 次 → 本小时 {{ wafTrend.curr }} 次</span>
           </div>
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:80px;display:block">
-            <polyline :points="wafTrendSpark" fill="none" stroke="#f97316" stroke-width="1" vector-effect="non-scaling-stroke" />
+            <polyline :points="wafTrendSpark" fill="none" stroke="var(--warning)" stroke-width="1" vector-effect="non-scaling-stroke" />
           </svg>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:2px">
             <span>2 小时前</span>
@@ -180,7 +192,7 @@
         <div class="grid grid-3 mb-16">
           <div class="stat-card" v-for="d in overview.dicts || []" :key="d.name">
             <div class="stat-label">共享字典: {{ d.name }}</div>
-            <div class="stat-value" style="font-size:20px" :style="{color: d.pct > 80 ? '#ef4444' : d.pct > 60 ? '#eab308' : ''}">{{ d.pct.toFixed(1) }}%</div>
+            <div class="stat-value" style="font-size:20px" :class="{'val-danger': d.pct > 80, 'val-warn': d.pct > 60 && d.pct <= 80}">{{ d.pct.toFixed(1) }}%</div>
             <div style="font-size:11px;color:var(--muted)">{{ formatBytes(d.used) }} / {{ formatBytes(d.cap) }}</div>
             <!-- 键数与水位并列，因为两者会互相矛盾：ip_reputation 曾报 99.9%
                  却只有一百多个键，而 9.48MB/13 个键在物理上不成立 ——
@@ -192,36 +204,51 @@
           </div>
         </div>
         <!-- 实时流量：面板此前只看「WAF 已经判定过的流量」，攻击伪装得像浏览器时这里是一片空白 -->
-        <div class="card mb-16" v-if="live && live.hosts && live.hosts.length">
-          <div class="flex flex-between mb-8" style="align-items:center">
+        <div class="card mb-16" v-if="live || overviewLoaded">
+          <div class="flex flex-between mb-8" style="align-items:center;flex-wrap:wrap;gap:8px">
             <strong>实时流量</strong>
-            <span style="font-size:11px;color:var(--muted)">
-              采样 1/{{ live.sample_rate }} 请求 · 最近 {{ live.minutes }} 分钟
-            </span>
+            <div class="flex gap-8" style="align-items:center">
+              <!-- Window is selectable: the API accepts 1–30 minutes, so the
+                   range is what an operator picks, not a hard-coded 10. -->
+              <span class="seg" role="group" aria-label="实时流量时间窗口">
+                <button type="button" v-for="m in [5,10,30]" :key="m" :class="{active: liveMinutes===m}" @click="setLiveMinutes(m)">{{ m }} 分钟</button>
+              </span>
+              <span style="font-size:11px;color:var(--muted)">
+                采样 1/{{ live && live.sample_rate ? live.sample_rate : '—' }} 请求
+              </span>
+            </div>
           </div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+          <div v-if="liveError" class="error">实时流量获取失败：{{ liveError }}<span style="opacity:.75">（显示上次成功数据）</span></div>
+          <details class="page-desc"><summary>说明</summary><div>
             <b>每 IP 请求数</b>是判断「是不是分布式爬虫」的关键：正常访客约 0.2，
             爬虫若每个 IP 只打一次则会接近 1.0 并伴随 IP 数暴涨（正常访客会多次请求，比值远大于 1）。
             状态码里 <b>5xx / 499 / 504</b> 意味着请求到了后端却没拿到结果——这是后端被打垮的信号；
             <b>403 是 WAF 正在拦、429 是限流在工作</b>，都不算故障。
+          </div></details>
+          <div v-if="liveLoaded && !(live && live.hosts && live.hosts.length)" class="empty">
+            <div>最近 {{ liveMinutes }} 分钟内没有可解析的访问日志。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">确认 nginx 访问日志路径可读，或切换到更长的时间窗口。</div>
           </div>
 
           <!-- 异常：把「哪里不对」直接摆出来，而不是让人自己从数字里找 -->
           <div v-if="(live.anomalies||[]).length" style="margin-bottom:12px">
             <div v-for="(a, i) in live.anomalies" :key="i"
                  style="padding:6px 10px;margin-bottom:4px;border-radius:4px;font-size:12px"
-                 :style="{background: a.level==='critical' ? 'rgba(239,68,68,.12)' :
-                                    a.level==='warn' ? 'rgba(245,158,11,.12)' : 'rgba(79,138,240,.10)',
-                          color: a.level==='critical' ? '#b91c1c' : a.level==='warn' ? '#a16207' : 'inherit'}">
+                 :style="{background: a.level==='critical' ? 'var(--danger-bg)' :
+                                    a.level==='warn' ? 'var(--warning-bg)' : 'var(--info-bg)'}"
+                 :class="a.level==='critical' ? 'val-danger' : a.level==='warn' ? 'val-warn' : ''">
               <b>{{ a.host }}</b> · {{ a.text }}
             </div>
           </div>
 
-          <div v-for="h in live.hosts" :key="h.host" style="margin-bottom:16px;
+          <div v-for="h in (live && live.hosts) || []" :key="h.host" style="margin-bottom:16px;
                border-top:1px solid var(--border);padding-top:10px">
-            <div class="flex flex-between" style="align-items:center;margin-bottom:6px">
-              <code style="font-size:13px">{{ h.host }}</code>
-              <span style="font-size:11px" :style="{color: h.failing_pct > 20 ? '#b91c1c' : 'var(--muted)'}">
+            <div class="flex flex-between" style="align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+              <span class="flex gap-8" style="align-items:center">
+                <code style="font-size:13px">{{ h.host }}</code>
+                <button type="button" class="icon-btn" @click="openHostStats(h.host)" title="在统计页查看该 Host 的请求" aria-label="查看该 Host 的统计">统计</button>
+              </span>
+              <span style="font-size:11px" :class="h.failing_pct > 20 ? 'val-danger' : 'val-muted'">
                 失败率 {{ h.failing_pct }}%
                 <span v-if="h.baseline && h.baseline.requests_median != null" style="color:var(--muted)">
                   · 该站平时 {{ h.baseline.requests_median }} 请求/分（中位数）
@@ -241,7 +268,7 @@
               <div class="stat-card" style="padding:8px">
                 <div class="stat-label">每 IP 请求数</div>
                 <div class="stat-value" style="font-size:18px"
-                     :style="{color: liveRatio(h) != null && liveRatio(h) < 0.6 && (liveLast(h).distinct_ips||0) > 20 ? '#b91c1c' : ''}">
+                     :class="{'val-danger': liveRatio(h) != null && liveRatio(h) < 0.6 && (liveLast(h).distinct_ips||0) > 20}">
                   {{ liveRatio(h) != null ? liveRatio(h).toFixed(2) : '—' }}
                 </div>
               </div>
@@ -249,7 +276,7 @@
                 <div class="stat-label">状态码</div>
                 <div class="stat-value" style="font-size:13px;font-weight:500">
                   <span v-for="(n, c) in h.status" :key="c"
-                        :style="{color: liveIsFailure(c) ? '#b91c1c' : 'inherit'}">
+                        :class="{'val-danger': liveIsFailure(c)}">
                     {{ c }}:{{ n }}
                   </span>
                 </div>
@@ -258,8 +285,8 @@
 
             <!-- 每分钟迷你趋势：请求数与不同 IP 数 -->
             <svg width="100%" height="56" style="display:block;margin:4px 0 2px">
-              <polyline :points="liveLine(h, 'requests')" fill="none" stroke="#4f8af0" stroke-width="1.6" />
-              <polyline :points="liveLine(h, 'distinct_ips')" fill="none" stroke="#f0a04f" stroke-width="1.6"
+              <polyline :points="liveLine(h, 'requests')" fill="none" stroke="var(--primary)" stroke-width="1.6" />
+              <polyline :points="liveLine(h, 'distinct_ips')" fill="none" stroke="var(--warning)" stroke-width="1.6"
                         stroke-dasharray="3 2" />
             </svg>
             <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
@@ -270,7 +297,7 @@
             <!-- 流量形状：哪个 UA / 路径 / 有无 cookie 组合占了大头 -->
             <div v-if="(h.shapes||[]).length" style="margin-top:8px">
               <table>
-                <thead><tr><th>流量形状（UA族 / 路径形状 / cookie / referer）</th><th>占比</th><th>首次出现</th></tr></thead>
+                <thead><tr><th scope="col">流量形状（UA族 / 路径形状 / cookie / referer）</th><th scope="col">占比</th><th scope="col">首次出现</th></tr></thead>
                 <tbody>
                   <tr v-for="s in h.shapes.slice(0, 5)" :key="s.hash">
                     <td style="font-size:11px;word-break:break-all;color:var(--muted)">{{ s.shape }}</td>
@@ -304,7 +331,7 @@
             <div class="stat-card" style="padding:8px">
               <div class="stat-label">慢查询累计</div>
               <div class="stat-value" style="font-size:16px"
-                   :style="{color: (live.backend.mysql.status.slow_queries||0) > 100000 ? '#a16207' : ''}">
+                   :class="{'val-warn': (live.backend.mysql.status.slow_queries||0) > 100000}">
                 {{ live.backend.mysql.status.slow_queries || 0 }}
               </div>
             </div>
@@ -324,14 +351,14 @@
           </div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>表</th><th>行数</th><th>大小</th><th>较上次</th></tr></thead>
+              <thead><tr><th scope="col">表</th><th scope="col">行数</th><th scope="col">大小</th><th scope="col">较上次</th></tr></thead>
               <tbody>
                 <template v-for="(ts, db) in (live.backend.mysql.tables||{})">
                   <tr v-for="(v, t) in ts" :key="db + ':' + t">
                     <td><code>{{ db }}.{{ t }}</code></td>
                     <td><b>{{ v.rows }}</b></td>
                     <td>{{ v.mb }} MB</td>
-                    <td :style="{color: v.growth > 0 ? '#a16207' : 'var(--muted)'}">
+                    <td :class="v.growth > 0 ? 'val-warn' : 'val-muted'">
                       {{ v.growth > 0 ? '+' + v.growth : (v.growth || 0) }}
                     </td>
                   </tr>
@@ -358,7 +385,7 @@
             <div class="stat-card" style="padding:8px">
               <div class="stat-label">FPM 活跃/上限</div>
               <div class="stat-value" style="font-size:18px"
-                   :style="{color: (live.backend.fpm.active_processes || 0) > (live.backend.fpm.max_active_processes || 300) * 0.8 ? '#b91c1c' : ''}">
+                   :class="{'val-danger': (live.backend.fpm.active_processes || 0) > (live.backend.fpm.max_active_processes || 300) * 0.8}">
                 {{ live.backend.fpm.active_processes != null ? live.backend.fpm.active_processes : '—' }}
                 <span style="font-size:12px;color:var(--muted)">/ {{ live.backend.fpm.max_active_processes || '—' }}</span>
               </div>
@@ -366,21 +393,21 @@
             <div class="stat-card" style="padding:8px">
               <div class="stat-label">FPM 监听队列（峰值）</div>
               <div class="stat-value" style="font-size:18px"
-                   :style="{color: (live.backend.fpm.max_listen_queue||0) > 0 ? '#b91c1c' : ''}">
+                   :class="{'val-danger': (live.backend.fpm.max_listen_queue||0) > 0}">
                 {{ live.backend.fpm.max_listen_queue != null ? live.backend.fpm.max_listen_queue : '—' }}
               </div>
             </div>
             <div class="stat-card" style="padding:8px">
               <div class="stat-label">磁盘已用</div>
               <div class="stat-value" style="font-size:18px"
-                   :style="{color: (live.backend.disk.used_pct||0) > 85 ? '#b91c1c' : ''}">
+                   :class="{'val-danger': (live.backend.disk.used_pct||0) > 85}">
                 {{ live.backend.disk.used_pct != null ? live.backend.disk.used_pct + '%' : '—' }}
               </div>
             </div>
             <div class="stat-card" style="padding:8px">
               <div class="stat-label">Nginx 写入/等待</div>
               <div class="stat-value" style="font-size:18px"
-                   :style="{color: (live.backend.nginx.writing||0) > 500 ? '#a16207' : ''}">
+                   :class="{'val-warn': (live.backend.nginx.writing||0) > 500}">
                 {{ live.backend.nginx.writing }}/{{ live.backend.nginx.waiting }}
               </div>
             </div>
@@ -388,12 +415,12 @@
           <div style="font-size:12px;color:var(--muted);margin-bottom:6px">日志大小与增长速率</div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>日志</th><th>当前大小</th><th>增长</th></tr></thead>
+              <thead><tr><th scope="col">日志</th><th scope="col">当前大小</th><th scope="col">增长</th></tr></thead>
               <tbody>
                 <tr v-for="l in (live.backend.logs||[])" :key="l.name">
                   <td><code>{{ l.name }}</code></td>
                   <td>{{ formatBytes(l.bytes) }}</td>
-                  <td :style="{color: (l.growth_bps||0) > 1048576 ? '#b91c1c' : ''}">
+                  <td :class="(l.growth_bps||0) > 1048576 ? 'val-danger' : ''">
                     {{ l.growth_bps != null ? formatBytes(l.growth_bps) + '/s' : '—' }}
                   </td>
                 </tr>
@@ -416,11 +443,11 @@
           </div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>字典</th><th>水位</th><th>报告占用</th><th>采样键数</th><th>主要构成（按样本键数）</th></tr></thead>
+              <thead><tr><th scope="col">字典</th><th scope="col">水位</th><th scope="col">报告占用</th><th scope="col">采样键数</th><th scope="col">主要构成（按样本键数）</th></tr></thead>
               <tbody>
                 <tr v-for="d in dictDiag" :key="d.name">
                   <td><code>{{ d.name }}</code></td>
-                  <td :style="{color: d.used_pct > 80 ? '#b91c1c' : d.used_pct > 60 ? '#a16207' : ''}">{{ d.used_pct.toFixed(1) }}%</td>
+                  <td :class="d.used_pct > 80 ? 'val-danger' : d.used_pct > 60 ? 'val-warn' : ''">{{ d.used_pct.toFixed(1) }}%</td>
                   <td>{{ formatBytes(d.used_bytes) }} / {{ formatBytes(d.capacity_bytes) }}</td>
                   <td>{{ d.sampled_keys != null ? d.sampled_keys : '—' }}<span v-if="d.sample_truncated" style="color:var(--muted)"> (截断)</span></td>
                   <td style="font-size:12px;color:var(--muted)">
@@ -436,13 +463,13 @@
               </tbody>
             </table>
           </div>
-        </div></oldString>
+        </div>
         <!-- Third row: top URIs + plugin errors -->
         <div class="grid grid-2 mb-16">
           <div class="card">
             <strong>请求最多 URI</strong>
             <table style="font-size:12px;margin-top:8px" v-if="(overview.top_uris || []).length">
-              <thead><tr><th>URI</th><th>次数</th><th>流量</th><th>成功率</th></tr></thead>
+              <thead><tr><th scope="col">URI</th><th scope="col">次数</th><th scope="col">流量</th><th scope="col">成功率</th></tr></thead>
               <tbody>
                 <tr v-for="u in overview.top_uris" :key="u.uri">
                   <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ u.uri }}</td>
@@ -457,13 +484,13 @@
           <div class="card">
             <strong>插件性能</strong>
             <table style="font-size:12px;margin-top:8px" v-if="(overview.plugin_perf || []).length">
-              <thead><tr><th>插件</th><th>阶段</th><th>平均耗时</th><th>错误</th></tr></thead>
+              <thead><tr><th scope="col">插件</th><th scope="col">阶段</th><th scope="col">平均耗时</th><th scope="col">错误</th></tr></thead>
               <tbody>
                  <tr v-for="e in overview.plugin_perf" :key="e.plugin + e.phase">
                    <td>{{ e.plugin }}</td>
                    <td>{{ e.phase }}</td>
-                   <td :style="{color: e.avg_ms > 50 ? '#f97316' : ''}">{{ e.avg_ms.toFixed(1) }}ms</td>
-                   <td><span :style="{color: e.errors > 0 ? '#ef4444' : ''}">{{ formatNumber(e.errors) }}</span></td>
+                   <td :class="{'val-warn': e.avg_ms > 50}">{{ e.avg_ms.toFixed(1) }}ms</td>
+                   <td><span :class="{'val-danger': e.errors > 0}">{{ formatNumber(e.errors) }}</span></td>
                 </tr>
               </tbody>
             </table>
@@ -475,7 +502,7 @@
       <!-- Status -->
       <div v-if="page==='dashboard' && dashTab==='status'">
         <h2 class="page-title">连接状态</h2>
-        <div class="page-desc">Nginx worker 当前连接状态（活跃/读取/写入/等待），以及最近 3 分钟的连接变化趋势图，帮助判断是否有突发流量或连接泄漏。</div>
+        <details class="page-desc"><summary>说明</summary><div>Nginx worker 当前连接状态（活跃/读取/写入/等待），以及最近 3 分钟的连接变化趋势图，帮助判断是否有突发流量或连接泄漏。</div></details>
         <div v-if="statusError" class="error" style="margin-bottom:8px">{{ statusError }} 正在显示最后一次成功获取的数据，可点击下方「刷新」重试。</div>
         <div class="grid grid-4 mb-16">
           <div class="stat-card"><div class="stat-label">活跃连接</div><div class="stat-value">{{ statusRow.connections_active || 0 }}</div></div>
@@ -487,7 +514,7 @@
         <div class="card mb-16" v-if="connHistory.length > 1">
             <strong>连接趋势 (最近 3 分钟)</strong>
           <svg width="100%" height="120" style="margin-top:8px">
-            <polyline :points="connLinePoints" fill="none" stroke="#4f8af0" stroke-width="2" />
+            <polyline :points="connLinePoints" fill="none" stroke="var(--primary)" stroke-width="2" />
             <polyline :points="connFillPoints" fill="rgba(79,138,240,0.1)" stroke="none" />
           </svg>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:2px">
@@ -501,8 +528,8 @@
             <button class="outline small" @click="loadStatus">刷新</button>
           </div>
           <table>
-            <tr><th>时间</th><td>{{ formatTime(statusRow.time) }}</td></tr>
-            <tr><th>运行状态</th><td><span class="tag tag-ok">在线</span></td></tr>
+            <tr><th scope="row">时间</th><td>{{ formatTime(statusRow.time) }}</td></tr>
+            <tr><th scope="row">运行状态</th><td><span class="tag tag-ok">在线</span></td></tr>
           </table>
         </div>
       </div>
@@ -512,7 +539,7 @@
         <div class="flex flex-between" style="align-items:flex-start">
           <div>
             <h2 class="page-title" style="margin-bottom:0">配置管理</h2>
-            <div class="page-desc" style="margin-bottom:0">管理 VeryNginx 的全部运行时配置：系统参数、规则组、上游服务器、插件开关、匹配器与响应模板，以及底层 JSON。一般无需手动编辑原始 JSON。</div>
+            <details class="page-desc" style="margin-bottom:0"><summary>说明</summary><div>管理 VeryNginx 的全部运行时配置：系统参数、规则组、上游服务器、插件开关、匹配器与响应模板，以及底层 JSON。一般无需手动编辑原始 JSON。</div></details>
           </div>
           <div class="flex gap-8">
             <button class="outline small" @click="refreshConfig">刷新</button>
@@ -522,27 +549,27 @@
           </div>
         </div>
         <div v-if="configImportError" class="error" style="margin-bottom:8px">{{ configImportError }}</div>
-        <div v-if="configImportOk" style="background:#d1fae5;color:#065f46;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:8px">{{ configImportOk }}</div>
+        <div v-if="configImportOk" style="background:var(--success-bg);color:var(--success-text);padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:8px">{{ configImportOk }}</div>
         <div class="config-tabs">
-          <a :class="{active:cfgTab==='system'}" @click="cfgTab='system'">系统</a>
-          <a :class="{active:cfgTab==='rules'}" @click="cfgTab='rules'">规则</a>
-          <a :class="{active:cfgTab==='upstreams'}" @click="cfgTab='upstreams'">上游</a>
-          <a :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins';loadPlugins()">插件</a>
+          <button type="button" :class="{active:cfgTab==='system'}" @click="cfgTab='system'">系统</button>
+          <button type="button" :class="{active:cfgTab==='rules'}" @click="cfgTab='rules'">规则</button>
+          <button type="button" :class="{active:cfgTab==='upstreams'}" @click="cfgTab='upstreams'">上游</button>
+          <button type="button" :class="{active:cfgTab==='plugins'}" @click="cfgTab='plugins';loadPlugins()">插件</button>
           <span class="tab-sep" title="分组标签：以下为高级配置（匹配器 / 响应模板 / 原始 JSON）">▾ 高级</span>
-          <a :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">匹配器</a>
-          <a :class="{active:cfgTab==='responses'}" @click="cfgTab='responses'">响应模板</a>
-          <a :class="{active:cfgTab==='json'}" @click="cfgTab='json'">原始 JSON</a>
+          <button type="button" :class="{active:cfgTab==='matchers'}" @click="cfgTab='matchers'">匹配器</button>
+          <button type="button" :class="{active:cfgTab==='responses'}" @click="cfgTab='responses'">响应模板</button>
+          <button type="button" :class="{active:cfgTab==='json'}" @click="cfgTab='json'">原始 JSON</button>
         </div>
 
         <!-- Matchers -->
         <div class="config-section" v-if="cfgTab==='matchers'">
-          <div class="page-desc">命名的可复用匹配条件集，存于 config.matcher.*。WAF 规则使用独立的内联匹配器与此处互不影响。定义后可在「规则组」与「响应模板」里按名称引用，条件变更只需改一处。</div>
+          <details class="page-desc"><summary>说明</summary><div>命名的可复用匹配条件集，存于 config.matcher.*。WAF 规则使用独立的内联匹配器与此处互不影响。定义后可在「规则组」与「响应模板」里按名称引用，条件变更只需改一处。</div></details>
           <div class="flex flex-between mb-16">
             <h3>匹配器 <small>{{ matcherKeys.length }} 个已定义</small> <small style="color:var(--muted);font-weight:400">定义请求匹配条件</small></h3>
             <button class="primary small" @click="editMatcher(null)">+ 添加</button>
           </div>
           <table v-if="matcherKeys.length">
-             <thead><tr><th>名称</th><th>条件</th><th></th></tr></thead>
+             <thead><tr><th scope="col">名称</th><th scope="col">条件</th><th scope="col"></th></tr></thead>
             <tbody>
               <tr v-for="name in matcherKeys" :key="name">
                 <td><strong>{{ name }}</strong></td>
@@ -568,15 +595,15 @@
 
         <!-- Rules -->
         <div class="config-section" v-if="cfgTab==='rules'">
-          <div class="page-desc">通用规则组，由 static_file / proxy_pass 等通用插件消费，用于定义 URI / IP / Header 等条件的放行或阻断动作。WAF 攻击防护请到 WAF 面板，请求限速请到频率限制面板。</div>
+          <details class="page-desc"><summary>说明</summary><div>通用规则组，由 static_file / proxy_pass 等通用插件消费，用于定义 URI / IP / Header 等条件的放行或阻断动作。WAF 攻击防护请到 WAF 面板，请求限速请到频率限制面板。</div></details>
           <h3>规则组</h3>
           <div class="empty" v-if="!cfg.rule || Object.keys(cfg.rule).length === 0">
             <div>暂无通用规则组。</div>
             <div style="font-size:12px;color:var(--muted);margin-top:8px;max-width:560px;margin-left:auto;margin-right:auto;line-height:1.7">
               这里管理 <span class="json-inline">config.rule.*</span> 通用「匹配器 → 动作」规则组，
               由 static_file、proxy_pass 等通用插件消费。<br>
-              WAF 攻击防护请使用 <a style="cursor:pointer;text-decoration:underline" @click="navigateTo('waf')">WAF 面板</a>，
-              请求限速请使用 <a style="cursor:pointer;text-decoration:underline" @click="navigateTo('frequency')">频率限制面板</a>。
+              WAF 攻击防护请使用 <button type="button" class="linklike" @click="navigateTo('waf')">WAF 面板</button>，
+              请求限速请使用 <button type="button" class="linklike" @click="navigateTo('frequency')">频率限制面板</button>。
             </div>
           </div>
           <div v-for="(rules, group) in cfg.rule || {}" :key="group" class="card" style="padding:16px">
@@ -589,7 +616,7 @@
               </div>
             </div>
             <table v-if="rules && rules.length" style="font-size:13px">
-               <thead><tr><th>#</th><th>启用</th><th>匹配器</th><th>动作</th><th>详情</th><th></th></tr></thead>
+               <thead><tr><th scope="col">#</th><th scope="col">启用</th><th scope="col">匹配器</th><th scope="col">动作</th><th scope="col">详情</th><th scope="col"></th></tr></thead>
               <tbody>
                 <tr v-for="(r,i) in rules" :key="i">
                   <td>{{ i }}</td>
@@ -613,12 +640,12 @@
 
         <!-- Upstreams -->
         <div class="config-section" v-if="cfgTab==='upstreams'">
-          <div class="page-desc">后端服务节点的配置与健康检测。绿点代表健康，黄点有失败记录，红点表示熔断或宕机。点击刷新可重新探测上游状态。</div>
+          <details class="page-desc"><summary>说明</summary><div>后端服务节点的配置与健康检测。绿点代表健康，黄点有失败记录，红点表示熔断或宕机。点击刷新可重新探测上游状态。</div></details>
           <h3>后端上游服务器</h3>
           <div v-for="(up, name) in cfg.backend_upstream || {}" :key="name" class="card" style="padding:16px">
             <strong>{{ name }}</strong>
             <table style="font-size:13px;margin-top:8px">
-               <thead><tr><th>健康</th><th>主机</th><th>端口</th><th>权重</th><th>信息</th></tr></thead>
+               <thead><tr><th scope="col">健康</th><th scope="col">主机</th><th scope="col">端口</th><th scope="col">权重</th><th scope="col">信息</th></tr></thead>
               <tbody>
                 <tr v-for="(node,ni) in up.nodes || []" :key="ni">
                   <td>
@@ -655,10 +682,10 @@
 
         <!-- Responses -->
         <div class="config-section" v-if="cfgTab==='responses'">
-          <div class="page-desc">当规则触发特定动作（如 403、429、challenge）时返回的自定义 HTTP 响应内容。修改后可立即生效，无需重启 Nginx。</div>
+          <details class="page-desc"><summary>说明</summary><div>当规则触发特定动作（如 403、429、challenge）时返回的自定义 HTTP 响应内容。修改后可立即生效，无需重启 Nginx。</div></details>
           <h3>响应模板</h3>
           <table v-if="respKeys.length">
-             <thead><tr><th>名称</th><th>Content-Type</th><th>内容</th></tr></thead>
+             <thead><tr><th scope="col">名称</th><th scope="col">Content-Type</th><th scope="col">内容</th></tr></thead>
             <tbody>
               <tr v-for="name in respKeys" :key="name">
                 <td><strong>{{ name }}</strong></td>
@@ -675,14 +702,14 @@
 
         <!-- Plugins -->
         <div class="config-section" v-if="cfgTab==='plugins'">
-          <div class="page-desc">VeryNginx 的功能扩展模块，启用后参与请求处理流水线。优先级数字越小越先执行，critical 标记的插件出错时会直接阻断请求。一般保持默认即可。</div>
+          <details class="page-desc"><summary>说明</summary><div>VeryNginx 的功能扩展模块，启用后参与请求处理流水线。优先级数字越小越先执行，critical 标记的插件出错时会直接阻断请求。一般保持默认即可。</div></details>
           <div class="flex flex-between mb-8">
             <h3>插件设置 <small>启用或停用插件</small></h3>
             <button class="outline small" @click="loadPlugins">刷新</button>
           </div>
           <div v-if="pluginsError" class="error" style="margin-bottom:8px">{{ pluginsError }}</div>
           <table>
-             <thead><tr><th>插件</th><th>启用</th><th>优先级</th><th>关键</th><th>说明</th></tr></thead>
+             <thead><tr><th scope="col">插件</th><th scope="col">启用</th><th scope="col">优先级</th><th scope="col">关键</th><th scope="col">说明</th></tr></thead>
             <tbody>
               <tr v-for="p in plugins" :key="p.name">
                 <td><strong>{{ p.name }}</strong></td>
@@ -701,7 +728,7 @@
 
         <!-- System -->
         <div class="config-section" v-if="cfgTab==='system'">
-          <div class="page-desc">管理员账户、cookie 前缀、请求体大小限制、健康检查间隔、共享字典内存用量等基础设置。绝大多数场景无需修改，仅在新建管理员或调整超时参数时需要。</div>
+          <details class="page-desc"><summary>说明</summary><div>管理员账户、cookie 前缀、请求体大小限制、健康检查间隔、共享字典内存用量等基础设置。绝大多数场景无需修改，仅在新建管理员或调整超时参数时需要。</div></details>
           <h3>系统设置</h3>
           <table>
             <tbody>
@@ -717,7 +744,7 @@
           </table>
           <h3 style="margin-top:16px">管理员用户</h3>
           <table>
-            <thead><tr><th>用户</th><th>启用</th><th>密码</th></tr></thead>
+            <thead><tr><th scope="col">用户</th><th scope="col">启用</th><th scope="col">密码</th></tr></thead>
             <tbody>
               <tr v-for="(a,i) in cfg.admin || []" :key="i">
                 <td>{{ a.user }}</td>
@@ -731,7 +758,7 @@
             <div v-for="d in dictUsage" :key="d.name" style="margin-bottom:10px">
               <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
                 <span>{{ d.name }}</span>
-                <span :style="{color: d.pct > 80 ? '#ef4444' : d.pct > 60 ? '#eab308' : 'var(--muted)'}">
+                <span :style="{color: d.pct > 80 ? 'var(--danger)' : d.pct > 60 ? 'var(--warning)' : 'var(--muted)'}">
                   {{ formatBytes(d.used) }} / {{ formatBytes(d.cap) }} ({{ d.pct.toFixed(1) }}%)
                 </span>
               </div>
@@ -740,7 +767,7 @@
                   width: d.pct + '%',
                   height:'100%',
                   borderRadius:'3px',
-                  background: d.pct > 80 ? '#ef4444' : d.pct > 60 ? '#eab308' : '#22c55e',
+                  background: d.pct > 80 ? 'var(--danger)' : d.pct > 60 ? 'var(--warning)' : 'var(--success)',
                   transition: 'width .3s'
                 }"></div>
               </div>
@@ -753,7 +780,7 @@
 
         <!-- Raw JSON -->
         <div class="config-section" v-if="cfgTab==='json'">
-          <div class="page-desc">直接编辑 config.json 底层配置，适合熟悉配置的熟练用户。普通用户请使用上方标签页，避免手动修改导致配置损坏。</div>
+          <details class="page-desc"><summary>说明</summary><div>直接编辑 config.json 底层配置，适合熟悉配置的熟练用户。普通用户请使用上方标签页，避免手动修改导致配置损坏。</div></details>
           <div class="flex flex-between mb-16">
             <h3>原始配置</h3>
             <div class="flex gap-8">
@@ -788,7 +815,7 @@
           <h3 style="font-size:14px;margin-bottom:8px;">URI 统计 <small>{{ Object.keys(statsData || {}).length }} 个条目</small></h3>
           <div style="overflow-x:auto">
             <table>
-               <thead><tr><th style="width:24px"></th><th>URI</th><th>次数</th><th>大小</th><th>平均大小</th><th>成功率</th><th>耗时</th><th>平均耗时</th></tr></thead>
+               <thead><tr><th scope="col" style="width:24px"></th><th scope="col">URI</th><th scope="col">次数</th><th scope="col">大小</th><th scope="col">平均大小</th><th scope="col">成功率</th><th scope="col">耗时</th><th scope="col">平均耗时</th></tr></thead>
               <tbody>
                 <template v-for="(v,key) in statsData || {}" :key="key">
                   <tr @click="expandedUri = expandedUri === key ? null : key" style="cursor:pointer">
@@ -826,7 +853,7 @@
           </div>
           <div style="overflow-x:auto">
             <table>
-               <thead><tr><th>#</th><th>URI</th><th>次数</th><th>流量</th><th>平均耗时</th></tr></thead>
+               <thead><tr><th scope="col">#</th><th scope="col">URI</th><th scope="col">次数</th><th scope="col">流量</th><th scope="col">平均耗时</th></tr></thead>
               <tbody>
                 <tr v-for="(tp,idx) in topPaths" :key="tp.uri">
                   <td>{{ idx+1 }}</td>
@@ -846,7 +873,7 @@
         <div class="flex flex-between" style="align-items:flex-start" >
           <div>
             <h2 class="page-title" style="margin-bottom:0">WAF 规则管理</h2>
-            <div class="page-desc" style="margin-bottom:0">Web 应用防火墙，根据请求特征（SQL 注入、XSS、路径穿越、扫描器等）拦截恶意流量，保护后端服务。建议先查看「分析」页了解当前规则效果，再用「推荐」自动生成规则。</div>
+            <details class="page-desc" style="margin-bottom:0"><summary>说明</summary><div>Web 应用防火墙，根据请求特征（SQL 注入、XSS、路径穿越、扫描器等）拦截恶意流量，保护后端服务。建议先查看「分析」页了解当前规则效果，再用「推荐」自动生成规则。</div></details>
           </div>
           <div class="flex gap-8" style="align-items:flex-start">
             <button class="outline small" @click="wafRefreshAll">刷新</button>
@@ -858,51 +885,51 @@
 
         <!-- WAF Tabs -->
         <div class="config-tabs">
-          <a :class="{active:wafTab==='rules'}" @click="wafTab='rules';wafRefreshAll()">规则</a>
-          <a :class="{active:wafTab==='attacks'}" @click="wafTab='attacks';loadWafAttackData()">攻击</a>
-          <a :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">历史</a>
-          <a :class="{active:wafTab==='tester'}" @click="wafTab='tester'">测试</a>
+          <button type="button" :class="{active:wafTab==='rules'}" @click="wafTab='rules';wafRefreshAll()">规则</button>
+          <button type="button" :class="{active:wafTab==='attacks'}" @click="wafTab='attacks';loadWafAttackData()">攻击</button>
+          <button type="button" :class="{active:wafTab==='history'}" @click="wafTab='history';loadWafHistory()">历史</button>
+          <button type="button" :class="{active:wafTab==='tester'}" @click="wafTab='tester'">测试</button>
         </div>
 
         <!-- WAF sub-tabs: Rules -->
         <div v-if="wafTab==='rules'" class="config-tabs" style="margin-bottom:16px;font-size:12px">
-          <a :class="{active:wafRuleView==='list'}" @click="wafRuleView='list'">规则列表</a>
-          <a :class="{active:wafRuleView==='analytics'}" @click="wafRuleView='analytics';loadWafAnalytics()">效果分析</a>
-          <a :class="{active:wafRuleView==='recs'}" @click="wafRuleView='recs';loadRecs()">规则推荐</a>
+          <button type="button" :class="{active:wafRuleView==='list'}" @click="wafRuleView='list'">规则列表</button>
+          <button type="button" :class="{active:wafRuleView==='analytics'}" @click="wafRuleView='analytics';loadWafAnalytics()">效果分析</button>
+          <button type="button" :class="{active:wafRuleView==='recs'}" @click="wafRuleView='recs';loadRecs()">规则推荐</button>
         </div>
         <!-- WAF sub-tabs: Attacks -->
         <div v-if="wafTab==='attacks'" class="config-tabs" style="margin-bottom:16px;font-size:12px">
-          <a :class="{active:wafAttackView==='stats'}" @click="wafAttackView='stats';loadWafStats()">统计</a>
-          <a :class="{active:wafAttackView==='timeline'}" @click="wafAttackView='timeline';loadWafTimeline()">时间线</a>
-          <a :class="{active:wafAttackView==='hits'}" @click="wafAttackView='hits';loadWafHits()">命中</a>
+          <button type="button" :class="{active:wafAttackView==='stats'}" @click="wafAttackView='stats';loadWafStats()">统计</button>
+          <button type="button" :class="{active:wafAttackView==='timeline'}" @click="wafAttackView='timeline';loadWafTimeline()">时间线</button>
+          <button type="button" :class="{active:wafAttackView==='hits'}" @click="wafAttackView='hits';loadWafHits()">命中</button>
         </div>
 <!-- Analytics Panel -->
         <div v-if="wafTab==='rules' && wafRuleView==='analytics'">
-          <div class="page-desc">分析每条规则的命中统计，识别长期零命中的休眠规则，帮助清理无效规则降低误判风险。绿色评级表示规则有效，灰色表示从未触发。</div>
+          <details class="page-desc"><summary>说明</summary><div>分析每条规则的命中统计，识别长期零命中的休眠规则，帮助清理无效规则降低误判风险。绿色评级表示规则有效，灰色表示从未触发。</div></details>
           <div v-if="wafAnalyticsError" class="error" style="margin-bottom:8px">
             {{ wafAnalyticsError }}
             <button class="outline small" style="margin-left:12px" @click="loadWafAnalytics">重试</button>
           </div>
           <div v-if="wafAnalyticsLoading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
-          <div v-else-if="wafAnalytics.dead_rules && wafAnalytics.dead_rules.length" class="warn" style="margin-bottom:8px; padding:10px 14px; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; font-size:13px">
+          <div v-else-if="wafAnalytics.dead_rules && wafAnalytics.dead_rules.length" class="warn" style="margin-bottom:8px; padding:10px 14px; background:var(--warning-bg); border:1px solid var(--warning); border-radius:6px; font-size:13px">
              ⚠ 以下规则 30 天未命中：
             <span v-for="dr in wafAnalytics.dead_rules" :key="dr.id" style="margin-right:8px">
               <strong>{{ dr.name || dr.id }}</strong>
-              <span v-if="dr.enable !== false" style="color:#92400e">(启用中)</span>
-              <span v-else style="color:#9ca3af">(已禁用)</span>
+              <span v-if="dr.enable !== false" style="color:var(--warning-text)">(启用中)</span>
+              <span v-else style="color:var(--muted)">(已禁用)</span>
             </span>
-            <span style="color:#6b7280">建议：检查正则是否需要更新，或删除无用的规则</span>
+            <span style="color:var(--muted)">建议：检查正则是否需要更新，或删除无用的规则</span>
           </div>
           <table class="table">
             <thead>
-               <tr><th>规则</th><th>动作</th><th title="该规则命中的总请求数">命中</th><th title="被直接阻断的请求数（block 动作）">拦截</th><th title="要求执行 JS 验证的请求数（challenge 动作），用户通过浏览器验证后放行">质询</th><th title="通过质询的 IP 占总质询量的比例，低通过率说明规则可能误伤正常用户">通过率</th><th>效果评级</th><th>最后触发</th></tr>
+               <tr><th scope="col">规则</th><th scope="col">动作</th><th scope="col" title="该规则命中的总请求数">命中</th><th scope="col" title="被直接阻断的请求数（block 动作）">拦截</th><th scope="col" title="要求执行 JS 验证的请求数（challenge 动作），用户通过浏览器验证后放行">质询</th><th scope="col" title="通过质询的 IP 占总质询量的比例，低通过率说明规则可能误伤正常用户">通过率</th><th scope="col">效果评级</th><th scope="col">最后触发</th></tr>
             </thead>
             <tbody>
               <tr v-for="r in wafAnalytics.rules || []" :key="r.id" :style="{opacity: r.dead ? 0.5 : 1}">
                 <td>
                   <strong>{{ r.name || r.id }}</strong>
-                  <span v-if="r.dead" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px;font-size:10px">休眠</span>
-                  <span v-if="r.enable === false" class="tag" style="background:#f3f4f6;color:#6b7280;margin-left:4px;font-size:10px">已禁用</span>
+                  <span v-if="r.dead" class="tag" style="background:var(--danger-bg);color:var(--danger-text);margin-left:4px;font-size:10px">休眠</span>
+                  <span v-if="r.enable === false" class="tag" style="background:var(--muted-bg);color:var(--muted);margin-left:4px;font-size:10px">已禁用</span>
                 </td>
                 <td>{{ r.action }}</td>
                 <td>{{ r.hits }}</td>
@@ -912,7 +939,7 @@
                 <td>
                   <span :class="'grade-' + r.grade" class="tag" :style="gradeStyle(r.grade)">{{ r.grade }}</span>
                 </td>
-                 <td style="font-size:12px;color:#6b7280">{{ r.last_triggered_ago ? formatAgo(r.last_triggered_ago) : '从未触发' }}</td>
+                 <td style="font-size:12px;color:var(--muted)">{{ r.last_triggered_ago ? formatAgo(r.last_triggered_ago) : '从未触发' }}</td>
 
               </tr>
               <tr v-if="!(wafAnalytics.rules || []).length">
@@ -927,20 +954,20 @@
 
         <!-- Rule List -->
         <div v-if="wafTab==='rules' && wafRuleView==='list'">
-          <div class="page-desc">查看所有已配置的 WAF 规则，可按分类和严重级别筛选。点击名称进入编辑，点击启用/禁用徽章可快速切换规则状态。</div>
+          <details class="page-desc"><summary>说明</summary><div>查看所有已配置的 WAF 规则，可按分类和严重级别筛选。点击名称进入编辑，点击启用/禁用徽章可快速切换规则状态。</div></details>
           <div v-if="wafError" class="error" style="margin-bottom:8px">{{ wafError }}</div>
           <!-- Factory drift notice: rendered only when GET /waf/rules/factory-drift
                reports divergence; silent (nothing rendered) on 0 drift or any failure. -->
           <div v-if="wafDrift" style="margin-bottom:8px;padding:8px 14px;background:rgba(244,162,97,.08);border:1px solid var(--warning);border-radius:6px;font-size:13px">
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
               <span>⚠ {{ wafDrift.items.length }} 条规则与出厂默认存在差异（内容 {{ wafDrift.counts.content }} · 动作 {{ wafDrift.counts.action }} · 缺失 {{ wafDrift.counts.missing }}）</span>
-              <a style="cursor:pointer;font-size:12px;white-space:nowrap" @click="wafDriftOpen = !wafDriftOpen">{{ wafDriftOpen ? '收起' : '详情' }}</a>
+              <button type="button" class="linklike" style="font-size:12px;white-space:nowrap" @click="wafDriftOpen = !wafDriftOpen">{{ wafDriftOpen ? '收起' : '详情' }}</button>
               <span style="color:var(--muted)">{{ wafDriftHint }}</span>
             </div>
             <div v-if="wafDriftOpen" style="margin-top:6px;font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);line-height:1.7">
               <div v-for="(dd, ddi) in wafDrift.items.slice(0, 20)" :key="ddi">
                 {{ dd.id }} ({{ dd.kind }}{{ dd.kind === 'action' ? ': ' + (dd.runtime_action || '?') + ' → ' + (dd.factory_action || '?') : '' }})
-                <a v-if="dd.kind === 'action'" style="cursor:pointer;white-space:nowrap" @click="wafAcceptFactoryAction(dd.id)">接受出厂动作</a>
+                <button type="button" v-if="dd.kind === 'action'" class="linklike" @click="wafAcceptFactoryAction(dd.id)">接受出厂动作</button>
               </div>
               <div v-if="wafDrift.items.length > 20">…</div>
             </div>
@@ -961,21 +988,21 @@
           </div>
           <div v-if="wafSelectedIds.length" class="flex mb-8" style="gap:8px;align-items:center">
             <span style="font-size:13px">已选 {{ wafSelectedIds.length }} 条</span>
-            <button class="primary small" :disabled="wafBulkBusy" @click="wafBulkEnable"><span v-if="wafBulkBusy" class="spinner"></span>批量启用</button>
-            <button class="danger small" :disabled="wafBulkBusy" @click="wafBulkDisable"><span v-if="wafBulkBusy" class="spinner"></span>批量禁用</button>
+            <button class="primary small" :disabled="wafBulkBusy" @click="wafBulkEnable"><span v-if="wafBulkBusy" class="spinner"></span>批量启用 ({{ wafSelectedIds.length }})</button>
+            <button class="danger small" :disabled="wafBulkBusy" @click="wafBulkDisable"><span v-if="wafBulkBusy" class="spinner"></span>批量禁用 ({{ wafSelectedIds.length }})</button>
             <button class="outline small" @click="wafSelectedIds = []">清除选择</button>
           </div>
           <div style="overflow-x:auto">
             <table>
                <thead><tr>
-                 <th style="width:44px"><input type="checkbox" :checked="wafAllSelected" title="全选当前页" @change="wafToggleSelectAll"></th>
-                 <th style="width:76px" class="sortable" tabindex="0" data-sort-col="enable" @click="wafRulesTbl.sortBy('enable')">启用 <span v-if="wafRulesTbl.state.sortKey==='enable'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" tabindex="0" data-sort-col="name" @click="wafRulesTbl.sortBy('name')">名称 <span v-if="wafRulesTbl.state.sortKey==='name'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th style="width:80px" class="sortable" tabindex="0" data-sort-col="category" @click="wafRulesTbl.sortBy('category')">分类 <span v-if="wafRulesTbl.state.sortKey==='category'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th style="width:100px" class="sortable" tabindex="0" data-sort-col="severity" @click="wafRulesTbl.sortBy('severity')">严重级别 <span v-if="wafRulesTbl.state.sortKey==='severity'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                  <th style="width:70px" class="sortable" tabindex="0" data-sort-col="hit_count" @click="wafRulesTbl.sortBy('hit_count')" title="该规则累计命中的请求数（包括所有动作：阻止/质询/记录）">命中 <span v-if="wafRulesTbl.state.sortKey==='hit_count'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th style="width:130px">最后触发</th>
-                 <th style="width:140px">操作</th>
+                 <th scope="col" style="width:44px"><input type="checkbox" :checked="wafAllSelected" title="全选当前页" @change="wafToggleSelectAll"></th>
+                 <th scope="col" style="width:76px" class="sortable" tabindex="0" data-sort-col="enable" :aria-sort="ariaSort(wafRulesTbl,'enable')" @click="wafRulesTbl.sortBy('enable')">启用 <span v-if="wafRulesTbl.state.sortKey==='enable'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" class="sortable" tabindex="0" data-sort-col="name" :aria-sort="ariaSort(wafRulesTbl,'name')" @click="wafRulesTbl.sortBy('name')">名称 <span v-if="wafRulesTbl.state.sortKey==='name'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" style="width:80px" class="sortable" tabindex="0" data-sort-col="category" :aria-sort="ariaSort(wafRulesTbl,'category')" @click="wafRulesTbl.sortBy('category')">分类 <span v-if="wafRulesTbl.state.sortKey==='category'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" style="width:100px" class="sortable" tabindex="0" data-sort-col="severity" :aria-sort="ariaSort(wafRulesTbl,'severity')" @click="wafRulesTbl.sortBy('severity')">严重级别 <span v-if="wafRulesTbl.state.sortKey==='severity'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                  <th scope="col" style="width:70px" class="sortable" tabindex="0" data-sort-col="hit_count" :aria-sort="ariaSort(wafRulesTbl,'hit_count')" @click="wafRulesTbl.sortBy('hit_count')" title="该规则累计命中的请求数（包括所有动作：阻止/质询/记录）">命中 <span v-if="wafRulesTbl.state.sortKey==='hit_count'" class="sort-ind">{{ wafRulesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" style="width:130px">最后触发</th>
+                 <th scope="col" style="width:140px">操作</th>
                </tr></thead>
  <tbody>
                  <tr v-if="!wafRulesTbl.rows.length"><td colspan="8" class="empty">
@@ -996,7 +1023,7 @@
                       {{ r.enable !== false ? '启用' : '禁用' }}
                     </span>
                   </td>
-                   <td><a style="cursor:pointer;text-decoration:underline" @click="wafOpenEdit(r)">{{ r.name }}</a></td>
+                   <td><button type="button" class="linklike" @click="wafOpenEdit(r)">{{ r.name }}</button></td>
                    <td><span class="tag" :title="r.category + '：SQL 注入/XSS/RCE/路径穿越/扫描器/暴力破解等攻击类型'">{{ r.category }}</span></td>
                    <td><span class="tag" :class="sevClass(r.severity)" :title="r.severity === 'critical' ? '确认攻击行为，直接拦截' : r.severity === 'high' ? '高度可疑，建议拦截' : r.severity === 'medium' ? '中等风险，可质询或记录' : '低风险，仅记录日志'">{{ r.severity }}</span></td>
                    <td>{{ r.hit_count || 0 }}</td>
@@ -1020,7 +1047,7 @@
 
         <!-- Stats -->
         <div v-if="wafTab==='attacks' && wafAttackView==='stats'">
-          <div class="page-desc">展示 WAF 按分类和严重级别的命中分布，以及命中最多的规则 TOP，帮助了解当前遭受的攻击类型和强度。</div>
+          <details class="page-desc"><summary>说明</summary><div>展示 WAF 按分类和严重级别的命中分布，以及命中最多的规则 TOP，帮助了解当前遭受的攻击类型和强度。</div></details>
           <div v-if="wafStatsError" class="error" style="margin-bottom:8px">{{ wafStatsError }}</div>
           <div v-if="!wafStatsData && !wafStatsError" class="empty">
             <div>暂无攻击统计数据。</div>
@@ -1036,7 +1063,7 @@
             <div class="card">
                <h3 style="font-size:14px;margin-bottom:8px">按分类</h3>
                <table>
-                 <thead><tr><th>分类</th><th>规则数</th><th>命中</th></tr></thead>
+                 <thead><tr><th scope="col">分类</th><th scope="col">规则数</th><th scope="col">命中</th></tr></thead>
                 <tbody>
                   <tr v-for="(v,k) in wafStatsData.by_category" :key="k">
                     <td>{{ k }}</td><td>{{ v.rules }}</td><td>{{ formatNumber(v.hits) }}</td>
@@ -1047,7 +1074,7 @@
             <div class="card">
                <h3 style="font-size:14px;margin-bottom:8px">按严重级别</h3>
                <table>
-                 <thead><tr><th>严重级别</th><th>规则数</th><th>命中</th></tr></thead>
+                 <thead><tr><th scope="col">严重级别</th><th scope="col">规则数</th><th scope="col">命中</th></tr></thead>
                 <tbody>
                   <tr v-for="(v,k) in wafStatsData.by_severity" :key="k">
                     <td>{{ k }}</td><td>{{ v.rules }}</td><td>{{ formatNumber(v.hits) }}</td>
@@ -1059,7 +1086,7 @@
           <div v-if="wafStatsData && wafStatsData.top_rules && wafStatsData.top_rules.length" class="card mt-16">
              <h3 style="font-size:14px;margin-bottom:8px">命中最多规则</h3>
              <table>
-               <thead><tr><th>#</th><th>名称</th><th>命中</th></tr></thead>
+               <thead><tr><th scope="col">#</th><th scope="col">名称</th><th scope="col">命中</th></tr></thead>
               <tbody>
                 <tr v-for="(tr,idx) in wafStatsData.top_rules" :key="tr.id">
                   <td>{{ idx+1 }}</td><td>{{ tr.name }}</td><td>{{ formatNumber(tr.hits) }}</td>
@@ -1071,7 +1098,7 @@
 
         <!-- Timeline -->
         <div v-if="wafTab==='attacks' && wafAttackView==='timeline'">
-          <div class="page-desc">攻击命中在时间轴上的分布直方图，可按小时/分钟粒度查看，帮助判断攻击是持续性的还是突发性的。</div>
+          <details class="page-desc"><summary>说明</summary><div>攻击命中在时间轴上的分布直方图，可按小时/分钟粒度查看，帮助判断攻击是持续性的还是突发性的。</div></details>
           <div style="margin-bottom:12px">
             <select v-model="wafTimelineHours" @change="loadWafTimeline" style="width:auto;display:inline-block;margin-right:8px">
               <option value="1">1 小时</option>
@@ -1106,7 +1133,7 @@
                 {{ cat }}
               </span>
             </div>
-            <div v-if="!(wafTimeline.buckets || []).length || !hasTimelineData" style="color:#6b7280;font-size:13px;text-align:center;padding:20px">
+            <div v-if="!(wafTimeline.buckets || []).length || !hasTimelineData" style="color:var(--muted);font-size:13px;text-align:center;padding:20px">
               暂无攻击数据<div style="font-size:12px;margin-top:4px">WAF 规则开始命中后，这里会显示攻击在时间轴上的分布。去「规则」页启用规则或运行推荐引擎。</div>
             </div>
           </div>
@@ -1114,7 +1141,7 @@
 
         <!-- Hits -->
         <div v-if="wafTab==='attacks' && wafAttackView==='hits'">
-          <div class="page-desc">展示被 WAF 拦截的具体请求记录，点击行可展开命中详情（完整请求头、URI、TLS 指纹等），用于事后分析和规则调优。</div>
+          <details class="page-desc"><summary>说明</summary><div>展示被 WAF 拦截的具体请求记录，点击行可展开命中详情（完整请求头、URI、TLS 指纹等），用于事后分析和规则调优。</div></details>
           <div v-if="wafHitsError" class="error" style="margin-bottom:8px">{{ wafHitsError }}</div>
           <div class="flex flex-between mb-8">
              <span style="font-size:13px;color:var(--muted)">最近 {{ wafHitsTime }} — 显示 {{ wafHits.length }} 条记录</span>
@@ -1127,11 +1154,11 @@
           <div style="overflow-x:auto">
             <table>
                <thead><tr>
-                 <th class="sortable" tabindex="0" data-sort-col="time" @click="wafHitsTbl.sortBy('time')">时间 <span v-if="wafHitsTbl.state.sortKey==='time'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" tabindex="0" data-sort-col="rule_id" @click="wafHitsTbl.sortBy('rule_id')">规则 ID <span v-if="wafHitsTbl.state.sortKey==='rule_id'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" tabindex="0" data-sort-col="method" @click="wafHitsTbl.sortBy('method')">方法 <span v-if="wafHitsTbl.state.sortKey==='method'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" tabindex="0" data-sort-col="uri" @click="wafHitsTbl.sortBy('uri')">URI <span v-if="wafHitsTbl.state.sortKey==='uri'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-                 <th class="sortable" tabindex="0" data-sort-col="ip" @click="wafHitsTbl.sortBy('ip')">来源 IP <span v-if="wafHitsTbl.state.sortKey==='ip'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" class="sortable" tabindex="0" data-sort-col="time" :aria-sort="ariaSort(wafHitsTbl,'time')" @click="wafHitsTbl.sortBy('time')">时间 <span v-if="wafHitsTbl.state.sortKey==='time'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" class="sortable" tabindex="0" data-sort-col="rule_id" :aria-sort="ariaSort(wafHitsTbl,'rule_id')" @click="wafHitsTbl.sortBy('rule_id')">规则 ID <span v-if="wafHitsTbl.state.sortKey==='rule_id'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" class="sortable" tabindex="0" data-sort-col="method" :aria-sort="ariaSort(wafHitsTbl,'method')" @click="wafHitsTbl.sortBy('method')">方法 <span v-if="wafHitsTbl.state.sortKey==='method'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" class="sortable" tabindex="0" data-sort-col="uri" :aria-sort="ariaSort(wafHitsTbl,'uri')" @click="wafHitsTbl.sortBy('uri')">URI <span v-if="wafHitsTbl.state.sortKey==='uri'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+                 <th scope="col" class="sortable" tabindex="0" data-sort-col="ip" :aria-sort="ariaSort(wafHitsTbl,'ip')" @click="wafHitsTbl.sortBy('ip')">来源 IP <span v-if="wafHitsTbl.state.sortKey==='ip'" class="sort-ind">{{ wafHitsTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                </tr></thead>
               <tbody>
                 <tr v-for="(h, hi) in wafHitsTbl.rows" :key="(h.ring_idx || 0) + '|' + h.time + '|' + (h.rule_id || '') + '|' + (h.uri || '') + '|' + hi" @click="openHitDetail(h)" style="cursor:pointer">
@@ -1139,7 +1166,13 @@
                   <td><code style="font-size:11px">{{ h.rule_id }}</code></td>
                   <td><span class="tag">{{ h.method }}</span></td>
                   <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="h.uri">{{ h.uri }}</td>
-                  <td><code style="font-size:11px">{{ h.ip }}</code></td>
+                  <td>
+                    <code style="font-size:11px">{{ h.ip }}</code>
+                    <!-- Row click opens the detail; .stop keeps the action
+                         buttons from also opening it. -->
+                    <button type="button" class="icon-btn" @click.stop="copyText(h.ip)" title="复制 IP" aria-label="复制 IP">复制</button>
+                    <button type="button" class="icon-btn" @click.stop="openIpReputation(h.ip)" title="查看该 IP 的声誉详情" aria-label="查看 IP 声誉">声誉</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1156,16 +1189,16 @@
           <div v-if="wafHistError" class="error" style="margin-bottom:8px">{{ wafHistError }}</div>
           <div v-if="wafPendingError" class="error" style="margin-bottom:8px">{{ wafPendingError }}</div>
           <!-- Pending Changes -->
-          <div v-if="wafPendingChanges.length" class="card" style="padding:16px;margin-bottom:16px;border-color:#f59e0b">
-             <h4 style="font-size:14px;margin-bottom:8px;color:#92400e">⏳ 待确认变更 ({{ wafPendingChanges.length }})</h4>
+          <div v-if="wafPendingChanges.length" class="card" style="padding:16px;margin-bottom:16px;border-color:var(--warning)">
+             <h4 style="font-size:14px;margin-bottom:8px;color:var(--warning-text)">⏳ 待确认变更 ({{ wafPendingChanges.length }})</h4>
              <table style="font-size:13px">
-               <thead><tr><th>规则 ID</th><th>暂存时间</th><th>动作</th><th></th></tr></thead>
+               <thead><tr><th scope="col">规则 ID</th><th scope="col">暂存时间</th><th scope="col">动作</th><th scope="col"></th></tr></thead>
               <tbody>
                 <tr v-for="p in wafPendingChanges" :key="p.rule_id">
                   <td><code>{{ p.rule_id }}</code></td>
-                  <td style="color:#6b7280">{{ new Date(p.staged_at * 1000).toLocaleString() }}</td>
+                  <td style="color:var(--muted)">{{ new Date(p.staged_at * 1000).toLocaleString() }}</td>
                   <td>
-                    <span class="tag" style="background:#fef3c7;color:#92400e">{{ p.proposed.action || 'edit' }}</span>
+                    <span class="tag" style="background:var(--warning-bg);color:var(--warning-text)">{{ p.proposed.action || 'edit' }}</span>
                   </td>
                   <td>
                     <button class="primary small" :disabled="pendingActionLoading" @click="confirmPendingChange(p.rule_id)"><span v-if="pendingActionLoading" class="spinner"></span>发布</button>
@@ -1178,7 +1211,7 @@
           <!-- History -->
           <div v-if="wafHistory.length">
             <table>
-               <thead><tr><th>版本</th><th>时间戳</th><th>动作</th><th>规则数</th><th></th></tr></thead>
+               <thead><tr><th scope="col">版本</th><th scope="col">时间戳</th><th scope="col">动作</th><th scope="col">规则数</th><th scope="col"></th></tr></thead>
               <tbody>
                 <tr v-for="(h, idx) in wafHistory" :key="h.version">
                   <td>{{ h.version }}</td>
@@ -1197,7 +1230,7 @@
                 </tr>
               </tbody>
             </table>
-            <div style="color:#9ca3af;font-size:12px;margin-top:4px">
+            <div style="color:var(--muted);font-size:12px;margin-top:4px">
               每行是当次保存后的完整备份。「撤销此变更」= 把规则恢复到该次修改之前（其后的修改一并回退）；「恢复此版本」= 恢复到该次保存完成时的状态。
             </div>
           </div>
@@ -1206,7 +1239,7 @@
 
         <!-- Recommendations -->
         <div v-if="wafTab==='rules' && wafRuleView==='recs'">
-          <div class="page-desc">基于近期被 WAF 拦截的流量模式自动生成规则建议，识别攻击特征（路径穿越、SQL 注入、扫描器等）。点击「分析流量」扫描命中记录，再逐条应用或忽略。</div>
+          <details class="page-desc"><summary>说明</summary><div>基于近期被 WAF 拦截的流量模式自动生成规则建议，识别攻击特征（路径穿越、SQL 注入、扫描器等）。点击「分析流量」扫描命中记录，再逐条应用或忽略。</div></details>
           <div class="flex flex-between mb-16">
             <h3 style="font-size:14px;margin:0">规则推荐
               <span class="tag tag-ok" v-if="recStats" style="vertical-align:middle">{{ recStats.pending }} 条待处理</span>
@@ -1216,7 +1249,7 @@
           <div v-if="recError" class="error" style="margin-bottom:8px">{{ recError }}</div>
           <div v-if="recs.length === 0" class="empty">暂无推荐。点击"分析流量"扫描最近被拦截的命中。</div>
            <table v-else style="font-size:13px">
-             <thead><tr><th>模式</th><th>分类</th><th>严重级别</th><th>动作</th><th>命中</th><th>状态</th><th></th></tr></thead>
+             <thead><tr><th scope="col">模式</th><th scope="col">分类</th><th scope="col">严重级别</th><th scope="col">动作</th><th scope="col">命中</th><th scope="col">状态</th><th scope="col"></th></tr></thead>
             <tbody>
               <tr v-for="r in recs" :key="r.id">
                 <td><code style="font-size:11px">{{ r.pattern }}</code></td>
@@ -1234,7 +1267,7 @@
           </table>
         </div>
         <div v-if="wafTab==='tester'">
-          <div class="page-desc">在不修改真实规则的情况下，用表单或 JSON 模拟请求测试规则匹配效果。支持粘贴访问日志自动解析，帮助验证规则逻辑是否正确，避免直接修改线上规则的风险。</div>
+          <details class="page-desc"><summary>说明</summary><div>在不修改真实规则的情况下，用表单或 JSON 模拟请求测试规则匹配效果。支持粘贴访问日志自动解析，帮助验证规则逻辑是否正确，避免直接修改线上规则的风险。</div></details>
           <div class="card">
              <h3 style="font-size:14px;margin-bottom:8px">测试规则</h3>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
@@ -1273,7 +1306,7 @@
               <div class="field">
                 <label>测试用例（每行一条请求，勾选 = 预期被匹配）</label>
                 <table style="font-size:12px">
-                  <thead><tr><th style="width:110px">名称(可空)</th><th>URI</th><th style="width:90px">方法</th><th style="width:130px">IP(可空)</th><th>UA(可空, 可选预设)</th><th style="width:70px">预期命中</th><th style="width:36px"></th></tr></thead>
+                  <thead><tr><th scope="col" style="width:110px">名称(可空)</th><th scope="col">URI</th><th scope="col" style="width:90px">方法</th><th scope="col" style="width:130px">IP(可空)</th><th scope="col">UA(可空, 可选预设)</th><th scope="col" style="width:70px">预期命中</th><th scope="col" style="width:36px"></th></tr></thead>
                   <tbody>
                     <tr v-for="(row, ci) in wafTestCaseRows" :key="ci">
                       <td><input v-model="row.name" type="text" style="width:100%"></td>
@@ -1317,7 +1350,7 @@
            <div v-if="wafTestResults" class="card mt-16">
              <h3 style="font-size:14px;margin-bottom:8px">结果: {{ wafTestResults.passed }}/{{ wafTestResults.total }} 通过</h3>
              <table>
-               <thead><tr><th>名称</th><th>URI</th><th>匹配</th><th>通过</th></tr></thead>
+               <thead><tr><th scope="col">名称</th><th scope="col">URI</th><th scope="col">匹配</th><th scope="col">通过</th></tr></thead>
               <tbody>
                 <tr v-for="(res, ri) in wafTestResults.results" :key="ri" :style="{color:res.passed?'var(--green)':'var(--red)'}">
                   <td>{{ res.name }}</td>
@@ -1336,13 +1369,13 @@
               <button class="outline small" @click="clearTestHistory">清除</button>
             </div>
             <table>
-              <thead><tr><th>时间</th><th>规则</th><th>通过/总数</th><th></th></tr></thead>
+              <thead><tr><th scope="col">时间</th><th scope="col">规则</th><th scope="col">通过/总数</th><th scope="col"></th></tr></thead>
               <tbody>
                 <tr v-for="(h, i) in wafTestHistory" :key="i">
-                  <td style="font-size:12px;color:#6b7280;white-space:nowrap">{{ new Date(h.timestamp * 1000).toLocaleString() }}</td>
+                  <td style="font-size:12px;color:var(--muted);white-space:nowrap">{{ new Date(h.timestamp * 1000).toLocaleString() }}</td>
                   <td>{{ h.rule_name }}</td>
                   <td>
-                    <span :style="{color:h.failed===0?'#16a34a':'#f59e0b'}">{{ h.passed }}/{{ h.total }}</span>
+                    <span :style="{color:h.failed===0?'var(--success-text)':'var(--warning)'}">{{ h.passed }}/{{ h.total }}</span>
                   </td>
                   <td>
                     <button class="outline small" style="font-size:11px" @click="wafTestRuleJson = JSON.stringify(h.results[0] && h.results[0]._rule || {}, null, 2)">载入规则</button>
@@ -1359,7 +1392,7 @@
         <div class="flex flex-between mb-16">
           <div>
             <h2 class="page-title" style="margin-bottom:0">频率限制</h2>
-            <div class="page-desc" style="margin-bottom:0">根据单位时间内的请求次数限制访问频率，防止暴力破解和 CC 攻击。支持按 IP/URI/用户名/域名等不同维度限速，推荐先用上方模板库一键套用常见场景。</div>
+            <details class="page-desc" style="margin-bottom:0"><summary>说明</summary><div>根据单位时间内的请求次数限制访问频率，防止暴力破解和 CC 攻击。支持按 IP/URI/用户名/域名等不同维度限速，推荐先用上方模板库一键套用常见场景。</div></details>
           </div>
           <div class="flex gap-8">
             <button class="outline small" @click="loadFrequencyData">刷新</button>
@@ -1378,7 +1411,7 @@
           <h3 style="font-size:14px;margin-bottom:8px">当前活跃计数 (前 50)</h3>
           <div v-if="freqStats.length">
             <table>
-               <thead><tr><th>键</th><th>计数</th></tr></thead>
+               <thead><tr><th scope="col">键</th><th scope="col">计数</th></tr></thead>
               <tbody>
                 <tr v-for="s in freqStats.slice(0, 50)" :key="s.key">
                   <td><code style="font-size:11px">{{ s.key }}</code></td>
@@ -1415,7 +1448,7 @@
           <h3 style="font-size:14px;margin-bottom:8px">限流规则</h3>
           <div v-if="freqRules.length">
             <table>
-               <thead><tr><th>ID</th><th>键</th><th>限制</th><th>窗口</th><th>动作</th><th>启用</th><th></th></tr></thead>
+               <thead><tr><th scope="col">ID</th><th scope="col">键</th><th scope="col">限制</th><th scope="col">窗口</th><th scope="col">动作</th><th scope="col">启用</th><th scope="col"></th></tr></thead>
               <tbody>
                 <tr v-for="r in freqRules" :key="r.id">
                   <td><code style="font-size:11px">{{ r.id }}</code></td>
@@ -1508,7 +1541,7 @@
         <div class="flex flex-between mb-16">
           <div>
             <h2 class="page-title" style="margin-bottom:0">IP 声誉</h2>
-            <div class="page-desc" style="margin-bottom:0">根据 IP 的历史行为（触发 WAF、扫描、404 频率）打分，分数高的 IP 会被自动挑战或封禁。绝大多数情况你只需要看这里有没有红色条目。</div>
+            <details class="page-desc" style="margin-bottom:0"><summary>说明</summary><div>根据 IP 的历史行为（触发 WAF、扫描、404 频率）打分，分数高的 IP 会被自动挑战或封禁。绝大多数情况你只需要看这里有没有红色条目。</div></details>
           </div>
           <div class="flex gap-8">
             <button class="outline small" @click="loadRepData">刷新</button>
@@ -1534,9 +1567,9 @@
           <div v-if="repFetchResult" style="margin-top:10px;font-size:12px">
             <table style="width:100%;border-collapse:collapse">
               <thead><tr>
-                <th style="text-align:left;padding:3px 6px">厂商</th>
-                <th style="text-align:left;padding:3px 6px">结果</th>
-                <th style="text-align:left;padding:3px 6px">说明</th>
+                <th scope="col" style="text-align:left;padding:3px 6px">厂商</th>
+                <th scope="col" style="text-align:left;padding:3px 6px">结果</th>
+                <th scope="col" style="text-align:left;padding:3px 6px">说明</th>
               </tr></thead>
               <tbody>
                 <tr v-for="r in repFetchResult.results" :key="r.key">
@@ -1588,7 +1621,7 @@
           <div style="overflow-x:auto">
             <table>
               <thead><tr>
-                <th>厂商</th><th>段数</th><th>厂商发布时间</th><th>拉取时间</th><th>取自</th>
+                <th scope="col">厂商</th><th scope="col">段数</th><th scope="col">厂商发布时间</th><th scope="col">拉取时间</th><th scope="col">取自</th>
               </tr></thead>
               <tbody>
                 <tr v-for="s in repCrawlerInfo.sources" :key="s.source">
@@ -1638,11 +1671,11 @@
           </div>
           <div style="overflow-x:auto">
             <table>
-               <thead><tr><th>IP</th><th>分数</th><th>标记原因</th><th>标记时间</th><th>过期时间</th><th>剩余</th><th style="text-align:right">操作</th></tr></thead>
+               <thead><tr><th scope="col">IP</th><th scope="col">分数</th><th scope="col">标记原因</th><th scope="col">标记时间</th><th scope="col">过期时间</th><th scope="col">剩余</th><th scope="col" style="text-align:right">操作</th></tr></thead>
 <tbody>
                 <tr v-for="ip in repFlagged" :key="ip.ip">
                   <td><code>{{ ip.ip }}</code></td>
-                  <td><code :style="repStats && repStats.threshold != null && ip.score >= repStats.threshold ? 'color:#b91c1c;font-weight:600' : ''" :title="'声誉分数，标记阈值 ' + ((repStats && repStats.threshold) || '?')">{{ ip.score }}</code></td>
+                  <td><code :style="repStats && repStats.threshold != null && ip.score >= repStats.threshold ? 'color:var(--danger-text);font-weight:600' : ''" :title="'声誉分数，标记阈值 ' + ((repStats && repStats.threshold) || '?')">{{ ip.score }}</code></td>
                   <td style="max-width:340px" :title="ip.reason ? ('标记时分数 ' + ip.reason.score + '，快照于 ' + fmtTime(ip.reason.at)) : '标记时原因快照不可用（升级前标记或手动标记）'">{{ repReasonText(ip) }}</td>
                   <td>{{ fmtTime(ip.flagged_at) }}</td>
                   <td>{{ fmtTime(ip.expires_at) }}</td>
@@ -1675,13 +1708,13 @@
           </div>
           <div style="overflow-x:auto">
             <table>
-               <thead><tr><th>最近标记</th><th>IP</th><th>今日次数</th><th>最近分数</th><th>信号构成</th></tr></thead>
+               <thead><tr><th scope="col">最近标记</th><th scope="col">IP</th><th scope="col">今日次数</th><th scope="col">最近分数</th><th scope="col">信号构成</th></tr></thead>
               <tbody>
                 <tr v-for="fl in repStats.flagged_log" :key="fl.ip">
                   <td>{{ fmtTime(fl.last_at) }}</td>
                   <td><code>{{ fl.ip }}</code></td>
                   <td>{{ fl.count }}<span v-if="fl.first_at && fl.first_at !== fl.last_at" style="color:var(--muted)">（首次 {{ fmtTime(fl.first_at) }}）</span></td>
-                  <td><code :style="fl.threshold != null && fl.score >= fl.threshold ? 'color:#b91c1c;font-weight:600' : ''" :title="'标记时分数，阈值 ' + (fl.threshold != null ? fl.threshold : '?')">{{ fl.score }}</code></td>
+                  <td><code :style="fl.threshold != null && fl.score >= fl.threshold ? 'color:var(--danger-text);font-weight:600' : ''" :title="'标记时分数，阈值 ' + (fl.threshold != null ? fl.threshold : '?')">{{ fl.score }}</code></td>
                   <td style="font-size:12px" :title="fl.signals && fl.signals.length ? '标记时的信号分解（与详情一致）' : '标记时无信号记录（手动或联动标记）'">{{ repLogSignals(fl) }}</td>
                 </tr>
               </tbody>
@@ -1699,7 +1732,7 @@
           </div>
           <div style="overflow-x:auto">
             <table>
-               <thead><tr><th>条目</th><th></th></tr></thead>
+               <thead><tr><th scope="col">条目</th><th scope="col"></th></tr></thead>
               <tbody>
                 <tr v-for="e in repWhitelist" :key="e">
                   <td><code>{{ e }}</code></td>
@@ -1736,13 +1769,13 @@
         <div class="modal-overlay" v-if="repDetailModal.show" @click.self="repDetailModal.show=false">
           <div class="modal" style="max-width:760px">
             <h3>IP 详情 <code>{{ repDetailModal.ip }}</code>
-              <span v-if="repDetailModal.data && repDetailModal.data.flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:6px" title="该 IP 的声誉分数已超过阈值，处于自动挑战/封禁状态">已标记</span>
-              <span v-else-if="repDetailModal.data && repDetailModal.data.whitelisted" class="tag" style="background:#dcfce7;color:#166534;margin-left:6px">白名单</span>
+              <span v-if="repDetailModal.data && repDetailModal.data.flagged" class="tag" style="background:var(--danger-bg);color:var(--danger-text);margin-left:6px" title="该 IP 的声誉分数已超过阈值，处于自动挑战/封禁状态">已标记</span>
+              <span v-else-if="repDetailModal.data && repDetailModal.data.whitelisted" class="tag" style="background:var(--success-bg);color:var(--success-text);margin-left:6px">白名单</span>
             </h3>
             <div class="tabs mb-8">
-              <a :class="{active: repDetailModal.tab==='overview'}" @click="repOpenDetail(repDetailModal.ip, 'overview')">概览与原因</a>
-              <a :class="{active: repDetailModal.tab==='hits'}" @click="repOpenDetail(repDetailModal.ip, 'hits')">相关记录</a>
-              <a :class="{active: repDetailModal.tab==='geo'}" @click="repOpenDetail(repDetailModal.ip, 'geo')">IP 信息</a>
+              <button type="button" :class="{active: repDetailModal.tab==='overview'}" @click="repOpenDetail(repDetailModal.ip, 'overview')">概览与原因</button>
+              <button type="button" :class="{active: repDetailModal.tab==='hits'}" @click="repOpenDetail(repDetailModal.ip, 'hits')">相关记录</button>
+              <button type="button" :class="{active: repDetailModal.tab==='geo'}" @click="repOpenDetail(repDetailModal.ip, 'geo')">IP 信息</button>
             </div>
 
             <!-- Tab 1: overview + why it was flagged -->
@@ -1765,7 +1798,7 @@
                 <h4 style="font-size:13px;margin:12px 0 6px">实时信号分解（近 {{ repDetailModal.data.explain ? repDetailModal.data.explain.window : '-' }} 秒窗口）</h4>
                 <div v-if="repDetailModal.data.breakdown && repDetailModal.data.breakdown.length" style="overflow-x:auto">
                   <table>
-                    <thead><tr><th>信号</th><th>次数</th><th>权重/次</th><th>贡献分</th></tr></thead>
+                    <thead><tr><th scope="col">信号</th><th scope="col">次数</th><th scope="col">权重/次</th><th scope="col">贡献分</th></tr></thead>
                     <tbody>
                       <tr v-for="b in repDetailModal.data.breakdown" :key="b.signal">
                         <td>{{ signalLabel(b.signal) }}</td>
@@ -1783,7 +1816,7 @@
                   <div style="color:var(--muted);margin-bottom:6px">标记于 {{ fmtTime(repDetailModal.data.reason.at) }}，标记时分数 <code>{{ repDetailModal.data.reason.score }}</code>（阈值 <code>{{ repDetailModal.data.reason.threshold }}</code>）</div>
                   <div v-if="repDetailModal.data.reason.signals && repDetailModal.data.reason.signals.length" style="overflow-x:auto">
                     <table>
-                      <thead><tr><th>信号</th><th>次数</th><th>权重/次</th><th>贡献分</th></tr></thead>
+                      <thead><tr><th scope="col">信号</th><th scope="col">次数</th><th scope="col">权重/次</th><th scope="col">贡献分</th></tr></thead>
                       <tbody>
                         <tr v-for="b in repDetailModal.data.reason.signals" :key="'snap-' + b.signal">
                           <td>{{ signalLabel(b.signal) }}</td>
@@ -1810,7 +1843,7 @@
               <div v-else-if="repDetailModal.hitsError" class="error"><div>{{ repDetailModal.hitsError }}</div></div>
               <div v-else-if="repDetailModal.hits && repDetailModal.hits.length" style="overflow-x:auto">
                 <table>
-                  <thead><tr><th>时间</th><th>规则</th><th>动作</th><th>方法</th><th>URI</th></tr></thead>
+                  <thead><tr><th scope="col">时间</th><th scope="col">规则</th><th scope="col">动作</th><th scope="col">方法</th><th scope="col">URI</th></tr></thead>
                   <tbody>
                     <tr v-for="h in repDetailModal.hits" :key="h.ring_idx" @click="openHitDetail(h)" style="cursor:pointer" title="点击查看完整命中详情（UA / 请求头 / 指纹）">
                       <td style="white-space:nowrap">{{ fmtTime(h.timestamp) }}</td>
@@ -1864,7 +1897,7 @@
         <div class="flex flex-between mb-16">
           <div>
             <h2 class="page-title" style="margin-bottom:0">GeoIP</h2>
-            <div class="page-desc" style="margin-bottom:0">根据 IP 归属地实施地域访问控制，可配置白名单/黑名单国家或大洲。常用于合规要求或限制特定地区的访问，配合 IP 声誉可实现更细粒度的地域策略。</div>
+            <details class="page-desc" style="margin-bottom:0"><summary>说明</summary><div>根据 IP 归属地实施地域访问控制，可配置白名单/黑名单国家或大洲。常用于合规要求或限制特定地区的访问，配合 IP 声誉可实现更细粒度的地域策略。</div></details>
           </div>
           <button class="outline small" @click="loadGeoIP">刷新</button>
         </div>
@@ -1873,7 +1906,7 @@
           <h3 style="font-size:14px;margin-bottom:8px">IP 查询</h3>
           <div style="display:flex;gap:8px;align-items:flex-end">
             <div>
-              <label style="font-size:11px;color:#6b7280">IP 地址</label>
+              <label style="font-size:11px;color:var(--muted)">IP 地址</label>
               <input v-model="geoipLookupIP" placeholder="8.8.8.8" style="width:150px" @keyup.enter="lookupGeoIP" title="输入 IP 地址查询其地理位置信息（国家/城市/ASN），用于验证 GeoIP 配置是否生效">
             </div>
             <button class="primary" @click="lookupGeoIP">查询</button>
@@ -1888,22 +1921,22 @@
                  <tr><td>ASN</td><td>{{ geoipLookupResult.data.asn || '-' }} {{ geoipLookupResult.data.asn_org || '' }}</td></tr>
               </table>
             </div>
-            <div v-else style="color:#6b7280">{{ geoipLookupResult.message || '未找到' }}</div>
+            <div v-else style="color:var(--muted)">{{ geoipLookupResult.message || '未找到' }}</div>
           </div>
           <div v-if="geoipLookupResult && geoipLookupResult.data" style="margin-top:10px;font-size:13px">
-            <div v-if="geoipQualityLoading" style="color:#6b7280;font-size:12px">IP 质量查询中（ip-api.com）…</div>
+            <div v-if="geoipQualityLoading" style="color:var(--muted);font-size:12px">IP 质量查询中（ip-api.com）…</div>
             <table v-else-if="geoipQuality && !geoipQuality.unavailable">
               <tr><td style="width:70px">IP 类型</td><td>
                 <code>{{ geoipQuality.ip_type_label }}</code>
-                <span v-if="geoipQuality.proxy" style="color:#b45309;margin-left:6px">⚠ 代理</span>
-                <span v-if="geoipQuality.hosting" style="color:#6b7280;margin-left:6px">机房</span>
-                <span v-if="geoipQuality.mobile" style="color:#6b7280;margin-left:6px">移动网络</span>
+                <span v-if="geoipQuality.proxy" style="color:var(--warning-text);margin-left:6px">⚠ 代理</span>
+                <span v-if="geoipQuality.hosting" style="color:var(--muted);margin-left:6px">机房</span>
+                <span v-if="geoipQuality.mobile" style="color:var(--muted);margin-left:6px">移动网络</span>
               </td></tr>
               <tr v-if="geoipQuality.risk"><td>滥用风险</td><td>
-                <code :style="{ color: geoipQuality.risk.score >= 50 ? '#b91c1c' : 'inherit' }">{{ geoipQuality.risk.score }}%</code>
-                <span style="color:#6b7280;margin-left:6px">90 天内被举报 {{ geoipQuality.risk.reports }} 次</span>
-                <span v-if="geoipQuality.risk.tor" style="color:#b45309;margin-left:6px">Tor 出口</span>
-                <span style="color:#9ca3af;font-size:11px;margin-left:6px">AbuseIPDB</span>
+                <code :style="{ color: geoipQuality.risk.score >= 50 ? 'var(--danger-text)' : 'inherit' }">{{ geoipQuality.risk.score }}%</code>
+                <span style="color:var(--muted);margin-left:6px">90 天内被举报 {{ geoipQuality.risk.reports }} 次</span>
+                <span v-if="geoipQuality.risk.tor" style="color:var(--warning-text);margin-left:6px">Tor 出口</span>
+                <span style="color:var(--muted);font-size:11px;margin-left:6px">AbuseIPDB</span>
               </td></tr>
               <tr><td>ISP</td><td>{{ geoipQuality.isp || '-' }}</td></tr>
               <tr><td>组织</td><td>{{ geoipQuality.org || '-' }}</td></tr>
@@ -1912,10 +1945,10 @@
               <tr><td>区域</td><td>{{ geoipQuality.region || '-' }} {{ geoipQuality.city || '' }} {{ geoipQuality.zip || '' }}</td></tr>
               <tr><td>时区</td><td>{{ geoipQuality.timezone || '-' }}</td></tr>
             </table>
-            <div v-else-if="geoipQuality && geoipQuality.unavailable" style="color:#9ca3af;font-size:12px">
+            <div v-else-if="geoipQuality && geoipQuality.unavailable" style="color:var(--muted);font-size:12px">
               质量数据暂不可用：{{ geoipQuality.unavailable }}
             </div>
-            <div v-if="geoipQuality && !geoipQuality.unavailable" style="color:#9ca3af;font-size:11px;margin-top:2px">
+            <div v-if="geoipQuality && !geoipQuality.unavailable" style="color:var(--muted);font-size:11px;margin-top:2px">
               数据源 ip-api.com（结果缓存 24 小时；保留/内网地址本地判定，不外发）
             </div>
           </div>
@@ -1925,7 +1958,7 @@
           <h3 style="font-size:14px;margin-bottom:8px">国家/地区分布 (前 20)</h3>
           <div v-if="geoipStats.length">
             <table>
-               <thead><tr><th>国家</th><th>命中</th><th>占比</th></tr></thead>
+               <thead><tr><th scope="col">国家</th><th scope="col">命中</th><th scope="col">占比</th></tr></thead>
               <tbody>
                 <tr v-for="s in geoipStats" :key="s.code">
                   <td><code>{{ s.code }}</code></td>
@@ -1989,8 +2022,8 @@
 
             <!-- Advanced sub-tabs -->
       <div v-if="page==='advanced'" class="config-tabs" style="margin-bottom:16px">
-        <a :class="{active:advTab==='fingerprints'}" @click="advTab='fingerprints'">TLS 指纹</a>
-        <a :class="{active:advTab==='audit'}" @click="advTab='audit'">审计日志</a>
+        <button type="button" :class="{active:advTab==='fingerprints'}" @click="advTab='fingerprints'">TLS 指纹</button>
+        <button type="button" :class="{active:advTab==='audit'}" @click="advTab='audit'">审计日志</button>
       </div>
 
       <!-- Fingerprints -->
@@ -1998,7 +2031,7 @@
         <div class="flex flex-between mb-16">
           <div>
             <h2 class="page-title" style="margin-bottom:0">TLS 指纹</h2>
-            <div class="page-desc" style="margin-bottom:0">基于 TLS 客户端握手指纹（JA4 优先，JA3 兼容旧库）识别客户端特征，可用于识别已知扫描器/僵尸网络/自动化工具。指纹存于 config.fingerprints.entries，与 WAF 规则的 IP 匹配器配合使用效果更佳。</div>
+            <details class="page-desc" style="margin-bottom:0"><summary>说明</summary><div>基于 TLS 客户端握手指纹（JA4 优先，JA3 兼容旧库）识别客户端特征，可用于识别已知扫描器/僵尸网络/自动化工具。指纹存于 config.fingerprints.entries，与 WAF 规则的 IP 匹配器配合使用效果更佳。</div></details>
           </div>
           <div class="flex gap-8">
             <button class="outline small" @click="loadFingerprints">刷新</button>
@@ -2017,18 +2050,18 @@
         <!-- Table -->
         <div class="card" style="padding:16px">
           <table>
-             <thead><tr><th>指纹 <small style="font-weight:400;color:var(--muted);font-size:10px" title="JA4（如 t13d1516h2_8daaf6152771_e5627efa2ab1）：TLS ClientHello 的结构化指纹，排序后对 GREASE 随机值稳定、人可读，是当前主信号。JA3（如 e7d705a3286e19ea42f587b344ee6865）：ClientHello 要素的 MD5，保留给已有的旧指纹库。两者为不同算法，绝不会互相命中。">(?</small></th><th>类型</th><th>匹配</th><th>名称</th><th>分类</th><th>动作</th><th>启用</th><th></th></tr></thead>
+             <thead><tr><th scope="col">指纹 <small style="font-weight:400;color:var(--muted);font-size:10px" title="JA4（如 t13d1516h2_8daaf6152771_e5627efa2ab1）：TLS ClientHello 的结构化指纹，排序后对 GREASE 随机值稳定、人可读，是当前主信号。JA3（如 e7d705a3286e19ea42f587b344ee6865）：ClientHello 要素的 MD5，保留给已有的旧指纹库。两者为不同算法，绝不会互相命中。">(?</small></th><th scope="col">类型</th><th scope="col">匹配</th><th scope="col">名称</th><th scope="col">分类</th><th scope="col">动作</th><th scope="col">启用</th><th scope="col"></th></tr></thead>
             <tbody>
 <tr v-for="fp in fingerprints" :key="(fp.kind||'ja3') + '|' + fp.hash">
                 <td><code style="font-size:10px;word-break:break-all">{{ fp.hash }}</code> <button class="outline small" @click="copyText(fp.hash)" title="复制 hash">复制</button></td>
-                <td><span class="tag" :style="{background:fpKind(fp)==='ja4'?'#dbeafe':fpKind(fp)==='ja4h'?'#ede9fe':'#e5e7eb'}" :title="fpKindTitle(fpKind(fp))">{{ fpKind(fp) }}</span></td>
+                <td><span class="tag" :style="{background:fpKind(fp)==='ja4'?'var(--info-bg)':fpKind(fp)==='ja4h'?'var(--violet-bg)':'var(--muted-bg)'}" :title="fpKindTitle(fpKind(fp))">{{ fpKind(fp) }}</span></td>
                 <td><select :value="fpMatchMode(fp)" @change="setFpMatchMode(fp, $event)" style="width:auto" :title="fpMatchMode(fp)==='family' ? ('家族匹配：只比较前 10 字符 '+fpFamily(fp)+'，客户端升级换密码套件时 b 段会变、a 段不变，故可用家族段长期追踪同一客户端') : '精确匹配：完整哈希逐字符比较'">
                        <option value="exact">精确</option>
                        <option value="family" :disabled="!fpFamilyAllowed(fpKind(fp))" title="家族匹配仅 JA4 / JA4H 支持：JA3 是整体 MD5，没有可分离的家族段">家族（前 10 字符，如 t13d1516h2）</option>
                      </select></td>
                 <td>{{ fp.name }}</td>
                 <td><span class="tag" :title="fp.category === 'scanner' ? '已知扫描器/漏洞探测工具' : fp.category === 'bot' ? '自动化机器人/爬虫' : fp.category === 'browser' ? '正常浏览器（通常用于误判排查）' : '用户自定义分类'">{{ fp.category }}</span></td>
-                <td><span class="tag" :style="{background:fp.action==='block'?'#fee2e2':'#fef3c7'}" :title="fp.action==='block'?'命中此指纹的 IP 将被直接拦截(403)':'命中此指纹的 IP 将触发 JS 挑战，验证为浏览器后放行'">{{ fp.action }}</span></td>
+                <td><span class="tag" :style="{background:fp.action==='block'?'var(--danger-bg)':'var(--warning-bg)'}" :title="fp.action==='block'?'命中此指纹的 IP 将被直接拦截(403)':'命中此指纹的 IP 将触发 JS 挑战，验证为浏览器后放行'">{{ fp.action }}</span></td>
                 <td><input type="checkbox" :checked="fp.enabled" @change="toggleFp(fp)" :disabled="fpToggleBusy"></td>
                  <td><button class="outline small" @click="deleteFp(fp)">删除</button></td>
                </tr>
@@ -2048,22 +2081,22 @@
         <div class="flex flex-between mb-16">
           <div>
             <h2 class="page-title" style="margin-bottom:0">审计日志</h2>
-            <div class="page-desc" style="margin-bottom:0">记录所有管理员操作（配置修改、规则增删、封禁变更等），用于事后追溯和安全审计。最多保留 1000 条记录，可按用户、操作类型和时间范围筛选。</div>
+            <details class="page-desc" style="margin-bottom:0"><summary>说明</summary><div>记录所有管理员操作（配置修改、规则增删、封禁变更等），用于事后追溯和安全审计。最多保留 1000 条记录，可按用户、操作类型和时间范围筛选。</div></details>
           </div>
 <button class="outline small" @click="loadAudit">刷新</button>
         </div>
         <!-- Filters -->
           <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">
            <div>
-              <label style="font-size:11px;color:#6b7280">用户</label>
+              <label style="font-size:11px;color:var(--muted)">用户</label>
               <input v-model="auditFilterUser" placeholder="全部" style="width:100px">
             </div>
             <div>
-              <label style="font-size:11px;color:#6b7280">操作类型</label>
+              <label style="font-size:11px;color:var(--muted)">操作类型</label>
               <input v-model="auditFilterAction" placeholder="全部" style="width:120px">
             </div>
             <div>
-              <label style="font-size:11px;color:#6b7280">起始时间</label>
+              <label style="font-size:11px;color:var(--muted)">起始时间</label>
               <input v-model="auditFilterSince" type="datetime-local" style="width:160px">
               <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
                 <button class="outline xsmall" @click="setAuditSincePreset('1h')" style="font-size:10px">最近1h</button>
@@ -2073,21 +2106,21 @@
               </div>
             </div>
             <div>
-              <label style="font-size:11px;color:#6b7280">结束时间</label>
+              <label style="font-size:11px;color:var(--muted)">结束时间</label>
               <input v-model="auditFilterUntil" type="datetime-local" style="width:160px">
             </div>
             <button class="outline small" @click="clearAuditFilters">清除筛选</button>
            </div>
          <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
-         <div style="font-size:13px;color:#6b7280;margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
+         <div style="font-size:13px;color:var(--muted);margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
          <input v-model="auditTbl.state.filter" class="tbl-filter" placeholder="过滤当前页记录（用户/操作/IP/详情…）">
          <div style="overflow-x:auto">
            <table>
              <thead><tr>
-               <th class="sortable" tabindex="0" data-sort-col="time" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" tabindex="0" data-sort-col="user" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" tabindex="0" data-sort-col="action" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th>详情</th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="time" :aria-sort="ariaSort(auditTbl,'time')" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="user" :aria-sort="ariaSort(auditTbl,'user')" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="action" :aria-sort="ariaSort(auditTbl,'action')" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col">详情</th>
              </tr></thead>
              <tbody>
                <tr v-for="(e, i) in auditPagedRows" :key="(e.time||'') + '|' + (e.action||'') + '|' + (e.user||'') + '|' + (e.ip||'') + '|' + i">
@@ -2134,7 +2167,7 @@
       <!-- Kernel Blocking -->
       <div v-if="page==='kb'">
         <h2 class="page-title">内核 IP 封禁</h2>
-        <div class="page-desc">把屡教不改的恶意 IP 直接封在系统内核层，比应用层拦截更快、更省资源。配合扫描器和 CC 规则自动晋升，通常只需关注「已安装」页是否有异常条目。</div>
+        <details class="page-desc"><summary>说明</summary><div>把屡教不改的恶意 IP 直接封在系统内核层，比应用层拦截更快、更省资源。配合扫描器和 CC 规则自动晋升，通常只需关注「已安装」页是否有异常条目。</div></details>
         <div v-if="kbError" class="error" style="margin-bottom:8px">{{ kbError }}</div>
           <div v-if="kbBusy" class="empty" style="text-align:left;padding:8px 0">处理中…</div>
 
@@ -2324,7 +2357,7 @@
         <div class="card mb-16" v-if="(kbStatus.cc_rules||[]).length">
           <h3 style="font-size:14px;margin-bottom:8px">CC 规则就绪</h3>
           <table class="data-table">
-             <thead><tr><th>规则 ID</th><th>引用</th><th>模式</th><th>安装</th><th>原因</th></tr></thead>
+             <thead><tr><th scope="col">规则 ID</th><th scope="col">引用</th><th scope="col">模式</th><th scope="col">安装</th><th scope="col">原因</th></tr></thead>
             <tbody>
               <tr v-for="r in kbStatus.cc_rules" :key="r.rule_id">
                 <td style="font-family:monospace;font-size:12px">{{ r.rule_id }}</td>
@@ -2339,12 +2372,12 @@
 
         <!-- Tabs -->
         <div class="tabs mb-8">
-          <a :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">已安装</a>
-          <a :class="{active:kbTab==='candidates'}" @click="kbTab='candidates';loadKbCandidates()">候选</a>
-          <a :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">时间线</a>
-          <a :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard';loadKbDashboard()">仪表盘</a>
+          <button type="button" :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">已安装</button>
+          <button type="button" :class="{active:kbTab==='candidates'}" @click="kbTab='candidates';loadKbCandidates()">候选</button>
+          <button type="button" :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">时间线</button>
+          <button type="button" :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard';loadKbDashboard()">仪表盘</button>
         </div>
-        <div class="page-desc">已安装：内核中当前生效的封禁条目；候选：等待晋升的 IP 列表；时间线：封禁/解除操作的历史记录；仪表盘：令牌桶余额趋势与规则可达性可视化。</div>
+        <details class="page-desc"><summary>说明</summary><div>已安装：内核中当前生效的封禁条目；候选：等待晋升的 IP 列表；时间线：封禁/解除操作的历史记录；仪表盘：令牌桶余额趋势与规则可达性可视化。</div></details>
 
         <!-- Filters -->
         <div class="flex mb-8" style="gap:8px;flex-wrap:wrap" v-if="kbTab!=='timeline'">
@@ -2372,21 +2405,21 @@
           <input v-model="kbEntriesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页条目（IP/来源/模式…）">
           <div v-if="!kbEntries.length" class="empty">
             <span v-if="kbFilterPolicy || kbFilterIP">无匹配当前过滤 (策略: {{ kbFilterPolicy || '全部' }}, IP: {{ kbFilterIP || '全部' }})</span>
-            <span v-else>无已安装条目。<a style="cursor:pointer;text-decoration:underline" @click="navigateTo('kb')">查看候选 IP</a></span>
+            <span v-else>无已安装条目。<button type="button" class="linklike" @click="navigateTo('kb')">查看候选 IP</button></span>
           </div>
           <div v-else-if="!kbEntriesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
              <thead><tr>
-               <th class="sortable" tabindex="0" data-sort-col="ip" @click="kbEntriesTbl.sortBy('ip')">IP <span v-if="kbEntriesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" tabindex="0" data-sort-col="list" @click="kbEntriesTbl.sortBy('list')" title="scanner=扫描器自动封禁，cc=CC攻击自动封禁，manual=管理员手动封禁">集合 <span v-if="kbEntriesTbl.state.sortKey==='list'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th title="ipv4=IPv4 地址，ipv6=IPv6 地址">协议族</th><th title="manual=手动封禁，auto=自动晋升（scanner/cc）">来源</th><th title="ensure=确保存在，delete=确保移除">模式</th>
-               <th class="sortable" tabindex="0" data-sort-col="installed_at" @click="kbEntriesTbl.sortBy('installed_at')">已安装 <span v-if="kbEntriesTbl.state.sortKey==='installed_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" tabindex="0" data-sort-col="expires_at" @click="kbEntriesTbl.sortBy('expires_at')">过期 <span v-if="kbEntriesTbl.state.sortKey==='expires_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th>内核</th><th>操作</th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="ip" :aria-sort="ariaSort(kbEntriesTbl,'ip')" @click="kbEntriesTbl.sortBy('ip')">IP <span v-if="kbEntriesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="list" :aria-sort="ariaSort(kbEntriesTbl,'list')" @click="kbEntriesTbl.sortBy('list')" title="scanner=扫描器自动封禁，cc=CC攻击自动封禁，manual=管理员手动封禁">集合 <span v-if="kbEntriesTbl.state.sortKey==='list'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" title="ipv4=IPv4 地址，ipv6=IPv6 地址">协议族</th><th scope="col" title="manual=手动封禁，auto=自动晋升（scanner/cc）">来源</th><th scope="col" title="ensure=确保存在，delete=确保移除">模式</th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="installed_at" :aria-sort="ariaSort(kbEntriesTbl,'installed_at')" @click="kbEntriesTbl.sortBy('installed_at')">已安装 <span v-if="kbEntriesTbl.state.sortKey==='installed_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="expires_at" :aria-sort="ariaSort(kbEntriesTbl,'expires_at')" @click="kbEntriesTbl.sortBy('expires_at')">过期 <span v-if="kbEntriesTbl.state.sortKey==='expires_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col">内核</th><th scope="col">操作</th>
              </tr></thead>
             <tbody>
               <tr v-for="e in kbEntriesTbl.rows" :key="e.ip+'-'+(e.list||e.policy)" style="cursor:pointer" @click="kbOpenDetail(e)">
-                <td>{{ e.ip }}</td>
+                <td>{{ e.ip }} <button type="button" class="icon-btn" @click.stop="copyText(e.ip)" title="复制 IP" aria-label="复制 IP">复制</button></td>
                 <td>{{ e.list || e.policy }}</td>
                 <td>{{ e.family || 'ipv4' }}</td>
                 <td>{{ e.source || '-' }}</td>
@@ -2418,14 +2451,14 @@
           <div v-else-if="!kbCandidatesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
              <thead><tr>
-               <th class="sortable" tabindex="0" data-sort-col="ip" @click="kbCandidatesTbl.sortBy('ip')">IP <span v-if="kbCandidatesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" tabindex="0" data-sort-col="policy" @click="kbCandidatesTbl.sortBy('policy')">策略 <span v-if="kbCandidatesTbl.state.sortKey==='policy'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" tabindex="0" data-sort-col="state" @click="kbCandidatesTbl.sortBy('state')">状态 <span v-if="kbCandidatesTbl.state.sortKey==='state'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th>证据</th><th>结果</th><th>操作</th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="ip" :aria-sort="ariaSort(kbCandidatesTbl,'ip')" @click="kbCandidatesTbl.sortBy('ip')">IP <span v-if="kbCandidatesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="policy" :aria-sort="ariaSort(kbCandidatesTbl,'policy')" @click="kbCandidatesTbl.sortBy('policy')">策略 <span v-if="kbCandidatesTbl.state.sortKey==='policy'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="state" :aria-sort="ariaSort(kbCandidatesTbl,'state')" @click="kbCandidatesTbl.sortBy('state')">状态 <span v-if="kbCandidatesTbl.state.sortKey==='state'" class="sort-ind">{{ kbCandidatesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col">证据</th><th scope="col">结果</th><th scope="col">操作</th>
              </tr></thead>
             <tbody>
               <tr v-for="c in kbCandidatesTbl.rows" :key="c.ip+'-'+c.policy+'-'+c.state" style="cursor:pointer" @click="kbOpenDetail(c)">
-                <td>{{ c.ip }}</td>
+                <td>{{ c.ip }} <button type="button" class="icon-btn" @click.stop="copyText(c.ip)" title="复制 IP" aria-label="复制 IP">复制</button></td>
                 <td>{{ c.policy }}</td>
                 <td>{{ c.state }}</td>
                 <td style="font-size:12px">{{ kbEvidenceSummary(c) }}</td>
@@ -2464,10 +2497,10 @@
           <div v-else-if="!kbTimelineTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
              <thead><tr>
-               <th class="sortable" tabindex="0" data-sort-col="time" @click="kbTimelineTbl.sortBy('time')">时间 <span v-if="kbTimelineTbl.state.sortKey==='time'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" tabindex="0" data-sort-col="user" @click="kbTimelineTbl.sortBy('user')">用户 <span v-if="kbTimelineTbl.state.sortKey==='user'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th class="sortable" tabindex="0" data-sort-col="action" @click="kbTimelineTbl.sortBy('action')">动作 <span v-if="kbTimelineTbl.state.sortKey==='action'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th>详情</th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="time" :aria-sort="ariaSort(kbTimelineTbl,'time')" @click="kbTimelineTbl.sortBy('time')">时间 <span v-if="kbTimelineTbl.state.sortKey==='time'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="user" :aria-sort="ariaSort(kbTimelineTbl,'user')" @click="kbTimelineTbl.sortBy('user')">用户 <span v-if="kbTimelineTbl.state.sortKey==='user'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="action" :aria-sort="ariaSort(kbTimelineTbl,'action')" @click="kbTimelineTbl.sortBy('action')">动作 <span v-if="kbTimelineTbl.state.sortKey==='action'" class="sort-ind">{{ kbTimelineTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col">详情</th>
              </tr></thead>
             <tbody>
               <tr v-for="(a,i) in kbTimelineTbl.rows" :key="(a.time||'') + '|' + (a.action||'') + '|' + (a.user||'') + '|' + (a.detail||'') + '|' + i">
@@ -2494,22 +2527,22 @@
               <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:120px;display:block">
                 <defs>
                   <linearGradient id="enforceGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
-                    <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+                    <stop offset="0%" stop-color="var(--primary)" stop-opacity="0.3"/>
+                    <stop offset="100%" stop-color="var(--primary)" stop-opacity="0"/>
                   </linearGradient>
                   <linearGradient id="observeGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#10b981" stop-opacity="0.2"/>
-                    <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+                    <stop offset="0%" stop-color="var(--success)" stop-opacity="0.2"/>
+                    <stop offset="100%" stop-color="var(--success)" stop-opacity="0"/>
                   </linearGradient>
                 </defs>
                 <polygon :points="kbTrendFillObserve" fill="url(#observeGrad)" stroke="none"/>
                 <polygon :points="kbTrendFillEnforce" fill="url(#enforceGrad)" stroke="none"/>
-                <polyline :points="kbTrendPoints.observe" fill="none" stroke="#10b981" stroke-width="0.5"/>
-                <polyline :points="kbTrendPoints.enforce" fill="none" stroke="#3b82f6" stroke-width="0.5"/>
+                <polyline :points="kbTrendPoints.observe" fill="none" stroke="var(--success)" stroke-width="0.5"/>
+                <polyline :points="kbTrendPoints.enforce" fill="none" stroke="var(--primary)" stroke-width="0.5"/>
               </svg>
               <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:4px">
-                 <span><span style="display:inline-block;width:10px;height:3px;background:#3b82f6;vertical-align:middle;margin-right:4px"></span>执行</span>
-                 <span><span style="display:inline-block;width:10px;height:3px;background:#10b981;vertical-align:middle;margin-right:4px"></span>观察</span>
+                 <span><span style="display:inline-block;width:10px;height:3px;background:var(--primary);vertical-align:middle;margin-right:4px"></span>执行</span>
+                 <span><span style="display:inline-block;width:10px;height:3px;background:var(--success);vertical-align:middle;margin-right:4px"></span>观察</span>
                  <span>最大 {{ kbTrendPoints.max }} 令牌</span>
               </div>
             </div>
@@ -2557,7 +2590,7 @@
                    ▼ 内核缺失 ({{ kbDiff.missing_in_kernel.length }}) — 期望但未安装
                  </div>
                 <table class="data-table">
-                   <thead><tr><th>IP</th><th>集合</th><th>来源</th><th>过期</th></tr></thead>
+                   <thead><tr><th scope="col">IP</th><th scope="col">集合</th><th scope="col">来源</th><th scope="col">过期</th></tr></thead>
                   <tbody>
                     <tr v-for="(e, i) in kbDiff.missing_in_kernel" :key="'m'+i">
                       <td style="font-family:monospace">{{ e.ip }}</td>
@@ -2573,7 +2606,7 @@
                    ▲ 内核孤儿 ({{ kbDiff.orphan_in_kernel.length }}) — 已安装但非期望
                  </div>
                 <table class="data-table">
-                   <thead><tr><th>IP</th><th>集合</th><th>协议族</th></tr></thead>
+                   <thead><tr><th scope="col">IP</th><th scope="col">集合</th><th scope="col">协议族</th></tr></thead>
                   <tbody>
                     <tr v-for="(e, i) in kbDiff.orphan_in_kernel" :key="'o'+i">
                       <td style="font-family:monospace">{{ e.ip }}</td>
@@ -2678,10 +2711,10 @@
          </div>
       </div>
       <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
-      <div v-if="wafEditModal.mode === 'edit' && wafDiffLines.length" style="margin-bottom:8px; border:1px solid #e0e3eb; border-radius:6px; overflow:hidden">
-        <div style="background:#f9fafb;padding:6px 12px;font-size:12px;font-weight:600;color:#374151;border-bottom:1px solid #e0e3eb">变更预览</div>
+      <div v-if="wafEditModal.mode === 'edit' && wafDiffLines.length" style="margin-bottom:8px; border:1px solid var(--border); border-radius:6px; overflow:hidden">
+        <div style="background:var(--muted-bg);padding:6px 12px;font-size:12px;font-weight:600;color:var(--text);border-bottom:1px solid var(--border)">变更预览</div>
         <div style="max-height:120px;overflow-y:auto;font-family:ui-monospace,monospace;font-size:12px;background:#fff">
-          <div v-for="(d,i) in wafDiffLines" :key="i" :style="{background:d.type==='added'?'#f0fdf4':'#fef2f2',color:d.type==='added'?'#166534':'#991b1b',padding:'2px 12px',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
+          <div v-for="(d,i) in wafDiffLines" :key="i" :style="{background:d.type==='added'?'var(--success-bg)':'var(--danger-bg)',color:d.type==='added'?'var(--success-text)':'var(--danger-text)',padding:'2px 12px',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
             {{ d.type === 'added' ? '+' : '-' }} {{ d.text }}
           </div>
         </div>
@@ -2805,24 +2838,25 @@
            <div>
              <code>{{ wafHitDetailModal.data.ip }}</code>
              <button class="outline small" style="margin-left:4px" @click="copyText(wafHitDetailModal.data.ip)" title="复制 IP">复制</button>
-             <span v-if="wafHitDetailModal.data.ip_whitelisted" class="tag" style="background:#d1fae5;color:#065f46;margin-left:4px" title="已加入白名单的 IP，不受声誉评分和封禁影响">白名单</span>
-             <span v-else-if="wafHitDetailModal.data.ip_flagged" class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px" title="该 IP 的声誉分数已超过阈值，已被系统自动挑战或封禁">已标记</span>
+             <button class="outline small" style="margin-left:4px" @click="wafHitDetailModal.show=false;openIpReputation(wafHitDetailModal.data.ip)" title="跳转到 IP 声誉详情">声誉详情</button>
+             <span v-if="wafHitDetailModal.data.ip_whitelisted" class="tag" style="background:var(--success-bg);color:var(--success-text);margin-left:4px" title="已加入白名单的 IP，不受声誉评分和封禁影响">白名单</span>
+             <span v-else-if="wafHitDetailModal.data.ip_flagged" class="tag" style="background:var(--danger-bg);color:var(--danger-text);margin-left:4px" title="该 IP 的声誉分数已超过阈值，已被系统自动挑战或封禁">已标记</span>
              <span class="tag" style="margin-left:4px" title="IP 声誉分数：0=可信，≥阈值自动挑战，过高则封禁。由 WAF 命中、404 频率等信号累积计算">分数: {{ wafHitDetailModal.data.ip_score || 0 }}</span>
-             <span class="tag" style="margin-left:4px;color:#6b7280">该 IP 共 {{ wafHitDetailModal.data.ip_hit_count || 0 }} 条命中</span>
+             <span class="tag" style="margin-left:4px;color:var(--muted)">该 IP 共 {{ wafHitDetailModal.data.ip_hit_count || 0 }} 条命中</span>
            </div>
          </div>
          <div class="field"><label>URI</label><code style="word-break:break-all">{{ wafHitDetailModal.data.uri }}</code></div>
          <div class="field" v-if="wafHitDetailModal.data.query_string"><label>查询字符串</label><code style="word-break:break-all">{{ wafHitDetailModal.data.query_string }}</code></div>
-         <div class="field"><label>User-Agent</label><div style="font-size:12px;color:#374151;word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
+         <div class="field"><label>User-Agent</label><div style="font-size:12px;color:var(--text);word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
          <div class="field" v-if="wafHitDetailModal.data.ja3_fingerprint || wafHitDetailModal.data.tls_fingerprint"><label>TLS 指纹</label><div>
               <code style="font-size:11px;word-break:break-all">{{ wafHitDetailModal.data.tls_fingerprint || wafHitDetailModal.data.ja3_fingerprint }}</code>
-              <span v-if="wafHitDetailModal.data.tls_fingerprint_kind" class="tag" :style="{background:wafHitDetailModal.data.tls_fingerprint_kind==='ja4'?'#dbeafe':wafHitDetailModal.data.tls_fingerprint_kind==='ja4h'?'#ede9fe':'#e5e7eb'}" :title="fpKindTitle(wafHitDetailModal.data.tls_fingerprint_kind)">{{ wafHitDetailModal.data.tls_fingerprint_kind }}</span>
-              <span v-if="wafHitDetailModal.data.tls_fingerprint_family" class="tag" style="background:#fef3c7;color:#92400e" :title="'家族段（JA4 前 10 字符）：只比较这一段即可在同一客户端升级换套件时持续命中'">家族 {{ wafHitDetailModal.data.tls_fingerprint_family }}</span>
+              <span v-if="wafHitDetailModal.data.tls_fingerprint_kind" class="tag" :style="{background:wafHitDetailModal.data.tls_fingerprint_kind==='ja4'?'var(--info-bg)':wafHitDetailModal.data.tls_fingerprint_kind==='ja4h'?'var(--violet-bg)':'var(--muted-bg)'}" :title="fpKindTitle(wafHitDetailModal.data.tls_fingerprint_kind)">{{ wafHitDetailModal.data.tls_fingerprint_kind }}</span>
+              <span v-if="wafHitDetailModal.data.tls_fingerprint_family" class="tag" style="background:var(--warning-bg);color:var(--warning-text)" :title="'家族段（JA4 前 10 字符）：只比较这一段即可在同一客户端升级换套件时持续命中'">家族 {{ wafHitDetailModal.data.tls_fingerprint_family }}</span>
               <button class="outline small" style="margin-left:4px" @click="copyText(wafHitDetailModal.data.tls_fingerprint || wafHitDetailModal.data.ja3_fingerprint)" title="复制指纹值">复制</button>
             </div>
             <div v-if="!wafHitDetailModal.data.tls_fingerprint_kind" style="font-size:11px;color:var(--muted);margin-top:4px">旧记录没有类型/家族字段：值前缀即类型（ja4: / ja3: / tls:），复制时去掉前缀即可作为指纹哈希。</div>
           </div>
-         <div class="field" v-if="wafHitDetailModal.data.body_snippet"><label>Body (前 1KB)</label><pre style="background:#f9fafb;padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
+         <div class="field" v-if="wafHitDetailModal.data.body_snippet"><label>Body (前 1KB)</label><pre style="background:var(--muted-bg);padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
          <div class="field" v-if="wafHitDetailModal.data.headers && Object.keys(wafHitDetailModal.data.headers).length">
            <label>请求头</label>
           <table style="font-size:11px">
@@ -2842,10 +2876,10 @@
         </div>
         <!-- IP Hits List (shown after clicking view) -->
         <div v-if="wafIpHitsError" class="error" style="margin-bottom:8px">{{ wafIpHitsError }}</div>
-        <div v-if="wafIpHits.length" style="margin-top:16px;border-top:1px solid #e0e3eb;padding-top:12px">
+        <div v-if="wafIpHits.length" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
           <h4 style="font-size:13px;margin-bottom:8px">IP {{ wafIpHitsIp }} 的最近命中 ({{ wafIpHits.length }})</h4>
           <table style="font-size:12px">
-            <thead><tr><th>时间</th><th>规则</th><th>方法</th><th>URI</th></tr></thead>
+            <thead><tr><th scope="col">时间</th><th scope="col">规则</th><th scope="col">方法</th><th scope="col">URI</th></tr></thead>
             <tbody>
                 <tr v-for="(ih, ii) in wafIpHits.slice(0, 20)" :key="ii" @click="openHitDetail(ih)" style="cursor:pointer">
                 <td style="white-space:nowrap">{{ fmtTime(ih.timestamp) }}</td>
@@ -2933,7 +2967,7 @@
   <!-- Unified Confirm Modal -->
   <div class="modal-overlay" v-if="confirmModal.show" @click.self="confirmModalCancel">
     <div class="modal" style="max-width:480px">
-      <h3 :style="{color: confirmModal.type==='danger' ? '#ef4444' : confirmModal.type==='warning' ? '#f59e0b' : '#3b82f6'}">{{ confirmModal.title }}</h3>
+      <h3 :style="{color: confirmModal.type==='danger' ? 'var(--danger)' : confirmModal.type==='warning' ? 'var(--warning)' : 'var(--primary)'}">{{ confirmModal.title }}</h3>
       <div v-if="confirmModal.message" style="font-size:14px;color:var(--text);margin:12px 0;white-space:pre-wrap">{{ confirmModal.message }}</div>
       <div v-if="confirmModal.requireInput" class="field" style="margin-top:16px">
         <label style="font-size:13px;color:var(--muted)">{{ confirmModal.inputLabel }}</label>
@@ -2987,16 +3021,16 @@
 
 </template>
 </div>
-  <script src="/verynginx/static/vn-common.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/vn-dashboard.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/vn-config.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/vn-waf.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/vn-frequency.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/vn-iploc.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/vn-reputation.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/vn-advanced.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/vn-kb.js?v=2.3.0-1"></script>
-  <script src="/verynginx/static/app.js?v=2.3.0-1"></script>
+  <script src="/verynginx/static/vn-common.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/vn-dashboard.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/vn-config.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/vn-waf.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/vn-frequency.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/vn-iploc.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/vn-reputation.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/vn-advanced.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/vn-kb.js?v=2.3.0-3"></script>
+  <script src="/verynginx/static/app.js?v=2.3.0-3"></script>
   <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->
 </body>
 </html>

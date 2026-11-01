@@ -55,7 +55,11 @@
 
     async function loadOverview() {
       const tok = gOverview.mark();
-      const o = { conn_active: 0, req_rate: 0, up_healthy: 0, up_total: 0, waf_hits: 0, dicts: [], top_uris: [], plugin_errors: [] };
+      // Unknown is not zero. Before the first successful load these stay null
+      // and the template renders "—"; painting "0 连接 / 0 QPS" during the
+      // first 5 seconds is indistinguishable from a healthy idle server and
+      // is exactly backwards during an incident.
+      const o = { conn_active: null, req_rate: null, up_healthy: null, up_total: null, waf_hits: null, dicts: [], top_uris: [], plugin_perf: [], partial_errors: [] };
       try {
         // Status: connection counts
         const s = await api('GET', '/verynginx/status');
@@ -64,6 +68,8 @@
         // Health: upstream node status
         const h = await api('GET', '/verynginx/upstreams/health');
         if (h.ret === 'success') {
+          o.up_total = 0;
+          o.up_healthy = 0;
           for (const [name, nodes] of Object.entries(h.data || {})) {
             for (const n of nodes) {
               o.up_total++;
@@ -133,6 +139,9 @@
             o.waf_hits = Object.values(w.data).reduce((s, r) => s + (r.hits || 0), 0);
           }
         } catch (e) {
+          // A failed sub-request used to leave waf_hits at 0 and render
+          // "0 命中" — the most dangerous possible lie during an attack.
+          o.partial_errors.push('WAF 命中统计');
           console.warn('Overview WAF stats failed:', e.message);
         }
 
@@ -143,14 +152,17 @@
             o.flagged = r.data.flagged || 0;
           }
         } catch (e) {
+          o.partial_errors.push('IP 声誉');
           console.warn('Overview reputation stats failed:', e.message);
         }
       } catch (e) {
         // Main data source failed: keep the last good overview so the page
         // never shows a silent all-zero "all quiet" picture. The health
-        // summary card surfaces the error instead.
+        // summary card surfaces the error instead. Rethrow so the poller
+        // records the failure (badge/backoff) rather than treating the
+        // swallowed error as a successful refresh.
         if (gOverview.isCurrent(tok)) overviewError.value = e.message;
-        return;
+        throw e;
       }
       // Merge plugin errors with duration into plugin_perf
       const perfMap = {};
@@ -174,6 +186,7 @@
       o.dicts = (o.dicts || []).sort((a, b) => b.pct - a.pct).slice(0, 6);
       if (!gOverview.isCurrent(tok)) return;
       overview.value = o;
+      overviewLoaded.value = true;
       overviewError.value = '';
     }
 
@@ -185,7 +198,7 @@
     registerPoll('status', {
         active: () => page.value === 'dashboard' && dashTab.value === 'status',
         interval: 3000,
-        load: loadStatus,
+        load: () => loadStatus(true),
         pages: ['dashboard'],
     });
     // Sampled alongside the overview poll so the card is populated without the
@@ -195,7 +208,7 @@
         interval: 300000,
         immediate: true,
         active: () => page.value === 'dashboard' && dashTab.value === 'overview',
-        run: () => loadDictDiag(),
+        run: () => loadDictDiag(true),
     });
 
     registerPoll('overview', {
@@ -216,13 +229,13 @@
     registerPoll('wafTrend', {
         active: () => page.value === 'dashboard' && dashTab.value === 'overview',
         interval: 30000,
-        load: loadWafTrend,
+        load: () => loadWafTrend(true),
         pages: ['dashboard'],
     });
     registerPoll('health', {
         active: () => page.value === 'config' && cfgTab.value === 'upstreams',
         interval: 10000,
-        load: loadHealth,
+        load: () => loadHealth(true),
         pages: ['config'],
     });
 
@@ -284,6 +297,9 @@
     const gOverview = shared.createStaleGuard();
     const gWafTrend = shared.createStaleGuard();
     const overviewError = ref('');
+    // True once at least one overview load has succeeded. Templates use it to
+    // distinguish "not loaded yet" (—) from a genuine zero reading.
+    const overviewLoaded = ref(false);
     // Shared-dict composition. The watermark above comes from /metrics and has
     // reported two mutually exclusive states eleven minutes apart — once
     // claiming vn_config was empty while it held hundreds of keys. This reads
@@ -293,7 +309,7 @@
     const dictDiag = ref([]);
     const dictDiagBusy = ref(false);
 
-    async function loadDictDiag() {
+    async function loadDictDiag(throwOnError) {
       if (dictDiagBusy.value) return;
       dictDiagBusy.value = true;
       try {
@@ -307,6 +323,7 @@
         }
       } catch (e) {
         console.warn('Dict diagnostics failed:', e.message);
+        if (throwOnError) throw e;
       } finally {
         dictDiagBusy.value = false;
       }
@@ -323,20 +340,42 @@
     // climbing", which is the difference between a number and an alarm.
     const live = ref(null);
     const liveBusy = ref(false);
+    const liveError = ref('');
+    const liveLoaded = ref(false);
+    // Window length is user-selectable: 10min is the default, 5 gives finer
+    // resolution and 30 the wider trend. The API clamps to [1,30], so 60 would
+    // need a server-side change first.
+    const liveMinutes = ref(10);
+    let _livePending = false;
 
     async function loadLive() {
-      if (liveBusy.value) return;
+      if (liveBusy.value) { _livePending = true; return; }
       liveBusy.value = true;
       try {
-        const r = await api('GET', '/verynginx/live?minutes=10');
-        if (r && r.ret === 'success') live.value = r.data || null;
+        const r = await api('GET', '/verynginx/live?minutes=' + liveMinutes.value);
+        if (r && r.ret === 'success') {
+          live.value = r.data || null;
+          liveLoaded.value = true;
+          liveError.value = '';
+        }
       } catch (e) {
         // A failed poll must not clear the last good reading: an operator
         // looking at a stale card is better off than one looking at nothing.
+        liveError.value = e.message;
         console.warn('Live traffic failed:', e.message);
+        throw e;
       } finally {
         liveBusy.value = false;
+        if (_livePending) { _livePending = false; loadLive().catch(() => {}); }
       }
+    }
+
+    // Changing the window while a request is in flight used to be dropped by
+    // the busy guard, leaving the selector showing a window the data didn't
+    // use. _livePending re-runs once the in-flight request settles.
+    function setLiveMinutes(m) {
+      liveMinutes.value = Number(m) || 10;
+      loadLive().catch(() => {});
     }
 
     // The most recent minute of a host's series.
@@ -397,7 +436,7 @@
     // 2h window / 15min buckets = 8 buckets: current hour vs previous hour.
     // A dedicated 30s poller keeps the 5s overview poller light.
     const wafTrendData = ref([]);
-    async function loadWafTrend() {
+    async function loadWafTrend(throwOnError) {
       const tok = gWafTrend.mark();
       try {
         const d = await api('GET', '/verynginx/waf/timeline?hours=2&bucket=15');
@@ -411,6 +450,7 @@
         }
       } catch (e) {
         // Trend is a secondary view; on failure the card simply stays hidden.
+        if (throwOnError) throw e;
       }
     }
 
@@ -570,7 +610,7 @@
 
 
     // ---- Load ----
-    async function loadStatus() {
+    async function loadStatus(throwOnError) {
       try {
         const s = await api('GET', '/verynginx/status');
         status.value = s;
@@ -584,6 +624,7 @@
         // Keep the last good numbers on screen; the error banner tells the
         // user the data may be stale instead of showing a silent 0.
         statusError.value = '连接状态获取失败：' + e.message;
+        if (throwOnError) throw e;
       }
     }
 
@@ -612,12 +653,13 @@
       if (!silent) showToast('配置已刷新', 'success');
     }
 
-    async function loadHealth() {
+    async function loadHealth(throwOnError) {
       try {
         const d = await api('GET', '/verynginx/upstreams/health');
         if (d.ret === 'success') healthData.value = d.data || {};
       } catch (e) {
         console.warn('Upstream health check failed:', e.message);
+        if (throwOnError) throw e;
       }
     }
 
@@ -755,6 +797,12 @@
     view('dictDiagBusy', dictDiagBusy);
     view('loadDictDiag', loadDictDiag);
     view('live', live);
+    view('liveLoaded', liveLoaded);
+    view('liveError', liveError);
+    view('liveMinutes', liveMinutes);
+    view('setLiveMinutes', setLiveMinutes);
+    view('overviewLoaded', overviewLoaded);
+    view('overviewError', overviewError);
     // The three helpers are referenced by the template, so they belong in the
     // template-visible scope (view), not in ctx(). loadLive is NOT: it is
     // driven by the poll, and exporting it would put a binding in the render
@@ -790,6 +838,10 @@
       overviewError.value = '';
       statusError.value = '';
       wafTrendData.value = [];
+      overviewLoaded.value = false;
+      live.value = null;
+      liveLoaded.value = false;
+      liveError.value = '';
     });
 
         // Module initialization (if any)

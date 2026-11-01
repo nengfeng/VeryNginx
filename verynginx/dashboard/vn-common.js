@@ -425,7 +425,7 @@
     let _introTriggered = false;
     watch(() => store.loggedIn, (v) => {
       if (v) {
-        // Start nowTick ticker so "最后更新" label stays fresh.
+        // Start nowTick ticker so the "最后成功 X 秒前" label stays fresh.
         _startNowTick();
         // Fire intro tour on first login only.
         if (!_introTriggered) {
@@ -667,26 +667,58 @@
     ctx('AUDIT_LIMIT', AUDIT_LIMIT);
 
     // ---- Polling registry ----
-    // Refresh transparency: pause switch + per-poll last-run timestamps. The
-    // badge computes "最后更新 N 秒前" from the newest stamp; a 1s ticker
-    // re-renders the label without touching any data ref.
+    // Refresh transparency: pause switch + per-poll freshness. Two timestamps
+    // are kept per poller — when it was last ASKED and when it last SUCCEEDED.
+    // The old badge only tracked the request, so a backend returning 502 kept
+    // the label at "1 秒前" and made stale data look fresh. Only a successful
+    // load advances the displayed age now; a failure flips the badge to an
+    // explicit "更新失败" state with the last-success age.
     const autoRefreshPaused = ref(false);
     view('autoRefreshPaused', autoRefreshPaused);
-    const lastUpdated = {};
+    // name -> { okAt, triedAt, error, failures, inFlight, nextAt }
+    const pollState = reactive({});
+    // Names of pollers whose timer is currently running. Declared before the
+    // refreshStatus computed because the Node init gate evaluates computed()
+    // immediately (unlike Vue), so a later const would be in its TDZ. Internal
+    // only — the template reads refreshStatus, not this list.
+    const activePollNames = ref([]);
     const nowTick = ref(Date.now());
-    // nowTick drives the "最后更新 X 秒前" label. Run only while logged in so
+    // nowTick drives the "最后成功 X 秒前" label. Run only while logged in so
     // the interval is killed on logout (consistent with registerPoll semantics).
     let _nowTickTimer = null;
     function _startNowTick() { if (_nowTickTimer) return; _nowTickTimer = setInterval(() => { nowTick.value = Date.now(); }, 1000); }
     function _stopNowTick() { if (!_nowTickTimer) return; clearInterval(_nowTickTimer); _nowTickTimer = null; }
-    const lastRefreshLabel = computed(() => {
-        let newest = 0;
-        for (const t of Object.values(lastUpdated)) { if (t > newest) newest = t; }
-        if (!newest || !store.loggedIn) return '';
-        const sec = Math.max(0, Math.floor((nowTick.value - newest) / 1000));
-        return sec < 5 ? '刚刚更新' : '最后更新 ' + sec + ' 秒前';
+    // Human labels for poll failures — "overview 自动刷新失败" means nothing
+    // to an operator; the card name does.
+    const POLL_LABELS = {
+        status: '连接状态', overview: '概览', live: '实时流量',
+        health: '上游健康', wafTrend: '攻击趋势', dictDiag: '字典诊断',
+    };
+    function pollStateOf(name) {
+        if (!pollState[name]) {
+            pollState[name] = { okAt: 0, triedAt: 0, error: '', failures: 0, inFlight: false, nextAt: 0 };
+        }
+        return pollState[name];
+    }
+    const refreshStatus = computed(() => {
+        const names = activePollNames.value;
+        if (!names.length || !store.loggedIn) return { level: 'idle', text: '', failed: 0 };
+        let newestOk = 0, failed = 0, firstErr = '';
+        for (const n of names) {
+            const st = pollState[n];
+            if (!st) continue;
+            if (st.error) { failed++; if (!firstErr) firstErr = st.error; }
+            else if (st.okAt > newestOk) newestOk = st.okAt;
+        }
+        const age = newestOk ? Math.max(0, Math.floor((nowTick.value - newestOk) / 1000)) : -1;
+        const ago = age < 0 ? '尚无成功数据' : (age < 5 ? '刚刚' : age + ' 秒前');
+        if (failed) {
+            return { level: 'err', text: '更新失败 · 最后成功 ' + ago, failed, error: firstErr };
+        }
+        if (age < 0) return { level: 'pending', text: '加载中…', failed: 0 };
+        return { level: 'ok', text: age < 5 ? '刚刚更新' : '最后成功 ' + ago, failed: 0 };
     });
-    view('lastRefreshLabel', lastRefreshLabel);
+    view('refreshStatus', refreshStatus);
     // Pages where an active poller exists — badge only shown when the current
     // page is one of these. Without this guard, the badge would display a
     // stale "last updated N seconds ago" on pages (waf, kb, advanced, etc.)
@@ -696,12 +728,15 @@
     function refreshPollActivePages() {
         // Read declared pages from poll specs for active timers.
         const result = new Set();
-        for (const [, p] of polls) {
+        const names = [];
+        for (const [name, p] of polls) {
             if (p.timer !== null) {
+                names.push(name);
                 for (const pg of p.pages) result.add(pg);
             }
         }
         pollActivePages.value = [...result];
+        activePollNames.value = names;
     }
     // Re-evaluate on navigation so the badge reflects the current page
     // regardless of watch-registration order (syncPolls may run before or
@@ -748,13 +783,20 @@
 
     function syncPolls() {
         if (!store.loggedIn) { stopAllPolls(); return; }
-        // User pause switch (demo/troubleshooting): no poller may run while set.
-        if (autoRefreshPaused.value) { stopAllPolls(); return; }
+        // Two independent pause sources: the user switch and a hidden tab.
+        // Nothing polls in the background — a dashboard left open overnight
+        // used to fire thousands of requests (and re-read access logs) while
+        // nobody was looking. On return, syncPolls() loads every active poller
+        // immediately, so the first frame back is fresh.
+        if (autoRefreshPaused.value || (typeof document !== 'undefined' && document.hidden)) {
+            stopAllPolls();
+            return;
+        }
         for (const poll of polls.values()) {
             const shouldRun = poll.active();
             if (shouldRun && poll.timer === null) {
-                runPollLoad(poll);
                 poll.timer = setInterval(() => runPollLoad(poll), poll.interval);
+                runPollLoad(poll);
             } else if (!shouldRun && poll.timer !== null) {
                 clearInterval(poll.timer);
                 poll.timer = null;
@@ -763,19 +805,69 @@
         refreshPollActivePages();
     }
 
-    function runPollLoad(poll) {
-        try {
-            Promise.resolve(poll.load()).catch((e) => {
-                console.error('[VeryNginx] poll load failed: ' + e.message);
-            }).finally(() => {
-                // Record freshness regardless of success — the badge shows how
-                // long ago the backend was last ASKED, which is what "how
-                // stale is this view" means during an outage.
-                lastUpdated[poll.name] = Date.now();
-            });
-        } catch (e) {
-            console.error('[VeryNginx] poll load failed: ' + e.message);
+    // Run one poller tick. Three guards live here rather than in each loader:
+    //  1. single-flight — a slow backend must not stack overlapping requests
+    //     (the fixed interval keeps ticking; extra ticks are simply skipped);
+    //  2. exponential backoff on failure (interval × 2^n, capped at 60s) so a
+    //     down backend isn't hammered every 3s;
+    //  3. one toast per failure streak (at the 3rd miss) plus a recovery toast,
+    //     instead of an error every tick or a silent stale view.
+    function runPollLoad(poll, force) {
+        const st = pollStateOf(poll.name);
+        if (st.inFlight) return Promise.resolve();
+        if (!force && st.nextAt && Date.now() < st.nextAt) return Promise.resolve();
+        st.inFlight = true;
+        st.triedAt = Date.now();
+        return Promise.resolve()
+            .then(() => poll.load())
+            .then(() => {
+                const recovered = st.failures >= 3;
+                st.okAt = Date.now();
+                st.error = '';
+                st.failures = 0;
+                st.nextAt = 0;
+                if (recovered) showToast((POLL_LABELS[poll.name] || poll.name) + ' 自动刷新已恢复', 'success', { duration: 3000 });
+            })
+            .catch((e) => {
+                const msg = (e && e.message) ? e.message : String(e);
+                // Session expiry is handled centrally (login page). Counting it
+                // as a data failure would flash "更新失败" on the way out.
+                if (msg === 'session_expired') return;
+                st.failures += 1;
+                st.error = msg;
+                st.nextAt = Date.now() + Math.min(poll.interval * Math.pow(2, Math.min(st.failures, 5)), 60000);
+                console.error('[VeryNginx] poll load failed (' + poll.name + '): ' + msg);
+                if (st.failures === 3) {
+                    showToast((POLL_LABELS[poll.name] || poll.name) + ' 自动刷新失败：' + msg + '（将自动重试）', 'error', { duration: 8000 });
+                }
+            })
+            .finally(() => { st.inFlight = false; });
+    }
+
+    // "立即刷新": force every active poller once, ignoring backoff. The badge
+    // only offered pause/resume; there was no way to say "I fixed it, check now".
+    function refreshNow() {
+        for (const [name, poll] of polls) {
+            if (poll.timer !== null) {
+                pollStateOf(name).nextAt = 0;
+                runPollLoad(poll, true);
+            }
         }
+    }
+    view('refreshNow', refreshNow);
+
+    // Resume polling when the tab becomes visible again (and stop it when it
+    // goes away). Registered outside syncPolls so the user switch and the
+    // visibility state stay independent.
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopAllPolls();
+                refreshPollActivePages();
+            } else {
+                syncPolls();
+            }
+        });
     }
 
     function stopAllPolls() {
@@ -1009,6 +1101,21 @@
     }
     ctx('asList', asList);
 
+    // Render a value that may not have arrived yet. "0" is a real reading
+    // (0 connections, 0 hits); undefined/null is "we don't know yet" and must
+    // not be painted as a reassuring zero.
+    function numOrDash(v) {
+      return (v === undefined || v === null || v === '') ? '—' : Number(v).toLocaleString();
+    }
+    view('numOrDash', numOrDash);
+
+    // aria-sort for a sortable column, driven by the table tools state.
+    function ariaSort(tools, key) {
+      if (!tools || !tools.state || tools.state.sortKey !== key) return 'none';
+      return tools.state.sortDir === 1 ? 'ascending' : 'descending';
+    }
+    view('ariaSort', ariaSort);
+
     // ---- Clipboard ----
     // Clipboard API requires a secure context; fall back to a temporary
     // textarea + execCommand for plain-http deployments.
@@ -1038,6 +1145,65 @@
       }
     }
     view('copyText', copyText);
+
+    // Cross-page drill-downs. A WAF hit shows an IP but the reputation detail
+    // modal only exists on the reputation page, so copy+paste was the only
+    // way to get from "who is this" to "what do we know about it".
+    async function openIpReputation(ip) {
+      if (!ip) return;
+      await navigateTo('reputation');
+      if (shared.repOpenDetail) shared.repOpenDetail(ip, 'overview');
+    }
+    view('openIpReputation', openIpReputation);
+
+    // Live-traffic host -> per-host request stats (the host filter already
+    // exists on the stats tab; it just wasn't reachable from the card).
+    async function openHostStats(host) {
+      if (!host) return;
+      await navigateTo('dashboard');
+      if (shared.dashTab) shared.dashTab.value = 'stats';
+      if (shared.statsHost) shared.statsHost.value = host;
+      if (shared.loadStats) shared.loadStats();
+    }
+    view('openHostStats', openHostStats);
+
+    // ---- Table accessible names ----
+    // 54 tables, mostly built inline in the template with no caption. Rather
+    // than hand-name every one (and forget the next), derive a name from the
+    // nearest heading/strong and set aria-label. A MutationObserver keeps it
+    // correct for tables that only exist on a tab that is opened later.
+    function describeTable(table) {
+      if (table.getAttribute('aria-label') || table.querySelector('caption')) return;
+      let el = table.previousElementSibling;
+      let label = '';
+      while (el && !label) {
+        if (/^(STRONG|H2|H3|H4)$/.test(el.tagName)) {
+          label = (el.textContent || '').trim();
+        } else if (el.matches && el.matches('.card, .config-section')) {
+          const h = el.querySelector('strong, h2, h3, h4');
+          if (h) label = (h.textContent || '').trim();
+        }
+        el = el.previousElementSibling;
+      }
+      if (label) table.setAttribute('aria-label', label.replace(/\s+/g, ' ').slice(0, 80));
+    }
+    function scanTables() {
+      if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return;
+      const tables = document.querySelectorAll('#app table');
+      for (const t of tables) describeTable(t);
+    }
+    let _tableScanQueued = false;
+    function queueTableScan() {
+      if (_tableScanQueued) return;
+      _tableScanQueued = true;
+      Promise.resolve().then(() => { _tableScanQueued = false; scanTables(); });
+    }
+    if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined'
+        && typeof document.getElementById === 'function') {
+      const root = document.getElementById('app');
+      if (root) new MutationObserver(queueTableScan).observe(root, { childList: true, subtree: true });
+    }
+    watch([page, dashTab, cfgTab], queueTableScan);
 
     // ---- Modal keyboard accessibility ----
     // One composable for every dialog: Escape closes the topmost modal, focus
@@ -1154,8 +1320,9 @@
       for (const t of toasts.value) { if (t.timer) clearTimeout(t.timer); }
       toasts.value = [];
       // Freshness stamps from the previous session would render a bogus
-      // "最后更新" right after re-login.
-      for (const k of Object.keys(lastUpdated)) delete lastUpdated[k];
+      // "最后成功" right after re-login.
+      for (const k of Object.keys(pollState)) delete pollState[k];
+      activePollNames.value = [];
     });
 
         // Module initialization (if any)

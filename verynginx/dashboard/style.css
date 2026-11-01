@@ -1,11 +1,48 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#f5f6fa;--card:#fff;--border:#e0e3eb;--text:#1a1a2e;--muted:#6b7280;--primary:#4361ee;--primary-hover:#3a56d4;--danger:#e63946;--success:#2ec4b6;--warning:#f4a261}
-[data-theme="dark"]{--bg:#1a1a2e;--card:#2d2d44;--border:#3d3d5c;--text:#e0e0e0;--muted:#9ca3af;--primary:#6366f1;--primary-hover:#4f46e5;--danger:#ef4444;--success:#10b981;--warning:#f59e0b}
+:root{
+  --bg:#f5f6fa;--card:#fff;--border:#e0e3eb;--text:#1a1a2e;--muted:#6b7280;
+  --primary:#4361ee;--primary-hover:#3a56d4;--danger:#e63946;--success:#2ec4b6;--warning:#f4a261;
+  /* Text-on-card variants: the saturated accent colours above are for fills
+     (buttons/bars). Painting text with them failed WCAG AA on the dark card
+     (#b91c1c on #2d2d44 = 2.07:1), so text uses these theme-paired tokens. */
+  --danger-text:#b91c1c;--warning-text:#a16207;--success-text:#15803d;--info-text:#1e40af;
+  --danger-bg:#fee2e2;--warning-bg:#fef3c7;--success-bg:#d1fae5;--info-bg:#dbeafe;
+  --violet-bg:#ede9fe;--violet-text:#5b21b6;--muted-bg:#f3f4f6
+}
+[data-theme="dark"]{
+  --bg:#1a1a2e;--card:#2d2d44;--border:#3d3d5c;--text:#e0e0e0;--muted:#9ca3af;
+  --primary:#6366f1;--primary-hover:#4f46e5;--danger:#ef4444;--success:#10b981;--warning:#f59e0b;
+  --danger-text:#fca5a5;--warning-text:#fcd34d;--success-text:#86efac;--info-text:#93c5fd;
+  --danger-bg:rgba(239,68,68,.18);--warning-bg:rgba(245,158,11,.18);
+  --success-bg:rgba(16,185,129,.18);--info-bg:rgba(59,130,246,.18);
+  --violet-bg:rgba(139,92,246,.22);--violet-text:#c4b5fd;--muted-bg:rgba(255,255,255,.07)
+}
 body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
 a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
 input,select,textarea,button{font:inherit}
 button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:14px;white-space:nowrap}
 button:disabled{opacity:.55;cursor:progress}
+/* One visible focus ring for every interactive element. The nav/tab "links"
+   are <button>s now (they changed state but were not reachable by Tab when
+   they were <a> without href), so the ring must also apply to a/button. */
+a:focus-visible,button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible,
+[tabindex]:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+/* Inline "link" rendered as a button: real link semantics (Enter/Space,
+   focus ring, screen-reader "button") without the <a href> navigation. */
+.linklike{background:none;border:none;padding:0;margin:0;color:var(--primary);font:inherit;text-decoration:underline;cursor:pointer;white-space:normal}
+.linklike:hover{color:var(--primary-hover)}
+/* Compact square icon button (copy / jump) used inside table cells. */
+.icon-btn{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:1px 6px;font-size:11px;line-height:1.6;white-space:nowrap}
+.icon-btn:hover{color:var(--text);background:var(--bg)}
+/* Semantic value colours: wasted as fills in dark mode, so they are their own
+   theme-paired text tokens rather than the saturated --danger/--warning. */
+.val-danger{color:var(--danger-text)}.val-warn{color:var(--warning-text)}.val-ok{color:var(--success-text)}
+.val-muted{color:var(--muted)}
+/* Compact segmented control for the live-traffic window (5/10/30 min). */
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.seg button{background:transparent;color:var(--muted);border:none;border-radius:0;padding:2px 9px;font-size:11px}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button.active{background:var(--primary);color:#fff}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:vnspin .7s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes vnspin{to{transform:rotate(360deg)}}
 button.primary{background:var(--primary);color:#fff}button.primary:hover{background:var(--primary-hover)}
@@ -25,7 +62,15 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 th.sortable:hover,th.sortable:focus-visible{color:var(--text);outline:2px solid var(--primary);outline-offset:-2px;border-radius:2px}
 .sort-ind{font-size:10px}
 .tbl-filter{max-width:240px;margin-bottom:8px}
-.refresh-badge{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;white-space:nowrap}
+/* Freshness badge. States are explicit: ok (age of last SUCCESS), pending
+   (nothing loaded yet), err (last attempt failed — age refers to the last
+   success, which is the number that actually matters during an outage). */
+.refresh-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;white-space:nowrap}
+.refresh-badge.err{color:var(--danger-text);border-color:var(--danger-text);background:var(--danger-bg)}
+.refresh-badge.err .linklike{color:var(--danger-text)}
+.refresh-badge.pending{color:var(--muted)}
+.refresh-badge .linklike{font-size:12px}
+.refresh-badge .dot{width:7px;height:7px}
 .pass-wrap{display:flex;gap:8px}
 .pass-wrap input{flex:1}
 .pass-toggle{flex-shrink:0}
@@ -42,7 +87,10 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .flex{display:flex;align-items:center}.flex-between{justify-content:space-between}.gap-8{gap:8px}.gap-16{gap:16px}
 .mb-8{margin-bottom:8px}.mb-16{margin-bottom:16px}.mt-16{margin-top:16px}
 .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
-.tag-ok{background:#d1fae5;color:#065f46}.tag-err{background:#fee2e2;color:#991b1b}.tag-warn{background:#fef3c7;color:#92400e}
+.tag-ok{background:var(--success-bg);color:var(--success-text)}
+.tag-err{background:var(--danger-bg);color:var(--danger-text)}
+.tag-warn{background:var(--warning-bg);color:var(--warning-text)}
+.tag-info{background:var(--info-bg);color:var(--info-text)}
 /* Health summary card: one-line verdict with a left accent bar */
 .health-summary{display:flex;align-items:center;gap:10px;padding:12px 16px;font-size:13px;border-left:4px solid var(--border)}
 .health-summary-ok{border-left-color:var(--success)}
@@ -59,11 +107,11 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .login-box .sub{color:var(--muted);font-size:14px;text-align:center;margin-bottom:24px}
 .login-box .field{margin-bottom:16px}
 .login-box .field label{display:block;font-size:13px;font-weight:600;margin-bottom:4px;color:var(--muted)}
-.error{background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
+.error{background:var(--danger-bg);color:var(--danger-text);padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
 /* Advisory, not an error: states a configured-but-inert condition (a disabled
    subsystem, an empty allow-list). Amber rather than red so it is not mistaken
    for a failure, and carries the same padding/rhythm as .error. */
-.notice{background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
+.notice{background:var(--warning-bg);color:var(--warning-text);padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:16px}
 .login-box button.primary{width:100%;padding:12px;font-size:15px}
 /* Password row: input takes all remaining width; the visibility toggle stays
    compact. (.login-box button width:100% used to leak onto .pass-toggle and
@@ -76,9 +124,28 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 #topnav{background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:56px;position:sticky;top:0;z-index:100}
 /* Group sub-navigation bar */
 .group-subnav{display:flex;gap:4px;padding:0 24px;background:var(--card);border-bottom:1px solid var(--border);height:40px;align-items:center}
-.group-subnav a{padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text);border:1px solid transparent;transition:all .15s}
-.group-subnav a:hover{background:var(--bg);text-decoration:none}
-.group-subnav a.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+/* Navigation and tab rows are <button>s now (Tab/Enter reachable). Buttons
+   must be reset to the old link look: no fill, inherited size, no min-height. */
+#topnav nav a,#topnav nav button,
+.group-subnav a,.group-subnav button,
+.config-tabs a,.config-tabs button,
+.tabs a,.tabs button{background:transparent;border:1px solid transparent;border-radius:6px;font-size:14px;font-weight:400;padding:8px 14px;color:var(--text);cursor:pointer;transition:background .15s,color .15s;white-space:nowrap}
+#topnav nav a:hover,#topnav nav button:hover,
+.group-subnav a:hover,.group-subnav button:hover,
+.config-tabs a:hover,.config-tabs button:hover,
+.tabs a:hover,.tabs button:hover{background:var(--bg);text-decoration:none}
+#topnav nav a.active,#topnav nav button.active,
+.group-subnav a.active,.group-subnav button.active,
+.config-tabs a.active,.config-tabs button.active,
+.tabs a.active,.tabs button.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.group-subnav a,.group-subnav button,
+.config-tabs a,.config-tabs button,
+.tabs a,.tabs button{font-size:13px;padding:6px 14px}
+.config-tabs .tab-sep{font-size:11px;color:var(--muted);margin:0 4px 0 10px;font-weight:600;letter-spacing:.5px;opacity:.7}
+/* Full-width top-nav entries on mobile. */
+@media(max-width:768px){
+  #topnav nav button{width:100%;text-align:left;padding:10px 14px;border-radius:6px}
+}
 /* Hamburger button (mobile) */
 .hamburger{display:none;flex-direction:column;gap:4px;background:none;border:none;cursor:pointer;padding:6px;margin-right:8px}
 .hamburger span{display:block;width:18px;height:2px;background:var(--text);border-radius:1px;transition:transform .2s}
@@ -104,25 +171,33 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 #topnav .brand{font-weight:700;font-size:16px;margin-right:32px;color:var(--text)}
 #topnav .brand small{font-weight:400;color:var(--muted);font-size:12px}
 #topnav nav{display:flex;gap:4px;flex:1}
-#topnav nav a{padding:8px 14px;border-radius:6px;font-size:14px;color:var(--text);cursor:pointer;transition:background .15s}
-#topnav nav a:hover{background:var(--bg);text-decoration:none}
-#topnav nav a.active{background:var(--primary);color:#fff}
 #topnav .user-area{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted)}
 /* Main layout */
 #main{padding:24px;max-width:1200px;margin:0 auto}
+/* Wide tables scroll horizontally inside an inline overflow-x wrapper. Pin the
+   first column so the row identity (rule id, IP, host) stays visible while the
+   rest of the row scrolls. Scoped by attribute selector so no template change
+   is needed and only genuinely scrollable tables get it. */
+#main div[style*="overflow-x"]>table th:first-child,
+#main div[style*="overflow-x"]>table td:first-child{position:sticky;left:0;background:var(--card);z-index:1}
+#main div[style*="overflow-x"]>table th:first-child{z-index:2}
+#main div[style*="overflow-x"]>table tr:hover td:first-child{background:var(--bg)}
 .page-title{font-size:22px;font-weight:700;margin-bottom:4px}
-/* 页面/板块说明文案：在标题下方一行浅色副标题，让新用户一眼看懂这个功能的作用 */
+/* 页面/板块说明文案。默认折叠成一行「说明」，避免每个页面顶端都被一大段
+   文字占满；需要解释时再展开。summary 保持可点击、可键盘聚焦。 */
 .page-desc{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6}
+details.page-desc{margin-bottom:16px}
+details.page-desc>summary{cursor:pointer;color:var(--muted);font-size:12px;list-style:none;display:inline-flex;align-items:center;gap:4px;padding:2px 0;border-radius:4px}
+details.page-desc>summary::-webkit-details-marker{display:none}
+details.page-desc>summary::before{content:'ⓘ';font-size:13px;line-height:1}
+details.page-desc[open]>summary{color:var(--text);margin-bottom:6px}
+details.page-desc>div{color:var(--muted)}
 /* Status cards */
 .stat-card{background:var(--card);border-radius:10px;padding:20px;border:1px solid var(--border);text-align:center}
 .stat-card .stat-value{font-size:32px;font-weight:700;margin-top:4px}
 .stat-card .stat-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 /* Config tabs */
 .config-tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
-.config-tabs .tab-sep{font-size:11px;color:var(--muted);margin:0 4px 0 10px;font-weight:600;letter-spacing:.5px;opacity:.7}
-.config-tabs a{padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text);border:1px solid transparent;transition:all .15s}
-.config-tabs a:hover{background:var(--bg);text-decoration:none}
-.config-tabs a.active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .config-section h3{font-size:16px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .config-section h3 small{font-weight:400;font-size:12px;color:var(--muted)}
 /* Actions */
@@ -173,13 +248,17 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
     z-index:99;
   }
   #topnav nav.open{display:flex}
-  #topnav nav a{padding:10px 14px;font-size:14px}
+  #topnav nav a,#topnav nav button{padding:10px 14px;font-size:14px;width:100%;text-align:left}
   .group-subnav{flex-wrap:wrap;padding:8px 12px;height:auto}
-  .group-subnav a{padding:6px 12px;font-size:12px}
+  .group-subnav a,.group-subnav button{padding:6px 12px;font-size:12px}
   #main{padding:12px}
   .grid-2,.grid-3{grid-template-columns:1fr}
    #main table th,#main table td{white-space:nowrap}
    #main table{display:block;overflow-x:auto}
+   /* A sticky cell inside a display:block table pins to the table box, not the
+      viewport, and overlays neighbours — turn it off on the mobile layout. */
+   #main div[style*="overflow-x"]>table th:first-child,
+   #main div[style*="overflow-x"]>table td:first-child{position:static}
   .stat-card .stat-value{font-size:24px}
   .cmd-palette{width:95%;max-width:none}
 }
@@ -204,12 +283,9 @@ textarea.code-editor:focus{outline:1px solid var(--primary)}
 .kb-rule-reasons{color:var(--warning)}
 .kb-rule-detail{margin-top:8px;padding:8px;background:var(--bg);border-radius:6px}
 .kb-rule-toggle{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px 6px}
-.tag-info{background:#dbeafe;color:#1e40af}
 /* Sub-tabs (KB page) */
 .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
-.tabs a{padding:6px 14px;border-radius:6px 6px 0 0;font-size:13px;cursor:pointer;color:var(--text);border:1px solid transparent;border-bottom:none;margin-bottom:-1px;transition:all .15s}
-.tabs a:hover{background:var(--bg);text-decoration:none}
-.tabs a.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.tabs a,.tabs button{border-radius:6px 6px 0 0;border-bottom:none;margin-bottom:-1px}
 /* KB controls: normalize mixed checkbox/select field rows */
 .kb-controls .field{display:flex;flex-direction:column;justify-content:flex-end}
 .kb-controls .field>label{font-size:12px;color:var(--muted)}
