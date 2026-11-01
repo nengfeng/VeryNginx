@@ -12,7 +12,7 @@
         const { reactive, ref, computed, watch } = Vue;
 
     // ---- WAF State ----
-    const wafTab = ref('rules');
+    const wafTab = ref('attacks');
     const wafRuleView = ref('list');
     const wafAttackView = ref('stats');
     const wafError = ref('');
