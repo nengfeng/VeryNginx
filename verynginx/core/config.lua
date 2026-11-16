@@ -1601,6 +1601,39 @@ function _M.save(config, opts)
     end
 
     local normalized = normalize_defaults(config, _M.schema)
+
+    -- base_uri is not a free-form setting: it is the management path that
+    -- THREE layers must agree on — the nginx location block that serves the
+    -- dashboard (/verynginx/static/ and /verynginx/), the Lua route matcher
+    -- (api/init.lua), and the dashboard's own API calls. The nginx block is
+    -- written at install time and only changes on reload, and the dashboard
+    -- hard-codes the prefix, so changing base_uri alone produces a panel
+    -- that cannot load its own assets or call its own API — verified by
+    -- measurement: with base_uri changed, the dashboard page AND every
+    -- static asset return 404, and only an SSH edit of config.json plus an
+    -- nginx reload brings it back.
+    --
+    -- Rather than let a configuration save lock the operator out of their
+    -- own panel, refuse the change here and say what it would take. The
+    -- field stays in the schema (existing deployments may legitimately run
+    -- a custom base_uri, set at install time or by hand) — only a CHANGE
+    -- through this path is rejected.
+    --
+    -- The comparison runs on the NORMALIZED config: normalize_defaults
+    -- fills an absent base_uri with the schema default ("/verynginx"), so
+    -- comparing the raw submitted value would mistake a config that simply
+    -- omitted the key for a change request on a deployment running a
+    -- custom base_uri.
+    local new_base = normalized.base_uri
+    local cur_base = config_data and config_data.base_uri
+    if new_base ~= nil and cur_base ~= nil and new_base ~= cur_base then
+        release_save_lock(lock_key, lock_token)
+        return false, "base_uri 不能通过配置修改（当前 " .. tostring(cur_base) ..
+            "）：它同时决定 nginx 的管理路径 location 与面板自身的 API 前缀，" ..
+            "只改配置会让面板的页面与静态资源全部 404。若确需更换，请手工编辑 " ..
+            "configs/config.json 并同步修改 nginx 配置中的 location 后重载 nginx。"
+    end
+
     local compiled = compile_runtime_snapshot(normalized)
 
     -- encode and hash

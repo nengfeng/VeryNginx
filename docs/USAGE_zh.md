@@ -601,7 +601,7 @@ VeryNginx 的配置保存后**立即生效**，无需重启 Nginx。如果是跨
 2. 设置 `dashboard_host` 限制特定域名访问
 3. 使用 `scheme_lock` 规则强制 HTTPS
 4. 在 Nginx 层面增加 IP 白名单限制 `/verynginx/` 路径
-5. 修改 `base_uri`（如 `/nvx7k2`）避免被自动化扫描器探测
+5. 如需修改 `base_uri`（如 `/nvx7k2`）以避免被自动化扫描器探测：**不能只改 `config.json`**——它同时决定 nginx 的 `location /verynginx/` 与面板自身的 API 前缀，只改配置会让面板页面与静态资源全部 404。正确做法是三处同步：手工编辑 `configs/config.json` 的 `base_uri`、同步修改 nginx 配置中的 `location /verynginx/static/` 与 `location /verynginx/`（或直接编辑安装目录下的 `nginx_conf/in_server_block.conf`），然后 `nginx -t && nginx -s reload`。面板不提供该字段的修改入口，正是为了避免出现只改了一处的锁死局面。
 
 ### Dashboard 功能概览
 

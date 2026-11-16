@@ -87,7 +87,7 @@
 
 ### 管理
 
-- **Web 管理面板** — 通过 `/verynginx/index.html` 完成所有配置（`base_uri` 可自定义）
+- **Web 管理面板** — 通过 `/verynginx/index.html` 完成所有配置（管理路径 `base_uri` 在安装期确定，不能从面板修改——它必须与 nginx 的 `location` 一致，只改配置会让面板 404）
 - **暗黑模式** — 内置深色主题，自动跟随系统偏好，localStorage 记忆
 - **热更新** — 配置保存后立即生效（零 I/O MD5 哈希比对）
 - **原子写入** — `tmp + rename` 策略，自动备份（保留最近 10 份）

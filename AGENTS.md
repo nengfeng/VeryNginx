@@ -796,6 +796,12 @@ Lua 中 `""` 为真值——`if not secret` 拦不住空串，HMAC("") 可离线
 
 管理路径判定三处（api/init.lua 路由入口、filter.on_access 放行、plugin.classify_request）必须为**精确相等或后随 `/`**。裸前缀曾让 `/verynginxconfig` 同时获得：整个 WAF 免疫 + admin 插件豁免 + API 路由别名——外部按 `^/verynginx/` 配置的反代 ACL 全部漏风。
 
+> **base_uri 不是自由配置项：改它会把自己锁在门外**（2026-11-16 修复）。管理路径由**三方**共同决定：安装时写进 nginx 的 `location /verynginx/static/` 与 `location /verynginx/`（`nginx_conf/in_server_block.conf`，只在 reload 时重读）、Lua 路由匹配（`api/init.lua`）、以及面板自身的 API 前缀（前端硬编码 `/verynginx`，118 处）。只改 `config.json` 里的 `base_uri` 而不同步 nginx，**面板页面与全部静态资源一起 404**、API 也 404——实测确认过，只能 SSH 改 `config.json` + reload nginx 才能恢复，即一次"保存成功"的配置修改把管理员锁在自己面板外面。
+> - 现行契约：**配置保存拒绝 `base_uri` 变更**（`core/config.lua` 的 `save()`，在 `normalize_defaults` 之后比较——原始提交值可能是 nil，比较原始值会把"提交里省略了该键"误判成变更，而 `normalize_defaults` 会把它补成 schema 默认值 `/verynginx`，在自定义 base_uri 的部署上那确实是真变更）。
+> - 字段仍留在 schema 里：已有部署可以用自定义 base_uri（安装期或手工设定），只是不允许从面板改。面板「系统」页对它的说明写明了原因。
+> - 改这条时同步更新 readme / readme_zh / docs/USAGE_zh.md——这三处曾宣传"`base_uri` 可自定义"并建议用它规避扫描器探测，而那个建议缺了"必须同步 nginx"的前提，照做即锁死。
+> - 真要支持运行时可变的 base_uri，需要的是：nginx 侧改为正则/通配 location、前端改为从 `location.pathname` 派生前缀、index.html 的资源引用改为相对路径——三者缺一即坏。**不要单独改其中一处。**
+
 ### 10.16 `/metrics` 已收回鉴权
 
 payload 含 per-IP 声誉标签/规则命中率/容量指标，属侦察情报。现 `auth_required=true`；Prometheus 抓取需带会话凭证或经内部通道转发（readme 监控条目已同步注明）。

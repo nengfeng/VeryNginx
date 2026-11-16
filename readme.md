@@ -87,7 +87,7 @@ A powerful, extensible WAF (Web Application Firewall), reverse proxy, and reques
 
 ### Management
 
-- **Web dashboard** — full configuration at `/verynginx/index.html` (configurable `base_uri`)
+- **Web dashboard** — full configuration at `/verynginx/index.html` (the management path `base_uri` is set at install time and is not changeable from the dashboard — it must match the nginx `location` block, so changing it there would lock the panel out)
 - **Dark mode** — built-in dark theme with system preference detection and localStorage persistence
 - **Hot-reload** — config changes take effect immediately (zero-I/O MD5 hash comparison)
 - **Atomic saves** — `tmp + rename` strategy with automatic backups (keeps last 10)
