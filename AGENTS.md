@@ -1062,4 +1062,10 @@ test/
 ` 会让 bash 逐行报错），已归一化 LF。
 - **upgrade.sh 必须重建 helper**：helper 是独立编译的宿主二进制（`/usr/local/bin/firewall-helper`），§11 的修复（reconcile 守卫/conn deadline/flush 范围/allow-prefix）全在其中——只覆盖 `verynginx/` 树的升级会让已装机器的 Lua 与 helper 版本脱节。upgrade.sh Step 4c 现在会在 helper 已安装的机器上重建换装（ETXTBSY 先停单元 + tmp+rename、systemd 单元差异部署 + daemon-reload、二进制无变化跳过重启）；无 Go 时大声警告并给出手动命令。新机器不被自动安装 helper（升级脚本不做安装器的事）。
 - **metrics 索引 TTL 契约**（b390669 + 后续修复）：labeled（TTL=3600）索引条目随数据 TTL prune；**core（TTL=0）永不 prune**（数据永不过期却按 INDEX_TTL 剪索引，会让低频 core 系列周期性从 /metrics 消失，直到下次写入）。`emit_dict` 对 data 已消失的索引条目跳过导出，core 索引常驻是有界且安全的。
+- **分隔符拼接的记录格式：每个字段都要转义，且不能有字段含分隔符**（2026-11-16 修复 `core/audit.lua`）：审计记录是 `ts|user|action|detail`，按位置解析。旧代码只转义了 detail，user（POST /login 原样记录提交的用户名）与 action（拒绝路径原样记录 HTTP method）都未转义——`evil|login_success` 会被解析成"user=evil, action=login_success"，即**未认证攻击者可以伪造一条成功登录的审计记录**（面板的 action 前缀过滤同样被绕过）。现契约：
+  - **写入侧**：所有字段经 `escape_field()` 统一转义 `|` 与控制字符，并按字段长度封顶（user 64 / action 64 / detail 256）——审计环在 2m 的 `vn_config` 里，与会话吊销黑名单、CSRF token 共用字典，无上限的字段会被 LRU 挤掉那些数据。
+  - **读取侧**：按**字段个数**判别新旧格式，而不是靠正则。当前格式恰好 4 段；旧格式 5 段（末段是 gsub 的替换计数——旧代码在表构造器里内联调用 gsub，而 gsub 返回两个值，位于构造器末位时会全部展开，于是计数被当成第五段拼进每条记录，detail 也因此多出一个 `|0` 尾巴）。旧记录的 user 字段可能含 `|`，故**从尾部反推**取位（末段=计数、倒数第二=detail、倒数第三=action、其余=user），注入的管道号归到 user 而不会顶掉 action。
+  - **教训一**：表构造器末位上的多返回值函数会展开成多个元素（`gsub` → 字符串+计数）。要单值必须先赋值给局部变量。
+  - **教训二**：任何"位置解析"的序列化格式，分隔符必须在**所有**字段上转义——只转义你以为"用户不会碰"的那个字段，等于没转义。审计、CSV、命令行参数拼接同理。
+- **审计环是易失的**：审计记录在 `vn_config` 共享字典里，重启即清空（设计如此：只保留最近 1000 条）。排查"面板上没有记录"时先确认进程是否重启过，不要误判为写路径故障。
 
