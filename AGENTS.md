@@ -1080,4 +1080,9 @@ test/
   - **教训一**：表构造器末位上的多返回值函数会展开成多个元素（`gsub` → 字符串+计数）。要单值必须先赋值给局部变量。
   - **教训二**：任何"位置解析"的序列化格式，分隔符必须在**所有**字段上转义——只转义你以为"用户不会碰"的那个字段，等于没转义。审计、CSV、命令行参数拼接同理。
 - **审计环是易失的**：审计记录在 `vn_config` 共享字典里，重启即清空（设计如此：只保留最近 1000 条）。排查"面板上没有记录"时先确认进程是否重启过，不要误判为写路径故障。
+- **验证脚本绝不能对生产路径调用会落盘的函数**（2026-11-16 实测事故）：`core/config.lua` 的 `MODULE_ROOT` 由**模块文件自身路径**推导（`debug.getinfo`），所以 `package.path` 指向 `/opt/verynginx` 时 `require "core.config"` 拿到的就是**生产那份**——用它做 `config.save()` 验证会直接覆写 `/opt/verynginx/configs/config.json`（admin、session_secret、rule 全部清空）。正确做法：
+  - 只读验证（解析、转义、格式化）可以加载生产模块，但**不得调用任何写盘函数**（`config.save` / `config.atomic_mutate` / `config.rollback`）。
+  - 需要写盘验证时，把 `core/`（及依赖）**复制到临时目录**再加载——`MODULE_ROOT` 随之指向临时目录，配置读写的都是副本。
+  - 事故处置：`core/config.lua` 的 `make_backup()` 会在每次保存前把旧配置写进 `configs/backups/config.<ts>.json`，**那是唯一的恢复来源**；恢复后要 `chown`/`chmod` 回 `www:www` + `640`（`configs/` 的权限契约见 install.py 的 chmod 段）。
+  - 教训：**"用真实模块做真实验证"是对的，但"真实模块"必须指向隔离副本**——真实 ≠ 生产。
 
