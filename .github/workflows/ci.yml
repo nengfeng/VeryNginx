@@ -51,6 +51,11 @@ jobs:
         # MUST run WITHOUT spec_helper.lua: it preloads a fake core.config
         # that would poison the self-contained phase0 specs (AGENTS.md §9.3).
         run: busted --lpath='./verynginx/?.lua;./verynginx/lua_script/?.lua;./verynginx/lua_script/module/?.lua' test/v2/phase0
+      - name: Check install path generates a session secret
+        # The shipped config template carries no session_secret on purpose
+        # (it must be per-installation), so both install paths have to
+        # generate one — a panel without it cannot log in at all.
+        run: python3 test/v2/install_session_secret_test.py
 
   helper-tests:
     runs-on: ubuntu-latest

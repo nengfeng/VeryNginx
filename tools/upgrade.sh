@@ -127,6 +127,52 @@ fi
 cp -r -f "${GIT_CLONE_DIR}/verynginx/." "${VN_DIR}/"
 info "新代码已部署到 ${VN_DIR}"
 
+# 补齐 security.session_secret。
+#
+# 早期用 install.py 装的面板，其 config.json 是 config.default.json 的原样
+# 拷贝——模板里没有 session_secret（这是对的：那把密钥必须每台机器独有，模板
+# 带了就会把同一把密钥发给所有安装）。install.py 那时也没有生成它，于是面板
+# 起来后 security.session_secret 取 schema 默认值（空串），而 api/auth.lua 对
+# 长度不足 16 的密钥一律 fail-closed —— 结果是**任何人都登不进去**，只能手工
+# 编辑 config.json。
+#
+# upgrade.sh 不覆盖 configs/ 里的用户数据，所以老机器升级后仍然缺这把密钥。
+# 这里补上：已存在且非空则不动（不能覆盖，否则会作废在线会话），空或缺失才生成。
+info "=== Step 4a: 补齐 session_secret ==="
+VN_CONFIG_JSON="${VN_DIR}/configs/config.json"
+if [ -f "${VN_CONFIG_JSON}" ]; then
+    VN_SECRET_OUT="$(python3 - "${VN_CONFIG_JSON}" <<'PYEOF' 2>/dev/null
+import binascii, os, re, sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    text = f.read()
+if re.search(r'"session_secret"\s*:\s*"[^"]+"', text):
+    print("EXISTS")
+    sys.exit(0)   # 已有密钥：不覆盖
+secret = binascii.hexlify(os.urandom(32)).decode('ascii')
+new_text, n = re.subn(r'("security"\s*:\s*\{)',
+                      r'\1\n    "session_secret": "%s",' % secret, text, count=1)
+if n == 0:
+    new_text, n = re.subn(r'(\{)',
+                          r'\1\n  "security": {"session_secret": "%s"},' % secret,
+                          text, count=1)
+if n:
+    with open(path, 'w') as f:
+        f.write(new_text)
+    print("GENERATED")
+else:
+    print("UNRECOGNIZED")
+PYEOF
+)"
+    case "${VN_SECRET_OUT}" in
+        GENERATED) info "已补齐 config.json 的 security.session_secret" ;;
+        EXISTS)    info "config.json 已有 session_secret，未改动" ;;
+        *)          warn "未能补齐 session_secret（${VN_SECRET_OUT:-python3 失败}）——面板可能无法登录，请手工检查 config.json" ;;
+    esac
+else
+    warn "未找到 config.json，跳过 session_secret 补齐"
+fi
+
 # 自更新升级脚本：checkout 过的（pin=本次 commit）脚本替换本机旧锚，
 # 下次升级的默认 pin 即本次版本——否则锚永远停在安装时版本，
 # 每次升级都得显式 VN_UPGRADE_COMMIT。脚本本体来自已验证的 checkout，信任链成立。

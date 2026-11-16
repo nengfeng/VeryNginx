@@ -11,6 +11,7 @@ import filecmp
 import shutil
 import hashlib
 import base64
+import binascii
 import re
 
 # ---------------------------------------------------------------------------
@@ -31,6 +32,61 @@ work_path = os.getcwd()
 # ---------------------------------------------------------------------------
 # Path substitution: replace default prefix with custom one in installed files
 # ---------------------------------------------------------------------------
+
+def ensure_session_secret(config_json):
+    """Make sure config.json carries a usable security.session_secret.
+
+    The shipped template deliberately carries NO session_secret: the key is a
+    per-installation HMAC secret, so a template that had one would ship the
+    SAME secret to every install. install-lnmp.sh generates it at install time
+    (secrets.token_hex(32)); this path did not, so the panel came up with the
+    schema default ("") and api/auth.lua's fail-closed guard (a secret
+    shorter than 16 chars) rejected EVERY login — the panel was unusable until
+    someone edited config.json by hand.
+
+    The key is injected textually rather than through a JSON parse/dump:
+    install.py supports Python 2.7 as well as 3.x, and rewriting the whole
+    file through a json module would reformat it and drop key order on a file
+    the operator may have already edited by hand.
+
+    Only an ABSENT or empty value is filled in: an existing secret is never
+    overwritten (a re-install must not invalidate live sessions).
+
+    @param config_json string: path to config.json
+    @return string: "SKIP" | "INJECTED" | "FAILED" | "MISSING"
+    """
+    if not os.path.exists(config_json):
+        return "MISSING"
+    try:
+        with open(config_json, 'r') as f:
+            cfg_text = f.read()
+        if re.search(r'"session_secret"\s*:\s*"[^"]+"', cfg_text):
+            return "SKIP"
+        secret = binascii.hexlify(os.urandom(32)).decode('ascii')
+        new_text, n = re.subn(
+            r'("security"\s*:\s*\{)',
+            r'\1\n    "session_secret": "%s",' % secret,
+            cfg_text, count=1)
+        if n == 0:
+            # No "security" object to extend: add one at the top level,
+            # right after the opening brace.
+            new_text, n = re.subn(
+                r'(\{)',
+                r'\1\n  "security": {"session_secret": "%s"},' % secret,
+                cfg_text, count=1)
+        if n:
+            with open(config_json, 'w') as f:
+                f.write(new_text)
+            print('### generated security.session_secret in config.json')
+            return "INJECTED"
+        # A config we cannot rewrite is reported, not silently ignored: the
+        # panel would start without a usable session secret.
+        print('### WARNING: could not inject security.session_secret '
+              '(unrecognised config.json layout)')
+        return "FAILED"
+    except Exception as e:
+        print('### WARNING: could not set security.session_secret: %s' % e)
+        return "FAILED"
 
 def verify_dashboard_sri():
     """Drift check: index.html pins vue.global.prod.js by SHA-384 over the raw
@@ -184,6 +240,9 @@ def install_verynginx():
             print('### IMPORTANT: edit config.json and set admin password_hash before use')
         else:
             print('### WARNING: no config.default.json found, will use built-in defaults')
+
+    # Ensure security.session_secret exists.
+    ensure_session_secret(config_json)
 
     # Ensure backups directory exists
     backups_dir = VN_PREFIX + '/configs/backups'

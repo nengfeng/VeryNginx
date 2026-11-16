@@ -786,6 +786,12 @@ Lua 中 `""` 为真值——`if not secret` 拦不住空串，HMAC("") 可离线
 - `javascript_verify.sign` 种子选择加长度守卫，空串不再顶掉随机 `_fallback_seed`
 - **所有 `config.security.*` 读取点必须 nil 安全**：load_from_file 校验失败时运行态可能是缺 `security` 键的回退表——cookie_verify/javascript_verify 的 `_get_seed()` 在 require 期执行，裸索引曾把校验失败升级成 init_by_lua 整体崩溃；auth 中间件同查 session_ttl
 
+> **「installer 会生成真钥」曾经只对一半的安装路径成立**（2026-11-16 修复）：`install-lnmp.sh` 会生成 `session_secret`，`install.py` 不会——而 `config.default.json` **刻意不带**该键（它是每台机器独有的 HMAC 密钥，模板带了就把同一把密钥发给所有安装），于是 install.py 装出的面板该字段取 schema 默认值（`""`），被上面那条 fail-closed 守卫全盘拒掉，**任何人都登不进去**。Dockerfile 走的正是 install.py。现两条安装路径都生成，且 `tools/upgrade.sh` 也补齐（升级不覆盖 `configs/` 用户数据，老机器升级后仍缺）。契约：
+> - **出厂模板永不携带密钥**；生成是安装期的责任。
+> - **已存在非空值时绝不覆盖**（重装/升级不得作废在线会话）。
+> - 改这两条路径时，`test/v2/install_session_secret_test.py` 是门禁（已进 CI），它直接调用 `install.py` 的 `ensure_session_secret()` 并抽取 `upgrade.sh` 里内嵌的片段跑真实 config——**不要把逻辑复制进测试**，会漂移。
+> - install.py 支持 Python 2.7，故该逻辑**不依赖 `json`/`secrets` 模块**（`secrets` 是 3.6+），改为文本注入 + `os.urandom`。
+
 ### 10.15 base_uri '/' 边界
 
 管理路径判定三处（api/init.lua 路由入口、filter.on_access 放行、plugin.classify_request）必须为**精确相等或后随 `/`**。裸前缀曾让 `/verynginxconfig` 同时获得：整个 WAF 免疫 + admin 插件豁免 + API 路由别名——外部按 `^/verynginx/` 配置的反代 ACL 全部漏风。
