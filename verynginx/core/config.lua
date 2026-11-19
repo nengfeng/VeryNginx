@@ -1477,9 +1477,14 @@ end
 -- Save config: validate + backup + atomic write + activate
 -- ---------------------------------------------------------------------------
 function _M.save(config, opts)
-    local shared = ngx.shared.vn_config
+    local shared = test_shared or ngx.shared.vn_config
     local lock_key = "config_save_lock"
-    local lock_ttl = math.max((config and config.config_save_lock_ttl) or 60, 5)
+    -- Use the CURRENT effective config for the lock TTL, not the incoming
+    -- (unvalidated) payload. A malformed value here would raise in math.max
+    -- before validate_config() ever ran; and a save that changes the TTL
+    -- should not change how long its own lock is held.
+    local lock_ttl = tonumber(config_data and config_data.config_save_lock_ttl) or 60
+    lock_ttl = math.min(math.max(lock_ttl, 5), 300)
     local skip_lock = opts and opts._skip_lock
     local lock_token
 
@@ -1495,6 +1500,27 @@ function _M.save(config, opts)
     -- unexpected FFI/IO failure) can never leave config_save_lock held. Early
     -- `return false, msg` results propagate normally and are re-emitted.
     local function do_save()
+    -- Optimistic concurrency control.
+    --
+    -- The dashboard edits the WHOLE config: GET /config, change one field,
+    -- POST the result back. Two tabs (or two operators) doing that at once
+    -- used to end with the later save silently reverting the earlier one —
+    -- no error, no warning, the operator's change just gone.
+    --
+    -- The check runs INSIDE the save lock: the version is read from the
+    -- shared dict, which every save updates, so holding the lock makes
+    -- read-compare-write atomic against other savers.
+    --
+    -- `expected_version` is optional on purpose: scripts and older clients
+    -- that do not send If-Match keep working (last write wins, as before).
+    -- Only a client that says which version it read can be told it is stale.
+    local expected = opts and opts.expected_version
+    if expected and expected ~= "" then
+        local current = (shared and shared:get("config_hash")) or _M.local_hash
+        if current and current ~= expected then
+            return false, "config_changed"
+        end
+    end
     -- Preserve real password_hash when incoming value is the redacted
     -- sentinel "(redacted)" returned by GET /config.  Without this, saving
     -- any config change from the dashboard would overwrite the real hash
@@ -1771,6 +1797,23 @@ end
 function _M.report()
     mark_dict_sections(config_data)
     return json.encode(config_data)
+end
+
+-- Hash of the config currently in force.
+--
+-- Named current_hash() rather than version() on purpose: `config.version`
+-- is the schema version field (read by crawler_ranges.lua), and defining
+-- _M.version() would shadow it through the module table.
+--
+-- The hash is written to the shared dict on every save, so it is the one
+-- value every worker agrees on (a worker's own local_hash can lag behind a
+-- save made by another worker until check_update() runs). Clients send it
+-- back as If-Match so a stale full-config write can be refused instead of
+-- silently overwriting a concurrent edit.
+function _M.current_hash()
+    local shared = test_shared or ngx.shared.vn_config
+    local v = shared and shared:get("config_hash")
+    return v or _M.local_hash or ""
 end
 
 -- Exposed for testing (not part of public API)

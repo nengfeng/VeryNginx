@@ -18,6 +18,37 @@
     // ---- API ----
     let csrfToken = null;
 
+    // ---- Config optimistic concurrency ----
+    // GET /config exposes the effective config hash as an ETag. Full-config
+    // saves echo it as If-Match so a stale edit is rejected with 409 instead of
+    // silently overwriting a concurrent one. The hash lives in an HTTP header
+    // on purpose: putting it in the JSON body would make the editor round-trip
+    // it into config.json on the next save.
+    let configHash = '';
+    function parseEtag(value) {
+      if (!value || typeof value !== 'string') return '';
+      let v = value.trim();
+      if (v.startsWith('W/')) v = v.slice(2);
+      if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+      return v;
+    }
+    function setConfigHash(value) { configHash = parseEtag(value); }
+    function getConfigHash() { return configHash; }
+    function configSaveHeaders() {
+      const headers = {};
+      if (configHash) headers['If-Match'] = '"' + configHash + '"';
+      return headers;
+    }
+    function configErrorMessage(err) {
+      const msg = err && err.message ? err.message : String(err);
+      return msg === 'config_changed' ? '配置已被其他会话修改，请刷新后重试' : msg;
+    }
+    ctx('parseEtag', parseEtag);
+    ctx('setConfigHash', setConfigHash);
+    ctx('getConfigHash', getConfigHash);
+    ctx('configSaveHeaders', configSaveHeaders);
+    ctx('configErrorMessage', configErrorMessage);
+
     // Strict IP literal validation (IPv4 0-255 per octet, IPv6 with optional /prefix).
     // Mirrors core/ip_reputation.lua validate_whitelist_entry semantics on the
     // client side: /0 rejected, IPv4 CIDR must not have host bits set
@@ -122,6 +153,10 @@
           opts.headers = opts.headers || {};
           opts.headers['X-CSRF-Token'] = csrfToken;
         }
+        if (opts2 && opts2.headers) {
+          opts.headers = opts.headers || {};
+          Object.assign(opts.headers, opts2.headers);
+        }
         return await fetch(path, opts);
       }
 
@@ -177,8 +212,12 @@
       if (!res.ok) {
         throw new Error(await parseError(res));
       }
-      if (opts2 && opts2.text) return res.text();
-      return res.json();
+      if (opts2 && opts2.text) {
+        const text = await res.text();
+        return opts2.includeHeaders ? { data: text, headers: res.headers } : text;
+      }
+      const data = await res.json();
+      return opts2 && opts2.includeHeaders ? { data, headers: res.headers } : data;
     }
 
     async function refreshCsrf() {

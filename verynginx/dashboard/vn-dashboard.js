@@ -630,7 +630,12 @@
 
     async function loadConfig() {
       try {
-        const d = await api('GET', '/verynginx/config');
+        const result = await api('GET', '/verynginx/config', null, { includeHeaders: true });
+        const d = result.data;
+        // Remember the server's ETag so the next full-config save can send it
+        // as If-Match. Without this, two browser tabs could silently overwrite
+        // each other's edits.
+        if (shared.setConfigHash) shared.setConfigHash(result.headers && result.headers.get('ETag'));
         // Sanitize rule-group arrays: config JSON can carry null holes that
         // crash v-for renders reading r.enable etc.
         if (d && d.rule) {

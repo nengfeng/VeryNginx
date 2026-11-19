@@ -450,15 +450,20 @@
         const kb = Object.assign({}, full.kernel_ip_blocking || {});
         kb.cc = Object.assign({}, kb.cc || {}, { enforce_ready: true });
         full.kernel_ip_blocking = kb;
-        const d = await api('POST', '/verynginx/config', full);
+        const d = await api('POST', '/verynginx/config', full, {
+          headers: shared.configSaveHeaders ? shared.configSaveHeaders() : {},
+        });
         if (d.ret === 'success') {
           showToast('CC enforce_ready enabled — CC auto-promotion active', 'success');
+          if (shared.loadConfig) await shared.loadConfig();
           if (shared.cfg) shared.cfg.value = full;
           await loadKbData();
         } else {
           showToast(d.message || '保存失败', 'error');
         }
-      } catch (e) { showToast(e.message, 'error'); }
+      } catch (e) {
+        showToast(shared.configErrorMessage ? shared.configErrorMessage(e) : e.message, 'error');
+      }
       finally { kbBusy.value = false; }
     }
 
@@ -514,16 +519,21 @@
           enforce_ready: !!kbForm.cc_enforce_ready,
         });
         full.kernel_ip_blocking = kb;
-        const d = await api('POST', '/verynginx/config', full);
+        const d = await api('POST', '/verynginx/config', full, {
+          headers: shared.configSaveHeaders ? shared.configSaveHeaders() : {},
+        });
         if (d.ret === 'success') {
           showToast('内核锁阻设置已保存', 'success');
+          if (shared.loadConfig) await shared.loadConfig();
           if (shared.cfg) shared.cfg.value = full;
           kbFormDirty.value = false;
           await loadKbData();
         } else {
           showToast(d.message || '保存失败', 'error');
         }
-      } catch (e) { showToast(e.message, 'error'); }
+      } catch (e) {
+        showToast(shared.configErrorMessage ? shared.configErrorMessage(e) : e.message, 'error');
+      }
       finally { kbBusy.value = false; }
     }
 

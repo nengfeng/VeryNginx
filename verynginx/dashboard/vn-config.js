@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnconfig'] = function createvnconfigModule(shared) {
-        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showUndoToast, showConfirm, validateMatcherIps } = shared;
+        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showUndoToast, showConfirm, validateMatcherIps, configSaveHeaders, configErrorMessage } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -254,7 +254,7 @@
     let configSaveChain = Promise.resolve();
     async function _commitConfig(newCfg) {
       try {
-        const d = await api('POST', '/verynginx/config', newCfg);
+        const d = await api('POST', '/verynginx/config', newCfg, { headers: configSaveHeaders() });
         if (d.ret === 'success') {
           await loadConfig();
           await refreshCsrf();
@@ -264,7 +264,7 @@
           return false;
         }
       } catch (e) {
-        showToast('保存失败: ' + e.message, 'error');
+        showToast('保存失败: ' + configErrorMessage(e), 'error');
         return false;
       }
     }
@@ -287,7 +287,7 @@
       jsonSaving.value = true;
       try {
         const parsed = JSON.parse(rawJson.value);
-        const d = await api('POST', '/verynginx/config', parsed);
+        const d = await api('POST', '/verynginx/config', parsed, { headers: configSaveHeaders() });
         if (d.ret === 'success') {
           await loadConfig();
           await refreshCsrf();
@@ -295,7 +295,7 @@
           jsonError.value = d.message || d.err || '保存失败';
         }
       } catch (e) {
-        jsonError.value = e.message;
+        jsonError.value = configErrorMessage(e);
       }
       jsonSaving.value = false;
     }
@@ -339,7 +339,7 @@
           inputLabel: '请输入 "IMPORT" 确认',
           inputExpected: 'IMPORT',
         })) return;
-        const d = await api('POST', '/verynginx/config', parsed);
+        const d = await api('POST', '/verynginx/config', parsed, { headers: configSaveHeaders() });
         if (d.ret === 'success') {
           await loadConfig();
           await refreshCsrf();
@@ -348,7 +348,7 @@
           configImportError.value = d.message || d.err || '导入失败';
         }
       } catch (err) {
-        configImportError.value = '导入失败: ' + err.message;
+        configImportError.value = '导入失败: ' + configErrorMessage(err);
       } finally {
         if (e.target) e.target.value = '';
       }

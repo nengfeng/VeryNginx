@@ -361,6 +361,20 @@ auto_whitelist = { type = "table", default = {
 
 > **注意**：上面的 `auto_whitelist` 示例仅为字段形状说明。`config.lua` 的 schema 当前**未声明** `ip_reputation.auto_whitelist`——config.json 中写全字段可生效（`normalize_defaults` 的 `deep_copy` 会保留未知字段），但无默认值填充、无验证，部分配置会静默失效。目前未配置时实际生效值来自 `core/ip_reputation.lua` 的 `DEFAULTS.auto_whitelist`。
 
+### 6.9 全量配置保存的乐观并发（ETag / If-Match）
+
+面板编辑的是**整份配置**：`GET /config` → 改一个字段 → `POST /config`。两个标签页/两个操作者同时这样做时，后保存的一方会静默回滚前一方。现在用 HTTP 标准头闭环：
+
+- `GET /config` 设置 `ETag: "<config_hash>"`，哈希来自 `core.config.current_hash()`（共享字典 `config_hash`，每次 save 更新）。
+- 前端 `vn-common.js` 保存 ETag，所有全量 `POST /config` 通过 `If-Match` 回传。
+- `core.config.save(config, { expected_version = ... })` 在 save 锁内比对当前哈希，不匹配返回 `false, "config_changed"`；API 层映射为 **409**，前端提示「配置已被其他会话修改，请刷新后重试」。
+- `expected_version` 是**可选**的：脚本和旧客户端不带 `If-Match` 时保持 last-write-wins，不破坏兼容。
+- 哈希必须走 **ETag**，不要作为字段塞进 `GET /config` 的 JSON body——面板会把整份 JSON 再 POST 回来，未知字段会被 `normalize_defaults` 保留并写进 config.json。
+- `config_save_lock_ttl` 必须取自**当前生效配置**，不要读未校验的传入 config：`math.max` 遇到字符串/表会在 `validate_config` 之前抛错。
+- 新增全量配置写路径时，必须同样带上 `If-Match`；`atomic_mutate` 自身在锁内读改写，不需要 expected_version。
+
+回归见 `test/v2/phase0/config_optimistic_concurrency_spec.lua`。
+
 ---
 
 ## 7. 插件与规则引擎

@@ -8,6 +8,29 @@ local _M = {}
 local json = require "dkjson"
 local audit = require "core.audit"
 
+-- Normalise an If-Match / ETag value to the bare opaque token used by
+-- core.config.current_hash(). Clients send the quoted form ("abc") and proxies
+-- may prefix a weak comparator (W/"abc"); both are valid HTTP, neither should
+-- be compared literally against the stored hash.
+local function normalize_etag(value)
+    if type(value) ~= "string" or value == "" then
+        return nil
+    end
+    value = value:gsub("^%s+", ""):gsub("%s+$", "")
+    if value:sub(1, 2) == "W/" then
+        value = value:sub(3)
+    end
+    if #value >= 2 and value:sub(1, 1) == '"' and value:sub(-1) == '"' then
+        value = value:sub(2, -2)
+    end
+    return value ~= "" and value or nil
+end
+
+local function config_conflict_response(message)
+    ngx.status = 409
+    return json.encode({ ret = "failed", message = message or "config_changed" })
+end
+
 --- POST /config - update config
 local function handle_set_config()
     -- Rate limit config saves
@@ -57,8 +80,14 @@ local function handle_set_config()
         return json.encode({ ret = "failed", message = "invalid config" })
     end
 
-    local ok, err = require("core.config").save(new_config)
+    local expected_version = normalize_etag(ngx.req.get_headers()["If-Match"])
+    local ok, err = require("core.config").save(new_config, {
+        expected_version = expected_version,
+    })
     if not ok then
+        if err == "config_changed" then
+            return config_conflict_response(err)
+        end
         ngx.status = 400
         return json.encode({ ret = "failed", message = err })
     end
@@ -111,7 +140,18 @@ end
 
 --- GET /config - sanitize config dump (remove password hashes, session secret)
 local function handle_get_config()
-    local raw = require("core.config").report()
+    local config_mod = require("core.config")
+    local raw = config_mod.report()
+    -- Opaque version of the config currently in force. The dashboard sends it
+    -- back as If-Match so a full-config write based on a stale GET is refused
+    -- instead of silently reverting a concurrent edit. ETag (rather than a
+    -- field in the JSON body) keeps the hash out of the config object that
+    -- the editor round-trips and saves.
+    local version = config_mod.current_hash()
+    if version and version ~= "" then
+        ngx.header["ETag"] = '"' .. version .. '"'
+        ngx.header["Cache-Control"] = "no-store"
+    end
     local ok, decoded = pcall(json.decode, raw)
     if ok and decoded and decoded.admin then
         for _, a in ipairs(decoded.admin) do
@@ -178,8 +218,14 @@ local function handle_import_config()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "invalid json" })
     end
-    local ok2, err = require("core.config").save(parsed)
+    local expected_version = normalize_etag(ngx.req.get_headers()["If-Match"])
+    local ok2, err = require("core.config").save(parsed, {
+        expected_version = expected_version,
+    })
     if not ok2 then
+        if err == "config_changed" then
+            return config_conflict_response(err)
+        end
         ngx.status = 400
         return json.encode({ ret = "failed", message = tostring(err) })
     end
