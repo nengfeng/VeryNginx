@@ -643,7 +643,11 @@ describe("ip_reputation", function()
                 rep.flag_ip("10.200.0." .. i, 600)
             end
             local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
-            local raw = s:get("ip_rep:flaglog:" .. os.date("!%Y%m%d"))
+            -- Local server date, exactly like the module's flaglog day keys
+            -- (ip_reputation.lua deliberately avoids os.date("!%Y%m%d"): a
+            -- UTC day key would not match on hosts whose TZ is ahead of UTC,
+            -- and this host runs CST).
+            local raw = s:get("ip_rep:flaglog:" .. os.date("%Y%m%d"))
             local list = json.decode(raw)
             -- Write path capped: oldest first-seen IPs evicted, newest kept,
             -- insertion order preserved (decode of the raw index — the read
