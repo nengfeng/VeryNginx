@@ -12,22 +12,38 @@
 -- full restart, which on a live box means clearing the rate-limit counters,
 -- the reputation data and the statistics all at once.
 
+-- Shared, mutable clock: core/random calls ngx.now(), which must stay a
+-- function, so the tests advance this variable instead of replacing it.
+-- make_shared() below needs it to record TTL expiry.
+local CLOCK = 1700000000
+
 local function make_shared()
     local st = {}
+    local ex = {}
     return {
         _v = st,
+        _e = ex,
         get = function(_, k) return st[k] end,
-        set = function(_, k, v) st[k] = v; return true, nil end,
-        add = function(_, k, v)
+        set = function(_, k, v, ttl)
+            st[k] = v
+            if ttl then ex[k] = CLOCK + ttl end
+            return true, nil
+        end,
+        add = function(_, k, v, ttl)
             if st[k] then return false, "exists" end
-            st[k] = v; return true, nil
+            st[k] = v
+            if ttl then ex[k] = CLOCK + ttl end
+            return true, nil
         end,
         incr = function(_, k, d, init, ttl)
             if st[k] == nil then st[k] = init or 0 end
             st[k] = st[k] + (d or 1)
+            -- incr does not refresh an existing key's TTL (same as OpenResty);
+            -- the initial TTL is set when the key is first created.
+            if ttl and not ex[k] then ex[k] = CLOCK + ttl end
             return st[k], nil
         end,
-        delete = function(_, k) st[k] = nil end,
+        delete = function(_, k) st[k] = nil; ex[k] = nil end,
         get_keys = function() return {} end,
     }
 end
@@ -37,7 +53,7 @@ describe("traffic history and baselines", function()
     local shared, live
     -- A controllable clock: ngx.now must stay a FUNCTION (core/random calls
     -- ngx.now()), so the test advances a variable rather than replacing it.
-    local CLOCK = 1700000000
+    CLOCK = 1700000000
 
     setup(function()
         if not _G.ngx then _G.ngx = {} end
@@ -138,10 +154,117 @@ describe("traffic history and baselines", function()
         CLOCK = CLOCK - (CLOCK % 60) + 60 + 5
         live.roll_history()
         local n = 0
+        local registry = false
         for k in pairs(shared._v) do
-            if k:match("^hist:") or k:match("^histH:") then n = n + 1 end
+            -- `hist:hosts` is the ONE global registry of hosts that may hold
+            -- history (HIST_HOST_LIMIT); the per-host series are `hist:<host>`
+            -- and `histH:<host>`. Counting the registry as a per-host key
+            -- would make the bound look like it grew with every host.
+            if k == "hist:hosts" then
+                registry = true
+            elseif k:match("^hist:") or k:match("^histH:") then
+                n = n + 1
+            end
         end
         assert.is_true(n <= 2, "at most two history keys per host, got " .. n)
+        assert.is_true(registry, "the host registry must exist")
+    end)
+
+    it("registers hosts in one key and honours the per-minute host list", function()
+        -- HIST_HOST_LIMIT caps how many hosts may hold a series: the TTL
+        -- bounds a key's LIFETIME but not the CARDINALITY inside one window,
+        -- and a rotating Host header would otherwise fill the 20 MB zone.
+        -- `_M.hosts(2)` draws from the per-minute list, which is itself
+        -- capped at MAX_HOSTS_PER_MINUTE — so a single roll registers at
+        -- most that many hosts, and the registry stays ONE key.
+        local function ctx_host(host)
+            return {
+                request = { host = host, remote_addr = "10.0.0.1",
+                            user_agent = "UA", uri = "/a.php" },
+                get_uri_args = function() return {} end,
+            }
+        end
+        for i = 1, 5 do
+            local host = "h" .. i .. ".example.com"
+            for _ = 1, 3 do live.record(ctx_host(host)) end
+        end
+        CLOCK = CLOCK - (CLOCK % 60) + 60 + 5
+        live.roll_history()
+
+        -- The registry is a single key, not one per host.
+        local reg = shared._v["hist:hosts"] or ""
+        local n = 0
+        if reg ~= "" then n = select(2, reg:gsub(",", "")) + 1 end
+        assert.equals(5, n, "the registry lists exactly the registered hosts")
+        assert.is_true(#reg < 1024, "the registry must stay one bounded value")
+
+        -- Every registered host has its two series.
+        local series = 0
+        for k in pairs(shared._v) do
+            if k ~= "hist:hosts" and (k:match("^hist:") or k:match("^histH:")) then
+                series = series + 1
+            end
+        end
+        assert.equals(10, series, "5 hosts x (minute + hour) series")
+    end)
+
+    it("stops minting series for new hosts once the registry is full", function()
+        -- Drive several rolls, each with a fresh batch of hosts, so the
+        -- registry accumulates past HIST_HOST_LIMIT. Hosts beyond the cap
+        -- must NOT get a series (that is what keeps a rotating Host header
+        -- from filling the statistics dict).
+        local function ctx_host(host)
+            return {
+                request = { host = host, remote_addr = "10.0.0.1",
+                            user_agent = "UA", uri = "/a.php" },
+                get_uri_args = function() return {} end,
+            }
+        end
+
+        -- 3 batches of 200 hosts each (600 > HIST_HOST_LIMIT of 512).
+        for batch = 1, 3 do
+            for i = 1, 200 do
+                live.record(ctx_host(string.format("b%d-h%03d.example.com", batch, i)))
+            end
+            CLOCK = CLOCK - (CLOCK % 60) + 60 + 5
+            live.roll_history()
+        end
+
+        local reg = shared._v["hist:hosts"] or ""
+        local registered = 0
+        if reg ~= "" then registered = select(2, reg:gsub(",", "")) + 1 end
+        assert.is_true(registered <= 512,
+            "the registry must not exceed HIST_HOST_LIMIT, got " .. registered)
+
+        local series = 0
+        for k in pairs(shared._v) do
+            if k ~= "hist:hosts" and (k:match("^hist:") or k:match("^histH:")) then
+                series = series + 1
+            end
+        end
+        -- Each registered host holds 2 series; a host beyond the cap holds
+        -- none. So the series count tracks the registry, not the traffic.
+        assert.equals(registered * 2, series,
+            "only registered hosts may hold a series (registered=" .. registered ..
+            ", series=" .. series .. ")")
+    end)
+
+    it("expires the per-host series (no TTL-less history keys)", function()
+        for _ = 1, 3 do live.record(ctx("10.0.0.1", "UA", "/a.php")) end
+        CLOCK = CLOCK - (CLOCK % 60) + 60 + 5
+        live.roll_history()
+        -- The series keys used to be written without a TTL, so every distinct
+        -- Host header ever seen left a permanent key in the statistics dict
+        -- (flush_expired cannot remove a TTL-less key).
+        local expires = shared._e or {}
+        local found_ttl = false
+        for k, exp in pairs(expires) do
+            if k:match("^hist:") or k:match("^histH:") or k == "hist:hosts" then
+                found_ttl = true
+                assert.is_truthy(exp > CLOCK, k .. " must expire in the future")
+            end
+        end
+        assert.is_true(found_ttl, "the history keys must carry a TTL")
     end)
 
     it("accumulates a baseline over the history", function()

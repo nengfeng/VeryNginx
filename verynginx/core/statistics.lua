@@ -123,6 +123,28 @@ function _M.valid_host_param(host)
     return host:match("^[%w_%-%.]+$") ~= nil
 end
 
+-- Per-bucket TTLs.
+--
+-- A bucket is rolled up on a timer (1m -> 5m every 60s, 5m -> 1h every
+-- 300s, 1h -> all every 3600s) and `_flush_bucket` DELETES the source
+-- counters for the URIs it still has in its LRU index. A URI that the LRU
+-- had already evicted (per_host_uri_limit) is never in that index again, so
+-- its `1m:<host>:<uri>:*` keys were left behind with no TTL — permanent
+-- orphans, and a client rotating URIs minted four of them per new URI per
+-- minute. The `statistics` dict also carries the live counters, the rollups
+-- and the host/URI indexes, so the orphans crowd out real data.
+--
+-- A TTL bounds that: the key lives long enough to be flushed at least once
+-- (three times the rollup interval, so a delayed timer cannot lose a bucket),
+-- then it expires on its own. "all" is the aggregate the panel keeps
+-- indefinitely, so it stays TTL-less.
+local BUCKET_TTL = {
+    ["1m"] = 180,
+    ["5m"] = 900,
+    ["1h"] = 10800,
+    ["all"] = 0,
+}
+
 -- ---------------------------------------------------------------------------
 -- Config helpers
 -- ---------------------------------------------------------------------------
@@ -187,8 +209,7 @@ function _M.init()
     local persist_interval = (config and config.statistics and config.statistics.persist_interval) or 300
     ngx.timer.every(60, function()
         _M._flush_bucket("1m", "5m")
-    end)
-    ngx.timer.every(300, function()
+    end)    ngx.timer.every(300, function()
         _M._flush_bucket("5m", "1h")
     end)
     ngx.timer.every(3600, function()
@@ -233,11 +254,16 @@ function _M.log_request(ctx)
 
     local per_host = per_host_uri_limit()
     local key = "1m:" .. host .. ":" .. uri
-    dict_guard.incr(shared, "stats.1m", key .. ":count", 1, 0)
-    dict_guard.incr(shared, "stats.1m", key .. ":bytes", bytes, 0)
-    dict_guard.incr(shared, "stats.1m", key .. ":time", time, 0)
+    -- The TTL (BUCKET_TTL["1m"]) is what bounds the keys left behind when the
+    -- URI is later evicted from the LRU index: `_flush_bucket` only deletes
+    -- the counters of URIs it can still see, so an evicted URI's keys would
+    -- otherwise be permanent.
+    local ttl_1m = BUCKET_TTL["1m"]
+    dict_guard.incr(shared, "stats.1m", key .. ":count", 1, 0, ttl_1m)
+    dict_guard.incr(shared, "stats.1m", key .. ":bytes", bytes, 0, ttl_1m)
+    dict_guard.incr(shared, "stats.1m", key .. ":time", time, 0, ttl_1m)
     local code_idx = status
-    dict_guard.incr(shared, "stats.1m", key .. ":status_" .. code_idx, 1, 0)
+    dict_guard.incr(shared, "stats.1m", key .. ":status_" .. code_idx, 1, 0, ttl_1m)
     -- Host-level status rollup.
     --
     -- The per-uri status counters above answer "which paths return errors",
@@ -249,7 +275,7 @@ function _M.log_request(ctx)
     -- Cardinality is hosts x codes, not hosts x uris x codes, so this stays
     -- small. The key carries the same bucket prefix as every other counter,
     -- so it takes part in the 1m -> 5m -> 1h -> all rollup.
-    dict_guard.incr(shared, "stats.1m", "1m:hst:" .. host .. ":" .. code_idx, 1, 0)
+    dict_guard.incr(shared, "stats.1m", "1m:hst:" .. host .. ":" .. code_idx, 1, 0, ttl_1m)
     -- Update per-host uri LRU and global host LRU on sampled requests
     lru_add(shared, "index:1m:" .. host, uri, per_host)
     lru_add(shared, "hosts:1m", host, get_max_hosts())
@@ -328,6 +354,9 @@ function _M._flush_bucket(src_bucket, dst_bucket)
     local hosts = lru_list(shared, "hosts:" .. src_bucket)
     local per_host = per_host_uri_limit()
     local max_hosts = get_max_hosts()
+    -- TTL of the DESTINATION bucket (see BUCKET_TTL): the rollup writes into
+    -- it, and those keys are as orphaned-by-LRU-eviction as the source ones.
+    local dst_ttl = BUCKET_TTL[dst_bucket] or 0
 
     for _, host in ipairs(hosts) do
         local uris = lru_list(shared, "index:" .. src_bucket .. ":" .. host)
@@ -342,15 +371,15 @@ function _M._flush_bucket(src_bucket, dst_bucket)
             if count > 0 then
                 flushed = true
                 local dst_key = dst_bucket .. ":" .. host .. ":" .. uri
-                dict_guard.incr(shared, "stats.rollup", dst_key .. ":count", count, 0)
-                dict_guard.incr(shared, "stats.rollup", dst_key .. ":bytes", bytes, 0)
-                dict_guard.incr(shared, "stats.rollup", dst_key .. ":time", time, 0)
+                dict_guard.incr(shared, "stats.rollup", dst_key .. ":count", count, 0, dst_ttl)
+                dict_guard.incr(shared, "stats.rollup", dst_key .. ":bytes", bytes, 0, dst_ttl)
+                dict_guard.incr(shared, "stats.rollup", dst_key .. ":time", time, 0, dst_ttl)
                 lru_add(shared, "index:" .. dst_bucket .. ":" .. host, uri, per_host)
                 -- Merge status codes (only codes that were actually recorded)
                 for _, c in ipairs(codes) do
                     local sc = shared:get(src_key .. ":status_" .. c)
                     if sc and sc > 0 then
-                        dict_guard.incr(shared, "stats.rollup", dst_key .. ":status_" .. c, sc, 0)
+                        dict_guard.incr(shared, "stats.rollup", dst_key .. ":status_" .. c, sc, 0, dst_ttl)
                     end
                 end
             end
@@ -372,7 +401,7 @@ function _M._flush_bucket(src_bucket, dst_bucket)
             local sc = tonumber(shared:get(src_hst) or 0) or 0
             if sc > 0 then
                 dict_guard.incr(shared, "stats.rollup",
-                    dst_bucket .. ":hst:" .. host .. ":" .. c, sc, 0)
+                    dst_bucket .. ":hst:" .. host .. ":" .. c, sc, 0, dst_ttl)
                 shared:delete(src_hst)
             end
         end

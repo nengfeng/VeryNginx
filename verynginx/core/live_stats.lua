@@ -414,6 +414,38 @@ end
 local HIST_MINUTES = 180
 local HIST_HOURS = 168
 
+-- Expiry of the per-host history keys.
+--
+-- These keys used to be written WITHOUT a ttl, so they never expired: every
+-- distinct Host header that ever produced traffic left a permanent
+-- `hist:<host>` + `histH:<host>` pair in the 20 MB statistics dict, and
+-- `shdict_maintenance.flush_expired()` cannot help (it only removes entries
+-- whose TTL has lapsed — a ttl-less key never lapses). A client rotating the
+-- Host header fills the dict until ngx.shared evicts the live counters by
+-- LRU, which blinds the panel during exactly the attack it is meant to show.
+--
+-- The TTL must exceed the series window it stores, or the tail of the series
+-- would be dropped while the key still exists:
+--   * HIST_MINUTES is 180 minutes  -> 3 hours
+--   * HIST_HOURS is 168 hours      -> 8 days
+-- `set()` resets the TTL, and the rollup rewrites every series of a host
+-- that is still active, so a live host keeps its history; a host that goes
+-- quiet loses it once the window has passed.
+local HIST_TTL = 10800
+local HIST_HOURS_TTL = 691200
+
+-- Cap on how many distinct hosts may hold history at once.
+--
+-- A TTL bounds the LIFETIME of a key but not the CARDINALITY inside one
+-- window: at the per-minute cap (MAX_HOSTS_PER_MINUTE) a client could still
+-- mint 256 new hosts per minute, i.e. ~46k hosts over the 3-hour window,
+-- each carrying ~9 KB of series — far more than the 20 MB zone. Hosts are
+-- therefore registered before their history is written, and once the
+-- registry is full no NEW host gets a series (existing ones are untouched).
+-- A host that is merely quiet keeps its history until its TTL lapses.
+local HIST_HOST_LIMIT = 512
+local HIST_REGISTRY = "hist:hosts"
+
 -- Kept in the statistics dict rather than in a dedicated one, for the reason
 -- above. A separate zone would need a master restart to exist.
 local function hist_dict()
@@ -491,26 +523,49 @@ function _M.roll_history()
         local ips = sample_distinct(live:get(base .. ":ip"))
         local fails = tonumber(live:get(base .. ":fail") or 0) or 0
         if req > 0 or ips > 0 then
-            local rec = { ts = minute_ts, requests = req, distinct_ips = ips, fails = fails }
-            local raw = hist:get("hist:" .. host)
-            hist:set("hist:" .. host, series_put(raw, rec, HIST_MINUTES))
-            -- The hour row: same counters, summed except the distinct clients,
-            -- which take the maximum.
-            local hour_ts = minute_ts - (minute_ts % 3600)
-            local hraw = hist:get("histH:" .. host)
-            local hrecords = decode_records(hraw)
-            local hrec
-            for i, r in ipairs(hrecords) do
-                if r.ts == hour_ts then hrec = r; hrecords[i] = nil break end
+            -- Register the host before writing its series, and cap how many
+            -- hosts may hold one (see HIST_HOST_LIMIT). The registry is a
+            -- comma-joined list with the same TTL as the hourly series: the
+            -- rollup rewrites it for every active host, so it stays alive
+            -- while there is traffic and lapses when there is not.
+            local reg = hist:get(HIST_REGISTRY) or ""
+            local registered = ("," .. reg .. ","):find("," .. host .. ",", 1, true) ~= nil
+            if registered then
+                dict_guard.set(hist, "stats.hist", HIST_REGISTRY, reg, HIST_HOURS_TTL)
+            else
+                local n = 0
+                if reg ~= "" then n = select(2, reg:gsub(",", "")) + 1 end
+                if n < HIST_HOST_LIMIT then
+                    dict_guard.set(hist, "stats.hist", HIST_REGISTRY,
+                        reg .. (reg ~= "" and "," or "") .. host, HIST_HOURS_TTL)
+                    registered = true
+                end
             end
-            hrec = hrec or { ts = hour_ts, requests = 0, distinct_ips = 0, fails = 0 }
-            hrec.requests = hrec.requests + req
-            hrec.distinct_ips = math.max(hrec.distinct_ips, ips)
-            hrec.fails = hrec.fails + fails
-            hrecords[#hrecords + 1] = hrec
-            table.sort(hrecords, function(a, b) return a.ts < b.ts end)
-            while #hrecords > HIST_HOURS do table.remove(hrecords, 1) end
-            hist:set("histH:" .. host, encode_records(hrecords))
+
+            if registered then
+                local rec = { ts = minute_ts, requests = req, distinct_ips = ips, fails = fails }
+                local raw = hist:get("hist:" .. host)
+                dict_guard.set(hist, "stats.hist", "hist:" .. host,
+                    series_put(raw, rec, HIST_MINUTES), HIST_TTL)
+                -- The hour row: same counters, summed except the distinct clients,
+                -- which take the maximum.
+                local hour_ts = minute_ts - (minute_ts % 3600)
+                local hraw = hist:get("histH:" .. host)
+                local hrecords = decode_records(hraw)
+                local hrec
+                for i, r in ipairs(hrecords) do
+                    if r.ts == hour_ts then hrec = r; hrecords[i] = nil break end
+                end
+                hrec = hrec or { ts = hour_ts, requests = 0, distinct_ips = 0, fails = 0 }
+                hrec.requests = hrec.requests + req
+                hrec.distinct_ips = math.max(hrec.distinct_ips, ips)
+                hrec.fails = hrec.fails + fails
+                hrecords[#hrecords + 1] = hrec
+                table.sort(hrecords, function(a, b) return a.ts < b.ts end)
+                while #hrecords > HIST_HOURS do table.remove(hrecords, 1) end
+                dict_guard.set(hist, "stats.hist", "histH:" .. host,
+                    encode_records(hrecords), HIST_HOURS_TTL)
+            end
         end
     end
 end
