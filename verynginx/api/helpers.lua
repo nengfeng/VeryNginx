@@ -74,6 +74,58 @@ function _M.get_request_args()
     return ngx.req.get_post_args()
 end
 
+--- Normalise an ETag value to the bare opaque token used by
+--- core.config.current_hash(). Clients may send the quoted form ("abc")
+--- and proxies may prefix a weak comparator (W/"abc"); both are valid HTTP
+--- grammar, neither should be compared literally against the stored hash.
+function _M.normalize_etag(value)
+    if type(value) ~= "string" or value == "" then
+        return nil
+    end
+    value = value:gsub("^%s+", ""):gsub("%s+$", "")
+    if value:sub(1, 2) == "W/" then
+        value = value:sub(3)
+    end
+    if #value >= 2 and value:sub(1, 1) == '"' and value:sub(-1) == '"' then
+        value = value:sub(2, -2)
+    end
+    return value ~= "" and value or nil
+end
+
+--- Hash of the config the client last read, sent back with a full-config
+--- write so a stale save can be refused (409) instead of silently reverting
+--- a concurrent edit.
+--
+-- The value travels in `X-Config-Hash`, NOT the standard `If-Match`
+-- request header. On this nginx (1.30.7) the not-modified response filter
+-- (ngx_http_not_modified_header_filter, built in) evaluates a specific
+-- If-Match value against the RESPONSE ETag, but only for 200 answers:
+-- non-200 responses (401/409) pass through, and `If-Match: *` always
+-- passes. A 200 whose ETag does not match — or which has NO ETag — is
+-- turned into a 412 by the filter, and the filter runs after the Lua
+-- content phase, so the handler has already done its work. The fatal case
+-- for P1-5: POST /config's success reply is a 200 with no ETag (only
+-- GET /config sets one), so even a correct If-Match save would come back
+-- 412 to the client. (Verified against the nginx 1.30.7 source and with
+-- minimal configs on this host.)
+-- `X-Config-Hash` is a custom header nginx does not evaluate, so it
+-- reaches the controller intact. The standard `If-Match` is still
+-- accepted as a fallback for servers whose responses do not pass through
+-- that filter with these header shapes.
+--
+-- Request header keys: lua-nginx-module lower-cases header names in
+-- ngx.req.get_headers() (verified on the deployed nginx 1.30.7 +
+-- lua-nginx-module 0.10.32rc8), so look the keys up in lower case.
+function _M.requested_config_version()
+    local headers = ngx.req.get_headers()
+    local raw = headers["x-config-hash"]
+    if type(raw) == "string" and raw ~= "" then
+        -- Accept both the bare form and a client echoing the ETag verbatim.
+        return _M.normalize_etag(raw)
+    end
+    return _M.normalize_etag(headers["if-match"])
+end
+
 --- Redact GeoIP credential fields on a geoip config section (in place).
 --
 -- GET /config, GET /config/export and GET /geoip/config all must hide live

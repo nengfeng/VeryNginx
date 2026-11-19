@@ -9,24 +9,6 @@ local json = require "dkjson"
 local audit = require "core.audit"
 local helpers = require "api.helpers"
 
--- Normalise an If-Match / ETag value to the bare opaque token used by
--- core.config.current_hash(). Clients send the quoted form ("abc") and proxies
--- may prefix a weak comparator (W/"abc"); both are valid HTTP, neither should
--- be compared literally against the stored hash.
-local function normalize_etag(value)
-    if type(value) ~= "string" or value == "" then
-        return nil
-    end
-    value = value:gsub("^%s+", ""):gsub("%s+$", "")
-    if value:sub(1, 2) == "W/" then
-        value = value:sub(3)
-    end
-    if #value >= 2 and value:sub(1, 1) == '"' and value:sub(-1) == '"' then
-        value = value:sub(2, -2)
-    end
-    return value ~= "" and value or nil
-end
-
 local function config_conflict_response(message)
     ngx.status = 409
     return json.encode({ ret = "failed", message = message or "config_changed" })
@@ -81,7 +63,7 @@ local function handle_set_config()
         return json.encode({ ret = "failed", message = "invalid config" })
     end
 
-    local expected_version = normalize_etag(ngx.req.get_headers()["If-Match"])
+    local expected_version = helpers.requested_config_version()
     local ok, err = require("core.config").save(new_config, {
         expected_version = expected_version,
     })
@@ -144,13 +126,23 @@ local function handle_get_config()
     local config_mod = require("core.config")
     local raw = config_mod.report()
     -- Opaque version of the config currently in force. The dashboard sends it
-    -- back as If-Match so a full-config write based on a stale GET is refused
-    -- instead of silently reverting a concurrent edit. ETag (rather than a
-    -- field in the JSON body) keeps the hash out of the config object that
-    -- the editor round-trips and saves.
+    -- back so a full-config write based on a stale GET is refused instead of
+    -- silently reverting a concurrent edit. A header (rather than a field in
+    -- the JSON body) keeps the hash out of the config object the editor
+    -- round-trips and saves.
+    --
+    -- The version carrier is the CUSTOM header `X-Config-Hash`, not the
+    -- standard `If-Match`: on this nginx (1.30.7) the not-modified
+    -- response filter evaluates a specific If-Match value against the
+    -- response ETag for 200 answers, and POST /config's success reply
+    -- carries no ETag, so even a correct If-Match save would come back
+    -- 412 to the client. A custom header is not evaluated by nginx and
+    -- reaches the controller intact. `ETag` is set too, for standard
+    -- caching semantics, but clients echo `X-Config-Hash`.
     local version = config_mod.current_hash()
     if version and version ~= "" then
         ngx.header["ETag"] = '"' .. version .. '"'
+        ngx.header["X-Config-Hash"] = version
         ngx.header["Cache-Control"] = "no-store"
     end
     local ok, decoded = pcall(json.decode, raw)
@@ -215,7 +207,7 @@ local function handle_import_config()
         ngx.status = 400
         return json.encode({ ret = "failed", message = "invalid json" })
     end
-    local expected_version = normalize_etag(ngx.req.get_headers()["If-Match"])
+    local expected_version = helpers.requested_config_version()
     local ok2, err = require("core.config").save(parsed, {
         expected_version = expected_version,
     })

@@ -19,11 +19,21 @@
     let csrfToken = null;
 
     // ---- Config optimistic concurrency ----
-    // GET /config exposes the effective config hash as an ETag. Full-config
-    // saves echo it as If-Match so a stale edit is rejected with 409 instead of
-    // silently overwriting a concurrent one. The hash lives in an HTTP header
-    // on purpose: putting it in the JSON body would make the editor round-trip
-    // it into config.json on the next save.
+    // GET /config exposes the effective config hash in the X-Config-Hash
+    // response header (and, for standard caching, a quoted ETag). Full-config
+    // saves echo the hash back as X-Config-Hash so a stale edit is rejected
+    // with 409 instead of silently overwriting a concurrent one. The hash
+    // lives in an HTTP header on purpose: putting it in the JSON body would
+    // make the editor round-trip it into config.json on the next save.
+    //
+    // We use the custom X-Config-Hash header, NOT the standard If-Match:
+    // on this nginx (1.30.7) the not-modified response filter turns any
+    // 200 answer whose specific If-Match value does not match the response
+    // ETag into a 412, and a successful POST /config reply carries no ETag
+    // (only GET /config sets one), so even a correct save would come back
+    // 412. A custom header is not evaluated by nginx and is the reliable
+    // transport. The server still accepts If-Match as a fallback for
+    // environments whose responses are not filtered that way.
     let configHash = '';
     function parseEtag(value) {
       if (!value || typeof value !== 'string') return '';
@@ -36,7 +46,7 @@
     function getConfigHash() { return configHash; }
     function configSaveHeaders() {
       const headers = {};
-      if (configHash) headers['If-Match'] = '"' + configHash + '"';
+      if (configHash) headers['X-Config-Hash'] = configHash;
       return headers;
     }
     function configErrorMessage(err) {

@@ -632,10 +632,18 @@
       try {
         const result = await api('GET', '/verynginx/config', null, { includeHeaders: true });
         const d = result.data;
-        // Remember the server's ETag so the next full-config save can send it
-        // as If-Match. Without this, two browser tabs could silently overwrite
-        // each other's edits.
-        if (shared.setConfigHash) shared.setConfigHash(result.headers && result.headers.get('ETag'));
+        // Remember the server's config hash so the next full-config save can
+        // echo it back as X-Config-Hash and a stale edit is rejected with 409
+        // instead of silently overwriting a concurrent one. X-Config-Hash is
+        // the primary carrier: on this nginx the not-modified response
+        // filter 412s a 200 reply whose specific If-Match value does not
+        // match the response ETag, and the save reply has no ETag, so the
+        // standard header is unreliable here; the quoted ETag is kept as
+        // the fallback.
+        if (shared.setConfigHash) {
+          const h = result.headers;
+          shared.setConfigHash((h && (h.get('X-Config-Hash') || h.get('ETag'))) || '');
+        }
         // Sanitize rule-group arrays: config JSON can carry null holes that
         // crash v-for renders reading r.enable etc.
         if (d && d.rule) {

@@ -1656,8 +1656,10 @@ function _M.save(config, opts)
     -- read-compare-write atomic against other savers.
     --
     -- `expected_version` is optional on purpose: scripts and older clients
-    -- that do not send If-Match keep working (last write wins, as before).
-    -- Only a client that says which version it read can be told it is stale.
+    -- that do not send the config version header (X-Config-Hash, or If-Match
+    -- on servers that pass it through) keep working — last write wins, as
+    -- before. Only a client that says which version it read can be told it
+    -- is stale.
     local expected = opts and opts.expected_version
     if expected and expected ~= "" then
         local current = (shared and shared:get("config_hash")) or _M.local_hash
@@ -1958,9 +1960,19 @@ end
 --
 -- The hash is written to the shared dict on every save, so it is the one
 -- value every worker agrees on (a worker's own local_hash can lag behind a
--- save made by another worker until check_update() runs). Clients send it
--- back as If-Match so a stale full-config write can be refused instead of
+-- save made by another worker until check_update() runs). GET /config
+-- publishes it in the X-Config-Hash response header (and, for standard
+-- caching, a quoted ETag); full-config writers echo it back in the
+-- X-Config-Hash request header so a stale write can be refused instead of
 -- silently overwriting a concurrent edit.
+--
+-- X-Config-Hash, not the standard If-Match, is the primary carrier: on
+-- this nginx (1.30.7) the not-modified response filter evaluates a
+-- specific If-Match value against the RESPONSE ETag for 200 answers, and
+-- a matching save's 200 reply carries no ETag (only GET /config sets
+-- one), so the filter turns it into a 412 before the client learns the
+-- save succeeded. If-Match is still accepted as a fallback for servers
+-- whose responses do not pass through that filter in these shapes.
 function _M.current_hash()
     local shared = test_shared or ngx.shared.vn_config
     local v = shared and shared:get("config_hash")

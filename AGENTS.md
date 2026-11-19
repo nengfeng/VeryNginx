@@ -361,19 +361,21 @@ auto_whitelist = { type = "table", default = {
 
 > **注意**：上面的 `auto_whitelist` 示例仅为字段形状说明。`config.lua` 的 schema 当前**未声明** `ip_reputation.auto_whitelist`——config.json 中写全字段可生效（`normalize_defaults` 的 `deep_copy` 会保留未知字段），但无默认值填充、无验证，部分配置会静默失效。目前未配置时实际生效值来自 `core/ip_reputation.lua` 的 `DEFAULTS.auto_whitelist`。
 
-### 6.9 全量配置保存的乐观并发（ETag / If-Match）
+### 6.9 全量配置保存的乐观并发（X-Config-Hash / ETag）
 
-面板编辑的是**整份配置**：`GET /config` → 改一个字段 → `POST /config`。两个标签页/两个操作者同时这样做时，后保存的一方会静默回滚前一方。现在用 HTTP 标准头闭环：
+面板编辑的是**整份配置**：`GET /config` → 改一个字段 → `POST /config`。两个标签页/两个操作者同时这样做时，后保存的一方会静默回滚前一方。现在用请求/响应头闭环：
 
-- `GET /config` 设置 `ETag: "<config_hash>"`，哈希来自 `core.config.current_hash()`（共享字典 `config_hash`，每次 save 更新）。
-- 前端 `vn-common.js` 保存 ETag，所有全量 `POST /config` 通过 `If-Match` 回传。
+- `GET /config` 设置 `X-Config-Hash: <config_hash>`（裸哈希）与 `ETag: "<config_hash>"` + `Cache-Control: no-store`，哈希来自 `core.config.current_hash()`（共享字典 `config_hash`，每次 save 更新）。
+- 前端 `vn-common.js` 保存哈希（优先读 `X-Config-Hash`，回退 ETag），所有全量 `POST /config` 通过 **`X-Config-Hash`** 回传（`vn-dashboard.js` `loadConfig` 读取，`configSaveHeaders()` 生成）。
+- **为什么是自定义头而不是标准 `If-Match`**：本平台的 nginx 1.30.7 内置的 not-modified 响应过滤器（`ngx_http_not_modified_header_filter`）会对 **200 响应**按 RFC 评估请求里的具体 `If-Match` 值与**响应 ETag** 是否匹配——不匹配（或响应没有 ETag）即回 **412**；4xx 响应与 `If-Match: *` 不受影响。致命点：`POST /config` 的成功响应是 200 且**不带 ETag**（只有 `GET /config` 设），于是**即使版本匹配、Lua 里保存成功，客户端也会收到 412**。已对照 nginx 1.30.7 源码 + 最小配置实测核实。`X-Config-Hash` 是 nginx 不评估的自定义头，原样到达控制器；服务端仍**回退接受** `If-Match`（`api.helpers.requested_config_version()`：先 `x-config-hash` 后 `if-match`），兼容不跑该过滤器形态的服务器/环境。
+- lua-nginx-module 的 `ngx.req.get_headers()` 默认返回**小写**键名（本机 0.10.32rc8 实测），读请求头必须用小写 `x-config-hash` / `if-match`。
 - `core.config.save(config, { expected_version = ... })` 在 save 锁内比对当前哈希，不匹配返回 `false, "config_changed"`；API 层映射为 **409**，前端提示「配置已被其他会话修改，请刷新后重试」。
-- `expected_version` 是**可选**的：脚本和旧客户端不带 `If-Match` 时保持 last-write-wins，不破坏兼容。
-- 哈希必须走 **ETag**，不要作为字段塞进 `GET /config` 的 JSON body——面板会把整份 JSON 再 POST 回来，未知字段会被 `normalize_defaults` 保留并写进 config.json。
+- `expected_version` 是**可选**的：脚本和旧客户端不发版本头时保持 last-write-wins，不破坏兼容。
+- 哈希必须走**响应头**，不要作为字段塞进 `GET /config` 的 JSON body——面板会把整份 JSON 再 POST 回来，未知字段会被 `normalize_defaults` 保留并写进 config.json。
 - `config_save_lock_ttl` 必须取自**当前生效配置**，不要读未校验的传入 config：`math.max` 遇到字符串/表会在 `validate_config` 之前抛错。
-- 新增全量配置写路径时，必须同样带上 `If-Match`；`atomic_mutate` 自身在锁内读改写，不需要 expected_version。
+- 新增全量配置写路径时，必须同样带上 `X-Config-Hash`；`atomic_mutate` 自身在锁内读改写，不需要 expected_version。
 
-回归见 `test/v2/phase0/config_optimistic_concurrency_spec.lua`。
+回归见 `test/v2/phase0/config_optimistic_concurrency_spec.lua`（save 语义 + 控制器 409/回退/GET 头）。
 
 ---
 
