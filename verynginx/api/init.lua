@@ -155,6 +155,12 @@ local function run_route(route, ctx, method, path)
     local idem_key = nil
     if method ~= "GET" and method ~= "HEAD" and method ~= "OPTIONS" then
         idem_key = ngx.req.get_headers()["Idempotency-Key"]
+        -- A repeated request header is returned as an array table by
+        -- ngx.req.get_headers(). Feeding that to ngx.md5() would raise and
+        -- turn a duplicate header into a 500; ignore non-string values.
+        if type(idem_key) ~= "string" then
+            idem_key = nil
+        end
         if idem_key and idem_key ~= "" then
             local shared = ngx.shared.vn_session
             if shared then

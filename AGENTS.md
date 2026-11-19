@@ -1007,7 +1007,7 @@ Dockerfile 必须安装 Go 1.21+（官方 tar.gz），不能依赖 Debian Bullse
 ## 附录：模块文件结构
 verynginx/
 ├── AGENTS.md                ← 本文档 — 开发经验与约束
-├── Dockerfile               ← 生产镜像 (debian:bullseye-slim + install.py)
+├── Dockerfile               ← 生产镜像 (debian:bookworm-slim + install.py)
 ├── install-lnmp.sh          ← 一键安装脚本 (LNMP 环境)
 ├── verynginx/
 │   ├── on_rewrite.lua       ← 请求重写阶段处理

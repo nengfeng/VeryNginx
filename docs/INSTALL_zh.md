@@ -9,7 +9,8 @@
 | GCC / Make | — | 编译 OpenResty 时需要 |
 | PCRE, OpenSSL, zlib 开发库 | — | 编译 OpenResty 时需要 |
 | LuaJIT | 2.1 | OpenResty 内置；手动安装时需单独编译 |
-| Nginx | 1.25+ | 需编译 `ngx_http_lua_module` |
+| Nginx | 1.30+ | 需编译 `ngx_http_lua_module` |
+| ngx_http_lua_module | 0.10.32+ | JA4 指纹依赖 `ssl_client_hello_by_lua*` 接口 |
 
 ---
 
