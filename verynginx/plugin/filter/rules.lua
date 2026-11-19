@@ -87,7 +87,11 @@ function _M.load_rules()
             severity = "medium",
             enable = rule.enable ~= false,
             priority = 100,
-            matcher = rule.matcher,
+            -- Inline matcher: the fallback must not depend on config.matcher
+            -- containing the legacy names. A missing/corrupt rules file with an
+            -- empty config.matcher would otherwise leave the WAF with rules
+            -- that can never match (fail-open).
+            matcher = _M.default_matchers[m],
             action = rule.action,
             code = rule.code or 403,
             response = rule.response,

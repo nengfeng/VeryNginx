@@ -379,6 +379,20 @@ function _M.load_from_file()
     f:close()
     if not content or content == "" then return nil end
     local ok, data = pcall(json.decode, content)
+    if not ok or not data then
+        -- Corrupt runtime file: fall back to the shipped factory set rather
+        -- than silently serving no rules. A truncated write / manual edit must
+        -- not turn the WAF off.
+        ngx.log(ngx.ERR, "waf-rule-manager: rules file corrupt at ", path,
+            " — falling back to factory defaults")
+        local dpath = default_rules_path()
+        local df = io.open(dpath, "r")
+        if df then
+            content = df:read("*all")
+            df:close()
+            ok, data = pcall(json.decode, content)
+        end
+    end
     if not ok or not data then return nil end
     if type(data) == "table" and data.rules then
         return {
