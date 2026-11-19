@@ -46,7 +46,13 @@ end
 
 local function handle_geoip_config()
     local c = require "core.config"
-    return json.encode({ ret = "success", data = c.geoip or {} })
+    -- Redact live credentials: the dashboard's credential boxes echo this
+    -- endpoint, so echoing real keys would leak them into page state. The
+    -- "(redacted)" sentinel is backfilled by core.config.save(), so saving
+    -- the section back unchanged keeps the real keys.
+    local section = c.geoip or {}
+    require("api.helpers").redact_geoip_credentials(section)
+    return json.encode({ ret = "success", data = section })
 end
 
 local function handle_geoip_config_set()

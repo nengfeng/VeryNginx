@@ -74,4 +74,23 @@ function _M.get_request_args()
     return ngx.req.get_post_args()
 end
 
+--- Redact GeoIP credential fields on a geoip config section (in place).
+--
+-- GET /config, GET /config/export and GET /geoip/config all must hide live
+-- keys; a single list here keeps the three call sites from drifting apart.
+-- Non-empty values are replaced with the same "(redacted)" sentinel that
+-- core.config.save() backfills (the established contract for admin
+-- password_hash and security session_secret), so a dashboard read-modify-save
+-- cycle that leaves a box untouched preserves the real key.
+local GEOIP_CREDENTIAL_FIELDS = { "license_key", "abuseipdb_key", "ipinfo_token" }
+
+function _M.redact_geoip_credentials(section)
+    if type(section) ~= "table" then return end
+    for _, k in ipairs(GEOIP_CREDENTIAL_FIELDS) do
+        if type(section[k]) == "string" and section[k] ~= "" then
+            section[k] = "(redacted)"
+        end
+    end
+end
+
 return _M

@@ -1694,14 +1694,21 @@ function _M.save(config, opts)
         config.security.session_secret = config_data.security.session_secret
     end
 
-    -- Preserve real MaxMind license key when incoming value is the redacted
-    -- sentinel from GET /config — same contract as password_hash/session_secret.
-    if type(config.geoip) == "table" and config.geoip.license_key == "(redacted)" then
-        if type(config_data.geoip) == "table" and type(config_data.geoip.license_key) == "string"
-                and config_data.geoip.license_key ~= "(redacted)" then
-            config.geoip.license_key = config_data.geoip.license_key
-        else
-            config.geoip.license_key = ""
+    -- Preserve real GeoIP credentials when the incoming value is the
+    -- "(redacted)" sentinel returned by GET /config, GET /config/export or
+    -- GET /geoip/config — same contract as password_hash/session_secret.
+    -- All three keys share the loop: a new credential added to the schema
+    -- must be added to the list or a dashboard save would silently clear it.
+    if type(config.geoip) == "table" then
+        for _, k in ipairs({ "license_key", "abuseipdb_key", "ipinfo_token" }) do
+            if config.geoip[k] == "(redacted)" then
+                local cur = config_data.geoip and config_data.geoip[k]
+                if type(cur) == "string" and cur ~= "(redacted)" then
+                    config.geoip[k] = cur
+                else
+                    config.geoip[k] = ""
+                end
+            end
         end
     end
 

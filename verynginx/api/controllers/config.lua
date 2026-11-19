@@ -7,6 +7,7 @@ local _M = {}
 
 local json = require "dkjson"
 local audit = require "core.audit"
+local helpers = require "api.helpers"
 
 -- Normalise an If-Match / ETag value to the bare opaque token used by
 -- core.config.current_hash(). Clients send the quoted form ("abc") and proxies
@@ -153,16 +154,14 @@ local function handle_get_config()
         ngx.header["Cache-Control"] = "no-store"
     end
     local ok, decoded = pcall(json.decode, raw)
-    if ok and decoded and decoded.admin then
-        for _, a in ipairs(decoded.admin) do
+    if ok and decoded then
+        for _, a in ipairs(decoded.admin or {}) do
             a.password_hash = "(redacted)"
         end
-    end
-    if ok and decoded and decoded.security then
-        decoded.security.session_secret = "(redacted)"
-    end
-    if ok and decoded and type(decoded.geoip) == "table" and decoded.geoip.license_key then
-        decoded.geoip.license_key = "(redacted)"
+        if type(decoded.security) == "table" then
+            decoded.security.session_secret = "(redacted)"
+        end
+        helpers.redact_geoip_credentials(decoded.geoip)
     end
     if ok then
         return json.encode(decoded)
@@ -181,16 +180,14 @@ local function handle_export_config()
     local content = f:read("*all")
     f:close()
     local ok, decoded = pcall(json.decode, content)
-    if ok and decoded and decoded.admin then
-        for _, a in ipairs(decoded.admin) do
+    if ok and decoded then
+        for _, a in ipairs(decoded.admin or {}) do
             a.password_hash = "(redacted)"
         end
-    end
-    if ok and decoded and decoded.security then
-        decoded.security.session_secret = "(redacted)"
-    end
-    if ok and decoded and type(decoded.geoip) == "table" and decoded.geoip.license_key then
-        decoded.geoip.license_key = "(redacted)"
+        if type(decoded.security) == "table" then
+            decoded.security.session_secret = "(redacted)"
+        end
+        helpers.redact_geoip_credentials(decoded.geoip)
     end
     if ok then
         content = json.encode(decoded)
