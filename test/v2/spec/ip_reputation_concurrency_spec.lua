@@ -189,6 +189,26 @@ describe("ip_reputation: concurrency safety", function()
             assert.is_true(rep.is_flagged(ip, { no_cache = true }))
         end)
 
+        it("drops a cached negative verdict when the score changes", function()
+            local ip = "10.0.0.20"
+            local s = ngx.shared.ip_reputation
+            local slot = math.floor(ngx.time() / 60)
+            s:set("ip_rep:req:" .. ip .. ":" .. slot, 10, 300)
+
+            -- Populate the negative cache (CACHE_TTL=10s; the stub clock is
+            -- frozen, so it would otherwise outlive the signals below).
+            assert.is_false(rep.is_flagged(ip))
+
+            for _ = 1, 6 do
+                rep.record_signal(ip, "waf_block")
+            end
+
+            -- Without invalidation this returns the stale cached false for
+            -- up to 10 seconds, delaying the block.
+            assert.is_true(rep.is_flagged(ip),
+                "record_signal must invalidate the cached negative verdict")
+        end)
+
     end)
 
     describe("whitelist cache", function()

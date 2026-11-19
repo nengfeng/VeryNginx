@@ -103,6 +103,18 @@ describe("waf-rule-manager", function()
             assert.matches("severity", err)
         end)
 
+        it("rejects a non-numeric priority", function()
+            local ok, err = waf.validate_rule(r({ priority = "high" }))
+            assert.is.falsy(ok)
+            assert.matches("priority", err)
+        end)
+
+        it("rejects an out-of-range priority", function()
+            local ok, err = waf.validate_rule(r({ priority = 1001 }))
+            assert.is.falsy(ok)
+            assert.matches("priority", err)
+        end)
+
         it("requires valid action", function()
             local ok, err = waf.validate_rule(r({ action = "invalid" }))
             assert.is.falsy(ok)

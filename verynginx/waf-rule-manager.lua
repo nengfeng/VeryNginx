@@ -724,6 +724,15 @@ function _M.validate_rule(rule)
     if not rule.severity or not _M.SEVERITY_LEVELS[rule.severity] then
         return false, "invalid severity: " .. tostring(rule.severity)
     end
+    if rule.priority ~= nil then
+        -- split_rules() sorts with `priority or 100`. A string/table priority
+        -- makes that comparator raise (or order lexicographically) on every
+        -- request, turning one malformed rule into a 500 storm.
+        if type(rule.priority) ~= "number" or rule.priority ~= rule.priority
+            or rule.priority < 0 or rule.priority > 1000 then
+            return false, "priority must be a number between 0 and 1000"
+        end
+    end
     if not rule.action or not _M.ACTIONS[rule.action] then
         return false, "invalid action: " .. tostring(rule.action)
     end

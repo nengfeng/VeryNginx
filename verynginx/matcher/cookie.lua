@@ -21,7 +21,10 @@ function _M.test(condition, ctx)
     local op, val = condition.operator, condition.value
     for k, v in pairs(fields) do
         if compare.match(k, name_op, name_val) then
-            return compare.match(v, op, val)
+            -- Keep scanning: several cookie names can match the name pattern.
+            -- Returning on the first name match let a safe cookie shadow a
+            -- malicious sibling when the table iteration order was unlucky.
+            if compare.match(v, op, val) then return true end
         end
     end
     return false

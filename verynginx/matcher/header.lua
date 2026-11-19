@@ -11,7 +11,10 @@ function _M.test(condition, _)
         if v ~= nil then
             local ks, vs = tostring(k), tostring(v)
             if compare.match(ks, name_op, name_val) then
-                return compare.match(vs, op, val)
+                -- Keep scanning: multiple header names can match the pattern.
+                -- Returning on the first name match let a safe header shadow a
+                -- malicious sibling when the table iteration order was unlucky.
+                if compare.match(vs, op, val) then return true end
             end
         end
     end

@@ -464,8 +464,11 @@ function _M.record_signal(ip, signal_type, rule)
     elseif sforc then
         dict_guard.evicted_other("ip_rep.signal_detail", "incr")
     end
-    -- Invalidate score cache since weights changed
+    -- Invalidate both score and flag caches: a stale negative flag cache
+    -- would keep is_flagged() returning false for up to CACHE_TTL after the
+    -- score crossed the threshold, delaying the block by that long.
     s:delete("ip_rep:score_cache:" .. ip)
+    s:delete("ip_rep:cache:" .. ip)
 end
 
 function _M.increment_req(ip)
@@ -483,6 +486,10 @@ function _M.increment_req(ip)
         dict_guard.write_failed("ip_rep.req", "incr", rerr)
     elseif rforc then
         dict_guard.evicted_other("ip_rep.req", "incr")
+    elseif rval == cfg_val("min_requests") then
+        -- Crossing the min_requests gate can change is_flagged(); drop a
+        -- cached negative verdict so the next call re-evaluates the score.
+        s:delete("ip_rep:cache:" .. ip)
     end
 end
 
@@ -514,8 +521,9 @@ function _M.record_ua(ip, ua_string)
     local is_new = s:add(seen_key, 1, window_size())
     if is_new then
         s:incr(count_key, 1, 0, window_size())
-        -- Invalidate score cache: the UA diversity factor has changed
+        -- Invalidate score and flag caches: the UA diversity factor changed.
         s:delete("ip_rep:score_cache:" .. ip)
+        s:delete("ip_rep:cache:" .. ip)
     end
 end
 
@@ -1005,8 +1013,11 @@ function _M.clear_score(ip)
             end
         end
     end
-    -- Invalidate score cache so get_score() reflects the cleared score
+    -- Invalidate score and flag caches so get_score()/is_flagged() reflect
+    -- the cleared score immediately (a challenge pass calls clear_score()
+    -- directly; without this the old positive flag verdict could linger).
     s:delete("ip_rep:score_cache:" .. ip)
+    s:delete("ip_rep:cache:" .. ip)
 end
 
 function _M.add_whitelist(entry)
