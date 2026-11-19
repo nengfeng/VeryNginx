@@ -75,17 +75,18 @@ info "备份完成于: ${BACKUP_DIR}"
 
 # ---- 拉取最新代码 ----
 info "=== Step 3: 拉取最新代码 ==="
-# 升级必须固定到具体 commit：浮动分支意味着任何能改写 main 指针的人
+# 升级必须固定到具体 ref：浮动分支意味着任何能改写 main 指针的人
 # （包括被入侵的维护者账号）都能让所有跑升级脚本的机器直接部署恶意代码。
 # ---- 供应链信任模型（务必理解后再改）----
 # 升级的信任锚是【安装时部署的本脚本副本】：其 VN_PINNED_COMMIT 在安装时
-# 被烘焙为当次安装对应的 commit，仓库分支被改写也影响不到已部署的锚
-# （git checkout <sha> 得到的内容由 git 对象模型保证，不可篡改）。
+# 被烘焙为当次安装对应的 ref。发布时使用不可变的 release tag 名（如
+# V2.3.1），因为 tag 指向本次发布 commit，且自引用 SHA 无法在单次提交中
+# 写出；日常开发/回退仍可写 commit SHA。
 # 注意：绝不要用 curl|bash 从分支上取本脚本再运行——那样 pin 就落在改写
 # 分支的人手里，等于没有 pin（这正是旧版 pin 被判为假修复的原因）。
-# 前进方式：查 release 说明确认目标 commit，显式 VN_UPGRADE_COMMIT=<sha>
+# 前进方式：查 release 说明确认目标 ref，显式 VN_UPGRADE_COMMIT=<sha|tag>
 # 覆盖（脚本会大声警告）；升级部署的新代码会携带新的锚供下次使用。
-VN_PINNED_COMMIT="8f8bb10b80a42c3bfa79ce1e84b0c430d37f270f"
+VN_PINNED_COMMIT="V2.3.1"
 VN_UPGRADE_COMMIT="${VN_UPGRADE_COMMIT:-${VN_PINNED_COMMIT}}"
 if [ -n "${VN_UPGRADE_COMMIT:-}" ] && [ "${VN_UPGRADE_COMMIT}" != "${VN_PINNED_COMMIT}" ]; then
     warn "=========================================================="
