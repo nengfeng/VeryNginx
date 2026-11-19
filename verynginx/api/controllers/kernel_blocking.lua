@@ -442,7 +442,11 @@ end
 -- ---------------------------------------------------------------------------
 local function handle_diff()
     local kb = require "core.kernel_blocking.init"
-    local diff = kb.get_diff()
+    local diff, err = kb.get_diff()
+    if not diff then
+        ngx.status = 502
+        return json.encode({ ret = "failed", message = tostring(err or "kernel list failed") })
+    end
     return json.encode({ ret = "success", data = diff })
 end
 

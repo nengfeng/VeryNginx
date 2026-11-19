@@ -21,7 +21,11 @@ function _M.allow(key, limit, window)
 
     local count = shared:incr(key, 1, 1, window)
     if not count then
-        return true
+        -- Fail closed: an unrecordable counter must not be read as "not limited".
+        -- If the shared dict is full, the safe answer is to reject the request;
+        -- otherwise an attacker who can exhaust vn_rate_limit bypasses every
+        -- API/login rate limit at once.
+        return false
     end
 
     return count <= limit

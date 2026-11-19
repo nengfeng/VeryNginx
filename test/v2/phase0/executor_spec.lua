@@ -99,6 +99,38 @@ describe("IPC executor adapter", function()
     end)
 end)
 
+describe("enforce mode with unavailable IPC adapter", function()
+    it("fails closed instead of falling back to mock", function()
+        local saved_exec = package.loaded["core.kernel_blocking.executor"]
+        local saved_ipc_loaded = package.loaded["core.kernel_blocking.executor_ipc"]
+        local saved_ipc_preload = package.preload["core.kernel_blocking.executor_ipc"]
+        local saved_config = package.loaded["core.config"]
+
+        package.loaded["core.kernel_blocking.executor_ipc"] = nil
+        package.preload["core.kernel_blocking.executor_ipc"] = function()
+            error("adapter unavailable")
+        end
+        package.loaded["core.kernel_blocking.executor"] = nil
+        package.loaded["core.config"] = {
+            kernel_ip_blocking = { mode = "enforce" },
+        }
+
+        local ok, err = pcall(function()
+            local exec_mod = require "core.kernel_blocking.executor"
+            local e = exec_mod.get_executor()
+            assert.is_false(e.add("scanner_drop", "ipv4", "203.0.113.1", 60))
+            local health = e.health()
+            assert.are.equal("unreachable", health.state)
+        end)
+
+        package.loaded["core.kernel_blocking.executor"] = saved_exec
+        package.loaded["core.kernel_blocking.executor_ipc"] = saved_ipc_loaded
+        package.preload["core.kernel_blocking.executor_ipc"] = saved_ipc_preload
+        package.loaded["core.config"] = saved_config
+        assert.is_true(ok, tostring(err))
+    end)
+end)
+
 describe("replace_allow_snapshot", function()
     it("replaces the allow set in mock executor", function()
         local mock = require "core.kernel_blocking.executor_mock"

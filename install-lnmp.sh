@@ -38,6 +38,17 @@ title() { echo -e "\n${BOLD}━━━ $* ━━━${NC}\n"; }
 
 die() { error "$*"; exit 1; }
 
+# VN_PREFIX is interpolated into sed replacements and nginx includes. Keep it
+# to a conservative path alphabet so a custom prefix cannot break the nginx
+# config syntax (or inject a second directive).
+case "$VN_PREFIX" in
+  ""|*[!A-Za-z0-9._/-]*) die "VN_PREFIX must contain only [A-Za-z0-9._/-]: $VN_PREFIX" ;;
+esac
+case "$VN_PREFIX" in
+  /*) ;;
+  *) die "VN_PREFIX must be an absolute path: $VN_PREFIX" ;;
+esac
+
 confirm() {
   # printf -v instead of eval (same effect, no code-injection smell).
   # EOF/non-interactive stdin: fall back to the default ONCE and stop

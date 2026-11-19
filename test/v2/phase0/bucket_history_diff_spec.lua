@@ -179,4 +179,13 @@ describe("GET /kernel-blocking/diff", function()
         assert.are.equal(1, diff.desired_count)
         assert.are.equal(1, diff.actual_count)
     end)
+
+    it("returns an error instead of a false empty diff when listing fails", function()
+        local original_list = mock.list
+        mock.list = function() return nil, "helper_unavailable" end
+        local diff, err = kb.get_diff()
+        mock.list = original_list
+        assert.is_nil(diff)
+        assert.are.equal("helper_unavailable", err)
+    end)
 end)

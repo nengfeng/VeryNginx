@@ -16,7 +16,12 @@ function _M.test(condition, ctx)
         end
         return false
     elseif op == "NOT" then
-        return not matcher.test(sub[1], ctx)
+        -- NOT means "none of the conditions match". The old code only
+        -- inspected sub[1] and silently ignored any extra conditions.
+        for _, m in ipairs(sub) do
+            if matcher.test(m, ctx) then return false end
+        end
+        return true
     end
     return true
 end

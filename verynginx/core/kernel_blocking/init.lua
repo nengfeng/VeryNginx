@@ -572,13 +572,19 @@ function _M.get_diff()
     until not cursor
 
     local exec = require("core.kernel_blocking.executor").get_executor()
+    local list_fn = exec.list_strict or exec.list
     local DROP_LISTS = { "scanner_drop", "cc_drop", "manual_drop" }
     local FAMILIES = { "ipv4", "ipv6" }
     for _, list in ipairs(DROP_LISTS) do
         for _, family in ipairs(FAMILIES) do
             local c2 = 0
             repeat
-                local page = exec.list(list, family, c2)
+                local page, lerr = list_fn(list, family, c2)
+                if not page then
+                    -- Never present a partial/empty view as truth: the dashboard
+                    -- would show every desired entry as missing.
+                    return nil, lerr or "kernel list failed"
+                end
                 for _, e in ipairs(page.entries or {}) do
                     local key = list .. ":" .. family .. ":" .. (e.ip or "")
                     actual[key] = { list = list, family = family, ip = e.ip, ttl = e.TTL }

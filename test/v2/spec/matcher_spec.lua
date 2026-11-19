@@ -108,6 +108,35 @@ describe("compare.match", function()
     end)
 end)
 
+describe("Composite matcher", function()
+    local uri_matcher = require "matcher.uri"
+
+    before_each(function()
+        matcher.registry = {}
+        matcher.register("URI", uri_matcher.test)
+        matcher.register("Composite", require("matcher.composite").test)
+    end)
+
+    it("NOT is false when any listed condition matches", function()
+        local ctx = { request = { uri = "/evil" }, match_cache = {}, match_cache_size = 0 }
+        local def = { Composite = { operator = "NOT", conditions = {
+            { URI = { operator = "=", value = "/safe" } },
+            { URI = { operator = "=", value = "/evil" } },
+        } } }
+        assert.is_false(matcher.test(def, ctx),
+            "NOT must inspect every condition, not just the first")
+    end)
+
+    it("NOT is true when none of the listed conditions match", function()
+        local ctx = { request = { uri = "/other" }, match_cache = {}, match_cache_size = 0 }
+        local def = { Composite = { operator = "NOT", conditions = {
+            { URI = { operator = "=", value = "/safe" } },
+            { URI = { operator = "=", value = "/evil" } },
+        } } }
+        assert.is_true(matcher.test(def, ctx))
+    end)
+end)
+
 describe("matcher.resolve", function()
     matcher.registry = {}
 

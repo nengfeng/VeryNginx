@@ -1317,6 +1317,30 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 		pending = append(pending, pendingEntry{entry: entry, family: family})
 	}
 
+	// Mirror Add's independent defenses on the reconcile path: a large
+	// snapshot must not exceed the owned-drop capacity or the DROP rate limit.
+	dropCount, newDrops := 0, 0
+	for _, p := range pending {
+		if p.entry.Set == "allow" {
+			continue
+		}
+		dropCount++
+		if b.state[p.entry.Set] == nil || b.state[p.entry.Set][p.family] == nil ||
+			b.state[p.entry.Set][p.family][p.entry.IP] == nil {
+			newDrops++
+		}
+	}
+	if dropCount > 0 {
+		if b.ownedDropCountLocked()+newDrops > b.maxOwnedDropEntries {
+			result["failed"] = result["failed"].(int) + len(snapshot)
+			return result, fmt.Errorf("capacity_exceeded")
+		}
+		if b.dropRateLimitedLocked(time.Now(), dropCount) {
+			result["failed"] = result["failed"].(int) + len(snapshot)
+			return result, fmt.Errorf("drop_rate_limited")
+		}
+	}
+
 	if !skipNFT && sb.Len() > 0 {
 		if _, err := b.execNFT(sb.String()); err != nil {
 			result["failed"] = result["failed"].(int) + len(snapshot)
@@ -1342,6 +1366,8 @@ func (b *NFTBackend) reconcileFull(snapshot []setEntry) (map[string]interface{},
 		b.owned[b.ownedKey(entry.Set, family, entry.IP)] = true
 		if entry.Set == "allow" {
 			b.allowEntries[entry.IP] = true
+		} else {
+			b.dropAddTimes = append(b.dropAddTimes, time.Now())
 		}
 	}
 	return result, nil
@@ -1430,6 +1456,33 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 			pending = append(pending, pendingEntry{entry: entry, family: family})
 		}
 
+		// Mirror Add's independent defenses on the reconcile path. Capacity is
+		// checked against newly-created drops; the rate limit counts every DROP
+		// write in the chunk, including updates.
+		dropCount, newDrops := 0, 0
+		for _, p := range pending {
+			if p.entry.Set == "allow" {
+				continue
+			}
+			dropCount++
+			if b.state[p.entry.Set] == nil || b.state[p.entry.Set][p.family] == nil ||
+				b.state[p.entry.Set][p.family][p.entry.IP] == nil {
+				newDrops++
+			}
+		}
+		if dropCount > 0 {
+			if b.ownedDropCountLocked()+newDrops > b.maxOwnedDropEntries {
+				b.mu.Unlock()
+				result["failed"] = result["failed"].(int) + len(payload.Desired)
+				return result, fmt.Errorf("capacity_exceeded")
+			}
+			if b.dropRateLimitedLocked(time.Now(), dropCount) {
+				b.mu.Unlock()
+				result["failed"] = result["failed"].(int) + len(payload.Desired)
+				return result, fmt.Errorf("drop_rate_limited")
+			}
+		}
+
 		if !skipNFT && sb.Len() > 0 {
 			if _, err := b.execNFT(sb.String()); err != nil {
 				b.mu.Unlock()
@@ -1456,6 +1509,8 @@ func (b *NFTBackend) reconcileChunked(payload reconcileChunk, result map[string]
 			b.owned[b.ownedKey(entry.Set, family, entry.IP)] = true
 			if entry.Set == "allow" {
 				b.allowEntries[entry.IP] = true
+			} else {
+				b.dropAddTimes = append(b.dropAddTimes, time.Now())
 			}
 		}
 		b.mu.Unlock()

@@ -928,6 +928,63 @@ local function validate_config(config)
         end
     end
 
+    -- Named matcher definitions. A rule that references a matcher is checked
+    -- at rule-save time, but the matcher itself can be edited later; an
+    -- invalid regex or IP value would then silently turn every referencing
+    -- rule into a dead rule. Validate the definition at config-save time too.
+    if type(config.matcher) == "table" then
+        local function validate_matcher_def(name, def, path)
+            if type(def) ~= "table" then
+                return false, string.format("matcher.%s must be a table", path)
+            end
+            for cond_key, cond in pairs(def) do
+                if cond_key == "Composite" and type(cond) == "table" then
+                    local subs = cond.conditions
+                    if type(subs) ~= "table" then
+                        return false, string.format("matcher.%s.Composite.conditions must be an array", path)
+                    end
+                    local op = cond.operator
+                    if op ~= "AND" and op ~= "OR" and op ~= "NOT" then
+                        return false, string.format("matcher.%s.Composite.operator must be AND/OR/NOT", path)
+                    end
+                    for i, sub in ipairs(subs) do
+                        local ok, err = validate_matcher_def(name, sub,
+                            path .. ".Composite[" .. i .. "]")
+                        if not ok then return false, err end
+                    end
+                elseif type(cond) == "table" then
+                    if cond_key == "IP" and type(cond.value) == "string" and cond.value ~= "" then
+                        local addr = cond.value
+                        if addr:find("/") then
+                            return false, string.format(
+                                "matcher.%s.IP does not support CIDR notation: %q", path, addr)
+                        end
+                        if not helpers.is_valid_ip(addr) then
+                            return false, string.format(
+                                "matcher.%s.IP is invalid: %q", path, addr)
+                        end
+                    end
+                    local op = cond.operator
+                    if type(ngx.re) == "table" and type(ngx.re.compile) == "function"
+                        and (op == "≈" or op == "!≈")
+                        and type(cond.value) == "string" and cond.value ~= "" then
+                        local cok, cres = pcall(ngx.re.compile, cond.value, "isjo")
+                        if not cok or not cres then
+                            return false, string.format(
+                                "matcher.%s.%s has invalid regex: %q",
+                                path, tostring(cond_key), cond.value)
+                        end
+                    end
+                end
+            end
+            return true
+        end
+        for name, def in pairs(config.matcher) do
+            local ok, err = validate_matcher_def(tostring(name), def, tostring(name))
+            if not ok then return false, err end
+        end
+    end
+
     -- Rule group reference integrity
     if config.rule then
         for group_name, rules in pairs(config.rule) do

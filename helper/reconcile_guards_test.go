@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func newTestBackend(t *testing.T) *NFTBackend {
@@ -120,6 +121,48 @@ func TestReconcileFull_InstallsLegitDrop(t *testing.T) {
 	}
 }
 
+// Reconcile must mirror Add's capacity defense: a snapshot larger than the
+// owned-drop limit is rejected instead of silently overfilling the kernel sets.
+func TestReconcileFull_EnforcesCapacity(t *testing.T) {
+	b := newTestBackend(t)
+	b.maxOwnedDropEntries = 1
+	b.maxDropAddsPerSec = 1000
+
+	snapshot := []setEntry{
+		{IP: "203.0.113.31", Family: "ipv4", Set: "scanner_drop", TTL: 60},
+		{IP: "203.0.113.32", Family: "ipv4", Set: "scanner_drop", TTL: 60},
+	}
+	_, err := b.reconcileFull(snapshot)
+	if err == nil || err.Error() != "capacity_exceeded" {
+		t.Fatalf("expected capacity_exceeded, got %v", err)
+	}
+	if b.state["scanner_drop"]["ipv4"]["203.0.113.31"] != nil ||
+		b.state["scanner_drop"]["ipv4"]["203.0.113.32"] != nil {
+		t.Fatalf("capacity-exceeded reconcile must not install entries")
+	}
+}
+
+// Reconcile must mirror Add's DROP rate limit.
+func TestReconcileFull_EnforcesDropRate(t *testing.T) {
+	b := newTestBackend(t)
+	b.maxOwnedDropEntries = 1000
+	b.maxDropAddsPerSec = 1
+	b.dropAddTimes = []time.Time{time.Now()}
+
+	snapshot := []setEntry{
+		{IP: "203.0.113.33", Family: "ipv4", Set: "scanner_drop", TTL: 60},
+		{IP: "203.0.113.34", Family: "ipv4", Set: "scanner_drop", TTL: 60},
+	}
+	_, err := b.reconcileFull(snapshot)
+	if err == nil || err.Error() != "drop_rate_limited" {
+		t.Fatalf("expected drop_rate_limited, got %v", err)
+	}
+	if b.state["scanner_drop"]["ipv4"]["203.0.113.33"] != nil ||
+		b.state["scanner_drop"]["ipv4"]["203.0.113.34"] != nil {
+		t.Fatalf("rate-limited reconcile must not install entries")
+	}
+}
+
 // H1 (chunked): chunked reconcile updates allowEntries and rejects follow-up drop.
 func TestReconcileChunked_AllowUpdatesAllowEntries(t *testing.T) {
 	b := newTestBackend(t)
@@ -150,6 +193,34 @@ func TestReconcileChunked_AllowUpdatesAllowEntries(t *testing.T) {
 	_, err = b.Add([]setEntry{{IP: "203.0.113.6", Family: "ipv4", Set: "scanner_drop", TTL: 60}})
 	if err == nil || err.Error() != "allow_covered" {
 		t.Fatalf("expected allow_covered, got err=%v", err)
+	}
+}
+
+// Chunked reconcile must enforce the same capacity limit as Add.
+func TestReconcileChunked_EnforcesCapacity(t *testing.T) {
+	b := newTestBackend(t)
+	b.maxOwnedDropEntries = 1
+	b.maxDropAddsPerSec = 1000
+
+	payload := reconcileChunk{
+		SnapshotID:  "snap-cap",
+		ChunkIndex:  0,
+		FinalChunk:  true,
+		TotalChunks: 1,
+		Desired: []setEntry{
+			{IP: "203.0.113.35", Family: "ipv4", Set: "scanner_drop", TTL: 60},
+			{IP: "203.0.113.36", Family: "ipv4", Set: "scanner_drop", TTL: 60},
+		},
+	}
+	_, err := b.reconcileChunked(payload, map[string]interface{}{
+		"added": 0, "updated": 0, "removed": 0, "preserved": 0, "failed": 0,
+	})
+	if err == nil || err.Error() != "capacity_exceeded" {
+		t.Fatalf("expected capacity_exceeded, got %v", err)
+	}
+	if b.state["scanner_drop"]["ipv4"]["203.0.113.35"] != nil ||
+		b.state["scanner_drop"]["ipv4"]["203.0.113.36"] != nil {
+		t.Fatalf("capacity-exceeded chunk must not install entries")
 	}
 }
 

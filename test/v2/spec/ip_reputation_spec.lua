@@ -751,4 +751,31 @@ describe("ip_reputation", function()
         end)
     end)
 
+    describe("bare IPv6 whitelist / verified entries", function()
+        before_each(function()
+            ngx.shared.ip_reputation:flush_all()
+            local cfg = require("core.config")
+            cfg.ip_reputation = cfg.ip_reputation or {}
+            cfg.ip_reputation.whitelist = { "2001:0db8::1" }
+            cfg.ip_reputation.crawler_ip_verified = { "2001:0db8::2" }
+            cfg.ip_reputation.rule_signal_weights = { bot = 1 }
+        end)
+
+        after_each(function()
+            local cfg = require("core.config")
+            cfg.ip_reputation.whitelist = nil
+            cfg.ip_reputation.crawler_ip_verified = nil
+            cfg.ip_reputation.rule_signal_weights = nil
+            ngx.shared.ip_reputation:flush_all()
+        end)
+
+        it("matches a bare IPv6 whitelist entry by canonical form", function()
+            assert.is_true(rep.is_whitelisted("2001:db8::1"))
+        end)
+
+        it("matches a bare IPv6 verified-crawler entry by canonical form", function()
+            assert.is_true(rep.is_crawler_exempt({ category = "bot" }, "2001:db8::2"))
+        end)
+    end)
+
 end)

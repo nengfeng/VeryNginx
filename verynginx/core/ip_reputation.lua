@@ -329,6 +329,22 @@ function _M.is_crawler_exempt(rule, ip)
     if by_cat[rule.category] == nil then return false end
     if cidr.match_any(ip, raw_cfg().crawler_ip_whitelist) then return true end
     if cidr.match_any(ip, raw_cfg().crawler_ip_verified) then return true end
+    -- crawler_ip_verified may legitimately hold bare IPv6 addresses. The
+    -- IPv4-only cidr matcher cannot compare them, so do a canonical exact
+    -- match instead of leaving those entries permanently dead.
+    if type(ip) == "string" and ip:find(":", 1, true) then
+        local verified = raw_cfg().crawler_ip_verified
+        if type(verified) == "table" then
+            local ip_enc = require "core.kernel_blocking.ip_encoding"
+            local canon = ip_enc.canonical_ip(ip)
+            for _, entry in ipairs(verified) do
+                if type(entry) == "string" and entry:find(":", 1, true)
+                    and ip_enc.canonical_ip(entry) == canon then
+                    return true
+                end
+            end
+        end
+    end
     -- Lazy require: the verdict cache is only consulted once a vendor's
     -- User-Agent actually claimed this IP, and most requests never get there.
     local ok, cv = pcall(require, "core.crawler_verify")
@@ -1180,10 +1196,21 @@ function _M.is_whitelisted(ip)
     end
     -- Check static whitelist (from config)
     local wl = get_whitelist()
+    local ip_enc = nil
     for _, entry in ipairs(wl) do
         if ip_in_cidr(ip, entry) then
             wlg._cache_set_with_gen(s, ip, true, epoch, seq)
             return true
+        end
+        -- Bare IPv6 entries are not handled by the IPv4-only cidr matcher;
+        -- compare canonical forms so equivalent formatting still matches.
+        if type(entry) == "string" and entry:find(":", 1, true)
+            and type(ip) == "string" and ip:find(":", 1, true) then
+            if not ip_enc then ip_enc = require "core.kernel_blocking.ip_encoding" end
+            if ip_enc.canonical_ip(ip) == ip_enc.canonical_ip(entry) then
+                wlg._cache_set_with_gen(s, ip, true, epoch, seq)
+                return true
+            end
         end
     end
     -- Check auto-whitelist (ephemeral, for repeatedly verified IPs)
