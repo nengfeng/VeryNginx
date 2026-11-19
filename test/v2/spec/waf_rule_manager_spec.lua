@@ -211,6 +211,12 @@ describe("waf-rule-manager", function()
             assert.are.same(5, merged.hit_count, "Should preserve runtime stats")
             assert.are.same(100, merged.last_triggered, "Should preserve runtime stats")
         end)
+
+        it("does not let an update change the rule id", function()
+            local rule = { id = "test_1", name = "Original", category = "sqli", severity = "critical" }
+            local merged = waf.merge_rule(rule, { id = "test_2", name = "Updated" })
+            assert.are.same("test_1", merged.id)
+        end)
     end)
 
     -----------------------------------------------------------------------

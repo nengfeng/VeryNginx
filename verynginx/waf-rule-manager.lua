@@ -447,6 +447,9 @@ function _M._save_rules_unlocked(rules, action, expected_version)
     local current_version
     if shared then
         current_version = shared:incr("waf_rules_save_version", 1, 0)
+        if not current_version then
+            return false, "shared dict unavailable for rules version"
+        end
     else
         current_version = 1
     end
@@ -684,7 +687,10 @@ function _M.merge_rule(rule, updates)
         merged[k] = v
     end
     for k, v in pairs(updates) do
-        if k ~= "hit_count" and k ~= "last_triggered" and k ~= "last_matched_uri" then
+        -- id is the rule's identity (dict keys, stats attribution, pending
+        -- index). Letting an update change it can create duplicate ids and
+        -- orphan the old rule's runtime state.
+        if k ~= "id" and k ~= "hit_count" and k ~= "last_triggered" and k ~= "last_matched_uri" then
             merged[k] = v
         end
     end
@@ -1493,6 +1499,9 @@ function _M.record_hit(rule_id, ctx, action)
     }, "|")
 
     local idx = shared:incr(HIT_PREFIX .. "tail", 1, 0)
+    if not idx then
+        return
+    end
     -- TTL: a consumer racing this write can advance head past the slot,
     -- leaving it unconsumed forever — let strays self-expire instead of
     -- leaking vn_config under sustained load.
