@@ -71,6 +71,32 @@ describe("IPC executor adapter", function()
         local resp = ipc.probe()
         assert.truthy(resp)
     end)
+
+    it("list_strict surfaces a helper error instead of an empty set", function()
+        local saved_client = package.loaded["core.kernel_blocking.ipc_client"]
+        local saved_binding = package.loaded["core.kernel_blocking.scope_binding"]
+        local saved_executor = package.loaded["core.kernel_blocking.executor_ipc"]
+
+        package.loaded["core.kernel_blocking.ipc_client"] = {
+            request = function() return { ok = false, error = "scope_validation_pending" }, nil end,
+        }
+        package.loaded["core.kernel_blocking.scope_binding"] = {
+            invalidate = function() end,
+        }
+        package.loaded["core.kernel_blocking.executor_ipc"] = nil
+
+        local ok, err = pcall(function()
+            local ipc = require "core.kernel_blocking.executor_ipc"
+            local page, code = ipc.list_strict("scanner_drop", "ipv4", 0, 100)
+            assert.is_nil(page)
+            assert.are.equal("scope_validation_pending", code)
+        end)
+
+        package.loaded["core.kernel_blocking.ipc_client"] = saved_client
+        package.loaded["core.kernel_blocking.scope_binding"] = saved_binding
+        package.loaded["core.kernel_blocking.executor_ipc"] = saved_executor
+        assert.is_true(ok, tostring(err))
+    end)
 end)
 
 describe("replace_allow_snapshot", function()

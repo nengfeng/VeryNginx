@@ -217,6 +217,17 @@ function _M.list_strict(set, family, cursor, page_size)
     if not resp then
         return nil, err or "list_failed"
     end
+    -- A helper error must not look like an empty set: reconciliation compares
+    -- desired against this list and would treat every desired entry as an
+    -- orphan to remove. Surface the error so the caller marks the group
+    -- failed and leaves the kernel untouched.
+    if not resp.ok then
+        local code = type(resp.error) == "string" and resp.error or "list_failed"
+        if is_scope_err(code) then
+            scope_binding.invalidate(code)
+        end
+        return nil, code
+    end
     return resp.result or { entries = {}, next_cursor = nil }, nil
 end
 
@@ -271,6 +282,16 @@ function _M.reconcile(snapshot)
     })
     if not resp then
         local code = err_code(err)
+        if is_scope_err(code) then
+            scope_binding.invalidate(code)
+        end
+        return {
+            added = 0, updated = 0, removed = 0, preserved = 0, failed = 0,
+            error = code,
+        }
+    end
+    if not resp.ok then
+        local code = type(resp.error) == "string" and resp.error or "reconcile_failed"
         if is_scope_err(code) then
             scope_binding.invalidate(code)
         end
