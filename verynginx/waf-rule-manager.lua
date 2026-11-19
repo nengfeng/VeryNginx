@@ -1398,7 +1398,11 @@ function _M.check_rate_limit(rule_id, rule)
     local shared = ngx.shared.vn_config
     if not shared then return true end
 
-    local window = rule.rate_limit.window or 60
+    -- tonumber guards legacy/corrupt rows: validate_rule rejects non-numeric
+    -- values on save, but a rule written before that check must not make the
+    -- per-request limiter raise.
+    local window = tonumber(rule.rate_limit.window) or 60
+    local max_hits = tonumber(rule.rate_limit.max_hits) or 10
     local slot = math.floor(ngx.time() / window)
     local key = RATE_PREFIX .. rule_id .. ":" .. tostring(slot)
     local count = shared:incr(key, 1, 0, window)
@@ -1407,7 +1411,7 @@ function _M.check_rate_limit(rule_id, rule)
         -- immediately expired in a race — treat as not limited
         return true
     end
-    if count > (rule.rate_limit.max_hits or 10) then
+    if count > max_hits then
         return false
     end
     return true

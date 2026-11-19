@@ -462,6 +462,13 @@ describe("waf-rule-manager", function()
             local ok = waf.check_rate_limit("rl_001", { rate_limit = { enable = true, max_hits = 10, window = 60 } })
             assert.is.truthy(ok)
         end)
+
+        it("does not raise on legacy non-numeric rate_limit fields", function()
+            local ok = waf.check_rate_limit("rl_legacy", {
+                rate_limit = { enable = true, max_hits = "10", window = "60" },
+            })
+            assert.is.truthy(ok)
+        end)
     end)
 
     -----------------------------------------------------------------------
