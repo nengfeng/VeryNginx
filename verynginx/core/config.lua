@@ -8,6 +8,7 @@ local json = require "dkjson"
 local dict_guard = require "core.dict_guard"
 local random = require "core.random"
 local helpers = require "api.helpers"
+local cidr = require "core.cidr"
 
 -- URL constants to keep schema lines short
 local GEOIP_UPDATE_URL = "https://download.maxmind.com/app/geoip_download"
@@ -1116,6 +1117,92 @@ local function validate_config(config)
             if not ir.validate_whitelist_entry(entry) then
                 return false, string.format("ip_reputation.whitelist[%d]: " ..
                     "invalid IP or CIDR %q", i, tostring(entry))
+            end
+        end
+    end
+
+    -- Crawler exemption lists and fetch sources.
+    --
+    -- cidr.match_any() (used by is_crawler_exempt) only understands IPv4
+    -- math. A malformed entry is a silent dead rule; a too-broad CIDR is a
+    -- silent exemption for the whole range. Reject both at save time.
+    if type(config.ip_reputation) == "table" then
+        local ip_rep = config.ip_reputation
+
+        local function validate_crawler_ip(entry, allow_cidr)
+            if type(entry) ~= "string" or entry == "" then
+                return false, "must be a non-empty string"
+            end
+            if entry:find(":", 1, true) then
+                if allow_cidr then
+                    return false, "IPv6 is not supported in this list"
+                end
+                return helpers.is_valid_ip(entry)
+            end
+            local pos = entry:find("/")
+            if not pos then
+                return helpers.is_valid_ip(entry)
+            end
+            if not allow_cidr then
+                return false, "CIDR is not allowed in this list"
+            end
+            local subnet = entry:sub(1, pos - 1)
+            local bits = tonumber(entry:sub(pos + 1))
+            if not bits or bits < 1 or bits > 32 then
+                return false, "invalid IPv4 CIDR"
+            end
+            -- Mirror the allow-list floor: a /8-or-broader crawler exemption
+            -- would neutralise the soft-category rules for a whole provider
+            -- allocation.
+            if bits <= 8 then
+                return false, "CIDR prefix too broad (must be > /8)"
+            end
+            if not cidr.parse_ipv4(subnet) then
+                return false, "invalid IPv4 CIDR"
+            end
+            return true
+        end
+
+        if type(ip_rep.crawler_ip_whitelist) == "table" then
+            for i, entry in ipairs(ip_rep.crawler_ip_whitelist) do
+                local ok, err = validate_crawler_ip(entry, true)
+                if not ok then
+                    return false, string.format(
+                        "ip_reputation.crawler_ip_whitelist[%d]: %s", i, tostring(err))
+                end
+            end
+        end
+        if type(ip_rep.crawler_ip_verified) == "table" then
+            for i, entry in ipairs(ip_rep.crawler_ip_verified) do
+                local ok, err = validate_crawler_ip(entry, false)
+                if not ok then
+                    return false, string.format(
+                        "ip_reputation.crawler_ip_verified[%d]: %s", i, tostring(err))
+                end
+            end
+        end
+
+        -- crawler_sources URLs are fetched server-side. Apply the same HTTPS +
+        -- non-private-host gate as webhooks/GeoIP mirrors so a config edit
+        -- cannot turn the panel into an SSRF launcher.
+        if type(ip_rep.crawler_sources) == "table" then
+            local alerting = require "core.alerting"
+            for i, src in ipairs(ip_rep.crawler_sources) do
+                if type(src) ~= "table" then
+                    return false, string.format(
+                        "ip_reputation.crawler_sources[%d]: must be a table", i)
+                end
+                for _, field in ipairs({ "url", "mirror" }) do
+                    local v = src[field]
+                    if type(v) == "string" and v ~= "" then
+                        local sok, serr = alerting.validate_webhook_url(v)
+                        if not sok then
+                            return false, string.format(
+                                "ip_reputation.crawler_sources[%d].%s: %s",
+                                i, field, tostring(serr))
+                        end
+                    end
+                end
             end
         end
     end
