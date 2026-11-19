@@ -33,7 +33,7 @@ python install.py install
 python install.py hash-password your_password
 ```
 
-复制输出的 `password_hash`，编辑 `/opt/verynginx/verynginx/configs/config.json`，填入 `admin[0].password_hash` 字段。
+复制输出的 `password_hash`，编辑 `/opt/verynginx/configs/config.json`，填入 `admin[0].password_hash` 字段。
 
 ```bash
 # 4. 启动
@@ -53,27 +53,26 @@ python install.py hash-password your_password
 │       ├── sbin/nginx             # Nginx 二进制
 │       └── conf/nginx.conf        # 主配置文件
 │
-└── verynginx/                     # VeryNginx 应用代码
-    ├── core/                      # 核心框架（12 个 Lua 模块）
-    ├── matcher/                   # 匹配器（11 个类型）
-    ├── action/                    # 动作处理器
-    ├── plugin/                    # 插件（7 个：filter, proxy_pass 等）
-    ├── api/                       # REST API 控制器
-    ├── dashboard/                 # Web 管理界面（Vue 3 SPA）
-    ├── nginx_conf/                # Nginx 配置片段
-    │   ├── in_external.conf
-    │   ├── in_http_block.conf
-    │   └── in_server_block.conf
-    ├── lua_script/                # 捆绑的 Lua 库
-    │   ├── module/                # dkjson, json, cookie, util
-    │   └── resty/dns/             # DNS 解析器
-    ├── configs/                   # 运行时配置
-    │   ├── config.json            # 主配置（由 Web UI 写入）
-    │   ├── config.default.json    # 默认配置模板
-    │   └── backups/               # 自动备份（保留最近 10 份）
-    └── on_rewrite.lua             # rewrite 阶段入口
-    └── on_access.lua              # access 阶段入口
-    └── on_log.lua                 # log 阶段入口
+├── core/                         # 核心框架
+├── matcher/                      # 匹配器
+├── action/                       # 动作处理器
+├── plugin/                       # 插件（filter, proxy_pass 等）
+├── api/                          # REST API 控制器
+├── dashboard/                    # Web 管理界面（Vue 3 SPA）
+├── nginx_conf/                   # Nginx 配置片段
+│   ├── in_external.conf
+│   ├── in_http_block.conf
+│   └── in_server_block.conf
+├── lua_script/                   # 捆绑的 Lua 库
+│   ├── module/                   # dkjson, json, cookie, util
+│   └── resty/dns/                # DNS 解析器
+├── configs/                      # 运行时配置
+│   ├── config.json               # 主配置（由 Web UI 写入）
+│   ├── config.default.json       # 默认配置模板
+│   └── backups/                  # 自动备份（保留最近 10 份）
+├── on_rewrite.lua                # rewrite 阶段入口
+├── on_access.lua                 # access 阶段入口
+└── on_log.lua                    # log 阶段入口
 ```
 
 ---
@@ -88,12 +87,12 @@ git clone https://github.com/nengfeng/VeryNginx.git
 cd VeryNginx
 
 # 2. 复制应用代码
-cp -r verynginx /opt/verynginx/
+cp -r verynginx/. /opt/verynginx/
 
 # 3. 初始化配置
-cp verynginx/configs/config.default.json /opt/verynginx/verynginx/configs/config.json
-mkdir -p /opt/verynginx/verynginx/configs/backups
-chmod -R 755 /opt/verynginx/verynginx/configs
+cp verynginx/configs/config.default.json /opt/verynginx/configs/config.json
+mkdir -p /opt/verynginx/configs/backups
+chmod -R 755 /opt/verynginx/configs
 
 # 4. 设置密码
 python install.py hash-password your_password
@@ -102,13 +101,13 @@ python install.py hash-password your_password
 # 5. 编辑 OpenResty nginx.conf，加入以下三个 include
 #
 #    在 http 配置块之外:
-#    include /opt/verynginx/verynginx/nginx_conf/in_external.conf;
+#    include /opt/verynginx/nginx_conf/in_external.conf;
 #
 #    在 http 配置块之内:
-#    include /opt/verynginx/verynginx/nginx_conf/in_http_block.conf;
+#    include /opt/verynginx/nginx_conf/in_http_block.conf;
 #
 #    在 server 配置块之内:
-#    include /opt/verynginx/verynginx/nginx_conf/in_server_block.conf;
+#    include /opt/verynginx/nginx_conf/in_server_block.conf;
 
 # 6. 启动 / 重载
 /path/to/openresty/nginx/sbin/nginx -s reload
@@ -125,7 +124,7 @@ VeryNginx 不需要完整的 OpenResty 发行版，只需标准 Nginx 加 Lua �
 ### 3.1 编译安装 LuaJIT
 
 ```bash
-curl -L https://github.com/openresty/luajit2/archive/refs/tags/v2.1-20250117.tar.gz -o luajit2.tar.gz
+curl -L https://github.com/openresty/luajit2/archive/refs/tags/v2.1-20261117.tar.gz -o luajit2.tar.gz
 tar -xzf luajit2.tar.gz
 cd luajit2-*
 make && make install
@@ -139,11 +138,11 @@ export LUAJIT_INC=/usr/local/include/luajit-2.1
 
 ```bash
 # 下载 nginx
-curl -L https://nginx.org/download/nginx-1.26.0.tar.gz -o nginx.tar.gz
+curl -L https://nginx.org/download/nginx-1.30.7.tar.gz -o nginx.tar.gz
 tar -xzf nginx.tar.gz
 
-# 下载 lua-nginx-module
-curl -L https://github.com/openresty/lua-nginx-module/archive/refs/tags/v0.10.27.tar.gz -o lua-nginx-module.tar.gz
+# 下载 lua-nginx-module（0.10.32 提供 ssl_client_hello_by_lua* 等 JA4 所需接口）
+curl -L https://github.com/openresty/lua-nginx-module/archive/refs/tags/v0.10.32rc8.tar.gz -o lua-nginx-module.tar.gz
 tar -xzf lua-nginx-module.tar.gz
 
 # 下载 ngx_devel_kit（必需）
@@ -151,7 +150,7 @@ curl -L https://github.com/vision5/ngx_devel_kit/archive/refs/tags/v0.3.3.tar.gz
 tar -xzf ndk.tar.gz
 
 # 配置并编译
-cd nginx-1.26.0
+cd nginx-1.30.7
 export LUAJIT_LIB=/usr/local/lib
 export LUAJIT_INC=/usr/local/include/luajit-2.1
 
@@ -163,7 +162,7 @@ export LUAJIT_INC=/usr/local/include/luajit-2.1
     --with-stream \
     --with-stream_ssl_module \
     --add-module=../ngx_devel_kit-0.3.3 \
-    --add-module=../lua-nginx-module-0.10.27
+    --add-module=../lua-nginx-module-0.10.32rc8
 
 make && make install
 ```
@@ -172,7 +171,7 @@ make && make install
 
 ```bash
 # lua-resty-core 提供与 OpenResty 兼容的 Lua API
-curl -L https://github.com/openresty/lua-resty-core/archive/refs/tags/v0.1.28.tar.gz -o lua-resty-core.tar.gz
+curl -L https://github.com/openresty/lua-resty-core/archive/refs/tags/v0.1.35rc3.tar.gz -o lua-resty-core.tar.gz
 tar -xzf lua-resty-core.tar.gz
 cd lua-resty-core-*
 make install  # 或手动复制 .lua 文件到 Lua 模块路径
@@ -184,10 +183,10 @@ make install  # 或手动复制 .lua 文件到 Lua 模块路径
 git clone https://github.com/nengfeng/VeryNginx.git
 cd VeryNginx
 
-cp -r verynginx /opt/verynginx/
-cp verynginx/configs/config.default.json /opt/verynginx/verynginx/configs/config.json
-mkdir -p /opt/verynginx/verynginx/configs/backups
-chmod -R 755 /opt/verynginx/verynginx/configs
+cp -r verynginx/. /opt/verynginx/
+cp verynginx/configs/config.default.json /opt/verynginx/configs/config.json
+mkdir -p /opt/verynginx/configs/backups
+chmod -R 755 /opt/verynginx/configs
 
 # 设置密码
 python install.py hash-password your_password
@@ -208,7 +207,7 @@ events {
 }
 
 # === 外部块：upstream 和 Lua 包路径 ===
-include /opt/verynginx/verynginx/nginx_conf/in_external.conf;
+include /opt/verynginx/nginx_conf/in_external.conf;
 
 http {
     include       mime.types;
@@ -217,13 +216,13 @@ http {
     keepalive_timeout  65;
 
     # === HTTP 块：共享字典和初始化 ===
-    include /opt/verynginx/verynginx/nginx_conf/in_http_block.conf;
+    include /opt/verynginx/nginx_conf/in_http_block.conf;
 
     server {
         listen       80;
 
         # === Server 块：请求处理和代理 ===
-        include /opt/verynginx/verynginx/nginx_conf/in_server_block.conf;
+        include /opt/verynginx/nginx_conf/in_server_block.conf;
 
         # 可选的根路径跳转
         location = / {
@@ -260,7 +259,7 @@ docker run -d --name=verynginx -p 8080:80 verynginx
 ```bash
 docker run -d --name=verynginx \
     -p 8080:80 \
-    -v /host/path/config.json:/opt/verynginx/verynginx/configs/config.json \
+    -v /host/path/config.json:/opt/verynginx/configs/config.json \
     verynginx
 ```
 
@@ -350,7 +349,7 @@ python install.py hash-password my_secure_password
 # 输出: p1$12000$<salt>$<hash>
 ```
 
-复制输出的完整字符串，编辑 `/opt/verynginx/verynginx/configs/config.json`：
+复制输出的完整字符串，编辑 `/opt/verynginx/configs/config.json`：
 
 ```json
 {

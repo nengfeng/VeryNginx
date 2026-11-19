@@ -168,27 +168,27 @@ cd VeryNginx
 git checkout <release 说明中的 commit>
 
 # 替换核心代码
-sudo rm -rf /opt/verynginx/verynginx/core
-sudo rm -rf /opt/verynginx/verynginx/api
-sudo rm -rf /opt/verynginx/verynginx/plugin
-sudo rm -rf /opt/verynginx/verynginx/matcher
-sudo rm -rf /opt/verynginx/verynginx/dashboard
-sudo rm -rf /opt/verynginx/verynginx/nginx_conf
-sudo rm -rf /opt/verynginx/verynginx/resty
+sudo rm -rf /opt/verynginx/core
+sudo rm -rf /opt/verynginx/api
+sudo rm -rf /opt/verynginx/plugin
+sudo rm -rf /opt/verynginx/matcher
+sudo rm -rf /opt/verynginx/dashboard
+sudo rm -rf /opt/verynginx/nginx_conf
+sudo rm -rf /opt/verynginx/resty
 
-sudo cp -r verynginx/core       /opt/verynginx/verynginx/core
-sudo cp -r verynginx/api        /opt/verynginx/verynginx/api
-sudo cp -r verynginx/plugin     /opt/verynginx/verynginx/plugin
-sudo cp -r verynginx/matcher    /opt/verynginx/verynginx/matcher
-sudo cp -r verynginx/dashboard  /opt/verynginx/verynginx/dashboard
-sudo cp -r verynginx/nginx_conf /opt/verynginx/verynginx/nginx_conf
-sudo cp -r verynginx/resty      /opt/verynginx/verynginx/resty
+sudo cp -r verynginx/core       /opt/verynginx/core
+sudo cp -r verynginx/api        /opt/verynginx/api
+sudo cp -r verynginx/plugin     /opt/verynginx/plugin
+sudo cp -r verynginx/matcher    /opt/verynginx/matcher
+sudo cp -r verynginx/dashboard  /opt/verynginx/dashboard
+sudo cp -r verynginx/nginx_conf /opt/verynginx/nginx_conf
+sudo cp -r verynginx/resty      /opt/verynginx/resty
 
 # 替换入口文件
-sudo cp verynginx/on_rewrite.lua        /opt/verynginx/verynginx/on_rewrite.lua
-sudo cp verynginx/on_access.lua         /opt/verynginx/verynginx/on_access.lua
-sudo cp verynginx/on_log.lua            /opt/verynginx/verynginx/on_log.lua
-sudo cp verynginx/waf-rule-manager.lua  /opt/verynginx/verynginx/waf-rule-manager.lua
+sudo cp verynginx/on_rewrite.lua        /opt/verynginx/on_rewrite.lua
+sudo cp verynginx/on_access.lua         /opt/verynginx/on_access.lua
+sudo cp verynginx/on_log.lua            /opt/verynginx/on_log.lua
+sudo cp verynginx/waf-rule-manager.lua  /opt/verynginx/waf-rule-manager.lua
 ```
 
 ### 3. 恢复配置

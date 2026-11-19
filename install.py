@@ -14,16 +14,22 @@ import base64
 import binascii
 import re
 
+try:
+    from shlex import quote as shell_quote
+except ImportError:  # Python 2.7
+    from pipes import quote as shell_quote
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-openresty_pkg_url = 'https://openresty.org/download/openresty-1.31.1.1.tar.gz'
-openresty_pkg = 'openresty-1.31.1.1.tar.gz'
+openresty_pkg_url = 'https://openresty.org/download/openresty-1.31.8.1.tar.gz'
+openresty_pkg = 'openresty-1.31.8.1.tar.gz'
 # sha256 of the tarball, computed over the artifact served by
 # openresty.org at pin time (gzip integrity verified). Supply-chain
 # guard: a tampered or truncated tarball must abort the install.
-openresty_pkg_sha256 = '65b78baadd3f0984055de89bf13f4a1932e5bfe9c31932037a134ea2b1a0ce42'
+# Keep this in step with the LNMP stack's OpenResty pin.
+openresty_pkg_sha256 = 'b569c63b420f80a4ac8466f2deffe73ed93ab760026532e039c3658409a997f4'
 
 VN_PREFIX = '/opt/verynginx'
 
@@ -58,7 +64,7 @@ def ensure_session_secret(config_json):
     if not os.path.exists(config_json):
         return "MISSING"
     try:
-        with open(config_json, 'r') as f:
+        with open(config_json, 'r', encoding='utf-8') as f:
             cfg_text = f.read()
         if re.search(r'"session_secret"\s*:\s*"[^"]+"', cfg_text):
             return "SKIP"
@@ -75,7 +81,7 @@ def ensure_session_secret(config_json):
                 r'\1\n  "security": {"session_secret": "%s"},' % secret,
                 cfg_text, count=1)
         if n:
-            with open(config_json, 'w') as f:
+            with open(config_json, 'w', encoding='utf-8') as f:
                 f.write(new_text)
             print('### generated security.session_secret in config.json')
             return "INJECTED"
@@ -119,12 +125,12 @@ def fix_prefix(path):
         return
     if not os.path.isfile(path):
         return
-    with open(path, 'r') as f:
+    with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
     if '/opt/verynginx' not in content:
         return
     content = content.replace('/opt/verynginx', VN_PREFIX)
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
 
 # ---------------------------------------------------------------------------
@@ -172,7 +178,7 @@ def install_openresty():
     print('### configure openresty ...')
     os.chdir(openresty_pkg.replace('.tar.gz',''))
     exec_sys_cmd(
-        './configure --prefix=' + VN_PREFIX + '/openresty '
+        './configure --prefix=' + shell_quote(VN_PREFIX + '/openresty') + ' '
         '--user=nginx --group=nginx '
         '--with-http_v2_module --with-http_sub_module '
         '--with-http_stub_status_module --with-luajit '
@@ -195,10 +201,10 @@ def install_verynginx():
     os.chdir(work_path)
 
     if os.path.exists(VN_PREFIX + '/') == False:
-        exec_sys_cmd('mkdir -p ' + VN_PREFIX)
+        exec_sys_cmd('mkdir -p ' + shell_quote(VN_PREFIX))
 
     # Copy v2 source code (configs/config.json is gitignored, not overwritten)
-    exec_sys_cmd('cp -r -f ./verynginx/. ' + VN_PREFIX + '/')
+    exec_sys_cmd('cp -r -f ./verynginx/. ' + shell_quote(VN_PREFIX + '/'))
     verify_dashboard_sri()
 
     # Fix hardcoded /opt/verynginx paths if prefix is custom
@@ -217,16 +223,18 @@ def install_verynginx():
     git_commit = None
     if os.path.isdir(os.path.join(work_path, '.git')):
         try:
-            git_ver = os.popen('git -C "' + work_path + '" describe --tags --always 2>/dev/null').read().strip() or None
-            git_commit = os.popen('git -C "' + work_path + '" rev-parse HEAD 2>/dev/null').read().strip() or None
+            git_ver = os.popen('git -C ' + shell_quote(work_path) + ' describe --tags --always 2>/dev/null').read().strip() or None
+            git_commit = os.popen('git -C ' + shell_quote(work_path) + ' rev-parse HEAD 2>/dev/null').read().strip() or None
         except Exception:
             pass
     if git_ver:
-        open(VN_PREFIX + '/VERSION', 'w').write(git_ver + '\n')
+        with open(VN_PREFIX + '/VERSION', 'w', encoding='utf-8') as f:
+            f.write(git_ver + '\n')
     elif os.path.exists('./VERSION'):
         shutil.copyfile('./VERSION', VN_PREFIX + '/VERSION')
     if git_commit:
-        open(VN_PREFIX + '/COMMIT', 'w').write(git_commit + '\n')
+        with open(VN_PREFIX + '/COMMIT', 'w', encoding='utf-8') as f:
+            f.write(git_commit + '\n')
     elif os.path.exists('./COMMIT'):
         shutil.copyfile('./COMMIT', VN_PREFIX + '/COMMIT')
 
@@ -267,7 +275,7 @@ def install_verynginx():
                         'VN_PINNED_COMMIT="%s"' % pin, script, count=1, flags=re.M)
         with open(VN_PREFIX + '/tools/upgrade.sh', 'w', encoding='utf-8') as f:
             f.write(script)
-        exec_sys_cmd('chmod 750 ' + VN_PREFIX + '/tools/upgrade.sh')
+        exec_sys_cmd('chmod 750 ' + shell_quote(VN_PREFIX + '/tools/upgrade.sh'))
         print('### deployed pinned upgrade helper (anchor: %s)' % pin)
 
     # Copy nginx.conf to openresty (if openresty is installed and has default config)
@@ -276,10 +284,10 @@ def install_verynginx():
     if os.path.exists(VN_PREFIX + '/openresty') == True:
         if os.path.exists(openresty_conf_default) and filecmp.cmp(openresty_conf, openresty_conf_default, False) == True:
             print('### copy nginx config file to openresty')
-            exec_sys_cmd('cp -f ./nginx.conf ' + openresty_conf)
+            exec_sys_cmd('cp -f ./nginx.conf ' + shell_quote(openresty_conf))
         elif not os.path.exists(openresty_conf_default):
             print('### copy nginx config file to openresty (first install)')
-            exec_sys_cmd('cp -f ./nginx.conf ' + openresty_conf)
+            exec_sys_cmd('cp -f ./nginx.conf ' + shell_quote(openresty_conf))
         # Fix paths in nginx.conf if prefix is custom
         fix_prefix(openresty_conf)
     else:
@@ -292,9 +300,9 @@ def install_verynginx():
     # nginx user so only the service (and root) can read them.
     print('### create nginx user/group if not exist')
     exec_sys_cmd('id -u nginx > /dev/null 2>&1 || useradd -r -s /sbin/nologin nginx', accept_failed=True)
-    exec_sys_cmd('chown -R nginx:nginx ' + VN_PREFIX + '/configs')
-    exec_sys_cmd('chmod 750 ' + VN_PREFIX + '/configs')
-    exec_sys_cmd('find ' + VN_PREFIX + '/configs -type f -exec chmod 640 {} +')
+    exec_sys_cmd('chown -R nginx:nginx ' + shell_quote(VN_PREFIX + '/configs'))
+    exec_sys_cmd('chmod 750 ' + shell_quote(VN_PREFIX + '/configs'))
+    exec_sys_cmd('find ' + shell_quote(VN_PREFIX + '/configs') + ' -type f -exec chmod 640 {} +')
 
 def update_verynginx():
     print('### WARNING: update will keep existing config.json')

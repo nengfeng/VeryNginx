@@ -551,7 +551,7 @@ python install.py hash-password your_secure_password
 
 ### 手动编辑
 
-也可以直接编辑 `/opt/verynginx/verynginx/configs/config.json`，然后：
+也可以直接编辑 `/opt/verynginx/configs/config.json`，然后：
 
 ```bash
 kill -HUP $(cat /opt/verynginx/openresty/nginx/logs/nginx.pid)
@@ -564,7 +564,7 @@ kill -HUP $(cat /opt/verynginx/openresty/nginx/logs/nginx.pid)
 删除 `config.json`，VeryNginx 会使用内置默认值启动：
 
 ```bash
-rm /opt/verynginx/verynginx/configs/config.json
+rm /opt/verynginx/configs/config.json
 /opt/verynginx/openresty/nginx/sbin/nginx -s reload
 ```
 

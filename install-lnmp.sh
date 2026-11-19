@@ -1082,7 +1082,7 @@ show_summary() {
       info "Self-check: dashboard style.css served ✓ (port ${chk_port})"
     elif [ "$chk_port" = "" ]; then
       # No port answered at all — connection-level problem, NOT a snippet one.
-      warn "Self-check: no HTTP response on probed ports ($(echo $ports | tr '\n' ' '))"
+      warn "Self-check: no HTTP response on probed ports ($(echo "$ports" | tr '\n' ' '))"
       echo "    curl could not connect on loopback. Likely causes:"
       echo "      - nginx not running/reloaded yet (systemctl status nginx)"
       echo "      - server blocks bind to specific external IPs only"
