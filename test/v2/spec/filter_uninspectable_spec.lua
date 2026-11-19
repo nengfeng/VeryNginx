@@ -164,4 +164,15 @@ describe("filter uninspectable synthetic hit + tie-break", function()
         local h = filter._split_rules({ mk("aaa", 50), mk("zzz", 10) })
         assert.are.equal("zzz", h[1].id, "priority 10 must come before priority 50")
     end)
+
+    it("split_rules: a legacy non-numeric priority does not raise", function()
+        local function mk(id, pri)
+            return { id = id, name = id, enable = true, priority = pri,
+                     category = "sqli", severity = "low", action = "log",
+                     matcher = { URI = { operator = "=", value = "/" .. id } } }
+        end
+        local h = filter._split_rules({ mk("legacy", "high"), mk("normal", 10) })
+        assert.are.equal("normal", h[1].id,
+            "non-numeric priority must fall back to 100, not crash the sort")
+    end)
 end)

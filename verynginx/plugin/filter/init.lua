@@ -104,7 +104,10 @@ local function split_rules(all_rules)
         ::continue::
     end
     table.sort(hard_block, function(a, b)
-        local pa, pb = a.priority or 100, b.priority or 100
+        -- tonumber guards legacy/corrupt rows: validate_rule rejects a
+        -- non-numeric priority on save, but a rule written before that check
+        -- must not turn the request path into a 500 on every evaluation.
+        local pa, pb = tonumber(a.priority) or 100, tonumber(b.priority) or 100
         if pa ~= pb then return pa < pb end
         -- Deterministic tie-break: Lua's table.sort is unstable, so without
         -- it same-priority rules evaluate in arbitrary order — and which
@@ -112,7 +115,7 @@ local function split_rules(all_rules)
         return (a.id or "") < (b.id or "")
     end)
     table.sort(challenge, function(a, b)
-        local pa, pb = a.priority or 100, b.priority or 100
+        local pa, pb = tonumber(a.priority) or 100, tonumber(b.priority) or 100
         if pa ~= pb then return pa < pb end
         return (a.id or "") < (b.id or "")
     end)
