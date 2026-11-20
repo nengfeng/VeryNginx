@@ -126,6 +126,15 @@
       if (policy === 'cc') return !!(eff.cc && eff.cc.install_reachable);
       return !!eff.global_install_reachable;
     }
+    // Total promotion tokens available right now, summed over BOTH buckets.
+    // /kernel-blocking/status nests per-bucket state under
+    // promotion_bucket.enforce / .observe — there is no top-level
+    // tokens_available, so the old template read painted a permanent 0.
+    function kbTokens() {
+      const b = (kbStatus.value && kbStatus.value.promotion_bucket) || {};
+      return ((b.enforce && b.enforce.tokens_available) || 0)
+           + ((b.observe && b.observe.tokens_available) || 0);
+    }
 
     const ccAutoReady = computed(() => {
       const e = kbStatus.value.effective || {};
@@ -627,16 +636,13 @@
 
     async function kbClear(ip) {
       if (!isValidIpLiteral(ip || '', false)) { showToast('IP 格式无效: ' + (ip || ''), 'error'); return; }
-      if (!await showConfirm({
-        title: '清除封禁',
-        message: `从内核封禁表中移除 ${ip} 的所有条目。\n\n`
-          + '此操作立即生效，该 IP 恢复可访问。'
-          + (prior.length ? `\n\n系统将为您保留 ${prior.length} 条原始封禁记录，可在撤销按钮中一键恢复。` : ''),
-        type: 'danger',
-      })) return;
       // Snapshot the visible entries for this IP so 撤销 can re-promote them
       // with their remaining TTL. Entries on unloaded pages can't be restored —
-      // in that case the toast carries no undo button.
+      // in that case the toast carries no undo button. The snapshot MUST be
+      // built before showConfirm: the dialog message reads prior.length, and
+      // a `const prior` declared after the call would be in its temporal dead
+      // zone there — the whole action died with a ReferenceError before the
+      // dialog could open.
       const nowSec = Math.floor(Date.now() / 1000);
       const prior = [];
       for (const e of (kbEntries.value || [])) {
@@ -646,6 +652,13 @@
         const left = e.expires_at ? Math.floor(e.expires_at - nowSec) : 300;
         prior.push({ policy, ttl: Math.min(Math.max(left, 30), 86400) });
       }
+      if (!await showConfirm({
+        title: '清除封禁',
+        message: `从内核封禁表中移除 ${ip} 的所有条目。\n\n`
+          + '此操作立即生效，该 IP 恢复可访问。'
+          + (prior.length ? `\n\n系统将为您保留 ${prior.length} 条原始封禁记录，可在撤销按钮中一键恢复。` : ''),
+        type: 'danger',
+      })) return;
       kbBusy.value = true;
       try {
         const d = await api('POST', '/verynginx/kernel-blocking/clear', { ip });
@@ -766,6 +779,7 @@
     view('kbReasonItems', kbReasonItems);
     view('kbEffMode', kbEffMode);
     view('kbEffReachable', kbEffReachable);
+    view('kbTokens', kbTokens);
     view('ccAutoReady', ccAutoReady);
     view('kbChecklist', kbChecklist);
     view('formatKbTime', formatKbTime);

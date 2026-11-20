@@ -674,8 +674,23 @@ function _M.get_bucket_history()
     local raw = locks:get(BUCKET_HISTORY_KEY)
     if not raw then return {} end
     local ok, t = pcall(json.decode, raw)
-    if ok and type(t) == "table" then return t end
-    return {}
+    if not ok or type(t) ~= "table" then return {} end
+    local n = #t
+    if n == 0 then return t end
+    -- The buffer is written through a circular head index whose STORED value
+    -- is the LAST slot written — i.e. it holds the NEWEST sample. From the
+    -- first wrap on, the raw array order (newest, oldest, ...) no longer
+    -- matches chronological order until the buffer is overwritten a second
+    -- time. Rotate so callers always see oldest-first: the sample AFTER the
+    -- newest slot (wrapping) is the oldest. Read-only path — no dict writes.
+    local head = tonumber(locks:get(BUCKET_HISTORY_KEY .. ":head") or 0) or 0
+    local off = head % n
+    if off == 0 then return t end
+    local out = {}
+    for i = 1, n do
+        out[i] = t[(((i - 1 + off) % n) + 1)]
+    end
+    return out
 end
 
 -- Drift diff: desired vs actual (Design §12.2).

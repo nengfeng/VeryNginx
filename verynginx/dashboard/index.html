@@ -2210,9 +2210,9 @@
             <div class="stat-value" style="font-size:16px">{{ kbEffMode('cc') }}</div>
             <div class="stat-sub">{{ kbEffReachable('cc') ? '可达' : '已阻止' }}</div>
           </div>
-          <div class="stat-card" title="令牌桶控制自动晋升速率：每个桶满时可晋升一个 IP；桶空时需等待刷新。rate_limited 表示近期被限流的尝试次数。">
+          <div class="stat-card" title="enforce / observe 两个速率桶当前可用的晋升令牌总数：令牌耗尽时自动晋升需等待刷新。rate_limited 表示近期被限流的尝试次数。">
             <div class="stat-label">晋升令牌</div>
-            <div class="stat-value">{{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.tokens_available) || 0 }}</div>
+            <div class="stat-value">{{ kbTokens() }}</div>
             <div class="stat-sub">限流 {{ (kbStatus.promotion_bucket && kbStatus.promotion_bucket.rate_limited_recent) || kbStatus.counters.rate_limited || 0 }} · 候选 {{ kbStatus.counters.candidates || 0 }}</div>
           </div>
           <div class="stat-card">
@@ -3022,14 +3022,14 @@
 </template>
 </div>
   <script src="/verynginx/static/vn-common.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-dashboard.js?v=2.3.2-1"></script>
+  <script src="/verynginx/static/vn-dashboard.js?v=2.3.2-2"></script>
   <script src="/verynginx/static/vn-config.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-waf.js?v=2.3.2-1"></script>
+  <script src="/verynginx/static/vn-waf.js?v=2.3.2-2"></script>
   <script src="/verynginx/static/vn-frequency.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-iploc.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-advanced.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-kb.js?v=2.3.2-1"></script>
+  <script src="/verynginx/static/vn-kb.js?v=2.3.2-2"></script>
   <script src="/verynginx/static/app.js?v=2.3.2-1"></script>
   <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->
 </body>

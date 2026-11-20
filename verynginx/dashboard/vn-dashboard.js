@@ -59,7 +59,7 @@
       // and the template renders "—"; painting "0 连接 / 0 QPS" during the
       // first 5 seconds is indistinguishable from a healthy idle server and
       // is exactly backwards during an incident.
-      const o = { conn_active: null, req_rate: null, up_healthy: null, up_total: null, waf_hits: null, dicts: [], top_uris: [], plugin_perf: [], partial_errors: [] };
+      const o = { conn_active: null, req_rate: null, up_healthy: null, up_total: null, waf_hits: null, dicts: [], top_uris: [], plugin_perf: [], partial_errors: [], plugin_errors: [] };
       try {
         // Status: connection counts
         const s = await api('GET', '/verynginx/status');
@@ -136,7 +136,11 @@
         try {
           const w = await api('GET', '/verynginx/waf/stats');
           if (w.ret === 'success' && w.data) {
-            o.waf_hits = Object.values(w.data).reduce((s, r) => s + (r.hits || 0), 0);
+            // /waf/stats data is an aggregate object {total_hits, today_hits,
+            // by_category, by_severity, top_rules, ...}; the card shows the
+            // all-time total (the by-* maps have no top-level .hits, so a
+            // reduce over Object.values(data) would always sum to 0).
+            o.waf_hits = w.data.total_hits || 0;
           }
         } catch (e) {
           // A failed sub-request used to leave waf_hits at 0 and render

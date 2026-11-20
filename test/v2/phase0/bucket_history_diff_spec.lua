@@ -112,6 +112,46 @@ describe("GET /kernel-blocking/bucket-history", function()
         for _ in pairs(h) do n = n + 1 end
         assert.are.equal(50, n)
     end)
+
+    it("returns oldest-first samples even after the buffer wraps", function()
+        -- Craft a wrapped buffer state consistent with the write-path
+        -- invariant: the STORED head value is the slot of the NEWEST sample
+        -- (the last write went there). 5 slots, head=3: slots 3,4,5 hold
+        -- the newest cycle and slots 1,2 the oldest survivors, so
+        -- chronological order is slots 4,5,1,2,3.
+        local dk = require "dkjson"
+        local raw = dk.encode({
+            { t = 600, enforce_tokens = 1, observe_tokens = 1 },
+            { t = 700, enforce_tokens = 2, observe_tokens = 2 },
+            { t = 800, enforce_tokens = 3, observe_tokens = 3 },
+            { t = 400, enforce_tokens = 4, observe_tokens = 4 },
+            { t = 500, enforce_tokens = 5, observe_tokens = 5 },
+        })
+        ngx.shared.vn_locks:set("kb:bucket_history", raw)
+        ngx.shared.vn_locks:set("kb:bucket_history:head", "3")
+        local h = kb.get_bucket_history()
+        local order = {}
+        for i = 1, #h do order[#order + 1] = h[i].t end
+        assert.are.same({ 400, 500, 600, 700, 800 }, order)
+    end)
+
+    it("passes through unwrapped buffers unmodified", function()
+        -- N < capacity: head sits at slot N (the last write), array order is
+        -- already chronological; the rotation must be the identity.
+        local dk = require "dkjson"
+        local raw = dk.encode({
+            { t = 10, enforce_tokens = 1, observe_tokens = 1 },
+            { t = 20, enforce_tokens = 2, observe_tokens = 2 },
+            { t = 30, enforce_tokens = 3, observe_tokens = 3 },
+            { t = 40, enforce_tokens = 4, observe_tokens = 4 },
+        })
+        ngx.shared.vn_locks:set("kb:bucket_history", raw)
+        ngx.shared.vn_locks:set("kb:bucket_history:head", "4")
+        local h = kb.get_bucket_history()
+        local order = {}
+        for i = 1, #h do order[#order + 1] = h[i].t end
+        assert.are.same({ 10, 20, 30, 40 }, order)
+    end)
 end)
 
 describe("GET /kernel-blocking/diff", function()

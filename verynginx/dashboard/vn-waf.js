@@ -1224,7 +1224,12 @@
       if (!h) return null;
       if (idx > 0) {
         const prev = wafHistory.value[idx - 1];
-        if (prev && prev.rule_data) {
+        // The history list view is slimmed server-side (no rule_data), so the
+        // undo cannot restore from the previous record's payload — but the
+        // rollback endpoint restores a whole-set snapshot BY VERSION, and
+        // every record carries one. Undo = roll back to the previous
+        // record's version.
+        if (prev && prev.version) {
           return {
             version: prev.version,
             label: '撤销此变更',
