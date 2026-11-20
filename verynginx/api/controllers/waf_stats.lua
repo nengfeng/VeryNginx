@@ -85,7 +85,7 @@ local function handle_test_history()
             local data = shared:get("waf_test_history:data:" .. i)
             if data then
                 local ok, entry = pcall(json.decode, data)
-                if ok then
+                if ok and type(entry) == "table" then
                     history[#history + 1] = entry
                 end
             end
@@ -239,7 +239,9 @@ local function handle_waf_hits_by_ip()
             local d = shared:get("waf_recent_hits:data:" .. ri)
             if d then
                 local ok, det = pcall(json.decode, d)
-                if ok and det.ip == ip then
+                -- type check, not just ok: dkjson returns nil for a
+                -- non-table payload instead of raising (see hit detail).
+                if ok and type(det) == "table" and det.ip == ip then
                     -- ring_idx lets openHitDetail() fetch THIS record; without
                     -- it the click falls back to index 0 (wrong hit).
                     det.ring_idx = ri
@@ -282,7 +284,10 @@ local function handle_waf_hit_detail()
         return json.encode({ ret = "failed", message = "hit detail not found" })
     end
     local ok, detail = pcall(json.decode, detail_json)
-    if not ok then
+    -- dkjson's decode does not raise: on a bad payload it returns
+    -- (nil, errpos), so pcall's ok is true and the guard below is the
+    -- only thing standing between us and a nil index on detail.
+    if not ok or type(detail) ~= "table" then
         ngx.status = 500
         return json.encode({ ret = "failed", message = "corrupted detail data" })
     end
@@ -421,7 +426,7 @@ local function handle_waf_analytics()
         local stat = {}
         if stat_json then
             local ok, decoded = pcall(json.decode, stat_json)
-            if ok then stat = decoded end
+            if ok and type(decoded) == "table" then stat = decoded end
         end
 
         local hits = stat.hit_count or 0
