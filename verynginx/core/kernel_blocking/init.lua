@@ -2,7 +2,8 @@
 -- @Date    : 2026-07-12
 -- @Author  : VeryNginx v2
 -- @Disc    : Kernel blocking lifecycle facade: restore/persist/bootstrap,
---             process_candidates/reconcile wrappers, metrics gauges.
+--             process_candidates/reconcile wrappers, bounded dispatch
+--             settle/requeue (Design §8.1/§10.1), metrics gauges.
 --             Design §10.3 / §10.5 / §11.5.
 
 local _M = {}
@@ -338,14 +339,129 @@ function _M.process_candidates(now)
     return { ok = true }
 end
 
-function _M.flush_dispatch_queue(_now)
-    -- In-process path currently installs inline in promotion. This hook is the
-    -- design-required extension point for bounded async dispatch/retry.
+-- ---------------------------------------------------------------------------
+-- Bounded dispatch settle/requeue pass (Design §8.1, §10.1, §15.1).
+--
+-- The in-process path installs candidates inline in the promotion evaluator
+-- (dispatch_pending -> executor add -> desired_state -> installed). A worker
+-- crash or executor failure can leave entries stranded in
+-- dispatch_pending/degraded; once evidence cools, the evaluator stops
+-- re-touching them, so a dedicated pass is required to keep the dispatch
+-- queue bounded (Design §8.1: "控制面 dispatch 队列必须有界").
+--
+-- This pass performs NO kernel writes: it moves stranded entries to where
+-- the proven pipeline settles them.
+--   * stale approval (expires_at already in the past) -> expired
+--   * security-gate failure (disabled / reserved / whitelisted / family off)
+--     -> rejected
+--   * otherwise -> candidate, where the evaluator re-decides with fresh
+--     evidence, the token bucket and the TTL ladder (Design §10.2)
+-- While the helper is down or the protected scope is invalidated, entries
+-- are legitimately in retry-wait (Design §10.1: dispatch_pending covers
+-- queued / 重试等待 / in-flight); the sweep is skipped so no enforce tokens
+-- are burned against a guaranteed failure.
+-- ---------------------------------------------------------------------------
+local DISPATCH_FLUSH_CAP = 64  -- per-flush mutation cap (Design §8.1/§10.2)
+
+local function flush_dispatch_sweep(now)
+    local depth = sm.count("dispatch_pending") + sm.count("degraded")
+    local kb = config.kernel_ip_blocking
+    if not kb or kb.enabled ~= true then
+        return { ok = true, depth = depth, skipped = "disabled" }
+    end
+
+    -- Fail-open guard: helper unreachable or scope invalidated -> the stuck
+    -- entries are retry-wait, not failures; bootstrap + reconcile heal them
+    -- on recovery.
+    local executor = require "core.kernel_blocking.executor"
+    local exec = executor.get_executor()
+    local ok_h, health = pcall(function() return exec.health() end)
+    if not ok_h or not health or health.state ~= "ok" then
+        return { ok = true, depth = depth, skipped = "helper_unavailable" }
+    end
+    local ok_sb, sb = pcall(require, "core.kernel_blocking.scope_binding")
+    if ok_sb and sb and sb.drop_writes_allowed then
+        local writes_ok, why = sb.drop_writes_allowed()
+        if not writes_ok then
+            return { ok = true, depth = depth, skipped = "scope_invalid",
+                     reason = why }
+        end
+    end
+
+    local promotion = require "core.kernel_blocking.promotion"
+    local mutated, requeued, settled, cap_hit = 0, 0, 0, false
+    -- Auto dispatch policies only: manual entries enter the state machine as
+    -- "installed" (API path) and are never stranded in dispatch_pending/
+    -- degraded; the evaluator pipeline owns scanner/cc retry semantics.
+    for _, pol in ipairs({ "scanner", "cc" }) do
+        for _, state in ipairs({ "dispatch_pending", "degraded" }) do
+            sm.iterate_all(function(e)
+                if mutated >= DISPATCH_FLUSH_CAP then
+                    cap_hit = true
+                    return
+                end
+                local ip, policy = e.ip, e.policy
+                if not ip or not policy then return end
+                local family = e.family or promotion.detect_family(ip)
+                local ev = e.evidence or {}
+                mutated = mutated + 1
+
+                -- The approval outlived its own TTL: never install it; the
+                -- reconciliation diff removes any kernel orphan (no desired
+                -- row was written, or it already expired and was pruned).
+                if e.expires_at and e.expires_at <= now then
+                    ev.result = "dispatch_stale"
+                    sm.upsert(ip, policy, "expired", ev, {
+                        list = e.list,
+                        family = family,
+                    })
+                    settled = settled + 1
+                    return
+                end
+
+                local gate_ok, gate_reason = promotion.passes_security_gate(ip, family)
+                if not gate_ok then
+                    sm.upsert(ip, policy, "rejected", { reason = gate_reason }, {
+                        list = e.list,
+                        family = family,
+                    })
+                    settled = settled + 1
+                    return
+                end
+
+                -- Hand back to the evaluator pipeline (Design §10.2): bounded
+                -- retry of an approved-but-undelivered dispatch. If evidence
+                -- cooled, the evaluator settles the entry instead of
+                -- re-promoting it.
+                ev.result = (state == "degraded") and "degraded_requeued"
+                    or "dispatch_requeued"
+                sm.upsert(ip, policy, "candidate", ev, {
+                    list = e.list,
+                    family = family,
+                })
+                requeued = requeued + 1
+            end, pol, state)
+        end
+    end
+    if cap_hit then
+        ngx.log(ngx.WARN, "kernel_blocking.flush_dispatch_queue: per-flush cap ",
+            DISPATCH_FLUSH_CAP, " reached; remaining stuck entries deferred to next cycle")
+    end
+    return {
+        ok = true,
+        depth = depth,
+        requeued = requeued,
+        settled = settled,
+    }
+end
+
+function _M.flush_dispatch_queue(now)
     local got, token = acquire_lease(DISPATCH_LEASE, DEFAULT_LEASE_TTL.dispatch)
     if not got then return { skipped = "lease_busy" } end
+    now = now or ngx.time()
 
     local ok, result = pcall(function()
-        return { ok = true, depth = 0 }
+        return flush_dispatch_sweep(now)
     end)
     release_lease(DISPATCH_LEASE, token)
     if not ok then
@@ -491,7 +607,12 @@ function _M.status(_)
             ) or 0,
         },
         last_reconcile = last_reconcile,
-        dispatch_queue = { depth = 0 },
+        dispatch_queue = {
+            -- Design §15.1: report the real stuck-queue depth, not a constant.
+            depth = (by_state.dispatch_pending or 0) + (by_state.degraded or 0),
+            dispatch_pending = by_state.dispatch_pending or 0,
+            degraded = by_state.degraded or 0,
+        },
         scheduler_leases = _M.lease_status(),
         ipc = (function()
             local ok, client = pcall(require, "core.kernel_blocking.ipc_client")
