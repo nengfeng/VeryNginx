@@ -774,12 +774,26 @@ describe("waf-rule-manager", function()
             f:close()
         end
 
+        local saved_factory
         setup(function()
+            -- Remember the original factory file so teardown can put it
+            -- back: the fixture is written to the REAL factory path, and a
+            -- bare os.remove here deletes a tracked repo file, relying on
+            -- a later spec to recreate it (order-dependent pollution).
+            local orig = io.open(fixture_path, "r")
+            saved_factory = orig and orig:read("*a") or nil
+            if orig then orig:close() end
             write_fixture()
         end)
 
         teardown(function()
-            os.remove(fixture_path)
+            if saved_factory then
+                local f = assert(io.open(fixture_path, "w"))
+                f:write(saved_factory)
+                f:close()
+            else
+                os.remove(fixture_path)
+            end
         end)
 
         it("force syncs stale factory content, keeps gray state, appends missing", function()

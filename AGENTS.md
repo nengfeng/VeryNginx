@@ -372,10 +372,12 @@ auto_whitelist = { type = "table", default = {
 - `core.config.save(config, { expected_version = ... })` 在 save 锁内比对当前哈希，不匹配返回 `false, "config_changed"`；API 层映射为 **409**，前端提示「配置已被其他会话修改，请刷新后重试」。
 - `expected_version` 是**可选**的：脚本和旧客户端不发版本头时保持 last-write-wins，不破坏兼容。
 - 哈希必须走**响应头**，不要作为字段塞进 `GET /config` 的 JSON body——面板会把整份 JSON 再 POST 回来，未知字段会被 `normalize_defaults` 保留并写进 config.json。
+- **版本是内容寻址的规范字节，不是表布局快照**：`save()` 以 **canonical JSON**（`core.config.canonical_json`：字符串键按字节序、数组按序、空 dict 段 `{}`、标量走 dkjson 保证数字/转义字节稳定）写盘，`config_hash = md5(写盘的确切字节)`；`load_from_file` 哈希读到的原始文件字节，两形式天然对齐——**未改动的文件 reload 后版本不变**，**no-op 保存（内容相同）写字节一致的文件、版本保持稳定**。旧 dkjson `pairs()` 序编码是布局相关的（同内容不同解析序 → 不同字节），每次保存都会翻哈希、漂移盘上键序。`GET /config` 与 `/config/export` 正文同为 canonical 字节，面板回环字节稳定。
+- `cs.normalize_node` 的「节缺失」路径必须与「节存在」路径走同一个 per-child 合并（val==nil → `{}`），不得 fast-return 陈旧的节级 `default` 表（它滞后于后加的 child 定义，缺 `session_secret`/`crawler_verify`/`shadow` 等子字段）——否则 save 管线对自身输出不幂等，no-op 回环也会改动盘上内容与版本。
 - `config_save_lock_ttl` 必须取自**当前生效配置**，不要读未校验的传入 config：`math.max` 遇到字符串/表会在 `validate_config` 之前抛错。
 - 新增全量配置写路径时，必须同样带上 `X-Config-Hash`；`atomic_mutate` 自身在锁内读改写，不需要 expected_version。
 
-回归见 `test/v2/phase0/config_optimistic_concurrency_spec.lua`（save 语义 + 控制器 409/回退/GET 头）。
+回归见 `test/v2/phase0/config_optimistic_concurrency_spec.lua`（save 语义 + 控制器 409/回退/GET 头 + 内容寻址/字节稳定 describe）。
 
 ---
 

@@ -187,9 +187,17 @@ function _M.normalize_node(schema_node, raw_value, opts)
     local val = raw_value
 
     if val == nil then
-        val = deep_copy(default)
-        -- no further validation needed on a fully-defaulted table
-        return { value = val, errors = errors }
+        -- Merge over an empty table instead of returning the captured
+        -- section default: that default table is partial (it predates
+        -- children added later, e.g. security lacks session_secret,
+        -- ip_reputation lacks crawler_verify, kernel_ip_blocking lacks
+        -- shadow/reconcile_*). Returning it raw made "section absent"
+        -- yield a leaner config than "section present" (whose per-child
+        -- pass below adds every child that declares a default), so the
+        -- save pipeline was not idempotent on its own output: a GET ->
+        -- no-op POST -> GET round trip shuffled the on-disk bytes and
+        -- therefore the version hash even though nothing had changed.
+        val = {}
     end
 
     if type(val) ~= "table" then

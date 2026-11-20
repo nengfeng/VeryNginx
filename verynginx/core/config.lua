@@ -1329,6 +1329,91 @@ local function mark_dict_sections(cfg)
 end
 
 -- ---------------------------------------------------------------------------
+-- Canonical JSON serialization: the version carrier and the on-disk write
+-- ---------------------------------------------------------------------------
+--
+-- dkjson encodes tables in pairs() order, which follows the table's internal
+-- hash layout: two decodes of the SAME document yield different byte
+-- sequences. The legacy save path encoded that parse layout, so every save
+-- re-shuffled the on-disk key order and re-rolled the version hash even
+-- when the content did not change, and versions were not comparable across
+-- a reload. The canonical writer removes the layout dependency: string keys
+-- are emitted sorted (byte-wise), arrays in order, and leaves through
+-- dkjson so number formatting and string escaping stay byte-identical to
+-- the legacy output. Empty tables render as [] except dict-shaped sections,
+-- which keep the legacy OBJECT_META / DICT_SECTIONS {} rendering.
+local INDENT_UNIT = "  "
+
+local function canonical_value(value, pad, key)
+    local t = type(value)
+    if t ~= "table" then
+        if value == nil then
+            return "null"
+        end
+        return json.encode(value)
+    end
+    local meta = getmetatable(value)
+    if next(value) == nil then
+        if (meta and meta.__jsontype == "object") or (key and DICT_SECTIONS[key]) then
+            return "{}"
+        end
+        return "[]"
+    end
+    local pretty = pad ~= nil
+    local child_pad = pretty and pad .. INDENT_UNIT or nil
+    -- JSON array: a pure 1..n numeric sequence (what dkjson decodes [] into)
+    local count, max_key, is_array = 0, 0, true
+    for k in pairs(value) do
+        count = count + 1
+        if type(k) == "number" then
+            if k > max_key then max_key = k end
+        else
+            is_array = false
+        end
+    end
+    if is_array and max_key == count then
+        local parts = {}
+        for i = 1, max_key do
+            parts[i] = canonical_value(value[i], child_pad)
+        end
+        if pretty then
+            -- legacy on-disk layout: "[" sits on the key line, the first
+            -- element inline after it, further elements one per line at the
+            -- child indent, "]" right after the last element.
+            local body = parts[1]
+            for i = 2, max_key do
+                body = body .. ",\n" .. child_pad .. parts[i]
+            end
+            return "[" .. body .. "]"
+        end
+        return "[" .. table.concat(parts, ",") .. "]"
+    end
+    -- object: keys sorted byte-wise so the byte stream depends only on the
+    -- content, not on the table's parse layout.
+    local keys = {}
+    for k in pairs(value) do
+        keys[#keys + 1] = type(k) == "string" and k or tostring(k)
+    end
+    table.sort(keys)
+    local parts = {}
+    for _, k in ipairs(keys) do
+        parts[#parts + 1] = (pretty and child_pad or "") .. json.encode(k) .. ":"
+            .. canonical_value(value[k], child_pad, k)
+    end
+    if pretty then
+        return "{\n" .. table.concat(parts, ",\n") .. "\n" .. pad .. "}"
+    end
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+-- Public: canonical_json(value) -> compact deterministic bytes (the form
+-- hashed into the version); canonical_json(value, true) -> the 2-space
+-- pretty form written to configs/config.json.
+function _M.canonical_json(value, pretty)
+    return canonical_value(value, pretty and "" or nil, nil)
+end
+
+-- ---------------------------------------------------------------------------
 -- Load config from file
 -- ---------------------------------------------------------------------------
 function _M.load_from_file()
@@ -1815,9 +1900,15 @@ function _M.save(config, opts)
 
     local compiled = compile_runtime_snapshot(normalized)
 
-    -- encode and hash
+    -- encode and hash: the on-disk bytes are the canonical form (sorted
+    -- keys, deterministic layout) and the version is the md5 of exactly
+    -- those bytes. load_from_file() hashes the raw file bytes it reads, so
+    -- a reload of an untouched file re-publishes the same version, and a
+    -- no-op save writes identical bytes and keeps the version stable.
     mark_dict_sections(normalized)
-    local ok_enc, encoded = pcall(json.encode, normalized, { indent = true })
+    local ok_enc, encoded = pcall(function()
+        return _M.canonical_json(normalized, true)
+    end)
     if not ok_enc then
         release_save_lock(lock_key, lock_token)
         return false, "encode failed: " .. tostring(encoded)

@@ -150,13 +150,22 @@ local function handle_get_config()
         for _, a in ipairs(decoded.admin or {}) do
             a.password_hash = "(redacted)"
         end
-        if type(decoded.security) == "table" then
+        -- Only emit the sentinel for a field that is actually set: a
+        -- round-tripped GET must be byte-stable, so an unset
+        -- session_secret stays absent (an unconditional sentinel would
+        -- leak the literal "(redacted)" into the next save when the
+        -- stored value is empty and backfill is skipped).
+        if type(decoded.security) == "table"
+                and decoded.security.session_secret ~= nil
+                and decoded.security.session_secret ~= "" then
             decoded.security.session_secret = "(redacted)"
         end
         helpers.redact_geoip_credentials(decoded.geoip)
     end
     if ok then
-        return json.encode(decoded)
+        -- Deterministic response bytes: sorted-key canonical JSON, so the
+        -- body no longer shuffles with each save's table parse layout.
+        return config_mod.canonical_json(decoded)
     end
     return raw
 end
@@ -176,13 +185,20 @@ local function handle_export_config()
         for _, a in ipairs(decoded.admin or {}) do
             a.password_hash = "(redacted)"
         end
-        if type(decoded.security) == "table" then
+        -- Only emit the sentinel for a field that is actually set: a
+        -- round-tripped GET must be byte-stable, so an unset
+        -- session_secret stays absent (an unconditional sentinel would
+        -- leak the literal "(redacted)" into the next save when the
+        -- stored value is empty and backfill is skipped).
+        if type(decoded.security) == "table"
+                and decoded.security.session_secret ~= nil
+                and decoded.security.session_secret ~= "" then
             decoded.security.session_secret = "(redacted)"
         end
         helpers.redact_geoip_credentials(decoded.geoip)
     end
     if ok then
-        content = json.encode(decoded)
+        content = require("core.config").canonical_json(decoded)
     end
     ngx.header["content-type"] = "application/json; charset=utf-8"
     ngx.header["content-disposition"] = 'attachment; filename="config.json"'

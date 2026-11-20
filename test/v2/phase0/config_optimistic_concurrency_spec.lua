@@ -246,3 +246,69 @@ describe("POST /config optimistic concurrency at the controller", function()
         assert.equal("no-store", ngx.header["Cache-Control"])
     end)
 end)
+
+describe("P2-12: the version carrier is content-addressed", function()
+    -- The spec's fake ngx.md5 is a call counter, so version STABILITY is
+    -- asserted at the byte level: identical content must map to identical
+    -- serialized bytes, and md5 of identical bytes is identical.
+    local function disk_bytes()
+        local f = assert(io.open(config.resolve_path() .. "configs/config.json", "rb"))
+        local b = f:read("all")
+        f:close()
+        return b
+    end
+
+    before_each(function()
+        ensure_ngx()
+        config._test_set_shared(ngx.shared.vn_config)
+    end)
+
+    it("canonical_json is invariant to table parse order", function()
+        local a = dkjson.decode('{"z":1,"a":{"y":true,"x":[1,2]},"m":{}}')
+        local b = dkjson.decode('{"a":{"x":[1,2],"y":true},"m":{},"z":1}')
+        assert.equal(config.canonical_json(a), config.canonical_json(b),
+            "same content, different insertion order must yield identical bytes")
+        -- dict-shaped empty sections keep the {} rendering; other empty
+        -- tables stay [] (the legacy dkjson shape).
+        local c = dkjson.decode('{"matcher":{},"rule":{},"waf_rules":[]}')
+        assert.equal('{"matcher":{},"rule":{},"waf_rules":[]}', config.canonical_json(c))
+    end)
+
+    it("writes byte-identical on-disk files for identical content", function()
+        -- same content, two different parse layouts (key insertion order)
+        local a = dkjson.decode(dkjson.encode(base_cfg(1048576)))
+        local b = {
+            body = { max_size = 1048576 },
+            version = "2.0",
+            rule = {},
+            matcher = {},
+            admin = {},
+        }
+        assert.is_true(config.save(a))
+        local f1 = disk_bytes()
+        assert.is_true(config.save(b))
+        local f2 = disk_bytes()
+        assert.equal(f1, f2, "identical content must map to identical on-disk bytes")
+    end)
+
+    it("keeps the GET /config response byte-stable across a no-op round trip", function()
+        local h
+        h = controller_handlers()
+        ngx._test_body = nil
+        ngx._test_headers = {}
+        ngx.var.content_type = "application/json"
+
+        assert.is_true(config.save(base_cfg(1048576)))
+        local b1 = h["GET /config"]()
+
+        -- the dashboard round trip: POST the GET body back with the current
+        -- version; the content is unchanged, so nothing may shuffle.
+        ngx._test_body = b1
+        ngx._test_headers = { ["x-config-hash"] = config.current_hash() }
+        ngx.status = 200
+        local body = h["POST /config"]()
+        assert.equal(200, ngx.status, "the no-op save must succeed: " .. tostring(body))
+        assert.equal(b1, h["GET /config"](),
+            "a content-stable round trip must not shuffle the response bytes")
+    end)
+end)
