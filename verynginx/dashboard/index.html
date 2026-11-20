@@ -10,7 +10,7 @@
 <!-- Vue 3: vendored local copy with SRI (no CDN fallback - would be blocked by the
      page CSP script-src 'self' and is an unnecessary supply-chain surface) -->
 <script src="/verynginx/static/vue.global.prod.js?v=2.3.2-1" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.3.2-1">
+  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.3.2-2">
 </head>
 <body>
 
@@ -65,13 +65,13 @@
       <div class="error" v-if="sessionExpiredNotice">登录已过期，请重新登录</div>
       <div class="error" v-if="loginError">{{ loginError }}</div>
       <div class="field">
-        <label>用户名</label>
-        <input v-model.trim="loginUser" type="text" placeholder="管理员用户名" autocomplete="username">
+        <label for="f-用户名">用户名</label>
+        <input id="f-用户名" v-model.trim="loginUser" type="text" placeholder="管理员用户名" autocomplete="username">
       </div>
       <div class="field">
-        <label>密码</label>
+        <label for="f-密码">密码</label>
         <div class="pass-wrap">
-          <input v-model="loginPass" :type="loginPassVisible ? 'text' : 'password'" placeholder="输入密码" autocomplete="current-password"
+          <input id="f-密码" v-model="loginPass" :type="loginPassVisible ? 'text' : 'password'" placeholder="输入密码" autocomplete="current-password"
                  @keyup="loginCapsLock = !!(($event.getModifierState) && $event.getModifierState('CapsLock'))"
                  @blur="loginCapsLock = false">
           <button type="button" class="outline small pass-toggle" @click="loginPassVisible = !loginPassVisible">{{ loginPassVisible ? '隐藏' : '显示' }}</button>
@@ -1271,8 +1271,8 @@
           <div class="card">
              <h3 style="font-size:14px;margin-bottom:8px">测试规则</h3>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-              <label style="font-size:13px;color:var(--muted)">模式</label>
-              <select v-model="wafTestMode" @change="wafTestModeChanged()" style="width:auto">
+              <label style="font-size:13px;color:var(--muted)" for="f-模式">模式</label>
+              <select id="f-模式" v-model="wafTestMode" @change="wafTestModeChanged()" style="width:auto">
                 <option value="form">表单</option>
                 <option value="raw">JSON</option>
               </select>
@@ -1283,20 +1283,20 @@
             </div>
             <template v-if="wafTestMode==='form'">
               <div style="display:grid;grid-template-columns:minmax(110px,140px) minmax(140px,170px) minmax(220px,1fr) minmax(105px,125px);gap:8px;align-items:end;margin-bottom:8px">
-                <div class="field" style="margin:0"><label>匹配字段</label>
-                  <select v-model="wafTestRuleForm.field" style="width:100%">
+                <div class="field" style="margin:0"><label for="f-匹配字段">匹配字段</label>
+                  <select id="f-匹配字段" v-model="wafTestRuleForm.field" style="width:100%">
                     <option v-for="f in ['URI','IP','UA','Host','Referer','Header','Cookie','Args','Method']" :key="f" :value="f">{{ f }}</option>
                   </select></div>
-                <div class="field" style="margin:0"><label>操作符</label>
-                  <select v-model="wafTestRuleForm.operator" style="width:100%">
+                <div class="field" style="margin:0"><label for="f-操作符">操作符</label>
+                  <select id="f-操作符" v-model="wafTestRuleForm.operator" style="width:100%">
                     <option value="≈">≈ 正则匹配</option>
                     <option value="=">= 精确等于</option>
                     <option value="!≈">!≈ 正则不匹配</option>
                   </select></div>
-                <div class="field" style="margin:0"><label>匹配值</label>
-                  <input v-model="wafTestRuleForm.value" type="text" placeholder='如 /api/* 或 \.\./'></div>
-                <div class="field" style="margin:0"><label>动作</label>
-                  <select v-model="wafTestRuleForm.action" style="width:100%" title="block=直接返回 403 阻断；accept=放行；log=仅记录不拦截；challenge=要求浏览器执行 JS 验证（防 bot）">
+                <div class="field" style="margin:0"><label for="f-匹配值">匹配值</label>
+                  <input id="f-匹配值" v-model="wafTestRuleForm.value" type="text" placeholder='如 /api/* 或 \.\./'></div>
+                <div class="field" style="margin:0"><label for="f-动作">动作</label>
+                  <select id="f-动作" v-model="wafTestRuleForm.action" style="width:100%" title="block=直接返回 403 阻断；accept=放行；log=仅记录不拦截；challenge=要求浏览器执行 JS 验证（防 bot）">
                     <option value="block">阻止</option>
                     <option value="accept">放行</option>
                     <option value="log">记录</option>
@@ -1304,7 +1304,7 @@
                   </select></div>
               </div>
               <div class="field">
-                <label>测试用例（每行一条请求，勾选 = 预期被匹配）</label>
+                <span class="field-label">测试用例（每行一条请求，勾选 = 预期被匹配）</span>
                 <table style="font-size:12px">
                   <thead><tr><th scope="col" style="width:110px">名称(可空)</th><th scope="col">URI</th><th scope="col" style="width:90px">方法</th><th scope="col" style="width:130px">IP(可空)</th><th scope="col">UA(可空, 可选预设)</th><th scope="col" style="width:70px">预期命中</th><th scope="col" style="width:36px"></th></tr></thead>
                   <tbody>
@@ -1336,12 +1336,12 @@
             </template>
             <template v-else>
              <div class="field">
-               <label>规则 (JSON)</label>
-              <textarea v-model="wafTestRuleJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"matcher":{"URI":{"operator":"≈","value":"/api/*"}},"action":"block"}'></textarea>
+               <label for="f-规则-JSON">规则 (JSON)</label>
+              <textarea id="f-规则-JSON" v-model="wafTestRuleJson" spellcheck="false" class="code-editor" style="min-height:100px" placeholder='{"matcher":{"URI":{"operator":"≈","value":"/api/*"}},"action":"block"}'></textarea>
             </div>
              <div class="field">
-               <label>测试用例 (JSON 数组)</label>
-              <textarea v-model="wafTestCasesJson" spellcheck="false" class="code-editor" style="min-height:120px" placeholder='[{"name":"normal","uri":"/api/users","expected":false},{"name":"attack","uri":"/api/../../etc","expected":true}]'></textarea>
+               <label for="f-测试用例-JSON-数组">测试用例 (JSON 数组)</label>
+              <textarea id="f-测试用例-JSON-数组" v-model="wafTestCasesJson" spellcheck="false" class="code-editor" style="min-height:120px" placeholder='[{"name":"normal","uri":"/api/users","expected":false},{"name":"attack","uri":"/api/../../etc","expected":true}]'></textarea>
             </div>
             </template>
             <div class="error" v-if="wafTestError" style="margin-bottom:8px">{{ wafTestError }}</div>
@@ -1476,12 +1476,12 @@
 
         <!-- Template Preview/Apply Modal -->
         <div class="modal-overlay" v-if="freqTemplateModal.show" @click.self="freqTemplateModal.show=false">
-          <div class="modal">
+          <div class="modal" role="dialog" aria-modal="true">
             <h3>{{ freqTemplateModal.label }}</h3>
             <p style="font-size:13px;color:var(--muted);margin-bottom:12px">{{ freqTemplateModal.description }}</p>
-             <div class="field"><label>规则 ID</label><input v-model="freqTemplateModal.id"></div>
-             <div class="field"><label>键维度</label>
-              <select v-model="freqTemplateModal.key" style="width:100%" title="按哪个维度计数：IP=单个地址，URI=请求路径，user=登录用户名，host=域名">
+             <div class="field"><label for="f-规则-ID">规则 ID</label><input id="f-规则-ID" v-model="freqTemplateModal.id"></div>
+             <div class="field"><label for="f-键维度">键维度</label>
+              <select id="f-键维度" v-model="freqTemplateModal.key" style="width:100%" title="按哪个维度计数：IP=单个地址，URI=请求路径，user=登录用户名，host=域名">
                 <option value="ip">IP</option>
                 <option value="uri">URI</option>
                 <option value="user">用户名</option>
@@ -1489,12 +1489,12 @@
               </select>
             </div>
             <div class="grid grid-2 mb-8">
-               <div class="field"><label>限制 (最大命中)</label><input v-model.number="freqTemplateModal.limit" type="number" min="1" title="窗口期内允许的最大请求数，超过后触发阻止动作"></div>
-               <div class="field"><label>窗口 (秒)</label><input v-model.number="freqTemplateModal.window" type="number" min="1" title="计数时间窗口，如 60 表示 60 秒内累计计数，超出 limit 后重置"></div>
+               <div class="field"><label for="f-限制-最大命中">限制 (最大命中)</label><input id="f-限制-最大命中" v-model.number="freqTemplateModal.limit" type="number" min="1" title="窗口期内允许的最大请求数，超过后触发阻止动作"></div>
+               <div class="field"><label for="f-窗口-秒">窗口 (秒)</label><input id="f-窗口-秒" v-model.number="freqTemplateModal.window" type="number" min="1" title="计数时间窗口，如 60 表示 60 秒内累计计数，超出 limit 后重置"></div>
             </div>
             <div class="grid grid-2 mb-8">
-               <div class="field"><label>阻止代码</label><input v-model.number="freqTemplateModal.code" type="number" min="100" max="599" title="触发限流时返回的 HTTP 状态码，通常用 429（Too Many Requests）"></div>
-               <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqTemplateModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
+               <div class="field"><label for="f-阻止代码">阻止代码</label><input id="f-阻止代码" v-model.number="freqTemplateModal.code" type="number" min="100" max="599" title="触发限流时返回的 HTTP 状态码，通常用 429（Too Many Requests）"></div>
+               <div class="field"><label for="f-匹配器-JSON-可选">匹配器 JSON (可选)</label><input id="f-匹配器-JSON-可选" v-model="freqTemplateModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
             </div>
             <div class="modal-actions">
              <button class="outline" @click="freqTemplateModal.show=false">取消</button>
@@ -1505,11 +1505,11 @@
 
         <!-- Create Rule Modal -->
         <div class="modal-overlay" v-if="freqRuleModal.show" @click.self="freqRuleModal.show=false">
-          <div class="modal">
+          <div class="modal" role="dialog" aria-modal="true">
              <h3>{{ freqRuleModal.mode === 'create' ? '创建频率规则' : '编辑频率规则' }}</h3>
-            <div class="field"><label>规则 ID</label><input v-model="freqRuleModal.id" placeholder="freq_login" :disabled="freqRuleModal.mode !== 'create'"></div>
-             <div class="field"><label>键维度</label>
-              <select v-model="freqRuleModal.key" style="width:100%" title="按哪个维度计数：IP=单个地址，URI=请求路径，user=登录用户名，host=域名">
+            <div class="field"><label for="f-规则-ID-2">规则 ID</label><input id="f-规则-ID-2" v-model="freqRuleModal.id" placeholder="freq_login" :disabled="freqRuleModal.mode !== 'create'"></div>
+             <div class="field"><label for="f-键维度-2">键维度</label>
+              <select id="f-键维度-2" v-model="freqRuleModal.key" style="width:100%" title="按哪个维度计数：IP=单个地址，URI=请求路径，user=登录用户名，host=域名">
                 <option value="ip">IP</option>
                 <option value="uri">URI</option>
                 <option value="user">用户名</option>
@@ -1517,16 +1517,16 @@
               </select>
             </div>
             <div class="grid grid-2 mb-8">
-               <div class="field"><label>限制 (最大命中)</label><input v-model.number="freqRuleModal.limit" type="number" min="1" placeholder="60" title="窗口期内允许的最大请求数，超过后触发阻止动作"></div>
-               <div class="field"><label>窗口 (秒)</label><input v-model.number="freqRuleModal.window" type="number" min="1" placeholder="60" title="计数时间窗口，如 60 表示 60 秒内累计计数，超出 limit 后重置"></div>
+               <div class="field"><label for="f-限制-最大命中-2">限制 (最大命中)</label><input id="f-限制-最大命中-2" v-model.number="freqRuleModal.limit" type="number" min="1" placeholder="60" title="窗口期内允许的最大请求数，超过后触发阻止动作"></div>
+               <div class="field"><label for="f-窗口-秒-2">窗口 (秒)</label><input id="f-窗口-秒-2" v-model.number="freqRuleModal.window" type="number" min="1" placeholder="60" title="计数时间窗口，如 60 表示 60 秒内累计计数，超出 limit 后重置"></div>
             </div>
 <div class="grid grid-2 mb-8">
-                <div class="field"><label>阻止代码</label><input v-model.number="freqRuleModal.code" type="number" min="100" max="599" placeholder="429" title="触发限流时返回的 HTTP 状态码，通常用 429（Too Many Requests）"></div>
-                <div class="field"><label>匹配器 JSON (可选)</label><input v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
+                <div class="field"><label for="f-阻止代码-2">阻止代码</label><input id="f-阻止代码-2" v-model.number="freqRuleModal.code" type="number" min="100" max="599" placeholder="429" title="触发限流时返回的 HTTP 状态码，通常用 429（Too Many Requests）"></div>
+                <div class="field"><label for="f-匹配器-JSON-可选-2">匹配器 JSON (可选)</label><input id="f-匹配器-JSON-可选-2" v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
              <div style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:8px">留空匹配所有请求；内联格式见占位符，或引用已有匹配器名。</div>
              </div>
              <div class="field" style="margin-bottom:0">
-               <label class="checkbox-label"><input type="checkbox" v-model="freqRuleModal.enable"> 启用该规则</label>
+               <label class="checkbox-label" for="f-启用该规则"><input id="f-启用该规则" type="checkbox" v-model="freqRuleModal.enable"> 启用该规则</label>
              </div>
             <div class="modal-actions">
              <button class="outline" @click="freqRuleModal.show=false">取消</button>
@@ -1767,7 +1767,7 @@
 
         <!-- Flagged IP detail modal: overview+reason / related hits / IP info -->
         <div class="modal-overlay" v-if="repDetailModal.show" @click.self="repDetailModal.show=false">
-          <div class="modal" style="max-width:760px">
+          <div class="modal" role="dialog" aria-modal="true" style="max-width:760px">
             <h3>IP 详情 <code>{{ repDetailModal.ip }}</code>
               <span v-if="repDetailModal.data && repDetailModal.data.flagged" class="tag" style="background:var(--danger-bg);color:var(--danger-text);margin-left:6px" title="该 IP 的声誉分数已超过阈值，处于自动挑战/封禁状态">已标记</span>
               <span v-else-if="repDetailModal.data && repDetailModal.data.whitelisted" class="tag" style="background:var(--success-bg);color:var(--success-text);margin-left:6px">白名单</span>
@@ -1868,11 +1868,11 @@
               </div>
               <div v-else-if="repDetailModal.geo" style="font-size:13px">
                 <div class="grid grid-2" style="gap:4px 16px">
-                  <div class="field"><label>国家/地区</label>{{ repDetailModal.geo.country_name || '-' }} <code v-if="repDetailModal.geo.country_code">{{ repDetailModal.geo.country_code }}</code></div>
-                  <div class="field"><label>城市</label>{{ repDetailModal.geo.city_name || '-' }}</div>
-                  <div class="field"><label>ASN</label><code>{{ repDetailModal.geo.asn || '-' }}</code></div>
-                  <div class="field"><label>运营商/组织</label>{{ repDetailModal.geo.asn_org || '-' }}</div>
-                  <div class="field"><label>经纬度</label>{{ repDetailModal.geo.latitude != null ? repDetailModal.geo.latitude + ', ' + repDetailModal.geo.longitude : '-' }}</div>
+                  <div class="field"><span class="field-label">国家/地区</span>{{ repDetailModal.geo.country_name || '-' }} <code v-if="repDetailModal.geo.country_code">{{ repDetailModal.geo.country_code }}</code></div>
+                  <div class="field"><span class="field-label">城市</span>{{ repDetailModal.geo.city_name || '-' }}</div>
+                  <div class="field"><span class="field-label">ASN</span><code>{{ repDetailModal.geo.asn || '-' }}</code></div>
+                  <div class="field"><span class="field-label">运营商/组织</span>{{ repDetailModal.geo.asn_org || '-' }}</div>
+                  <div class="field"><span class="field-label">经纬度</span>{{ repDetailModal.geo.latitude != null ? repDetailModal.geo.latitude + ', ' + repDetailModal.geo.longitude : '-' }}</div>
                 </div>
               </div>
               <div v-else class="empty"><div>GeoIP 库中无此 IP。</div></div>
@@ -1906,8 +1906,8 @@
           <h3 style="font-size:14px;margin-bottom:8px">IP 查询</h3>
           <div style="display:flex;gap:8px;align-items:flex-end">
             <div>
-              <label style="font-size:11px;color:var(--muted)">IP 地址</label>
-              <input v-model="geoipLookupIP" placeholder="8.8.8.8" style="width:150px" @keyup.enter="lookupGeoIP" title="输入 IP 地址查询其地理位置信息（国家/城市/ASN），用于验证 GeoIP 配置是否生效">
+              <label style="font-size:11px;color:var(--muted)" for="f-IP-地址">IP 地址</label>
+              <input id="f-IP-地址" v-model="geoipLookupIP" placeholder="8.8.8.8" style="width:150px" @keyup.enter="lookupGeoIP" title="输入 IP 地址查询其地理位置信息（国家/城市/ASN），用于验证 GeoIP 配置是否生效">
             </div>
             <button class="primary" @click="lookupGeoIP">查询</button>
           </div>
@@ -2088,16 +2088,16 @@
         <!-- Filters -->
           <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">
            <div>
-              <label style="font-size:11px;color:var(--muted)">用户</label>
-              <input v-model="auditFilterUser" placeholder="全部" style="width:100px">
+              <label style="font-size:11px;color:var(--muted)" for="f-用户">用户</label>
+              <input id="f-用户" v-model="auditFilterUser" placeholder="全部" style="width:100px">
             </div>
             <div>
-              <label style="font-size:11px;color:var(--muted)">操作类型</label>
-              <input v-model="auditFilterAction" placeholder="全部" style="width:120px">
+              <label style="font-size:11px;color:var(--muted)" for="f-操作类型">操作类型</label>
+              <input id="f-操作类型" v-model="auditFilterAction" placeholder="全部" style="width:120px">
             </div>
             <div>
-              <label style="font-size:11px;color:var(--muted)">起始时间</label>
-              <input v-model="auditFilterSince" type="datetime-local" style="width:160px">
+              <label style="font-size:11px;color:var(--muted)" for="f-起始时间">起始时间</label>
+              <input id="f-起始时间" v-model="auditFilterSince" type="datetime-local" style="width:160px">
               <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
                 <button class="outline xsmall" @click="setAuditSincePreset('1h')" style="font-size:10px">最近1h</button>
                 <button class="outline xsmall" @click="setAuditSincePreset('24h')" style="font-size:10px">最近24h</button>
@@ -2106,8 +2106,8 @@
               </div>
             </div>
             <div>
-              <label style="font-size:11px;color:var(--muted)">结束时间</label>
-              <input v-model="auditFilterUntil" type="datetime-local" style="width:160px">
+              <label style="font-size:11px;color:var(--muted)" for="f-结束时间">结束时间</label>
+              <input id="f-结束时间" v-model="auditFilterUntil" type="datetime-local" style="width:160px">
             </div>
             <button class="outline small" @click="clearAuditFilters">清除筛选</button>
            </div>
@@ -2251,45 +2251,45 @@
             <h3 style="font-size:14px;margin-bottom:12px">控制</h3>
            <div class="grid grid-3 mb-16 kb-controls">
               <div class="field">
-                <label class="kb-check"><input type="checkbox" v-model="kbForm.enabled" @change="kbMarkFormDirty"> 全局启用</label>
+                <label class="kb-check" for="f-全局启用"><input id="f-全局启用" type="checkbox" v-model="kbForm.enabled" @change="kbMarkFormDirty"> 全局启用</label>
               </div>
               <div class="field">
-                <label style="font-size:12px;color:var(--muted)" title="观察模式只记录拦截日志，不实际封禁；执行模式会将匹配到的 IP 加入内核封禁表并生效。切换前请确认已添加至少一条规则">全局模式</label>
-                <select v-model="kbForm.mode" @change="kbMarkFormDirty" style="margin-top:4px" title="观察 (observe)：仅记录日志，不封禁任何 IP；执行 (enforce)：将匹配规则的结果实际写入内核封禁表">
+                <label style="font-size:12px;color:var(--muted)" title="观察模式只记录拦截日志，不实际封禁；执行模式会将匹配到的 IP 加入内核封禁表并生效。切换前请确认已添加至少一条规则" for="f-全局模式">全局模式</label>
+                <select id="f-全局模式" v-model="kbForm.mode" @change="kbMarkFormDirty" style="margin-top:4px" title="观察 (observe)：仅记录日志，不封禁任何 IP；执行 (enforce)：将匹配规则的结果实际写入内核封禁表">
                   <option value="observe">观察 (observe)</option>
                   <option value="enforce">执行 (enforce)</option>
                 </select>
               </div>
               <div class="field">
-                <label class="kb-check" title="所有先决条件满足后（迁移完成、CC 规则引用有效、内核助手可达），勾选此项激活 CC 封禁。未激活前仅观察，不封禁任何 IP。">
-                  <input type="checkbox" v-model="kbForm.cc_enforce_ready" @change="kbMarkFormDirty"> CC 执行就绪
+                <label class="kb-check" title="所有先决条件满足后（迁移完成、CC 规则引用有效、内核助手可达），勾选此项激活 CC 封禁。未激活前仅观察，不封禁任何 IP。" for="f-CC-执行就绪">
+                  <input id="f-CC-执行就绪" type="checkbox" v-model="kbForm.cc_enforce_ready" @change="kbMarkFormDirty"> CC 执行就绪
                 </label>
               </div>
               <div class="field">
-                <label class="kb-check" title="启用后，系统会根据请求频率、User-Agent 等特征自动识别扫描器/爬虫，将其晋升为内核封禁。建议配合 CC 策略一起使用。">
-                  <input type="checkbox" v-model="kbForm.scanner_enabled" @change="kbMarkFormDirty"> 扫描器启用
+                <label class="kb-check" title="启用后，系统会根据请求频率、User-Agent 等特征自动识别扫描器/爬虫，将其晋升为内核封禁。建议配合 CC 策略一起使用。" for="f-扫描器启用">
+                  <input id="f-扫描器启用" type="checkbox" v-model="kbForm.scanner_enabled" @change="kbMarkFormDirty"> 扫描器启用
                 </label>
               </div>
               <div class="field">
-                <label class="kb-check" title="启用后，系统根据 CC（Content Copying）规则自动晋升高频请求 IP 到内核封禁。需要先在上游频率限制面板创建 CC 规则并引用到此处的 rule_ids。">
-                  <input type="checkbox" v-model="kbForm.cc_enabled" @change="kbMarkFormDirty"> CC 启用
+                <label class="kb-check" title="启用后，系统根据 CC（Content Copying）规则自动晋升高频请求 IP 到内核封禁。需要先在上游频率限制面板创建 CC 规则并引用到此处的 rule_ids。" for="f-CC-启用">
+                  <input id="f-CC-启用" type="checkbox" v-model="kbForm.cc_enabled" @change="kbMarkFormDirty"> CC 启用
                 </label>
               </div>
                <div class="field">
-                 <label style="font-size:12px;color:var(--muted)">拓扑</label>
-                 <select v-model="kbForm.topology" @change="kbMarkFormDirty" style="margin-top:4px">
+                 <label style="font-size:12px;color:var(--muted)" for="f-拓扑">拓扑</label>
+                 <select id="f-拓扑" v-model="kbForm.topology" @change="kbMarkFormDirty" style="margin-top:4px">
 <option value="direct">直连 (direct)</option>
                     <option value="proxied">代理 (proxied)</option>
                     <option value="unknown">未配置 (unknown)</option>
                  </select>
                </div>
                <div class="field">
-                 <label style="font-size:12px;color:var(--muted)" title="填写这些地址后，系统不会封禁这些 IP，防止管理员机器或健康检查被误封。支持 CIDR 如 10.0.0.0/8">受保护地址 (逗号分隔)</label>
-                 <input v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px" title="填写这些地址后，系统不会封禁这些 IP，防止管理员机器或健康检查被误封。支持 CIDR 如 10.0.0.0/8">
+                 <label style="font-size:12px;color:var(--muted)" title="填写这些地址后，系统不会封禁这些 IP，防止管理员机器或健康检查被误封。支持 CIDR 如 10.0.0.0/8" for="f-受保护地址-逗号分隔">受保护地址 (逗号分隔)</label>
+                 <input id="f-受保护地址-逗号分隔" v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px" title="填写这些地址后，系统不会封禁这些 IP，防止管理员机器或健康检查被误封。支持 CIDR 如 10.0.0.0/8">
                </div>
                <div class="field">
-                 <label style="font-size:12px;color:var(--muted)" title="填写这些端口后，目标 IP 在这些端口上的流量不会被拦截。留空则不对端口做特殊保护。">受保护端口 (逗号分隔)</label>
-                 <input v-model="kbForm.protected_ports_str" @change="kbMarkFormDirty" placeholder="如: 80, 443, 8080" style="margin-top:4px" title="填写这些端口后，目标 IP 在这些端口上的流量不会被拦截。留空则不对端口做特殊保护。">
+                 <label style="font-size:12px;color:var(--muted)" title="填写这些端口后，目标 IP 在这些端口上的流量不会被拦截。留空则不对端口做特殊保护。" for="f-受保护端口-逗号分隔">受保护端口 (逗号分隔)</label>
+                 <input id="f-受保护端口-逗号分隔" v-model="kbForm.protected_ports_str" @change="kbMarkFormDirty" placeholder="如: 80, 443, 8080" style="margin-top:4px" title="填写这些端口后，目标 IP 在这些端口上的流量不会被拦截。留空则不对端口做特殊保护。">
                </div>
             </div>
             <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
@@ -2623,7 +2623,7 @@
 
         <!-- Detail modal -->
         <div class="modal-overlay" v-if="kbDetail.show" @click.self="kbDetail.show=false">
-          <div class="modal" style="max-width:640px">
+          <div class="modal" role="dialog" aria-modal="true" style="max-width:640px">
              <h3>IP 详情: {{ kbDetail.entry && kbDetail.entry.ip }}</h3>
             <pre style="max-height:50vh;white-space:pre-wrap">{{ kbDetailJson }}</pre>
             <button class="outline small" @click="copyText(kbDetailJson)">复制 JSON</button>
@@ -2639,22 +2639,22 @@
     </div>
   <!-- Rule Editor Modal -->
   <div class="modal-overlay" v-if="wafEditModal.show" @click.self="wafEditModal.show=false">
-    <div class="modal" style="max-width:720px">
+    <div class="modal" role="dialog" aria-modal="true" style="max-width:720px">
        <h3>{{ wafEditModal.mode === 'create' ? '创建规则' : '编辑规则' }}: {{ wafEditModal.name || '(新)' }}</h3>
       <div class="grid-2 mb-8">
         <div class="field">
-          <label>名称 *</label>
-          <input v-model="wafEditModal.name" type="text" placeholder="规则名称">
+          <label for="f-名称-">名称 *</label>
+          <input id="f-名称-" v-model="wafEditModal.name" type="text" placeholder="规则名称">
         </div>
         <div class="field">
-          <label>说明</label>
-          <input v-model="wafEditModal.description" type="text" placeholder="可选说明">
+          <label for="f-说明">说明</label>
+          <input id="f-说明" v-model="wafEditModal.description" type="text" placeholder="可选说明">
         </div>
       </div>
       <div class="grid-2 mb-8">
         <div class="field">
-           <label>分类 *</label>
-           <select v-model="wafEditModal.category" style="width:100%" title="攻击类型：SQL注入=尝试执行恶意SQL；XSS=跨站脚本；RCE=远程代码执行；路径穿越=访问../../etc/passwd类；扫描器=漏洞扫描工具；暴力破解=密码猜测">
+           <label for="f-分类-">分类 *</label>
+           <select id="f-分类-" v-model="wafEditModal.category" style="width:100%" title="攻击类型：SQL注入=尝试执行恶意SQL；XSS=跨站脚本；RCE=远程代码执行；路径穿越=访问../../etc/passwd类；扫描器=漏洞扫描工具；暴力破解=密码猜测">
              <option value="">选择…</option>
              <option value="sqli">SQL 注入</option>
              <option value="xss">XSS</option>
@@ -2669,8 +2669,8 @@
            </select>
         </div>
         <div class="field">
-           <label>严重级别 *</label>
-           <select v-model="wafEditModal.severity" style="width:100%" title="critical=确认攻击直接拦截；high=高度可疑建议拦截；medium=中等风险可质询；low=低风险仅记录日志">
+           <label for="f-严重级别-">严重级别 *</label>
+           <select id="f-严重级别-" v-model="wafEditModal.severity" style="width:100%" title="critical=确认攻击直接拦截；high=高度可疑建议拦截；medium=中等风险可质询；low=低风险仅记录日志">
              <option value="">选择…</option>
              <option value="critical">严重</option>
              <option value="high">高</option>
@@ -2681,8 +2681,8 @@
       </div>
       <div class="grid-3 mb-8">
         <div class="field">
-           <label>动作 *</label>
-           <select v-model="wafEditModal.action" style="width:100%" title="阻止=返回403阻断请求；放行=允许通过；记录=仅记日志不拦截；质询=要求浏览器执行JS验证（防自动化工具，用户无感知）">
+           <label for="f-动作-">动作 *</label>
+           <select id="f-动作-" v-model="wafEditModal.action" style="width:100%" title="阻止=返回403阻断请求；放行=允许通过；记录=仅记日志不拦截；质询=要求浏览器执行JS验证（防自动化工具，用户无感知）">
              <option value="block">阻止</option>
              <option value="accept">放行</option>
              <option value="log">记录</option>
@@ -2690,24 +2690,24 @@
            </select>
         </div>
         <div class="field">
-           <label>状态码</label>
-           <input v-model.number="wafEditModal.code" type="number" placeholder="403" min="200" max="599" title="动作=阻止时返回的 HTTP 状态码，默认 403；动作=质询时通常用 200 返回 JS 挑战页">
+           <label for="f-状态码">状态码</label>
+           <input id="f-状态码" v-model.number="wafEditModal.code" type="number" placeholder="403" min="200" max="599" title="动作=阻止时返回的 HTTP 状态码，默认 403；动作=质询时通常用 200 返回 JS 挑战页">
         </div>
         <div class="field">
-           <label>标签 (逗号分隔)</label>
-           <input v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union" title="用于规则分类和搜索，不影响匹配行为">
+           <label for="f-标签-逗号分隔">标签 (逗号分隔)</label>
+           <input id="f-标签-逗号分隔" v-model="wafEditModal.tagsStr" type="text" placeholder="sqli, union" title="用于规则分类和搜索，不影响匹配行为">
         </div>
       </div>
       <div class="field">
-         <label>匹配器 (JSON) *</label>
-        <textarea v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:90px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}' title='{"URI": {"operator":"≈","value":"/admin"}} 匹配 URI 字段；operator ≈ 正则匹配，= 精确匹配；支持 URI/IP/UA/Host/Referer/Header/Cookie/Args/Method 等字段'></textarea>
+         <label for="f-匹配器-JSON-">匹配器 (JSON) *</label>
+        <textarea id="f-匹配器-JSON-" v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:90px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}' title='{"URI": {"operator":"≈","value":"/admin"}} 匹配 URI 字段；operator ≈ 正则匹配，= 精确匹配；支持 URI/IP/UA/Host/Referer/Header/Cookie/Args/Method 等字段'></textarea>
       </div>
       <div class="field">
-         <label><input type="checkbox" v-model="wafEditModal.rateLimitEnabled"> 速率限制</label>
+         <label for="f-速率限制"><input id="f-速率限制" type="checkbox" v-model="wafEditModal.rateLimitEnabled"> 速率限制</label>
          <div v-if="wafEditModal.rateLimitEnabled" class="grid-3 mb-8">
-           <div class="field"><label>最大命中</label><input v-model.number="wafEditModal.rateLimitMax" type="number" min="1" title="同一请求在窗口期内最多命中此规则多少次，超过后触发速率限制动作"></div>
-           <div class="field"><label>窗口 (秒)</label><input v-model.number="wafEditModal.rateLimitWindow" type="number" min="1" title="计数重置的时间窗口，如 60 表示 60 秒内累计计数"></div>
-           <div class="field"><label>动作</label><select v-model="wafEditModal.rateLimitAction" style="width:100%"><option value="log">记录</option><option value="block">阻止</option></select></div>
+           <div class="field"><label for="f-最大命中">最大命中</label><input id="f-最大命中" v-model.number="wafEditModal.rateLimitMax" type="number" min="1" title="同一请求在窗口期内最多命中此规则多少次，超过后触发速率限制动作"></div>
+           <div class="field"><label for="f-窗口-秒-3">窗口 (秒)</label><input id="f-窗口-秒-3" v-model.number="wafEditModal.rateLimitWindow" type="number" min="1" title="计数重置的时间窗口，如 60 表示 60 秒内累计计数"></div>
+           <div class="field"><label for="f-动作-2">动作</label><select id="f-动作-2" v-model="wafEditModal.rateLimitAction" style="width:100%"><option value="log">记录</option><option value="block">阻止</option></select></div>
          </div>
       </div>
       <div class="error" v-if="wafEditError" style="margin-bottom:8px">{{ wafEditError }}</div>
@@ -2728,7 +2728,7 @@
 
   <!-- Fingerprint Add Modal -->
   <div class="modal-overlay" v-if="fpEditModal.show" @click.self="fpEditModal.show=false">
-    <div class="modal" style="max-width:480px">
+    <div class="modal" role="dialog" aria-modal="true" style="max-width:480px">
       <h3>添加 TLS 指纹</h3>
       <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:12px;padding:10px 12px;background:var(--bg);border-radius:6px">
         <strong>JA4 是主信号：</strong>JA4 在 TLS 握手阶段直接计算 ClientHello（协议/版本/密码套件/扩展/ALPN）。
@@ -2747,35 +2747,35 @@
       </div>
       <div v-if="fpEditModal.error" class="error" style="margin-bottom:12px">{{ fpEditModal.error }}</div>
       <div class="field">
-        <label>指纹哈希 *（不带 <code style="font-size:11px">ja4:/ja3:</code> 前缀的裸哈希）</label>
-        <input v-model="fpEditModal.hash" type="text" @input="inferFpKind" spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px" placeholder="JA4：t13d1516h2_8daaf6152771_e5627efa2ab1（36 字符）｜ JA4H：ge11nn030000_fe444ad14866_000000000000_000000000000（48 字符）｜ JA3：e7d705a3286e19ea42f587b344ee6865（32 位 MD5）">
+        <label for="f-指纹哈希-不带-ja4ja3-前缀的裸哈希">指纹哈希 *（不带 <code style="font-size:11px">ja4:/ja3:</code> 前缀的裸哈希）</label>
+        <input id="f-指纹哈希-不带-ja4ja3-前缀的裸哈希" v-model="fpEditModal.hash" type="text" @input="inferFpKind" spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px" placeholder="JA4：t13d1516h2_8daaf6152771_e5627efa2ab1（36 字符）｜ JA4H：ge11nn030000_fe444ad14866_000000000000_000000000000（48 字符）｜ JA3：e7d705a3286e19ea42f587b344ee6865（32 位 MD5）">
         <div style="font-size:11px;color:var(--muted);margin-top:4px">三种形态任填其一，「类型」会按哈希形状自动推断，可手动覆盖。JA4/JA4H 选 family 时哈希至少 10 字符。</div>
       </div>
       <div class="grid-2 mb-8">
         <div class="field">
-          <label>类型 <small style="font-weight:400;color:var(--muted);font-size:10px" :title="fpKindTitle(fpEditModal.kind)">(?</small></label>
-          <select v-model="fpEditModal.kind" @change="setFpEditKind(fpEditModal.kind)" style="width:100%">
+          <label for="f-类型-">类型 <small style="font-weight:400;color:var(--muted);font-size:10px" :title="fpKindTitle(fpEditModal.kind)">(?</small></label>
+          <select id="f-类型-" v-model="fpEditModal.kind" @change="setFpEditKind(fpEditModal.kind)" style="width:100%">
             <option value="ja3">JA3（旧库兼容）</option>
             <option value="ja4">JA4（主信号）</option>
             <option value="ja4h">JA4H（默认关闭）</option>
           </select>
         </div>
         <div class="field">
-          <label>匹配</label>
-          <select v-model="fpEditModal.match_mode" style="width:100%" :title="fpEditModal.match_mode==='family' ? '只比较哈希前 10 字符（家族段 a），客户端升级换套件时仍可长期追踪' : '完整哈希精确比较'">
+          <label for="f-匹配">匹配</label>
+          <select id="f-匹配" v-model="fpEditModal.match_mode" style="width:100%" :title="fpEditModal.match_mode==='family' ? '只比较哈希前 10 字符（家族段 a），客户端升级换套件时仍可长期追踪' : '完整哈希精确比较'">
             <option value="exact">精确</option>
             <option value="family" :disabled="!fpFamilyAllowed(fpEditModal.kind)" title="家族匹配仅 JA4 / JA4H 支持：JA3 是整体 MD5，没有可分离的家族段">家族（前 10 字符）</option>
           </select>
         </div>
       </div>
       <div class="field">
-        <label>名称 *</label>
-        <input v-model="fpEditModal.name" type="text" placeholder="指纹名称/说明">
+        <label for="f-名称--2">名称 *</label>
+        <input id="f-名称--2" v-model="fpEditModal.name" type="text" placeholder="指纹名称/说明">
       </div>
       <div class="grid-2 mb-8">
         <div class="field">
-          <label>分类</label>
-          <select v-model="fpEditModal.category" style="width:100%">
+          <label for="f-分类">分类</label>
+          <select id="f-分类" v-model="fpEditModal.category" style="width:100%">
             <option value="scanner">扫描器</option>
             <option value="bot">机器人</option>
             <option value="browser">浏览器</option>
@@ -2783,8 +2783,8 @@
           </select>
         </div>
         <div class="field">
-          <label>动作</label>
-          <select v-model="fpEditModal.action" style="width:100%" title="拦截=命中此指纹的 IP 直接返回 403；挑战=要求浏览器执行 JS 验证（防 bot）；仅记录=记下日志不拦截">
+          <label for="f-动作-3">动作</label>
+          <select id="f-动作-3" v-model="fpEditModal.action" style="width:100%" title="拦截=命中此指纹的 IP 直接返回 403；挑战=要求浏览器执行 JS 验证（防 bot）；仅记录=记下日志不拦截">
             <option value="block">拦截</option>
             <option value="challenge">挑战</option>
             <option value="log">仅记录</option>
@@ -2800,14 +2800,14 @@
 
   <!-- Matcher Editor Modal -->
   <div class="modal-overlay" v-if="editMatcherModal.show" @click.self="editMatcherModal.show=false">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true">
        <h3>{{ editMatcherModal._origName ? '编辑匹配器' : '添加匹配器' }}</h3>
       <div class="field">
-         <label>名称</label>
-         <input v-model="editMatcherModal.name" type="text" placeholder="匹配器名称">
+         <label for="f-名称">名称</label>
+         <input id="f-名称" v-model="editMatcherModal.name" type="text" placeholder="匹配器名称">
       </div>
       <div class="field">
-         <label>条件 (JSON, 例如 {"URI":{"operator":"≈","value":"/api/*"}})</label>
+         <label for="matcher-json">条件 (JSON, 例如 {"URI":{"operator":"≈","value":"/api/*"}})</label>
         <textarea id="matcher-json" v-model="editMatcherModal.conditions" spellcheck="false" class="code-editor" style="min-height:120px"></textarea>
       </div>
        <div class="modal-actions">
@@ -2819,7 +2819,7 @@
 
   <!-- Hit Detail Modal -->
   <div class="modal-overlay" v-if="wafHitDetailModal.show" @click.self="wafHitDetailModal.show=false">
-    <div class="modal" style="max-width:700px">
+    <div class="modal" role="dialog" aria-modal="true" style="max-width:700px">
       <h3>命中详情 <small style="color:var(--muted)">{{ wafHitDetailModal.data ? (wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id) : '' }}</small></h3>
       <div v-if="wafHitDetailModal.loading" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
       <div v-else-if="wafHitDetailModal.error" class="error">
@@ -2828,13 +2828,13 @@
       </div>
       <div v-else-if="wafHitDetailModal.data">
          <div class="grid grid-2 mb-8">
-           <div class="field"><label>规则</label><code>{{ wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id }}</code></div>
-           <div class="field"><label>分类</label><span class="tag">{{ wafHitDetailModal.data.rule_category || '-' }}</span></div>
-           <div class="field"><label>时间</label>{{ new Date((wafHitDetailModal.data.timestamp || 0) * 1000).toLocaleString() }}</div>
-           <div class="field"><label>方法</label><span class="tag">{{ wafHitDetailModal.data.method }}</span></div>
+           <div class="field"><span class="field-label">规则</span><code>{{ wafHitDetailModal.data.rule_name || wafHitDetailModal.data.rule_id }}</code></div>
+           <div class="field"><span class="field-label">分类</span><span class="tag">{{ wafHitDetailModal.data.rule_category || '-' }}</span></div>
+           <div class="field"><span class="field-label">时间</span>{{ new Date((wafHitDetailModal.data.timestamp || 0) * 1000).toLocaleString() }}</div>
+           <div class="field"><span class="field-label">方法</span><span class="tag">{{ wafHitDetailModal.data.method }}</span></div>
          </div>
          <div class="field">
-           <label>来源 IP</label>
+           <span class="field-label">来源 IP</span>
            <div>
              <code>{{ wafHitDetailModal.data.ip }}</code>
              <button class="outline small" style="margin-left:4px" @click="copyText(wafHitDetailModal.data.ip)" title="复制 IP">复制</button>
@@ -2845,10 +2845,10 @@
              <span class="tag" style="margin-left:4px;color:var(--muted)">该 IP 共 {{ wafHitDetailModal.data.ip_hit_count || 0 }} 条命中</span>
            </div>
          </div>
-         <div class="field"><label>URI</label><code style="word-break:break-all">{{ wafHitDetailModal.data.uri }}</code></div>
-         <div class="field" v-if="wafHitDetailModal.data.query_string"><label>查询字符串</label><code style="word-break:break-all">{{ wafHitDetailModal.data.query_string }}</code></div>
-         <div class="field"><label>User-Agent</label><div style="font-size:12px;color:var(--text);word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
-         <div class="field" v-if="wafHitDetailModal.data.ja3_fingerprint || wafHitDetailModal.data.tls_fingerprint"><label>TLS 指纹</label><div>
+         <div class="field"><span class="field-label">URI</span><code style="word-break:break-all">{{ wafHitDetailModal.data.uri }}</code></div>
+         <div class="field" v-if="wafHitDetailModal.data.query_string"><span class="field-label">查询字符串</span><code style="word-break:break-all">{{ wafHitDetailModal.data.query_string }}</code></div>
+         <div class="field"><span class="field-label">User-Agent</span><div style="font-size:12px;color:var(--text);word-break:break-all">{{ wafHitDetailModal.data.user_agent || '-' }}</div></div>
+         <div class="field" v-if="wafHitDetailModal.data.ja3_fingerprint || wafHitDetailModal.data.tls_fingerprint"><span class="field-label">TLS 指纹</span><div>
               <code style="font-size:11px;word-break:break-all">{{ wafHitDetailModal.data.tls_fingerprint || wafHitDetailModal.data.ja3_fingerprint }}</code>
               <span v-if="wafHitDetailModal.data.tls_fingerprint_kind" class="tag" :style="{background:wafHitDetailModal.data.tls_fingerprint_kind==='ja4'?'var(--info-bg)':wafHitDetailModal.data.tls_fingerprint_kind==='ja4h'?'var(--violet-bg)':'var(--muted-bg)'}" :title="fpKindTitle(wafHitDetailModal.data.tls_fingerprint_kind)">{{ wafHitDetailModal.data.tls_fingerprint_kind }}</span>
               <span v-if="wafHitDetailModal.data.tls_fingerprint_family" class="tag" style="background:var(--warning-bg);color:var(--warning-text)" :title="'家族段（JA4 前 10 字符）：只比较这一段即可在同一客户端升级换套件时持续命中'">家族 {{ wafHitDetailModal.data.tls_fingerprint_family }}</span>
@@ -2856,9 +2856,9 @@
             </div>
             <div v-if="!wafHitDetailModal.data.tls_fingerprint_kind" style="font-size:11px;color:var(--muted);margin-top:4px">旧记录没有类型/家族字段：值前缀即类型（ja4: / ja3: / tls:），复制时去掉前缀即可作为指纹哈希。</div>
           </div>
-         <div class="field" v-if="wafHitDetailModal.data.body_snippet"><label>Body (前 1KB)</label><pre style="background:var(--muted-bg);padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
+         <div class="field" v-if="wafHitDetailModal.data.body_snippet"><span class="field-label">Body (前 1KB)</span><pre style="background:var(--muted-bg);padding:8px;border-radius:4px;font-size:11px;max-height:100px;overflow:auto;white-space:pre-wrap;word-break:break-all">{{ wafHitDetailModal.data.body_snippet }}</pre></div>
          <div class="field" v-if="wafHitDetailModal.data.headers && Object.keys(wafHitDetailModal.data.headers).length">
-           <label>请求头</label>
+           <span class="field-label">请求头</span>
           <table style="font-size:11px">
             <tbody>
               <tr v-for="(v, k) in wafHitDetailModal.data.headers" :key="k">
@@ -2896,22 +2896,22 @@
 
   <!-- Rule Editor Modal -->
   <div class="modal-overlay" v-if="ruleEditModal.show" @click.self="ruleEditModal.show=false">
-    <div class="modal" style="max-width:600px">
+    <div class="modal" role="dialog" aria-modal="true" style="max-width:600px">
        <h3>{{ ruleEditModal.mode === 'create' ? '添加规则' : '编辑规则' }} <small style="color:var(--muted)">组: {{ ruleEditModal._group }}</small></h3>
       <div class="field">
-         <label><input type="checkbox" v-model="ruleEditModal.enable"> 启用</label>
+         <label for="f-启用"><input id="f-启用" type="checkbox" v-model="ruleEditModal.enable"> 启用</label>
       </div>
       <div class="field">
-         <label>匹配器</label>
-         <select v-model="ruleEditModal.matcherType" @change="ruleEditModalChanged" style="width:100%">
+         <label for="f-匹配器">匹配器</label>
+         <select id="f-匹配器" v-model="ruleEditModal.matcherType" @change="ruleEditModalChanged" style="width:100%">
            <option value="inline">内联 JSON</option>
           <option v-for="m in matcherKeys" :key="m" :value="m">{{ m }}</option>
         </select>
         <textarea v-if="ruleEditModal.matcherType==='inline'" v-model="ruleEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:80px;margin-top:4px"></textarea>
       </div>
       <div class="field">
-         <label>动作</label>
-         <select v-model="ruleEditModal.action" @change="ruleEditModalChanged" style="width:100%" title="阻止=返回403；重定向=302跳转；响应=返回自定义响应模板；重写=修改URI；代理=转发到上游；静态=返回静态文件；放行=允许通过；质询=要求浏览器执行JS验证">
+         <label for="f-动作-4">动作</label>
+         <select id="f-动作-4" v-model="ruleEditModal.action" @change="ruleEditModalChanged" style="width:100%" title="阻止=返回403；重定向=302跳转；响应=返回自定义响应模板；重写=修改URI；代理=转发到上游；静态=返回静态文件；放行=允许通过；质询=要求浏览器执行JS验证">
            <option value="block">阻止</option>
            <option value="redirect">重定向</option>
            <option value="response">响应</option>
@@ -2924,28 +2924,28 @@
       </div>
       <!-- block fields -->
        <template v-if="ruleEditModal.action==='block'">
-         <div class="field"><label>HTTP 状态码</label><input v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
-         <div class="field"><label>响应</label><input v-model="ruleEditModal.response" placeholder="模板名称或 JSON" style="width:100%"></div>
+         <div class="field"><label for="f-HTTP-状态码">HTTP 状态码</label><input id="f-HTTP-状态码" v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
+         <div class="field"><label for="f-响应">响应</label><input id="f-响应" v-model="ruleEditModal.response" placeholder="模板名称或 JSON" style="width:100%"></div>
        </template>
       <!-- redirect fields -->
        <template v-if="ruleEditModal.action==='redirect'">
-         <div class="field"><label>目标 URI</label><input v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
-         <div class="field"><label>HTTP 状态码</label><select v-model.number="ruleEditModal.code" style="width:100px"><option :value="301">301</option><option :value="302">302</option><option :value="307">307</option><option :value="308">308</option></select></div>
+         <div class="field"><label for="f-目标-URI">目标 URI</label><input id="f-目标-URI" v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
+         <div class="field"><label for="f-HTTP-状态码-2">HTTP 状态码</label><select id="f-HTTP-状态码-2" v-model.number="ruleEditModal.code" style="width:100px"><option :value="301">301</option><option :value="302">302</option><option :value="307">307</option><option :value="308">308</option></select></div>
        </template>
       <!-- response fields -->
        <template v-if="ruleEditModal.action==='response'">
-         <div class="field"><label>HTTP 状态码</label><input v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
-         <div class="field"><label>响应</label><input v-model="ruleEditModal.response" placeholder="模板名称 例如 forbidden_json" style="width:100%"></div>
+         <div class="field"><label for="f-HTTP-状态码-3">HTTP 状态码</label><input id="f-HTTP-状态码-3" v-model.number="ruleEditModal.code" type="number" style="width:100px"></div>
+         <div class="field"><label for="f-响应-2">响应</label><input id="f-响应-2" v-model="ruleEditModal.response" placeholder="模板名称 例如 forbidden_json" style="width:100%"></div>
        </template>
       <!-- rewrite fields -->
        <template v-if="ruleEditModal.action==='rewrite'">
-         <div class="field"><label>目标 URI</label><input v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
+         <div class="field"><label for="f-目标-URI-2">目标 URI</label><input id="f-目标-URI-2" v-model="ruleEditModal.to_uri" placeholder="/new-path" style="width:100%"></div>
        </template>
       <!-- proxy fields -->
        <template v-if="ruleEditModal.action==='proxy'">
          <div class="field">
-           <label>上游</label>
-           <select v-model="ruleEditModal.upstream" style="width:100%">
+           <label for="f-上游">上游</label>
+           <select id="f-上游" v-model="ruleEditModal.upstream" style="width:100%">
              <option value="" disabled>选择上游</option>
             <option v-for="u in upstreamKeys" :key="u" :value="u">{{ u }}</option>
           </select>
@@ -2953,9 +2953,9 @@
       </template>
       <!-- static fields -->
        <template v-if="ruleEditModal.action==='static'">
-         <div class="field"><label>根目录</label><input v-model="ruleEditModal.root" placeholder="/var/www" style="width:100%"></div>
-         <div class="field"><label>路径 (可选)</label><input v-model="ruleEditModal.path" placeholder="/index.html" style="width:100%"></div>
-         <div class="field"><label>过期</label><input v-model="ruleEditModal.expires" placeholder="epoch / max / off" style="width:100%"></div>
+         <div class="field"><label for="f-根目录">根目录</label><input id="f-根目录" v-model="ruleEditModal.root" placeholder="/var/www" style="width:100%"></div>
+         <div class="field"><label for="f-路径-可选">路径 (可选)</label><input id="f-路径-可选" v-model="ruleEditModal.path" placeholder="/index.html" style="width:100%"></div>
+         <div class="field"><label for="f-过期">过期</label><input id="f-过期" v-model="ruleEditModal.expires" placeholder="epoch / max / off" style="width:100%"></div>
        </template>
        <div class="modal-actions">
          <button class="outline" @click="ruleEditModal.show=false">取消</button>
@@ -2966,12 +2966,12 @@
 
   <!-- Unified Confirm Modal -->
   <div class="modal-overlay" v-if="confirmModal.show" @click.self="confirmModalCancel">
-    <div class="modal" style="max-width:480px">
+    <div class="modal" role="dialog" aria-modal="true" style="max-width:480px">
       <h3 :style="{color: confirmModal.type==='danger' ? 'var(--danger)' : confirmModal.type==='warning' ? 'var(--warning)' : 'var(--primary)'}">{{ confirmModal.title }}</h3>
       <div v-if="confirmModal.message" style="font-size:14px;color:var(--text);margin:12px 0;white-space:pre-wrap">{{ confirmModal.message }}</div>
       <div v-if="confirmModal.requireInput" class="field" style="margin-top:16px">
-        <label style="font-size:13px;color:var(--muted)">{{ confirmModal.inputLabel }}</label>
-        <input v-model="confirmModal.inputValue" type="text" :placeholder="confirmModal.inputExpected" style="width:100%;font-family:monospace" @keyup.enter="confirmModalOk">
+        <label style="font-size:13px;color:var(--muted)" for="f--confirmModalinputLabel-">{{ confirmModal.inputLabel }}</label>
+        <input id="f--confirmModalinputLabel-" v-model="confirmModal.inputValue" type="text" :placeholder="confirmModal.inputExpected" style="width:100%;font-family:monospace" @keyup.enter="confirmModalOk">
         <div style="font-size:11px;color:var(--muted);margin-top:4px">请输入: <code>{{ confirmModal.inputExpected }}</code></div>
       </div>
       <div class="modal-actions" style="margin-top:16px">

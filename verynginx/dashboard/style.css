@@ -220,7 +220,7 @@ details.page-desc>div{color:var(--muted)}
 /* Inside a grid row the cell gap already provides vertical rhythm; the field's
    own margin-bottom would double it (12px + 16px gap). */
 .modal .grid-2>.field,.modal .grid-3>.field,.modal .grid-4>.field{margin-bottom:0}
-.modal .field label{display:block;font-size:12px;font-weight:600;margin-bottom:3px;color:var(--muted)}
+.modal .field label,.modal .field .field-label{display:block;font-size:12px;font-weight:600;margin-bottom:3px;color:var(--muted)}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
 /* Modals keep their multi-column rows below the generic 768px breakpoint —
    otherwise a ~700px browser window stacks every field and the tall form
