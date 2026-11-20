@@ -356,6 +356,36 @@ def safe_pop(l):
     else:
         return l.pop(0)
 
+def _pbkdf2_hmac_sha256_fallback(password, salt, iterations):
+    """RFC 2898 PBKDF2-HMAC-SHA256, single 32-byte block, pure Python.
+
+    Only used on Python 2.7, where hashlib.pbkdf2_hmac (3.4+) does not
+    exist. Py3 always takes the stdlib path in hash_password().
+    """
+    import array
+    import hmac
+    import sys
+
+    # U_1 = HMAC(password, salt || INT(1))  -- INT(1) = 4-byte big-endian
+    u = hmac.new(password, salt + b'\x00\x00\x00\x01', 'sha256').digest()
+    if sys.version_info[0] == 3:
+        result = bytearray(u)
+        for _ in range(2, iterations + 1):
+            u = hmac.new(password, u, 'sha256').digest()
+            for j, b in enumerate(u):
+                result[j] ^= b
+        result = bytes(result)
+    else:
+        # Python 2: bytearray doesn't support enumerate iteration well
+        result = array.array('B', u)
+        for _ in range(2, iterations + 1):
+            u = hmac.new(password, u, 'sha256').digest()
+            u_arr = array.array('B', u)
+            for j in range(len(result)):
+                result[j] ^= u_arr[j]
+        result = bytes(result)
+    return result
+
 def hash_password(password, iterations=600000):
     """Generate a PBKDF2-HMAC-SHA256 hash compatible with VeryNginx v2.
 
@@ -366,38 +396,22 @@ def hash_password(password, iterations=600000):
     core/password_hash.lua DEFAULT_ITERATIONS and install-lnmp.sh
     VN_PBKDF2_ITER so all install entry points produce equally strong hashes.
     """
-    import hashlib
-    import hmac
     import base64
     import os
-    import sys
 
     salt = os.urandom(16)
     if isinstance(password, str):
         password = password.encode('utf-8')
 
-    # U_1 = HMAC(password, salt || INT(1))  -- INT(1) = 4-byte big-endian
-    init_msg = salt + b'\x00\x00\x00\x01'
-    u = hmac.new(password, init_msg, 'sha256').digest()
-
-    # Result starts as U_1, then XOR with U_2..U_iterations
-    if sys.version_info[0] == 3:
-        result = bytearray(u)
-        for i in range(2, iterations + 1):
-            u = hmac.new(password, u, 'sha256').digest()
-            for j, b in enumerate(u):
-                result[j] ^= b
-        result = bytes(result)
-    else:
-        # Python 2: bytearray doesn't support enumerate iteration well
-        import array
-        result = array.array('B', u)
-        for i in range(2, iterations + 1):
-            u = hmac.new(password, u, 'sha256').digest()
-            u_arr = array.array('B', u)
-            for j in range(len(result)):
-                result[j] ^= u_arr[j]
-        result = bytes(result)
+    try:
+        import hashlib
+        # Python 3.4+: battle-tested stdlib implementation (C speed).
+        digest = hashlib.pbkdf2_hmac('sha256', password, salt, iterations)
+    except (AttributeError, TypeError, ValueError):
+        # Python 2.7: hashlib.pbkdf2_hmac does not exist. The fallback
+        # implements the identical RFC 2898 construction, so hashes it
+        # emits verify under the Py3 path and in the Lua verifier.
+        digest = _pbkdf2_hmac_sha256_fallback(password, salt, iterations)
 
     def b64enc(data):
         enc = base64.b64encode(data)
@@ -408,7 +422,7 @@ def hash_password(password, iterations=600000):
     return 'p1${}${}${}'.format(
         iterations,
         b64enc(salt),
-        b64enc(result)
+        b64enc(digest)
     )
 
 def show_help_and_exit():
