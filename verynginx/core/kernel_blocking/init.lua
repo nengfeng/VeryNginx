@@ -562,12 +562,15 @@ function _M.status(_)
     -- Address the panel/API was addressed to (the local interface the
     -- connection came in on — typically the machine's public IP when the
     -- panel is reached from outside). Wildcards are reported as "".
-    local host_ip = ngx.var.server_addr or ""
+    local host_vars = ngx.var or {}
+    local host_ip = host_vars.server_addr or ""
     if host_ip == "" or host_ip == "0.0.0.0" or host_ip == "::" or host_ip == "*" then
         host_ip = ""
     end
+    local host_port = tonumber(host_vars.server_port) or 0
     return {
         host_ip = host_ip,
+        host_port = host_port,
         configured = matrix.configured,
         effective = matrix.effective,
         health = health,

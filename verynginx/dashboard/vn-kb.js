@@ -14,6 +14,7 @@
     // ---- Kernel Blocking State ----
     const kbStatus = ref({
       host_ip: '',
+      host_port: 0,
       configured: { enabled: false, mode: 'observe', emergency_pause: false, topology: 'unknown', protected_addresses: [], protected_ports: [] },
       effective: { global_mode: 'disabled', global_install_reachable: false, scanner: { mode: 'disabled', reason_codes: [] }, cc: { mode: 'disabled', reason_codes: [] }, reason_codes: [] },
       health: { state: 'unknown' },
@@ -635,10 +636,12 @@
       const ip = (kbStatus.value.host_ip || '').trim();
       return !!ip && ip !== '0.0.0.0' && ip !== '::';
     });
+    const kbHostPortOk = computed(() => {
+      const p = kbStatus.value.host_port;
+      return typeof p === 'number' && p > 0;
+    });
     // One-click write: append the address the panel was reached from
-    // (status.host_ip — the interface the connection arrived on, i.e. the
-    // machine's public IP when reached from outside) to the protected
-    // addresses list, deduped.
+    // (status.host_ip) to the protected addresses list, deduped.
     function kbFillProtectedWithHostIp() {
       const ip = kbStatus.value.host_ip;
       if (!ip || ip === '0.0.0.0' || ip === '::') return;
@@ -646,6 +649,20 @@
       if (cur.indexOf(ip) === -1) {
         cur.push(ip);
         kbForm.protected_addresses_str = cur.join(', ');
+        kbMarkFormDirty();
+      }
+    }
+    // One-click write for the ports list: append the panel's listening
+    // port (status.host_port), deduped. Enforce mode rejects an empty
+    // protected_ports (config.lua), so the user must pass that gate.
+    function kbFillProtectedWithHostPort() {
+      const port = kbStatus.value.host_port;
+      if (!port || typeof port !== 'number') return;
+      const cur = (kbForm.protected_ports_str || '').split(',').map(s => s.trim()).filter(Boolean);
+      const s = String(port);
+      if (cur.indexOf(s) === -1) {
+        cur.push(s);
+        kbForm.protected_ports_str = cur.join(', ');
         kbMarkFormDirty();
       }
     }
@@ -865,6 +882,8 @@
     view('kbEnableLabel', kbEnableLabel);
     view('kbFillProtectedWithHostIp', kbFillProtectedWithHostIp);
     view('kbHostIpOk', kbHostIpOk);
+    view('kbHostPortOk', kbHostPortOk);
+    view('kbFillProtectedWithHostPort', kbFillProtectedWithHostPort);
     view('kbPromote', kbPromote);
     view('kbPromoteIp', kbPromoteIp);
     view('kbReconcile', kbReconcile);
