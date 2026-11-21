@@ -61,12 +61,19 @@
       // is exactly backwards during an incident.
       const o = { conn_active: null, req_rate: null, up_healthy: null, up_total: null, waf_hits: null, dicts: [], top_uris: [], plugin_perf: [], partial_errors: [], plugin_errors: [] };
       try {
-        // Status: connection counts
-        const s = await api('GET', '/verynginx/status');
-        o.conn_active = s.connections_active || 0;
+        // Fire the four main sources in parallel: the old sequential await
+        // chain kept the cards blank for sum(latencies) on first paint and
+        // paid that on every 5s poll. Promise.all preserves the old
+        // all-or-nothing semantics — any main failure hits the outer catch
+        // (keep last good data, rethrow so the poller records the failure).
+        const [s, h, m, sum] = await Promise.all([
+          api('GET', '/verynginx/status'),
+          api('GET', '/verynginx/upstreams/health'),
+          api('GET', '/verynginx/metrics', null, { text: true }),
+          api('GET', '/verynginx/summary?type=short'),
+        ]);
 
-        // Health: upstream node status
-        const h = await api('GET', '/verynginx/upstreams/health');
+        o.conn_active = s.connections_active || 0;
         if (h.ret === 'success') {
           o.up_total = 0;
           o.up_healthy = 0;
@@ -79,7 +86,6 @@
         }
 
         // Metrics: shared dict usage, plugin errors, request total
-        const m = await api('GET', '/verynginx/metrics', null, { text: true });
         const parsed = parsePrometheus(typeof m === 'string' ? m : '');
 
         for (const [key, vals] of Object.entries(parsed)) {
@@ -119,8 +125,6 @@
           }
         }
 
-        // Summary: top URIs
-        const sum = await api('GET', '/verynginx/summary?type=short');
         if (sum.ret === 'success' && sum.data) {
           const entries = Object.entries(sum.data).map(([uri, v]) => ({
             uri,
@@ -132,33 +136,39 @@
           o.top_uris = entries.slice(0, 10);
         }
 
-        // WAF hits summary
-        try {
-          const w = await api('GET', '/verynginx/waf/stats');
-          if (w.ret === 'success' && w.data) {
-            // /waf/stats data is an aggregate object {total_hits, today_hits,
-            // by_category, by_severity, top_rules, ...}; the card shows the
-            // all-time total (the by-* maps have no top-level .hits, so a
-            // reduce over Object.values(data) would always sum to 0).
-            o.waf_hits = w.data.total_hits || 0;
-          }
-        } catch (e) {
-          // A failed sub-request used to leave waf_hits at 0 and render
-          // "0 命中" — the most dangerous possible lie during an attack.
-          o.partial_errors.push('WAF 命中统计');
-          console.warn('Overview WAF stats failed:', e.message);
-        }
-
-        // Reputation summary
-        try {
-          const r = await api('GET', '/verynginx/reputation/stats');
-          if (r.ret === 'success' && r.data) {
-            o.flagged = r.data.flagged || 0;
-          }
-        } catch (e) {
-          o.partial_errors.push('IP 声誉');
-          console.warn('Overview reputation stats failed:', e.message);
-        }
+        // Secondary sources run in parallel too; a failure degrades to a
+        // partial_errors entry instead of killing the whole card. Errors are
+        // recorded per-source and pushed in fixed order afterwards, so the
+        // banner text does not depend on which request fails first.
+        let wafErr = null, repErr = null;
+        await Promise.all([
+          (async () => {
+            try {
+              const w = await api('GET', '/verynginx/waf/stats');
+              if (w.ret === 'success' && w.data) {
+                // /waf/stats data is an aggregate object {total_hits,
+                // today_hits, by_category, by_severity, top_rules, ...}; the
+                // card shows the all-time total (the by-* maps have no
+                // top-level .hits, so a reduce over Object.values(data)
+                // would always sum to 0).
+                o.waf_hits = w.data.total_hits || 0;
+              }
+            } catch (e) { wafErr = e; }
+          })(),
+          (async () => {
+            try {
+              const r = await api('GET', '/verynginx/reputation/stats');
+              if (r.ret === 'success' && r.data) {
+                o.flagged = r.data.flagged || 0;
+              }
+            } catch (e) { repErr = e; }
+          })(),
+        ]);
+        // A failed sub-request must not leave waf_hits at 0 and render
+        // "0 命中" — the most dangerous possible lie during an attack. It
+        // stays null and the card shows "—" instead.
+        if (wafErr) { o.partial_errors.push('WAF 命中统计'); console.warn('Overview WAF stats failed:', wafErr.message); }
+        if (repErr) { o.partial_errors.push('IP 声誉'); console.warn('Overview reputation stats failed:', repErr.message); }
       } catch (e) {
         // Main data source failed: keep the last good overview so the page
         // never shows a silent all-zero "all quiet" picture. The health
