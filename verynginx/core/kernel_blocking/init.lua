@@ -559,7 +559,15 @@ function _M.status(_)
     matrix.configured.reconcile_interval = kb.reconcile_interval
     matrix.configured.promotion_rate_limit = kb.promotion_rate_limit
 
+    -- Address the panel/API was addressed to (the local interface the
+    -- connection came in on — typically the machine's public IP when the
+    -- panel is reached from outside). Wildcards are reported as "".
+    local host_ip = ngx.var.server_addr or ""
+    if host_ip == "" or host_ip == "0.0.0.0" or host_ip == "::" or host_ip == "*" then
+        host_ip = ""
+    end
     return {
+        host_ip = host_ip,
         configured = matrix.configured,
         effective = matrix.effective,
         health = health,

@@ -13,6 +13,7 @@
 
     // ---- Kernel Blocking State ----
     const kbStatus = ref({
+      host_ip: '',
       configured: { enabled: false, mode: 'observe', emergency_pause: false, topology: 'unknown', protected_addresses: [], protected_ports: [] },
       effective: { global_mode: 'disabled', global_install_reachable: false, scanner: { mode: 'disabled', reason_codes: [] }, cc: { mode: 'disabled', reason_codes: [] }, reason_codes: [] },
       health: { state: 'unknown' },
@@ -630,6 +631,24 @@
           && Array.isArray(c.protected_ports) && c.protected_ports.length > 0;
     }
     const kbEnableLabel = computed(() => (kbPrereqsMet() ? '启用内核封禁（执行）' : '启用内核封禁'));
+    const kbHostIpOk = computed(() => {
+      const ip = (kbStatus.value.host_ip || '').trim();
+      return !!ip && ip !== '0.0.0.0' && ip !== '::';
+    });
+    // One-click write: append the address the panel was reached from
+    // (status.host_ip — the interface the connection arrived on, i.e. the
+    // machine's public IP when reached from outside) to the protected
+    // addresses list, deduped.
+    function kbFillProtectedWithHostIp() {
+      const ip = kbStatus.value.host_ip;
+      if (!ip || ip === '0.0.0.0' || ip === '::') return;
+      const cur = (kbForm.protected_addresses_str || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (cur.indexOf(ip) === -1) {
+        cur.push(ip);
+        kbForm.protected_addresses_str = cur.join(', ');
+        kbMarkFormDirty();
+      }
+    }
     async function kbEnable() {
       kbForm.enabled = true;
       kbForm.mode = kbPrereqsMet() ? 'enforce' : 'observe';
@@ -844,6 +863,8 @@
     view('kbSaveSettings', kbSaveSettings);
     view('kbEnable', kbEnable);
     view('kbEnableLabel', kbEnableLabel);
+    view('kbFillProtectedWithHostIp', kbFillProtectedWithHostIp);
+    view('kbHostIpOk', kbHostIpOk);
     view('kbPromote', kbPromote);
     view('kbPromoteIp', kbPromoteIp);
     view('kbReconcile', kbReconcile);

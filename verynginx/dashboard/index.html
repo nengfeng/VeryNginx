@@ -2285,8 +2285,8 @@
                  </select>
                </div>
                <div class="field">
-                 <label style="font-size:12px;color:var(--muted)" title="填写这些地址后，系统不会封禁这些 IP，防止管理员机器或健康检查被误封。支持 CIDR 如 10.0.0.0/8" for="f-受保护地址-逗号分隔">受保护地址 (逗号分隔)</label>
-                 <input id="f-受保护地址-逗号分隔" v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px" title="填写这些地址后，系统不会封禁这些 IP，防止管理员机器或健康检查被误封。支持 CIDR 如 10.0.0.0/8">
+                 <label style="font-size:12px;color:var(--muted)" title="受保护地址 = 本机不会被封禁的地址（公网 IP、入口/负载均衡 IP、管理网段）。支持 CIDR（如 10.0.0.0/8）；可点「一键填入接入地址」把当前面板接入 IP 写入。" for="f-受保护地址-逗号分隔">受保护地址 (逗号分隔)</label>
+                 <input id="f-受保护地址-逗号分隔" v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px" title="受保护地址 = 本机不会被封禁的地址（公网 IP、入口/负载均衡 IP、管理网段）。支持 CIDR（如 10.0.0.0/8）；可点「一键填入接入地址」把当前面板接入 IP 写入。">
                </div>
                <div class="field">
                  <label style="font-size:12px;color:var(--muted)" title="填写这些端口后，目标 IP 在这些端口上的流量不会被拦截。留空则不对端口做特殊保护。" for="f-受保护端口-逗号分隔">受保护端口 (逗号分隔)</label>
@@ -2296,6 +2296,7 @@
             <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
               <button class="primary small" v-if="!kbStatus.configured.enabled" :disabled="kbBusy" @click="kbEnable">{{ kbEnableLabel }}</button>
               <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
+              <button class="outline small" v-if="kbHostIpOk" @click="kbFillProtectedWithHostIp">一键填入接入地址</button>
               <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)"
                 title="暂停时停止自动晋升新 IP，但不解除已封禁的条目；恢复后晋升逻辑继续运行">
                 {{ kbStatus.configured.emergency_pause ? '恢复晋升' : '暂停晋升' }}
@@ -3031,7 +3032,7 @@
   <script src="/verynginx/static/vn-iploc.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-advanced.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-kb.js?v=2.3.2-5"></script>
+  <script src="/verynginx/static/vn-kb.js?v=2.3.2-6"></script>
   <script src="/verynginx/static/app.js?v=2.3.2-1"></script>
   <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->
 </body>
