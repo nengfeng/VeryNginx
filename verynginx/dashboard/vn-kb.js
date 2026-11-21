@@ -631,6 +631,13 @@
           && Array.isArray(c.protected_addresses) && c.protected_addresses.length > 0
           && Array.isArray(c.protected_ports) && c.protected_ports.length > 0;
     }
+    // CC auto-promotion is ready when the CC policy is enabled AND the
+    // referenced rule IDs are non-empty — the config.lua enforce gate
+    // ("cc.enabled requires non-empty cc.rule_ids in enforce mode").
+    function ccReady() {
+      const c = kbStatus.value.configured || {};
+      return !!c.cc_enabled && Array.isArray(c.cc_rule_ids) && c.cc_rule_ids.length > 0;
+    }
     const kbEnableLabel = computed(() => (kbPrereqsMet() ? '启用内核封禁（执行）' : '启用内核封禁'));
     const kbHostIpOk = computed(() => {
       const ip = (kbStatus.value.host_ip || '').trim();
@@ -669,13 +676,22 @@
     async function kbEnable() {
       kbForm.enabled = true;
       kbForm.mode = kbPrereqsMet() ? 'enforce' : 'observe';
+      // When CC is ready, activate it in the SAME save: kbSaveSettings
+      // persists cc.enforce_ready, so the one-click enable reaches
+      // "CC auto-promotion active" without the banner's second click.
+      if (kbForm.mode === 'enforce' && ccReady()) {
+        kbForm.cc_enforce_ready = true;
+      }
       kbMarkFormDirty();
       await kbSaveSettings();
       if (kbStatus.value.effective.global_install_reachable) {
         kbBusy.value = true;
         try {
           const d = await api('POST', '/verynginx/kernel-blocking/reconcile', {});
-          if (d.ret === 'success') showToast('内核封禁已启用，内核条目已同步', 'success');
+          if (d.ret === 'success') {
+            const ccMsg = ccReady() ? '；CC 自动封禁已激活' : '';
+            showToast('内核封禁已启用，内核条目已同步' + ccMsg, 'success');
+          }
           else showToast(d.message || '协调失败', 'error');
           await loadKbData();
         } catch (e) { showToast(e.message, 'error'); }
