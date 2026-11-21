@@ -2236,7 +2236,7 @@
           </div>
         </div>
           <div v-if="kbStatus.counters && kbStatus.counters.active_auto_while_disabled" class="error" style="margin-bottom:12px">
-           警告: disabled_with_active_entries — {{ kbStatus.counters.active_auto_while_disabled }} 个自动条目在内核中仍处于活动状态。仅在打算移除它们时使用"刷新自动集合"。
+           警告: disabled_with_active_entries — {{ kbStatus.counters.active_auto_while_disabled }} 个自动条目在内核中仍处于活动状态。仅在打算移除它们时使用"清除自动条目"。
           </div>
 
          <!-- CC auto-ready banner -->
@@ -2354,7 +2354,7 @@
                 {{ kbStatus.configured.emergency_pause ? '恢复晋升' : '暂停晋升' }}
               </button>
               <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto"
-                title="清除所有由扫描器/CC 自动晋升的条目（保留手动封禁和白名单），用于紧急重置封禁状态">刷新自动集合</button>
+                title="清除所有由扫描器/CC 自动晋升的条目（保留手动封禁和白名单），用于紧急重置封禁状态">清除自动条目</button>
               <button class="outline small" :disabled="kbBusy" @click="loadKbData">刷新</button>
             </div>
           </div>
