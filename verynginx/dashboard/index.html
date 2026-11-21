@@ -2277,6 +2277,11 @@
                 </label>
               </div>
                <div class="field">
+                 <label style="font-size:12px;color:var(--muted)" for="f-CC-规则ID">CC 规则 ID</label>
+                 <input id="f-CC-规则ID" v-model="kbForm.ccRuleIdsStr" @change="kbMarkFormDirty" placeholder="如: freq_rule_1, freq_rule_2" style="margin-top:4px"
+                        title="CC 自动封禁用到的频率规则 ID（在频率限制面板的频率规则表里看）。enforce 门禁要求该列表非空（config.lua）；无效引用会在本页顶部黄色提示，跳转频率面板修正。">
+               </div>
+<div class="field">
                  <label style="font-size:12px;color:var(--muted)" for="f-拓扑">拓扑</label>
                  <select id="f-拓扑" v-model="kbForm.topology" @change="kbMarkFormDirty" style="margin-top:4px">
 <option value="direct">直连 (direct)</option>
@@ -2292,6 +2297,10 @@
                  <label style="font-size:12px;color:var(--muted)" title="受保护端口 = 不会被封禁的端口（公开服务端口，如 80/443）。enforce 模式要求该列表非空（config.lua 校验）；可点「一键填入端口」写入当前面板接入端口。" for="f-受保护端口-逗号分隔">受保护端口 (逗号分隔)</label>
                  <input id="f-受保护端口-逗号分隔" v-model="kbForm.protected_ports_str" @change="kbMarkFormDirty" placeholder="如: 80, 443, 8080" style="margin-top:4px" title="受保护端口 = 不会被封禁的端口（公开服务端口，如 80/443）。enforce 模式要求该列表非空（config.lua 校验）；可点「一键填入端口」写入当前面板接入端口。">
                </div>
+            </div>
+            <div v-if="ccInvalidRuleIds.length" class="error" style="font-size:13px;margin-bottom:8px">
+              ⚠ CC 规则 ID 引用无效: <strong>{{ ccInvalidRuleIds.join('、') }}</strong> — 这些规则已不存在（在频率面板重命名/删除后 ID 失效），CC 自动封禁对它们静默失效。
+              <button type="button" class="linklike" @click="navigateTo('frequency')">跳转频率面板</button>
             </div>
             <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
               <button class="primary small" v-if="!kbStatus.configured.enabled" :disabled="kbBusy" @click="kbEnable">{{ kbEnableLabel }}</button>
@@ -3033,7 +3042,7 @@
   <script src="/verynginx/static/vn-iploc.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-advanced.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-kb.js?v=2.3.2-8"></script>
+  <script src="/verynginx/static/vn-kb.js?v=2.3.2-9"></script>
   <script src="/verynginx/static/app.js?v=2.3.2-1"></script>
   <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->
 </body>

@@ -61,6 +61,7 @@
       cc_enforce_ready: false,
       scanner_enabled: true,
       cc_enabled: true,
+      ccRuleIdsStr: '',
     });
     const kbDetail = reactive({ show: false, entry: null });
     const kbDetailJson = computed(() => kbDetail.entry ? JSON.stringify(kbDetail.entry, null, 2) : '');
@@ -195,9 +196,19 @@
       kbForm.protected_addresses_str = (c.protected_addresses || []).join(', ');
       kbForm.protected_ports_str = (c.protected_ports || []).join(', ');
       kbForm.cc_enforce_ready = !!c.cc_enforce_ready;
+      kbForm.ccRuleIdsStr = (c.cc_rule_ids || []).map(String).join(', ');
       kbForm.scanner_enabled = c.scanner_enabled !== false;
       kbForm.cc_enabled = c.cc_enabled !== false;
     }
+    // IDs inside kb.cc.rule_ids that reference no existing frequency rule
+    // (renamed/deleted there). CC auto-promotion silently does nothing for
+    // them — surface them on the page so the operator can fix the list in
+    // the frequency panel before enabling CC.
+    const ccInvalidRuleIds = computed(() => {
+      return (kbStatus.value.cc_rules || [])
+          .filter(r => !r.reference_valid)
+          .map(r => r.rule_id);
+    });
     function kbOpenDetail(entry) {
       kbDetail.entry = entry;
       kbDetail.show = true;
@@ -528,6 +539,10 @@
         kb.cc = Object.assign({}, kb.cc || {}, {
           enabled: !!kbForm.cc_enabled,
           enforce_ready: !!kbForm.cc_enforce_ready,
+          // Deduped: the config schema uses unique_items for cc.rule_ids.
+          rule_ids: Array.from(new Set(
+              (kbForm.ccRuleIdsStr || '').split(/[，,\s]+/).map(s => s.trim()).filter(Boolean)
+          )),
         });
         full.kernel_ip_blocking = kb;
         const d = await api('POST', '/verynginx/config', full, {
@@ -900,6 +915,7 @@
     view('kbHostIpOk', kbHostIpOk);
     view('kbHostPortOk', kbHostPortOk);
     view('kbFillProtectedWithHostPort', kbFillProtectedWithHostPort);
+    view('ccInvalidRuleIds', ccInvalidRuleIds);
     view('kbPromote', kbPromote);
     view('kbPromoteIp', kbPromoteIp);
     view('kbReconcile', kbReconcile);
