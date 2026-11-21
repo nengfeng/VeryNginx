@@ -617,8 +617,22 @@
     // confirm dialog. A fresh enable goes straight: flip 全局启用, save
     // policy settings (kbSaveSettings), then reconcile so the kernel
     // entries reflect the desired state immediately.
+    //
+    // When the enforce-mode prerequisites are met (direct topology +
+    // protected addresses/ports configured — both already in the status
+    // API), the enable jumps straight to enforce: the standard
+    // kbSaveSettings warning is shown for the mode switch. Otherwise it
+    // enables in observe, the safe starting point.
+    function kbPrereqsMet() {
+      const c = kbStatus.value.configured || {};
+      return c.topology === 'direct'
+          && Array.isArray(c.protected_addresses) && c.protected_addresses.length > 0
+          && Array.isArray(c.protected_ports) && c.protected_ports.length > 0;
+    }
+    const kbEnableLabel = computed(() => (kbPrereqsMet() ? '启用内核封禁（执行）' : '启用内核封禁'));
     async function kbEnable() {
       kbForm.enabled = true;
+      kbForm.mode = kbPrereqsMet() ? 'enforce' : 'observe';
       kbMarkFormDirty();
       await kbSaveSettings();
       if (kbStatus.value.effective.global_install_reachable) {
@@ -829,6 +843,7 @@
     view('enableCcEnforceReady', enableCcEnforceReady);
     view('kbSaveSettings', kbSaveSettings);
     view('kbEnable', kbEnable);
+    view('kbEnableLabel', kbEnableLabel);
     view('kbPromote', kbPromote);
     view('kbPromoteIp', kbPromoteIp);
     view('kbReconcile', kbReconcile);

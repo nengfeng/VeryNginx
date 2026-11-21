@@ -2294,7 +2294,7 @@
                </div>
             </div>
             <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
-              <button class="primary small" v-if="!kbStatus.configured.enabled" :disabled="kbBusy" @click="kbEnable">启用内核封禁</button>
+              <button class="primary small" v-if="!kbStatus.configured.enabled" :disabled="kbBusy" @click="kbEnable">{{ kbEnableLabel }}</button>
               <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
               <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)"
                 title="暂停时停止自动晋升新 IP，但不解除已封禁的条目；恢复后晋升逻辑继续运行">
@@ -3031,7 +3031,7 @@
   <script src="/verynginx/static/vn-iploc.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-advanced.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-kb.js?v=2.3.2-4"></script>
+  <script src="/verynginx/static/vn-kb.js?v=2.3.2-5"></script>
   <script src="/verynginx/static/app.js?v=2.3.2-1"></script>
   <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->
 </body>
