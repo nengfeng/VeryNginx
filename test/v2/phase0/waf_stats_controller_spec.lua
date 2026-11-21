@@ -180,6 +180,21 @@ describe("WAF stats controller (P2-7)", function()
         assert.are.equal(4, data.data.block_count)
     end)
 
+    it("GET /waf/stats without a shared dict is an empty success", function()
+        -- The daily-counter read (waf_stats.lua) used to 500 without
+        -- ngx.shared.vn_config; like /waf/analytics it must return success
+        -- with zero stats. (Setting ngx.shared = nil would crash the index
+        -- itself; a plain empty table makes vn_config nil.)
+        local saved = _G.ngx.shared
+        _G.ngx.shared = {}
+        local data = json.decode(route("/waf/stats", "GET").h())
+        _G.ngx.shared = saved
+        assert.are.equal("success", data.ret)
+        assert.are.equal(2, data.data.total_rules)
+        assert.are.equal(0, data.data.total_hits)
+        assert.are.equal(0, data.data.today_hits)
+    end)
+
     it("GET /waf/hits clamps the limit at 200", function()
         wm._hits = { { ip = "1.2.3.4" } }
         ngx.var.arg_limit = "5000"

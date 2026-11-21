@@ -163,7 +163,10 @@ local function handle_waf_stats()
         -- hit_count whenever last_triggered is inside today inflated the
         -- number by tens of thousands on old busy rules.
         local today_key = "waf_rule_stats:" .. r.id .. ":today:" .. os.date("!%Y%m%d", today_start)
-        local daily = tonumber(shared:get(today_key)) or 0
+        -- vn_config can be absent before init (guarded above, line ~145);
+        -- the daily counter read must not 500 the whole endpoint in that
+        -- state — other endpoints return empty success there.
+        local daily = shared and tonumber(shared:get(today_key)) or 0
         today_hits = today_hits + daily
 
         -- Build top rules list

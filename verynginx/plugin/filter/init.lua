@@ -196,9 +196,11 @@ local function evaluate_rules(rules, ctx, ip)
         local matched = matcher.test(matcher_def, ctx)
         if not matched then goto continue end
 
-        if not waf_manager.check_rate_limit(rule.id, rule) then
-            goto continue
-        end
+        -- Rate limit: once max_hits is exceeded in the current window,
+        -- rate_limit.action applies (validated as "log"/"block" by
+        -- validate_rule; the UI default is "log" = record on exceed, let
+        -- the request through).
+        local rate_limited = not waf_manager.check_rate_limit(rule.id, rule)
 
         local action = rule.action or "log"
 
@@ -247,6 +249,25 @@ local function evaluate_rules(rules, ctx, ip)
             end
         end
         if exempt then
+            goto continue
+        end
+
+        if rate_limited then
+            local rate_action = (rule.rate_limit and rule.rate_limit.action) or "log"
+            -- Record the exceed as a rule hit even when it is allowed
+            -- (action "log"): previously the counter was incremented but
+            -- nothing was written, so the exceed was invisible in the
+            -- panel and hit history.
+            waf_manager.record_hit(rule.id, ctx, rate_action)
+            if rate_action == "block" then
+                ip_reputation.record_signal(ip, "waf_block", rule)
+                if config.kernel_ip_blocking and config.kernel_ip_blocking.enabled then
+                    if not evidence then evidence = require "core.kernel_blocking.evidence" end
+                    evidence.record_waf_block_evidence(ip)
+                end
+                ctx.set_action(ctx, "block", { code = rule.code or 403, response = rule.response })
+                return true
+            end
             goto continue
         end
 

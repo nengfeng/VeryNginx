@@ -60,6 +60,79 @@ describe("filter challenge flow", function()
         assert.is_nil(ctx.action_result)
     end)
 
+    describe("rate-limit exceed", function()
+        local dk = require "dkjson"
+        local shared = nil
+
+        -- Inject a rate-limited rule straight into the shared-dict cache
+        -- (meta + chunk + version) instead of save_rules, which writes the
+        -- disk file. The version must differ from the filter module's
+        -- cached _rule_cache.version (else get_cached_rules takes the fast
+        -- path and returns the previously cached rules) and be unique per
+        -- test for the same reason across this file's tests.
+        local function inject_rate_rule(id, rate_action, version)
+            shared = ngx.shared.vn_config
+            shared:flush_all()
+            local rule = {
+                id = id,
+                name = "rate " .. id,
+                category = "sqli",
+                severity = "high",
+                action = "block",
+                enable = true,
+                matcher = { URI = { operator = "=", value = "/" .. id } },
+                rate_limit = { enable = true, max_hits = 3, window = 60, action = rate_action },
+            }
+            shared:set("waf_rules:meta", dk.encode({
+                version = version, timestamp = ngx.time(), chunk_count = 1,
+            }))
+            shared:set("waf_rules:chunk:1", dk.encode({ rules = { rule }, count = 1 }))
+            shared:set("waf_rules_version", version)
+            return rule
+        end
+        -- Restore the "no rules cached" state so other specs are unaffected.
+        local function cleanup(ids, slots)
+            shared:delete("waf_rules_version")
+            shared:delete("waf_rules:meta")
+            shared:delete("waf_rules:chunk:1")
+            for _, id in ipairs(ids) do
+                for _, slot in ipairs(slots) do
+                    shared:delete("waf_rate_limit:" .. id .. ":" .. slot)
+                    shared:delete("waf_rule_stats:" .. id .. ":today:" .. os.date("!%Y%m%d"))
+                end
+            end
+        end
+
+        it("action=block: an exceeded request is blocked with 403", function()
+            inject_rate_rule("rl_blk", "block", 990)
+            local slot = math.floor(ngx.time() / 60)
+            -- check_rate_limit's incr reads the counter table: pre-seed
+            -- max_hits so the post-increment count is max_hits + 1.
+            shared:incr("waf_rate_limit:rl_blk:" .. slot, 3, 0, 60)
+            local ctx = make_ctx({ uri = "/rl_blk" })
+            filter.on_access(ctx)
+            assert.is_not_nil(ctx.action_result)
+            assert.equals("block", ctx.action_result.type)
+            assert.equals(403, ctx.action_result.data.code)
+            cleanup({ "rl_blk" }, { slot })
+        end)
+
+        it("action=log: an exceeded request passes through and the hit is recorded", function()
+            inject_rate_rule("rl_log", "log", 991)
+            local slot = math.floor(ngx.time() / 60)
+            shared:incr("waf_rate_limit:rl_log:" .. slot, 3, 0, 60)
+            local ctx = make_ctx({ uri = "/rl_log" })
+            filter.on_access(ctx)
+            assert.is_nil(ctx.action_result)
+            -- The per-day counter proves record_hit ran on exceed: previously
+            -- the counter was incremented but nothing was written.
+            local daily = shared:get("waf_rule_stats:rl_log:today:" .. os.date("!%Y%m%d"))
+            assert.is_not_nil(daily)
+            assert.equals(1, tonumber(daily))
+            cleanup({ "rl_log" }, { slot })
+        end)
+    end)
+
     it("blocks request when IP is flagged", function()
         local ip = "10.0.0.20"
         local rep = require("core.ip_reputation")
