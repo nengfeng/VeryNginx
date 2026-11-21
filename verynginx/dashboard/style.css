@@ -292,6 +292,13 @@ details.page-desc>div{color:var(--muted)}
 .kb-controls .field select,.kb-controls .field input{margin-top:4px}
 .kb-controls .field>label.kb-check{display:flex;align-items:center;gap:6px;min-height:34px}
 .kb-controls .field>label.kb-check>input[type=checkbox]{width:auto;margin:0}
+/* KB controls: grouped, visible semantics — one group per logical area
+   (开关与模式 / CC 自动封禁 / 扫描器策略 / 保护范围). */
+.kb-group{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:14px}
+.kb-group-title{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:10px}
+.kb-controls .field-help{font-size:11px;color:var(--muted);line-height:1.4;margin-top:2px;white-space:normal}
+.kb-controls .field-row{display:flex;gap:6px;align-items:center;margin-top:4px}
+.kb-controls .field-row input{flex:1;min-width:0}
 
 /* Hide the raw {{ }} template bindings until Vue mounts */
 [v-cloak]{display:none !important;}

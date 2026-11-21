@@ -10,7 +10,7 @@
 <!-- Vue 3: vendored local copy with SRI (no CDN fallback - would be blocked by the
      page CSP script-src 'self' and is an unnecessary supply-chain surface) -->
 <script src="/verynginx/static/vue.global.prod.js?v=2.3.2-1" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.3.2-2">
+  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.3.2-3">
 </head>
 <body>
 
@@ -2250,78 +2250,115 @@
             </div>
           </div>
 
-         <!-- Controls -->
-           <div class="card mb-16">
-            <h3 style="font-size:14px;margin-bottom:12px">控制</h3>
-           <div class="grid grid-3 mb-16 kb-controls">
+         <!-- Controls: grouped, visible semantics -->
+        <div class="card mb-16 kb-controls">
+          <h3 style="font-size:14px;margin-bottom:12px">控制</h3>
+
+          <!-- Group 1: 开关与模式 -->
+          <div class="kb-group">
+            <div class="kb-group-title">开关与模式</div>
+            <div class="grid grid-2 mb-8">
               <div class="field">
                 <label class="kb-check" for="f-全局启用"><input id="f-全局启用" type="checkbox" v-model="kbForm.enabled" @change="kbMarkFormDirty"> 全局启用</label>
+                <div class="field-help">观察模式只记录拦截日志；执行模式会将匹配到的 IP 加入内核封禁表。全局关闭时当前仅应用层 WAF 生效。</div>
               </div>
               <div class="field">
-                <label style="font-size:12px;color:var(--muted)" title="观察模式只记录拦截日志，不实际封禁；执行模式会将匹配到的 IP 加入内核封禁表并生效。切换前请确认已添加至少一条规则" for="f-全局模式">全局模式</label>
-                <select id="f-全局模式" v-model="kbForm.mode" @change="kbMarkFormDirty" style="margin-top:4px" title="观察 (observe)：仅记录日志，不封禁任何 IP；执行 (enforce)：将匹配规则的结果实际写入内核封禁表">
+                <label style="font-size:12px;color:var(--muted)" for="f-全局模式">全局模式</label>
+                <select id="f-全局模式" v-model="kbForm.mode" @change="kbMarkFormDirty" style="margin-top:4px">
                   <option value="observe">观察 (observe)</option>
                   <option value="enforce">执行 (enforce)</option>
                 </select>
+                <div class="field-help">执行 (enforce)：将匹配规则的结果实际写入内核封禁表。切换前请确认已添加至少一条规则。</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Group 2: CC 自动封禁 -->
+          <div class="kb-group">
+            <div class="kb-group-title">CC 自动封禁</div>
+            <div class="grid grid-3 mb-8">
+              <div class="field">
+                <label class="kb-check" for="f-CC-启用"><input id="f-CC-启用" type="checkbox" v-model="kbForm.cc_enabled" @change="kbMarkFormDirty"> CC 启用</label>
+                <div class="field-help">启用后系统根据 CC 规则自动晋升高频请求 IP 到内核封禁；需先在上游频率限制面板创建 CC 规则。</div>
               </div>
               <div class="field">
-                <label class="kb-check" title="所有先决条件满足后（迁移完成、CC 规则引用有效、内核助手可达），勾选此项激活 CC 封禁。未激活前仅观察，不封禁任何 IP。" for="f-CC-执行就绪">
-                  <input id="f-CC-执行就绪" type="checkbox" v-model="kbForm.cc_enforce_ready" @change="kbMarkFormDirty"> CC 执行就绪
-                </label>
+                <label style="font-size:12px;color:var(--muted)" for="f-CC-规则ID">CC 规则 ID</label>
+                <input id="f-CC-规则ID" v-model="kbForm.ccRuleIdsStr" @change="kbMarkFormDirty" placeholder="如: freq_rule_1, freq_rule_2"
+                       title="CC 自动封禁用到的频率规则 ID（在频率面板的频率规则表里看）。enforce 门禁要求非空；无效引用会在页顶黄色提示。">
+                <div class="field-help">频率面板勾选「CC 自动封禁」时会自动填入；仍可手动编辑。</div>
+                <button class="outline small" style="margin-top:4px" @click="kbRefreshCcFromStatus" title="从当前配置刷新 CC 规则 ID 列表">刷新</button>
               </div>
               <div class="field">
-                <label class="kb-check" title="启用后，系统会根据请求频率、User-Agent 等特征自动识别扫描器/爬虫，将其晋升为内核封禁。建议配合 CC 策略一起使用。" for="f-扫描器启用">
-                  <input id="f-扫描器启用" type="checkbox" v-model="kbForm.scanner_enabled" @change="kbMarkFormDirty"> 扫描器启用
-                </label>
+                <label class="kb-check" for="f-CC-执行就绪"><input id="f-CC-执行就绪" type="checkbox" v-model="kbForm.cc_enforce_ready" @change="kbMarkFormDirty"> CC 执行就绪</label>
+                <div class="field-help">所有先决条件满足后（迁移完成、CC 规则引用有效、内核助手可达），勾选后激活 CC 封禁（要求全局为执行模式）。</div>
               </div>
-              <div class="field">
-                <label class="kb-check" title="启用后，系统根据 CC（Content Copying）规则自动晋升高频请求 IP 到内核封禁。需要先在上游频率限制面板创建 CC 规则并引用到此处的 rule_ids。" for="f-CC-启用">
-                  <input id="f-CC-启用" type="checkbox" v-model="kbForm.cc_enabled" @change="kbMarkFormDirty"> CC 启用
-                </label>
-              </div>
-               <div class="field">
-                 <label style="font-size:12px;color:var(--muted)" for="f-CC-规则ID">CC 规则 ID</label>
-                 <input id="f-CC-规则ID" v-model="kbForm.ccRuleIdsStr" @change="kbMarkFormDirty" placeholder="如: freq_rule_1, freq_rule_2" style="margin-top:4px"
-                        title="CC 自动封禁用到的频率规则 ID（在频率限制面板的频率规则表里看）。enforce 门禁要求该列表非空（config.lua）；无效引用会在本页顶部黄色提示，跳转频率面板修正。">
-                 <button class="outline small" style="margin-top:4px" @click="kbRefreshCcFromStatus" title="从当前配置刷新 CC 规则 ID 列表（频率面板勾选「CC 自动封禁」后刷新可见）">刷新</button>
-               </div>
-<div class="field">
-                 <label style="font-size:12px;color:var(--muted)" for="f-拓扑">拓扑</label>
-                 <select id="f-拓扑" v-model="kbForm.topology" @change="kbMarkFormDirty" style="margin-top:4px">
-<option value="direct">直连 (direct)</option>
-                    <option value="proxied">代理 (proxied)</option>
-                    <option value="unknown">未配置 (unknown)</option>
-                 </select>
-               </div>
-               <div class="field">
-                 <label style="font-size:12px;color:var(--muted)" title="受保护地址 = 本机不会被封禁的地址（公网 IP、入口/负载均衡 IP、管理网段）。支持 CIDR（如 10.0.0.0/8）；可点「一键填入接入地址」把当前面板接入 IP 写入。" for="f-受保护地址-逗号分隔">受保护地址 (逗号分隔)</label>
-                 <input id="f-受保护地址-逗号分隔" v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="margin-top:4px" title="受保护地址 = 本机不会被封禁的地址（公网 IP、入口/负载均衡 IP、管理网段）。支持 CIDR（如 10.0.0.0/8）；可点「一键填入接入地址」把当前面板接入 IP 写入。">
-               </div>
-               <div class="field">
-                 <label style="font-size:12px;color:var(--muted)" title="受保护端口 = 不会被封禁的端口（公开服务端口，如 80/443）。enforce 模式要求该列表非空（config.lua 校验）；可点「一键填入端口」写入当前面板接入端口。" for="f-受保护端口-逗号分隔">受保护端口 (逗号分隔)</label>
-                 <input id="f-受保护端口-逗号分隔" v-model="kbForm.protected_ports_str" @change="kbMarkFormDirty" placeholder="如: 80, 443, 8080" style="margin-top:4px" title="受保护端口 = 不会被封禁的端口（公开服务端口，如 80/443）。enforce 模式要求该列表非空（config.lua 校验）；可点「一键填入端口」写入当前面板接入端口。">
-               </div>
             </div>
             <div v-if="ccInvalidRuleIds.length" class="error" style="font-size:13px;margin-bottom:8px">
               ⚠ CC 规则 ID 引用无效: <strong>{{ ccInvalidRuleIds.join('、') }}</strong> — 这些规则已不存在（在频率面板重命名/删除后 ID 失效），CC 自动封禁对它们静默失效。
               <button type="button" class="linklike" @click="navigateTo('frequency')">跳转频率面板</button>
             </div>
-            <div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          </div>
+
+          <!-- Group 3: 扫描器策略 -->
+          <div class="kb-group">
+            <div class="kb-group-title">扫描器策略</div>
+            <div class="field" style="max-width:440px">
+              <label class="kb-check" for="f-扫描器启用"><input id="f-扫描器启用" type="checkbox" v-model="kbForm.scanner_enabled" @change="kbMarkFormDirty"> 扫描器启用</label>
+              <div class="field-help">启用后，系统会根据请求频率、User-Agent 等特征自动识别扫描器/爬虫，将其晋升为内核封禁。建议配合 CC 策略一起使用。</div>
+            </div>
+          </div>
+
+          <!-- Group 4: 保护范围 -->
+          <div class="kb-group">
+            <div class="kb-group-title">保护范围</div>
+            <div class="grid grid-2 mb-8">
+              <div class="field">
+                <label style="font-size:12px;color:var(--muted)" for="f-拓扑">拓扑</label>
+                <select id="f-拓扑" v-model="kbForm.topology" @change="kbMarkFormDirty" style="margin-top:4px">
+                  <option value="direct">直连 (direct)</option>
+                  <option value="proxied">代理 (proxied)</option>
+                  <option value="unknown">未配置 (unknown)</option>
+                </select>
+                <div class="field-help">直连 (direct) 允许内核层面断言；代理/未配置时拓扑被视为不可安装。</div>
+              </div>
+              <div class="field">
+                <label style="font-size:12px;color:var(--muted)" for="f-受保护地址-逗号分隔">受保护地址 (逗号分隔)</label>
+                <div class="field-row">
+                  <input id="f-受保护地址-逗号分隔" v-model="kbForm.protected_addresses_str" @change="kbMarkFormDirty" placeholder="如: 1.2.3.4, 10.0.0.0/8" style="flex:1;min-width:0">
+                  <button class="outline small" v-if="kbHostIpOk" @click="kbFillProtectedWithHostIp" title="把当前面板接入地址写入受保护地址">⊕ 接入地址</button>
+                </div>
+                <div class="field-help">受保护地址 = 本机不会被封禁的地址（公网 IP、入口/负载均衡 IP、管理网段）；支持 CIDR（如 10.0.0.0/8）。</div>
+              </div>
+              <div class="field">
+                <label style="font-size:12px;color:var(--muted)" for="f-受保护端口-逗号分隔">受保护端口 (逗号分隔)</label>
+                <div class="field-row">
+                  <input id="f-受保护端口-逗号分隔" v-model="kbForm.protected_ports_str" @change="kbMarkFormDirty" placeholder="如: 80, 443" style="flex:1;min-width:0">
+                  <button class="outline small" v-if="kbHostPortOk" @click="kbFillProtectedWithHostPort" title="把当前面板接入端口 ({{ kbStatus.host_port }}) 写入受保护端口">⊕ 接入端口 ({{ kbStatus.host_port }})</button>
+                </div>
+                <div class="field-help">受保护端口 = 不会被封禁的端口（公开服务端口，如 80/443）。enforce 模式要求该列表非空（config.lua 校验）。</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex" style="gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-top:4px">
+            <div class="flex gap-8" style="flex-wrap:wrap">
               <button class="primary small" v-if="!kbStatus.configured.enabled" :disabled="kbBusy" @click="kbEnable">{{ kbEnableLabel }}</button>
               <button class="primary small" :disabled="kbBusy" @click="kbSaveSettings">保存策略设置</button>
-              <button class="outline small" v-if="kbHostIpOk" @click="kbFillProtectedWithHostIp">一键填入接入地址</button>
-              <button class="outline small" v-if="kbHostPortOk" @click="kbFillProtectedWithHostPort">一键填入端口 ({{ kbStatus.host_port }})</button>
+            </div>
+            <div class="flex gap-8" style="flex-wrap:wrap;margin-top:8px">
+              <button class="outline small" :disabled="kbBusy" @click="kbReconcile"
+                title="强制将内核中的封禁条目与配置的期望状态对齐，修复因进程崩溃等原因导致的漂移">立即协调</button>
               <button class="outline small" :disabled="kbBusy" @click="kbPause(!kbStatus.configured.emergency_pause)"
                 title="暂停时停止自动晋升新 IP，但不解除已封禁的条目；恢复后晋升逻辑继续运行">
                 {{ kbStatus.configured.emergency_pause ? '恢复晋升' : '暂停晋升' }}
               </button>
-              <button class="outline small" :disabled="kbBusy" @click="kbReconcile"
-                title="强制将内核中的封禁条目与配置的期望状态对齐，修复因进程崩溃等原因导致的漂移">立即协调</button>
               <button class="outline small" :disabled="kbBusy" @click="kbFlushAuto"
                 title="清除所有由扫描器/CC 自动晋升的条目（保留手动封禁和白名单），用于紧急重置封禁状态">刷新自动集合</button>
               <button class="outline small" :disabled="kbBusy" @click="loadKbData">刷新</button>
             </div>
           </div>
+        </div>
 
         <!-- Readiness checklist -->
         <div class="card mb-16">
