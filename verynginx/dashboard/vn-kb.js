@@ -612,6 +612,27 @@
       finally { kbBusy.value = false; }
     }
 
+    // ---- Enable: one-click path ----
+    // The standalone kbReconcile button is for manual/force use and shows a
+    // confirm dialog. A fresh enable goes straight: flip 全局启用, save
+    // policy settings (kbSaveSettings), then reconcile so the kernel
+    // entries reflect the desired state immediately.
+    async function kbEnable() {
+      kbForm.enabled = true;
+      kbMarkFormDirty();
+      await kbSaveSettings();
+      if (kbStatus.value.effective.global_install_reachable) {
+        kbBusy.value = true;
+        try {
+          const d = await api('POST', '/verynginx/kernel-blocking/reconcile', {});
+          if (d.ret === 'success') showToast('内核封禁已启用，内核条目已同步', 'success');
+          else showToast(d.message || '协调失败', 'error');
+          await loadKbData();
+        } catch (e) { showToast(e.message, 'error'); }
+        finally { kbBusy.value = false; }
+      }
+    }
+
     async function kbReconcile() {
       if (!await showConfirm({
         title: '触发内核协调',
@@ -807,6 +828,7 @@
     view('loadKbDashboard', loadKbDashboard);
     view('enableCcEnforceReady', enableCcEnforceReady);
     view('kbSaveSettings', kbSaveSettings);
+    view('kbEnable', kbEnable);
     view('kbPromote', kbPromote);
     view('kbPromoteIp', kbPromoteIp);
     view('kbReconcile', kbReconcile);

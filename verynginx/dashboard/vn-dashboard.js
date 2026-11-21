@@ -555,7 +555,7 @@
       // first paint when kbState is still 'unknown' (API hasn't responded yet)
       // to prevent a flash of the warning before data arrives.
       if (globalMode === 'disabled' && kbState !== 'unknown') {
-        return { level: 'ok', text: '内核封禁未启用，当前仅应用层 WAF 生效。可在 系统 → 内核封禁 开启。' };
+        return { level: 'ok', text: '内核封禁未启用，当前仅应用层 WAF 生效。可到 系统 → 内核封禁 开启，或点该页的「启用内核封禁」一键启用。' };
       }
       // Application-layer WAF mode (cfg.mode), separate from kernel blocking.
       const wafMode = (cfg.value && cfg.value.mode) || 'enforce';
