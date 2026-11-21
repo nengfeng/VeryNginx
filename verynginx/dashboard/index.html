@@ -1529,6 +1529,9 @@
              <div class="field" style="margin-bottom:0">
                <label class="checkbox-label" for="f-启用该规则"><input id="f-启用该规则" type="checkbox" v-model="freqRuleModal.enable"> 启用该规则</label>
              </div>
+             <div class="field" style="margin-bottom:0">
+               <label class="checkbox-label" for="f-CC-自动封禁"><input id="f-CC-自动封禁" type="checkbox" v-model="freqRuleModal.ccRule" title="勾选后保存时，该规则的 rule_id 会自动写入内核封禁 CC 策略的 cc.rule_ids（内核封禁 → KB 页仍可在「CC 规则 ID」里管理该列表）。前提：内核封禁全局已启用。"> CC 自动封禁</label>
+             </div>
             <div class="modal-actions">
              <button class="outline" @click="freqRuleModal.show=false">取消</button>
              <button class="primary" :disabled="freqRuleSaving" @click="saveFreqRule"><span v-if="freqRuleSaving" class="spinner"></span>保存</button>
@@ -2280,6 +2283,7 @@
                  <label style="font-size:12px;color:var(--muted)" for="f-CC-规则ID">CC 规则 ID</label>
                  <input id="f-CC-规则ID" v-model="kbForm.ccRuleIdsStr" @change="kbMarkFormDirty" placeholder="如: freq_rule_1, freq_rule_2" style="margin-top:4px"
                         title="CC 自动封禁用到的频率规则 ID（在频率限制面板的频率规则表里看）。enforce 门禁要求该列表非空（config.lua）；无效引用会在本页顶部黄色提示，跳转频率面板修正。">
+                 <button class="outline small" style="margin-top:4px" @click="kbRefreshCcFromStatus" title="从当前配置刷新 CC 规则 ID 列表（频率面板勾选「CC 自动封禁」后刷新可见）">刷新</button>
                </div>
 <div class="field">
                  <label style="font-size:12px;color:var(--muted)" for="f-拓扑">拓扑</label>
@@ -3038,11 +3042,11 @@
   <script src="/verynginx/static/vn-dashboard.js?v=2.3.2-4"></script>
   <script src="/verynginx/static/vn-config.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-waf.js?v=2.3.2-3"></script>
-  <script src="/verynginx/static/vn-frequency.js?v=2.3.2-1"></script>
+  <script src="/verynginx/static/vn-frequency.js?v=2.3.2-2"></script>
   <script src="/verynginx/static/vn-iploc.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-advanced.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-kb.js?v=2.3.2-9"></script>
+  <script src="/verynginx/static/vn-kb.js?v=2.3.2-10"></script>
   <script src="/verynginx/static/app.js?v=2.3.2-1"></script>
   <!-- ?v= 与 VERSION 同步 bump：资源 URL 变化强制浏览器取新文件，杜绝“新 HTML + 旧 JS”混版（新按钮点击无反应类问题） -->
 </body>

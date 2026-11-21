@@ -17,7 +17,7 @@
     const freqTemplates = ref([]);
     const freqTemplatesLoaded = ref(false);
     const freqError = ref('');
-    const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}' });
+    const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}', ccRule: false });
     const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
 
     // Stale-response guard for the frequency data loader.
@@ -139,10 +139,43 @@
       freqRuleModal.code = 429;
       freqRuleModal.enable = true;
       freqRuleModal.matcherJson = '{}';
+      freqRuleModal.ccRule = false;
       freqRuleModal.show = true;
     }
 
-    function openFreqRuleEdit(rule) {
+    // CC rule membership: a frequency rule is a "CC rule" when its ID is in
+    // kb.cc.rule_ids (readiness exposes it as configured.cc_rule_ids; the
+    // frequency_limit plugin reads the same list). This is the server-side
+    // source of truth the KB page editor mirrors.
+    async function freqGetCcRuleIds() {
+      const full = await api('GET', '/verynginx/config');
+      const kb = (full && full.kernel_ip_blocking) || {};
+      return Array.from(new Set((kb.cc && kb.cc.rule_ids) || []));
+    }
+    async function freqSetCcRule(id, enabled) {
+      if (!id) return;
+      const full = await api('GET', '/verynginx/config');
+      if (!full || typeof full !== 'object') throw new Error('config load failed');
+      const kb = Object.assign({}, full.kernel_ip_blocking || {});
+      const cc = Object.assign({}, kb.cc || {});
+      const ids = Array.from(new Set((cc.rule_ids || []).map(String).filter(Boolean)));
+      const i = ids.indexOf(id);
+      if (enabled && i === -1) ids.push(id);
+      else if (!enabled && i !== -1) ids.splice(i, 1);
+      cc.rule_ids = ids;
+      kb.cc = cc;
+      full.kernel_ip_blocking = kb;
+      const d = await api('POST', '/verynginx/config', full, {
+        headers: shared.configSaveHeaders ? shared.configSaveHeaders() : {},
+      });
+      if (d.ret === 'success') {
+        if (shared.loadConfig) await shared.loadConfig();
+        if (shared.cfg) shared.cfg.value = full;
+        // If the KB page is open, re-sync the CC rule ID editor field.
+        if (shared.loadKbData) await shared.loadKbData();
+      }
+    }
+    async function openFreqRuleEdit(rule) {
       freqRuleModal.mode = 'edit';
       freqRuleModal.id = rule.id;
       freqRuleModal.key = rule.key || 'ip';
@@ -150,6 +183,9 @@
       freqRuleModal.window = rule.window;
       freqRuleModal.code = rule.code || 429;
       freqRuleModal.enable = rule.enable !== false;
+      // CC membership: read before showing the modal so the checkbox
+      // reflects the server state on first paint.
+      freqRuleModal.ccRule = (await freqGetCcRuleIds()).indexOf(rule.id) !== -1;
       if (typeof rule.matcher === 'string') {
         freqRuleModal._matcherRef = rule.matcher;
         freqRuleModal.matcherJson = '{}';
@@ -215,6 +251,9 @@
         if (d.ret === 'success') {
           freqRuleModal.show = false;
           showToast('规则已保存', 'success');
+          // Register/deregister this rule's ID as a CC rule per the
+          // checkbox (the server-side source of truth is kb.cc.rule_ids).
+          await freqSetCcRule(freqRuleModal.id, freqRuleModal.ccRule);
           await loadFrequencyData();
         } else {
           showToast(d.message || '保存失败', 'error');
@@ -229,13 +268,19 @@
     async function deleteFreqRule(rule) {
       if (!await showConfirm({ title: '删除频率规则', message: `删除频率规则 "${rule.id}"?`, type: 'danger' })) return;
       const snapshot = JSON.parse(JSON.stringify(rule));
+      let wasCc = false;
       try {
+        wasCc = (await freqGetCcRuleIds()).indexOf(rule.id) !== -1;
         const d = await api('DELETE', '/verynginx/frequency/rules/' + rule.id);
         if (d.ret === 'success') {
+          // Remove the now-dangling ID from kb.cc.rule_ids (a stale entry
+          // there makes CC auto-promotion silently not fire).
+          if (wasCc) await freqSetCcRule(rule.id, false);
           showUndoToast(`已删除频率规则 "${rule.id}"`, async () => {
             const r = await api('POST', '/verynginx/frequency/rules', snapshot);
             if (r.ret === 'success') showToast('已撤销：恢复规则 ' + rule.id, 'success');
             else throw new Error(r.message || '恢复失败');
+            if (wasCc) await freqSetCcRule(rule.id, true);
             await loadFrequencyData();
           });
           await loadFrequencyData();

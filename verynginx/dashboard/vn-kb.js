@@ -209,6 +209,12 @@
           .filter(r => !r.reference_valid)
           .map(r => r.rule_id);
     });
+    // Re-pull the CC rule ID membership from the current status — e.g. after
+    // checking the CC box in the frequency panel while the KB page is open.
+    function kbRefreshCcFromStatus() {
+      const c = kbStatus.value.configured || {};
+      kbForm.ccRuleIdsStr = (c.cc_rule_ids || []).map(String).join(', ');
+    }
     function kbOpenDetail(entry) {
       kbDetail.entry = entry;
       kbDetail.show = true;
@@ -916,6 +922,7 @@
     view('kbHostPortOk', kbHostPortOk);
     view('kbFillProtectedWithHostPort', kbFillProtectedWithHostPort);
     view('ccInvalidRuleIds', ccInvalidRuleIds);
+    view('kbRefreshCcFromStatus', kbRefreshCcFromStatus);
     view('kbPromote', kbPromote);
     view('kbPromoteIp', kbPromoteIp);
     view('kbReconcile', kbReconcile);
