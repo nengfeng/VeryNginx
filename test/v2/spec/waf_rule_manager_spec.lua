@@ -469,6 +469,27 @@ describe("waf-rule-manager", function()
             })
             assert.is.truthy(ok)
         end)
+        it("counts the previous slot when the window rolls over", function()
+            local shared = ngx.shared.vn_config
+            shared:flush_all()
+            local slot = math.floor(ngx.time() / 60)
+            -- Seed the previous slot at max_hits: the new slot's first
+            -- request already sums past the limit (the conservative
+            -- sliding-window check).
+            shared:incr("waf_rate_limit:rl_roll:" .. slot - 1, 3, 0, 120)
+            assert.is_false(waf.check_rate_limit("rl_roll", {
+                rate_limit = { enable = true, max_hits = 3, window = 60 },
+            }))
+        end)
+        it("does not count the previous slot when it is within the limit", function()
+            local shared = ngx.shared.vn_config
+            shared:flush_all()
+            local slot = math.floor(ngx.time() / 60)
+            shared:incr("waf_rate_limit:rl_ok:" .. slot - 1, 2, 0, 120)
+            assert.is_true(waf.check_rate_limit("rl_ok", {
+                rate_limit = { enable = true, max_hits = 3, window = 60 },
+            }))
+        end)
     end)
 
     -----------------------------------------------------------------------

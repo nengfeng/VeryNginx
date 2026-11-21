@@ -436,7 +436,7 @@ auto_whitelist = { type = "table", default = {
 
 `core/waf_recommender.lua` 分析被阻断的流量（来自 `waf_recent_hits:data:` 环形缓冲区），自动识别攻击模式并生成规则建议。
 
-- 分析触发：`POST /waf/recommendations/analyze`（手动）或 `init_worker` 定时器
+- 分析触发：`POST /waf/recommendations/analyze`（手动）
 - URI 归一化：UUID/十六进制/数字 → 占位符，合并同类模式
 - 分类：path_traversal / rce / sqli / scanner（基于关键词匹配）
 - 存储：建议写入 `vn_config` shared dict（7 天 TTL），通过 INDEX_KEY 索引

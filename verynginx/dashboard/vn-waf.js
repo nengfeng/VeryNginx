@@ -133,6 +133,7 @@
     const wafHitsError = ref('');
     const wafHitsTime = ref('');
     const wafHitsLimit = ref(50);
+    const wafReloadBusy = ref(false);
     const wafAnalytics = ref({ rules: [], dead_rules: [] });
     const wafAnalyticsLoading = ref(false);
     const wafAnalyticsError = ref('');
@@ -874,12 +875,37 @@
       if (recActionLoading.value) return;
       recActionLoading.value = true;
       try {
-        await api('POST', '/verynginx/waf/recommendations/' + id + '/dismiss');
-        await loadRecs();
+        const d = await api('POST', '/verynginx/waf/recommendations/' + id + '/dismiss');
+        if (d.ret === 'success') {
+          await loadRecs();
+        } else {
+          // Previously a ret != success with HTTP 200 fell through silently.
+          recError.value = d.message || 'Dismiss failed';
+        }
       } catch (e) {
         recError.value = e.message;
       } finally {
         recActionLoading.value = false;
+      }
+    }
+
+    // POST /verynginx/waf/rules/reload — the only trigger for a runtime
+    // reload of the rules file (no other UI binds to it).
+    async function wafReloadRules() {
+      if (wafReloadBusy.value) return;
+      wafReloadBusy.value = true;
+      try {
+        const d = await api('POST', '/verynginx/waf/rules/reload');
+        if (d.ret === 'success') {
+          showToast('规则已从磁盘重载', 'success');
+          await loadWafRules();
+        } else {
+          wafError.value = d.message || '重载失败';
+        }
+      } catch (e) {
+        wafError.value = e.message;
+      } finally {
+        wafReloadBusy.value = false;
       }
     }
 
@@ -1028,6 +1054,10 @@
         const d = await api('POST', '/verynginx/waf/rules/' + rule.id + '/' + endpoint);
         if (d.ret === 'success') {
           rule.enable = enable;
+        } else {
+          // Previously a ret != success with HTTP 200 left the toggle
+          // looking inert with no feedback.
+          wafError.value = d.message || 'Toggle failed';
         }
       } catch (e) {
         wafError.value = e.message;
@@ -1150,6 +1180,8 @@
     view('wafHitsError', wafHitsError);
     view('wafHitsTime', wafHitsTime);
     view('wafHitsLimit', wafHitsLimit);
+    view('wafReloadRules', wafReloadRules);
+    view('wafReloadBusy', wafReloadBusy);
     view('wafAnalytics', wafAnalytics);
     view('wafAnalyticsLoading', wafAnalyticsLoading);
     view('wafAnalyticsError', wafAnalyticsError);

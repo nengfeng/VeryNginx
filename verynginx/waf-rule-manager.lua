@@ -1405,13 +1405,19 @@ function _M.check_rate_limit(rule_id, rule)
     local max_hits = tonumber(rule.rate_limit.max_hits) or 10
     local slot = math.floor(ngx.time() / window)
     local key = RATE_PREFIX .. rule_id .. ":" .. tostring(slot)
-    local count = shared:incr(key, 1, 0, window)
+    local count = shared:incr(key, 1, 0, window * 2)
     if not count then
         -- incr failure indicates the key was created with TTL but
         -- immediately expired in a race — treat as not limited
         return true
     end
-    if count > max_hits then
+    -- Sliding-window approximation: with the old pure fixed slot, a burst
+    -- of 2×max_hits is possible at the slot boundary. The length-W window
+    -- ending anywhere in the current slot fully covers the current slot
+    -- plus (at most) the tail of the previous one, so adding the previous
+    -- slot's count is a conservative approximation of a sliding window.
+    local prev = tonumber(shared:get(RATE_PREFIX .. rule_id .. ":" .. tostring(slot - 1)) or 0) or 0
+    if count + prev > max_hits then
         return false
     end
     return true
@@ -1770,12 +1776,23 @@ function _M.persist_rule_stats()
     if not idx_raw then return end
 
     local stats = {}
+    local day = os.date("!%Y%m%d")
     for rule_id in idx_raw:gmatch("([^\n]+)") do
         if rule_id ~= "" then
             local raw = shared:get(STATS_PREFIX .. rule_id)
             if raw then
                 local ok, decoded = pcall(json.decode, raw)
                 if ok and type(decoded) == "table" then
+                    -- The per-day counter (waf_rule_stats:<id>:today:<utcday>)
+                    -- lives ONLY in the restart-reset vn_config dict, while
+                    -- the lifetime blob above is persisted. Without
+                    -- carrying today's count through, a full restart makes
+                    -- "今日命中" silently 0 while "总命中" stays high.
+                    local today_val = shared:get(STATS_PREFIX .. rule_id .. ":today:" .. day)
+                    if today_val then
+                        decoded.today_utc_day = day
+                        decoded.today_hits = tonumber(today_val) or 0
+                    end
                     stats[rule_id] = decoded
                 end
             end
@@ -1821,8 +1838,14 @@ function _M.restore_rule_stats()
 
     local count = 0
     local idx_parts = {}
+    local day = os.date("!%Y%m%d")
     for rule_id, data in pairs(stats) do
         shared:set(STATS_PREFIX .. rule_id, json.encode(data))
+        -- Restore today's daily counter when the persisted snapshot is for
+        -- the current UTC day (see persist_rule_stats).
+        if data.today_utc_day and data.today_utc_day == day and data.today_hits then
+            shared:set(STATS_PREFIX .. rule_id .. ":today:" .. day, tostring(data.today_hits), 0)
+        end
         idx_parts[#idx_parts + 1] = rule_id
         count = count + 1
     end

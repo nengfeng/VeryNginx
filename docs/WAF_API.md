@@ -237,7 +237,7 @@ Aggregated blocked hits by time bucket and category.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `hours` | number | 1 | Time window (1-24) |
-| `bucket` | number | 5 | Bucket size in minutes (1-30) |
+| `bucket` | number | 5 | Bucket size in minutes (1-60) |
 
 **Response**:
 ```json

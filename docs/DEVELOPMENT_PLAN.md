@@ -501,7 +501,7 @@ mkdir -p core matcher action plugin/filter plugin/frequency_limit \
 
 > 对应 DESIGN_V2.md 13.3、13.4
 
-- [ ] Filter 插件：WAF 规则可配置并生效
+- [x] Filter 插件：WAF 规则可配置并生效（v2：waf-rule-manager + filter 插件 + 仪表盘 + 限速 action 语义；分批审计已修复 4 处缺陷）
 - [ ] Frequency_limit 插件：限流规则可配置并生效
 - [ ] Browser_verify 插件：Cookie/JS 验证可配置并生效
 - [ ] Static_file 插件：静态文件服务可配置，路径安全

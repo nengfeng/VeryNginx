@@ -195,12 +195,15 @@ describe("WAF stats controller (P2-7)", function()
         assert.are.equal(0, data.data.today_hits)
     end)
 
-    it("GET /waf/hits clamps the limit at 200", function()
+    it("GET /waf/hits clamps the limit at 100", function()
         wm._hits = { { ip = "1.2.3.4" } }
         ngx.var.arg_limit = "5000"
         local data = json.decode(route("/waf/hits", "GET").h())
         assert.are.equal(1, #data.data)
-        assert.are.equal(200, wm._hits_called)
+        -- The ring buffer holds 100 slots (waf_manager.get_recent_hits);
+        -- clamping to the API's documented 200 is dead code since the
+        -- ring caps at 100.
+        assert.are.equal(100, wm._hits_called)
     end)
 
     it("GET /waf/hits/by-ip filters the ring and resolves rule names", function()
@@ -285,6 +288,22 @@ describe("WAF stats controller (P2-7)", function()
         assert.are.equal("80%", data.data.rules[2].challenge_pass_rate)
         assert.are.equal(1, #data.data.dead_rules)
         assert.are.equal("r3", data.data.dead_rules[1].id)
+    end)
+
+    it("GET /waf/analytics grades on the per-day counter when there is no challenge today", function()
+        -- A rule with accumulated lifetime challenges but none today must
+        -- not grade "A" off the stale lifetime ratio while the displayed
+        -- pass rate is "-": the grade keys on the same per-day counters as
+        -- the pass rate.
+        local today = os.date("!%Y%m%d")
+        wm._rules = { { id = "r4", name = "long-lived", enable = true, action = "challenge" } }
+        cfg():set("waf_rule_stats:r4", json.encode({ hit_count = 100, block_count = 0, challenge_count = 100, last_triggered = NOW - 10 }))
+        cfg():set("waf_rule_stats:r4:cpass:" .. today, 0)
+        cfg():set("waf_rule_stats:r4:chal:" .. today, 0)
+        local data = json.decode(route("/waf/analytics", "GET").h())
+        assert.are.equal(1, #data.data.rules)
+        assert.are.equal("-", data.data.rules[1].challenge_pass_rate)
+        assert.are.equal("B", data.data.rules[1].grade)
     end)
 
     it("GET /waf/hits/by-ip survives a corrupted ring slot", function()

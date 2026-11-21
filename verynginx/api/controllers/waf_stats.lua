@@ -219,7 +219,7 @@ end
 --- GET /waf/hits - recent WAF hit records
 local function handle_list_waf_hits()
     local limit = tonumber(ngx.var.arg_limit) or 50
-    if limit > 200 then limit = 200 end
+    if limit > 100 then limit = 100 end
     local hits = waf_manager.get_recent_hits(limit)
     return json.encode({ ret = "success", data = hits })
 end
@@ -450,12 +450,17 @@ local function handle_waf_analytics()
             pass_rate = string.format("%.0f%%", (passes / chal_today) * 100)
         end
 
-        -- Effectiveness grade (A+/A/B/C/D)
+        -- Effectiveness grade (A+/A/B/C/D). Consistent with the displayed
+        -- per-day pass_rate: the old denominator was the LIFETIME
+        -- challenge_count, so a rule could show "-" as pass rate (no
+        -- challenges today) while still grading "A" on a stale lifetime
+        -- ratio — self-contradictory. The challenge branch now keys on
+        -- chal_today and divides by the same per-day counter as pass_rate.
         local grade = "N/A"
         if hits > 0 then
-            if challenges > 0 then
+            if chal_today > 0 then
                 -- Challenge-based: high pass rate = possible false positives
-                local ratio = passes / challenges
+                local ratio = passes / chal_today
                 if ratio >= 0.8 then grade = "C"
                 elseif ratio >= 0.5 then grade = "B"
                 else grade = "A"

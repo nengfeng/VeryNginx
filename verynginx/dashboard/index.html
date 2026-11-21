@@ -877,6 +877,7 @@
           </div>
           <div class="flex gap-8" style="align-items:flex-start">
             <button class="outline small" @click="wafRefreshAll">刷新</button>
+            <button v-if="wafTab==='rules'" class="outline small" :disabled="wafReloadBusy" @click="wafReloadRules">重载规则</button>
             <button v-if="wafTab==='rules'" class="outline small" @click="wafRestoreDefaults">恢复默认规则</button>
             <button v-if="wafTab==='rules'" class="outline small" @click="wafSyncDefaults" title="出厂规则内容更新为最新默认值，保留你的启用/动作选择">同步出厂内容</button>
             <button v-if="wafTab==='rules'" class="primary small" @click="wafOpenCreate">+ 新建规则</button>
@@ -3024,7 +3025,7 @@
   <script src="/verynginx/static/vn-common.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-dashboard.js?v=2.3.2-3"></script>
   <script src="/verynginx/static/vn-config.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-waf.js?v=2.3.2-2"></script>
+  <script src="/verynginx/static/vn-waf.js?v=2.3.2-3"></script>
   <script src="/verynginx/static/vn-frequency.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-iploc.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.3.2-1"></script>
