@@ -577,9 +577,19 @@ function _M.get_body_args(ctx)
 end
 
 --- Get URI query args (no body read).
+--- Cached per request on ctx: with the deployed rule set a single request can
+--- hit ~19 Args conditions, and each one used to re-run ngx.req.get_uri_args()
+--- (C→Lua table construction) plus the query-string overflow scan. The query
+--- string never changes during a request, so one parse per request is enough.
+--- (Internal redirects create a fresh ctx, so no cross-pass contamination.)
 function _M.get_uri_args(ctx)
+    if ctx.request._uri_args_read then
+        return ctx.request._uri_args
+    end
     local max_args = _M._arg_limit()
     local args = ngx.req.get_uri_args(max_args)
+    ctx.request._uri_args = args
+    ctx.request._uri_args_read = true
     -- Overflow guard (see get_body_args): a query string with more pairs
     -- than max_args means the tail was silently dropped — fail closed.
     local qs = ngx.var.query_string

@@ -18,6 +18,19 @@ local INDEX_LOCK_MAX_RETRIES = 500
 -- every write, so this is only a safety net.
 local INDEX_TTL = 3600
 
+-- Worker-local "already indexed" cache. A full index_add takes the single
+-- global lock, parses the whole index string, sorts every entry and rewrites
+-- the string — twice per request for waf_request_duration (count + sum).
+-- In steady state a key's index entry only needs its timestamp refreshed well
+-- within data_ttl (3600s), so a short refresh window removes that work from
+-- every request while still keeping the entry — and the index key's own TTL —
+-- alive. A cache miss only costs one extra full write (safe across reloads and
+-- index resets); a lock/write failure never marks the key as known.
+local INDEX_REFRESH_INTERVAL = 60
+local KNOWN_INDEX_CAP = 512
+local known_index = {}
+local known_index_count = 0
+
 -- Low-cardinality core metrics live in the `metrics` dict. High-cardinality
 -- per-instance series (per-rule gauges, per-IP score) are routed to their own
 -- `metrics_labeled` dict so their (unbounded, churn-prone) growth can never
@@ -108,12 +121,24 @@ end
 --- Record a metric key in the index. get_keys(0)/get_keys(N) is capped at
 -- ~1024 entries, so per-rule gauges (3 keys per rule) would silently drop the
 -- tail for large rule sets. The index gives export_prometheus the full key
--- list regardless of dict size. Only the rare "new key" path takes a lock.
--- Index entries carry per-entry timestamps; every write prunes entries older
--- than the data TTL, keeping the index bounded even under high label churn.
+-- list regardless of dict size. A worker-local cache keeps the lock+parse+
+-- sort+rewrite path off the steady-state request path (see the constants above).
+-- Index entries carry per-entry timestamps; every full write prunes entries
+-- older than the data TTL, keeping the index bounded under high label churn.
 local function index_add(s, key, data_ttl)
     local locks = test_shared or ngx.shared.vn_locks
     if not locks then return end
+
+    -- Fast path: this worker did a full index write for this key recently.
+    -- The shared entry is still fresh (60s << 3600s data TTL), and the next
+    -- forced full write renews the index key's own TTL. A miss here only
+    -- costs one full write, so reloads / external index resets are safe.
+    local now = ngx.time()
+    local last = known_index[key]
+    if last and (now - last) < INDEX_REFRESH_INTERVAL then
+        return
+    end
+
     local token = get_random().bytes(8)
     local retries = 0
     while not locks:add(INDEX_LOCK_KEY, token, INDEX_LOCK_TTL) do
@@ -160,11 +185,11 @@ local function index_add(s, key, data_ttl)
     -- cardinality). Only labeled (per-rule / per-IP) entries expire.
     local kept
     if data_ttl > 0 then
-        kept = index_prune(s, ngx.time(), data_ttl)
+        kept = index_prune(s, now, data_ttl)
     else
         kept = index_parse(s)
     end
-    kept[key] = ngx.time()
+    kept[key] = now
     -- Deterministic rewrite: sorted keys avoid thrashing the string on each
     -- append, while the single write under lock is atomic.
     local parts = {}
@@ -184,6 +209,19 @@ local function index_add(s, key, data_ttl)
     end
     if locks:get(INDEX_LOCK_KEY) == token then
         locks:delete(INDEX_LOCK_KEY)
+    end
+    -- Only a successful write makes the key eligible for the fast path. Bound
+    -- the cache even if label cardinality churns (e.g. per-IP gauges); clearing
+    -- costs a one-time burst of full writes, never correctness.
+    if ok_idx then
+        if not last then
+            known_index_count = known_index_count + 1
+            if known_index_count > KNOWN_INDEX_CAP then
+                known_index = {}
+                known_index_count = 1
+            end
+        end
+        known_index[key] = now
     end
 end
 
