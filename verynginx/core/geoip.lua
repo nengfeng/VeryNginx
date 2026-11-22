@@ -341,6 +341,22 @@ function _M.get_config()
     return config.geoip or {}
 end
 
+--- Uppercase a config list once, cached by the source table identity. Config
+--- reloads replace the list objects, so the cache invalidates naturally on a
+--- config change without an explicit version. Avoids re-uppercasing every
+--- whitelist/blocklist/continent entry on every request in check_block().
+local upper_lists = setmetatable({}, { __mode = "k" })
+local function upper_list(list)
+    if not list then return nil end
+    local cached = upper_lists[list]
+    if not cached then
+        cached = {}
+        for i, v in ipairs(list) do cached[i] = tostring(v):upper() end
+        upper_lists[list] = cached
+    end
+    return cached
+end
+
 --- Cached lookup: returns cached geo data from ngx.ctx or calls lookup().
 -- Eliminates duplicate FFI calls when both check_block and track are used.
 function _M.cached_lookup(ip)
@@ -368,16 +384,18 @@ function _M.check_block(ip, geo)
     local cc = geo.country_code:upper()
 
     -- Whitelist takes priority
-    if cfg.whitelist then
-        for _, c in ipairs(cfg.whitelist) do
-            if c:upper() == cc then return false end
+    local whitelist = upper_list(cfg.whitelist)
+    if whitelist then
+        for _, c in ipairs(whitelist) do
+            if c == cc then return false end
         end
     end
 
     -- Blocklist
-    if cfg.blocklist then
-        for _, c in ipairs(cfg.blocklist) do
-            if c:upper() == cc then
+    local blocklist = upper_list(cfg.blocklist)
+    if blocklist then
+        for _, c in ipairs(blocklist) do
+            if c == cc then
                 return true, "geoip:blocklist:" .. cc
             end
         end
@@ -385,8 +403,10 @@ function _M.check_block(ip, geo)
 
     -- Block by continent
     if cfg.block_continents and geo.continent then
-        for _, cont in ipairs(cfg.block_continents) do
-            if cont:upper() == geo.continent:upper() then
+        local cont_upper = geo.continent:upper()
+        local conts = upper_list(cfg.block_continents)
+        for _, cont in ipairs(conts) do
+            if cont == cont_upper then
                 return true, "geoip:block_continent:" .. geo.continent
             end
         end

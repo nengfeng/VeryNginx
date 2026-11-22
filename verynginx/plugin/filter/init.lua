@@ -92,7 +92,13 @@ local function split_rules(all_rules)
         -- recursing into Composite) here, once per rule load — otherwise
         -- every request re-does json.encode + crc32 + sort per definition.
         local rule_md = matcher.resolve(rule)
-        if rule_md then matcher.precompute(rule_md) end
+        if rule_md then
+            matcher.precompute(rule_md)
+            -- Persist the resolved definition on the worker-local rule object
+            -- so the per-request matcher.resolve(rule) in evaluate_rules() is
+            -- a single table read instead of re-walking config.matcher by name.
+            rule._matcher_def = rule_md
+        end
         local action = rule.action or "log"
         if action == "block" or action == "accept" then
             table.insert(hard_block, rule)

@@ -310,7 +310,7 @@
       if (wafTab.value === 'attacks') await loadWafAttackData();
       if (wafTab.value === 'rules' && wafRuleView.value === 'analytics') await loadWafAnalytics();
       if (wafTab.value === 'rules' && wafRuleView.value === 'recs') await loadRecs();
-      if (wafTab.value === 'history') { await loadWafHistory(); await loadPendingRules(); }
+      if (wafTab.value === 'history') { await Promise.all([loadWafHistory(), loadPendingRules()]); }
     }
 
     async function loadWafAttackData() {
