@@ -10,11 +10,10 @@ on a fresh install / after an upgrade (see AGENTS.md §11.5):
  2. The service unit did not set `VN_HELPER_ALLOWED_UIDS` to the nginx
     worker's uid, so the Go helper's SO_PEERCRED check rejected the worker
     even though it was in the `verynginx` group (filesystem 0660).
- 3. The socket node is (re)created as root:root on rebind; `[Socket] Group=`
-    is not reliably applied, and the helper service is unprivileged. A
-    dedicated root oneshot (`firewall-helper-permissions.service`) pulled in
-    via Wants=/After= is required to chgrp it back to verynginx. Note this
-    systemd ignores `+ExecStartPre`, so that mechanism must not be used.
+ 3. The socket unit used `Group=verynginx` (a process-credential directive,
+    ignored in [Socket]) instead of `SocketGroup=verynginx`. The socket node
+    was thus (re)created root:root on rebind and the nginx worker could not
+    connect. `SocketGroup=` fixes the node's group at bind time.
 
 We do static checks on the generator/templates (running the installer would
 need root and network). Run: python3 test/v2/install_helper_contract_test.py
@@ -30,7 +29,6 @@ FAIL = 0
 
 INSTALLER = os.path.join(ROOT, "install-lnmp.sh")
 TEMPLATE_SERVICE = os.path.join(ROOT, "helper", "firewall-helper.service")
-TEMPLATE_PERMS = os.path.join(ROOT, "helper", "firewall-helper-permissions.service")
 TEMPLATE_SOCKET = os.path.join(ROOT, "helper", "firewall-helper.socket")
 UPGRADE = os.path.join(ROOT, "tools", "upgrade.sh")
 
@@ -53,41 +51,39 @@ def read(path):
 
 
 def directives(text):
-    """Drop comment lines so prose like 'do NOT add RuntimeDirectory=' does
-    not trip a check meant for real systemd directives."""
+    """Drop comment lines so prose ('do NOT add RuntimeDirectory=') does not
+    trip a check meant for real systemd directives."""
     return "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
 
 
-def after_line(text, key):
-    """Return the value of an `After=` line, or '' if none."""
-    for l in directives(text).splitlines():
-        s = l.strip()
-        if s.startswith(key + "="):
-            return s.split("=", 1)[1]
-    return ""
+def has_directive(text, key):
+    return any(l.strip().startswith(key + "=") for l in directives(text).splitlines())
 
 
 def main():
     print("== install path: firewall helper systemd contract ==")
     installer = read(INSTALLER)
     tpl_svc = read(TEMPLATE_SERVICE)
-    tpl_perms = read(TEMPLATE_PERMS)
     tpl_sock = read(TEMPLATE_SOCKET)
     upgrade = read(UPGRADE)
 
-    # The installer writes the service via a SVCUNIT heredoc; cut that out so
-    # a stray directive elsewhere in the script doesn't cause a false result.
     marker = "<<SVCUNIT"
     svc_heredoc = ""
     if marker in installer:
         svc_heredoc = installer.split(marker, 1)[1].split("\nSVCUNIT", 1)[0]
+    sock_marker = "<<SOCKUNIT"
+    sock_heredoc = ""
+    if sock_marker in installer:
+        sock_heredoc = installer.split(sock_marker, 1)[1].split("\nSOCKUNIT", 1)[0]
     d_svc_install = directives(svc_heredoc)
     d_svc_tpl = directives(tpl_svc)
+    d_sock_install = directives(sock_heredoc)
+    d_sock_tpl = directives(tpl_sock)
 
     # --- Defect 1: RuntimeDirectory on the service wipes the socket file ---
     for label, text in (("installer SVCUNIT", d_svc_install),
                         ("helper/firewall-helper.service template", d_svc_tpl)):
-        if any(l.strip().startswith("RuntimeDirectory=") for l in text.splitlines()):
+        if has_directive(text, "RuntimeDirectory"):
             ko("%s must not declare RuntimeDirectory= (wipes .sock on restart)" % label)
         else:
             ok("%s has no RuntimeDirectory=" % label)
@@ -106,41 +102,32 @@ def main():
     else:
         ok("installer derives the nginx worker uid")
 
-    # --- Defect 3: root chgrp fixup unit + Wants=/After= wiring ---
-    if "firewall-helper-permissions.service" not in installer:
-        ko("installer must generate firewall-helper-permissions.service")
-    else:
-        ok("installer generates firewall-helper-permissions.service")
-    for label, text in (("installer SVCUNIT", d_svc_install),
-                        ("service template", d_svc_tpl)):
-        if "Wants=firewall-helper-permissions.service" not in text:
-            ko("%s must Wants= the permissions fixup unit" % label)
+    # --- Defect 3: socket node group via SocketGroup= (NOT Group=) ---
+    for label, text in (("installer SOCKUNIT", d_sock_install),
+                        ("socket template", d_sock_tpl)):
+        if has_directive(text, "SocketGroup") and "SocketGroup=verynginx" in text or \
+           (has_directive(text, "SocketGroup") and "SocketGroup=${vn_group}" in text):
+            ok("%s sets SocketGroup= on the socket node" % label)
         else:
-            ok("%s Wants= the permissions fixup unit" % label)
-        after = after_line(text, "After")
-        if "firewall-helper-permissions.service" not in after:
-            ko("%s must order After= the permissions fixup unit" % label)
+            ko("%s must set SocketGroup=verynginx (Group= is ignored in [Socket])" % label)
+        if has_directive(text, "Group"):
+            ko("%s must not use Group= in [Socket] (process cred, ignored)" % label)
         else:
-            ok("%s orders After= the permissions fixup unit" % label)
-    perm_block = (installer.split("<<PERMUNIT", 1)[1].split("\nPERMUNIT", 1)[0]
-                  if "<<PERMUNIT" in installer else "")
-    for label, text in (("installer PERMUNIT", perm_block),
-                        ("permissions template", tpl_perms)):
-        if "chgrp verynginx" not in text and "chgrp ${vn_group}" not in text:
-            ko("%s must chgrp the .sock node to verynginx" % label)
-        else:
-            ok("%s chgrps the .sock node" % label)
-        if "User=" in directives(text):
-            ko("%s must run as root (no unprivileged User=)" % label)
-        else:
-            ok("%s runs as root" % label)
+            ok("%s avoids Group= in [Socket]" % label)
     # +ExecStartPre is ignored by systemd 257 — must not reappear as a directive.
     for label, text in (("installer", directives(installer)),
                         ("service template", d_svc_tpl)):
-        if any(l.strip().startswith("+ExecStartPre") for l in text.splitlines()):
+        if has_directive(text, "+ExecStartPre"):
             ko("%s must not use +ExecStartPre directive (ignored by systemd)" % label)
         else:
             ok("%s avoids +ExecStartPre directive" % label)
+    # No obsolete root chgrp oneshot should remain.
+    for label, text in (("installer", installer), ("service template", tpl_svc),
+                        ("upgrade.sh", upgrade)):
+        if "firewall-helper-permissions.service" in text:
+            ko("%s must not reference the obsolete permissions oneshot" % label)
+        else:
+            ok("%s has no obsolete permissions oneshot" % label)
 
     # --- Socket unit still owns the directory + mode 0660 ---
     if "ListenStream=/run/verynginx/firewall-helper.sock" not in tpl_sock:
@@ -151,12 +138,16 @@ def main():
         ko("socket template must keep SocketMode=0660")
     else:
         ok("socket template keeps SocketMode=0660")
-
-    # --- Upgrade path deploys all three units, including the fixup ---
-    if "firewall-helper-permissions.service" not in upgrade:
-        ko("upgrade.sh must deploy firewall-helper-permissions.service")
+    if "DirectoryMode=0755" not in tpl_sock:
+        ko("socket template must keep DirectoryMode=0755")
     else:
-        ok("upgrade.sh deploys firewall-helper-permissions.service")
+        ok("socket template keeps DirectoryMode=0755")
+
+    # --- Upgrade path deploys both units (no oneshot) ---
+    if "for _unit in firewall-helper.socket firewall-helper.service; do" not in upgrade:
+        ko("upgrade.sh must deploy both firewall-helper units")
+    else:
+        ok("upgrade.sh deploys both firewall-helper units")
 
     print("")
     print("Install helper contract tests: %d passed, %d failed" % (PASS, FAIL))

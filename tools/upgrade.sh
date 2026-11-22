@@ -238,7 +238,7 @@ else
                 fi
                 mkdir -p /run/verynginx && chmod 755 /run/verynginx 2>/dev/null || true
                 # systemd 单元如有变化一并部署
-                for _unit in firewall-helper.socket firewall-helper.service firewall-helper-permissions.service; do
+                for _unit in firewall-helper.socket firewall-helper.service; do
                     if [ -f "${GIT_CLONE_DIR}/helper/${_unit}" ]; then
                         if ! cmp -s "${GIT_CLONE_DIR}/helper/${_unit}" "/etc/systemd/system/${_unit}" 2>/dev/null; then
                             cp "${GIT_CLONE_DIR}/helper/${_unit}" "/etc/systemd/system/${_unit}" \

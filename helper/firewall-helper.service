@@ -1,8 +1,7 @@
 [Unit]
 Description=VeryNginx Firewall Helper (nftables kernel IP blocking)
-After=network.target firewall-helper.socket firewall-helper-permissions.service
+After=network.target firewall-helper.socket
 Requires=firewall-helper.socket
-Wants=firewall-helper-permissions.service
 
 [Service]
 Type=simple
@@ -29,11 +28,8 @@ ExecStartPre=/bin/mkdir -p /run/verynginx
 # Do NOT add RuntimeDirectory= to this service: on every service (re)start
 # systemd would wipe the directory, unlinking the socket file and leaving
 # the kernel listener unreachable by path -> panel shows helper_unavailable.
-# (Rebinds via "systemctl restart firewall-helper.socket" can also drop the
-# group back to root; the root-owned firewall-helper-permissions.service
-# oneshot — pulled in via Wants=/After= — chgrps the node back on every
-# start. This systemd ignores "+ExecStartPre", and the helper service runs
-# unprivileged (User=verynginx) so it cannot chgrp a root-owned node itself.)
+# The socket node's group is set by [Socket] SocketGroup=verynginx, so the
+# nginx worker (member of verynginx) can connect to the 0660 node.
 # Peer auth (helper/peer_linux.go) re-checks SO_PEERCRED beyond the
 # filesystem 0660+group: only the helper's own uid, uid 0, or uids in
 # VN_HELPER_ALLOWED_UIDS may talk to it. Set this to the nginx worker uid,

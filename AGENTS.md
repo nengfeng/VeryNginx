@@ -860,9 +860,8 @@ helper/
 ├── go.mod
 ├── main.go              ← 全部逻辑 (~450 行)
 ├── main_test.go         ← e2e 测试 (需 E2E=1 + CAP_NET_ADMIN)
-├── firewall-helper.socket  ← systemd socket unit (创建 /run/verynginx + .sock)
-├── firewall-helper.service ← systemd service unit (Wants= permission fixup)
-└── firewall-helper-permissions.service ← root oneshot: chgrp .sock → verynginx 组
+├── firewall-helper.socket  ← systemd socket unit (创建 /run/verynginx + .sock，SocketGroup= 设属组)
+└── firewall-helper.service ← systemd service unit
 ```
 
 ### 11.5 部署
@@ -875,8 +874,8 @@ cd helper && go build -o firewall-helper .
 systemctl stop firewall-helper.socket firewall-helper.service
 cp firewall-helper /usr/local/bin/
 
-# systemd units —— 三个都要装
-cp firewall-helper.{socket,service,permissions.service} /etc/systemd/system/
+# systemd units（两个）
+cp firewall-helper.{socket,service} /etc/systemd/system/
 
 # 关键：helper service 必须带 Environment=VN_HELPER_ALLOWED_UIDS=<nginx worker uid>
 # （install-lnmp.sh 自动检测 nginx.conf 的 user= 并填入；手工部署需自己加）。
@@ -895,7 +894,7 @@ systemctl enable --now firewall-helper.socket
 **三个易踩的坑（都曾导致面板 `helper_unavailable`，务必确认）：**
 1. **service 单元里绝不能写 `RuntimeDirectory=verynginx`**：socket 单元拥有 `/run/verynginx` + `.sock`；service 每次（重）启动都会被 systemd 清空该目录、unlink 掉 socket 文件，使内核 listener 路径不可达。安装器与模板均已移除。
 2. **peer 认证必须显式放行 nginx worker uid**：见上文 `VN_HELPER_ALLOWED_UIDS`（只加组不够）。
-3. **`.sock` 属组的自愈**：socket 单元在重绑时会把节点建为 `root:root`（`[Socket] Group=` 在重绑时不可靠）；nginx worker（verynginx 组成员）无法连接。`firewall-helper-permissions.service`（root oneshot，`Wants=/After=` 挂到 helper service，每次启动跑一次 `chgrp verynginx`）负责修复。注意此 systemd（v257）**忽略 `+ExecStartPre`**，所以修复必须放在独立 root oneshot 里，且 helper service 自身是 `User=verynginx` 无权 chgrp root 节点。
+3. **socket 单元必须用 `SocketGroup=verynginx`（不是 `Group=`）**：`Group=` 是进程凭据指令，在 `[Socket]` 里被忽略，导致 `.sock` 每次重绑都建成 `root:root 660`，nginx worker（verynginx 组成员）连不上 → 面板 `helper_unavailable`。用 `SocketGroup=` 则绑定时节点即为 `root:verynginx 660`，无需任何 chgrp oneshot。（曾在 v257 上实测：`Group=` 时节点 `root:root`，换成 `SocketGroup=` 后立即 `root:verynginx`。）另外此 systemd 也**忽略 `+ExecStartPre`**，不要用它做 chgrp。
 
 部署后自检：`stat -c '%U:%G %a' /run/verynginx/firewall-helper.sock` 应为 `root verynginx 660`；以 nginx worker 用户直连 socket 做 `health` 应返回 `state=ok`；面板 `/verynginx/kernel-blocking/status` 的 `data.health.state` 应为 `ok`。
 

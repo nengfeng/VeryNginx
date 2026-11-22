@@ -5,7 +5,12 @@ Before=nginx.service
 [Socket]
 ListenStream=/run/verynginx/firewall-helper.sock
 SocketMode=0660
-Group=verynginx
+# SocketGroup= (NOT Group=) sets the socket NODE's group — this is what lets
+# the nginx worker (member of verynginx) connect to a 0660 node. `Group=` is
+# a process-credential directive and is IGNORED in [Socket]: with it the node
+# is (re)created root:root on every rebind and the worker cannot connect ->
+# panel shows helper_unavailable. Verified on systemd 257.
+SocketGroup=verynginx
 # 0750 would make /run/verynginx root:root non-traversable for the nginx
 # worker after a reboot (systemd recreates it before nginx starts; the
 # installer's manual chmod 755 only masks the first run). Traversal is
