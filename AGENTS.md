@@ -860,8 +860,9 @@ helper/
 ├── go.mod
 ├── main.go              ← 全部逻辑 (~450 行)
 ├── main_test.go         ← e2e 测试 (需 E2E=1 + CAP_NET_ADMIN)
-├── firewall-helper.socket ← systemd socket unit
-└── firewall-helper.service ← systemd service unit
+├── firewall-helper.socket  ← systemd socket unit (创建 /run/verynginx + .sock)
+├── firewall-helper.service ← systemd service unit (Wants= permission fixup)
+└── firewall-helper-permissions.service ← root oneshot: chgrp .sock → verynginx 组
 ```
 
 ### 11.5 部署
@@ -870,15 +871,33 @@ helper/
 # 构建
 cd helper && go build -o firewall-helper .
 
-# 安装二进制
+# 安装二进制（先停 socket+service，避免 ETXTBSY）
+systemctl stop firewall-helper.socket firewall-helper.service
 cp firewall-helper /usr/local/bin/
 
-# systemd units
-cp firewall-helper.{socket,service} /etc/systemd/system/
+# systemd units —— 三个都要装
+cp firewall-helper.{socket,service,permissions.service} /etc/systemd/system/
+
+# 关键：helper service 必须带 Environment=VN_HELPER_ALLOWED_UIDS=<nginx worker uid>
+# （install-lnmp.sh 自动检测 nginx.conf 的 user= 并填入；手工部署需自己加）。
+# 原因：peer 认证（peer_linux.go）只放行同 uid / root / VN_HELPER_ALLOWED_UIDS；
+# 只把 worker 加进 verynginx 组（0660 文件系统层）不够——缺这个变量面板会显示
+# helper_unavailable。systemd 的 Environment= 可在 drop-in 里加：
+#   /etc/systemd/system/firewall-helper.service.d/allowed-uids.conf:
+#     [Service]
+#     Environment=VN_HELPER_ALLOWED_UIDS=1001   # www / nginx worker 的 uid
+
 systemctl daemon-reload
 systemctl enable --now firewall-helper.socket
 # service 在首次连接时自动启动 (socket-activated)
 ```
+
+**三个易踩的坑（都曾导致面板 `helper_unavailable`，务必确认）：**
+1. **service 单元里绝不能写 `RuntimeDirectory=verynginx`**：socket 单元拥有 `/run/verynginx` + `.sock`；service 每次（重）启动都会被 systemd 清空该目录、unlink 掉 socket 文件，使内核 listener 路径不可达。安装器与模板均已移除。
+2. **peer 认证必须显式放行 nginx worker uid**：见上文 `VN_HELPER_ALLOWED_UIDS`（只加组不够）。
+3. **`.sock` 属组的自愈**：socket 单元在重绑时会把节点建为 `root:root`（`[Socket] Group=` 在重绑时不可靠）；nginx worker（verynginx 组成员）无法连接。`firewall-helper-permissions.service`（root oneshot，`Wants=/After=` 挂到 helper service，每次启动跑一次 `chgrp verynginx`）负责修复。注意此 systemd（v257）**忽略 `+ExecStartPre`**，所以修复必须放在独立 root oneshot 里，且 helper service 自身是 `User=verynginx` 无权 chgrp root 节点。
+
+部署后自检：`stat -c '%U:%G %a' /run/verynginx/firewall-helper.sock` 应为 `root verynginx 660`；以 nginx worker 用户直连 socket 做 `health` 应返回 `state=ok`；面板 `/verynginx/kernel-blocking/status` 的 `data.health.state` 应为 `ok`。
 
 ### 11.6 测试
 

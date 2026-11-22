@@ -1,0 +1,26 @@
+# Root-owned socket-group fixup for the VeryNginx Firewall Helper.
+#
+# Why this unit exists:
+#  - [Socket] Group=verynginx is not reliably applied when the socket node is
+#    (re)created (e.g. "systemctl restart firewall-helper.socket" recreates
+#    it root:root); with root:root 0660 the nginx worker cannot connect.
+#  - The firewall-helper.service itself runs UNPRIVILEGED (User=verynginx)
+#    and cannot chgrp a root-owned node; this systemd also ignores
+#    "+ExecStartPre" (Unknown key), so the fix cannot live in that service.
+#  - A root oneshot pulled in via Wants=/After= on every helper-service start
+#    self-heals the group.
+#
+# Paired with: firewall-helper.service (Wants= + After= this unit) and
+# Environment=VN_HELPER_ALLOWED_UIDS=<nginx worker uid> on that service
+# (peer auth, helper/peer_linux.go). See AGENTS.md §11.5.
+
+[Unit]
+Description=Fix firewall-helper socket group ownership (root chgrp)
+After=firewall-helper.socket
+
+[Service]
+Type=oneshot
+# A transiently missing socket file (socket unit stopped) must not block the
+# helper service from starting.
+ExecStart=/bin/sh -c 'chgrp verynginx /run/verynginx/firewall-helper.sock 2>/dev/null || true'
+RemainAfterExit=no

@@ -1674,6 +1674,14 @@ install_firewall_helper() {
       warn "Could not detect nginx worker user — add it manually: usermod -aG ${vn_group} <user>"
       _VN_GROUP_JOINED=1
     fi
+    # Peer auth (helper/peer_linux.go) re-checks SO_PEERCRED beyond the
+    # filesystem 0660+group: only the helper's own uid, uid 0, or uids in
+    # VN_HELPER_ALLOWED_UIDS may talk to it. Group membership alone leaves
+    # the nginx worker rejected -> panel shows helper_unavailable.
+    local vn_web_uid=""
+    if [ -n "$vn_web_user" ] && id "$vn_web_user" >/dev/null 2>&1; then
+      vn_web_uid=$(id -u "$vn_web_user" 2>/dev/null || echo "")
+    fi
 
     # Write socket unit
     cat > /etc/systemd/system/firewall-helper.socket <<SOCKUNIT
@@ -1699,8 +1707,9 @@ SOCKUNIT
     cat > /etc/systemd/system/firewall-helper.service <<SVCUNIT
 [Unit]
 Description=VeryNginx Firewall Helper (nftables kernel IP blocking)
-After=network.target
+After=network.target firewall-helper.socket firewall-helper-permissions.service
 Requires=firewall-helper.socket
+Wants=firewall-helper-permissions.service
 
 [Service]
 Type=simple
@@ -1716,13 +1725,41 @@ ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
 ReadWritePaths=${FIREWALL_HELPER_DIR}
-RuntimeDirectory=verynginx
-RuntimeDirectoryMode=0755
 ExecStartPre=/bin/mkdir -p ${FIREWALL_HELPER_DIR}
+# The firewall-helper.socket unit OWNS /run/verynginx + the .sock file.
+# Do NOT add RuntimeDirectory= to this service: on every service (re)start
+# systemd would wipe the directory, unlinking the socket file and leaving
+# the kernel listener unreachable by path -> panel shows helper_unavailable.
+# (Rebinds via "systemctl restart firewall-helper.socket" can also drop the
+# group back to root. The root-owned firewall-helper-permissions.service
+# oneshot — pulled in via Wants=/After= — chgrps the node back on every
+# start. This systemd ignores "+ExecStartPre", and the helper service runs
+# unprivileged (User=${vn_group}) so it cannot chgrp a root-owned node itself.)
+# See the note above the vn_web_uid capture: without this the nginx worker
+# is rejected by the helper's peer check and the panel shows
+# helper_unavailable. Empty value (detection failed) = no-op, defaults apply.
+Environment=VN_HELPER_ALLOWED_UIDS=${vn_web_uid}
 
 [Install]
 WantedBy=multi-user.target
 SVCUNIT
+
+    # Write the root-owned socket-group fixup oneshot. It runs as root (no
+    # User=) so it can chgrp the socket node that [Socket] Group= does not
+    # reliably apply on rebind. The helper service Wants= it, so it runs on
+    # every helper start and self-heals the group.
+    cat > /etc/systemd/system/firewall-helper-permissions.service <<PERMUNIT
+[Unit]
+Description=Fix firewall-helper socket group ownership (root chgrp)
+After=firewall-helper.socket
+
+[Service]
+Type=oneshot
+# A transiently missing socket file (socket unit stopped) must not block the
+# helper service from starting.
+ExecStart=/bin/sh -c 'chgrp ${vn_group} ${FIREWALL_HELPER_SOCKET} 2>/dev/null || true'
+RemainAfterExit=no
+PERMUNIT
 
     systemctl daemon-reload
     systemctl enable firewall-helper.socket
@@ -1736,12 +1773,23 @@ SVCUNIT
     fi
     info "systemd units installed and started ✓"
     if systemctl is-active --quiet firewall-helper.socket 2>/dev/null; then
-      local sock_mode
-      sock_mode=$(stat -c '%a' "${FIREWALL_HELPER_SOCKET}" 2>/dev/null || echo "?")
-      if [ "$sock_mode" = "660" ]; then
-        info "socket permission 0660 group=${vn_group:-verynginx} ✓"
+      local sock_perm sock_grp
+      # [Socket] Group= is not reliably applied on rebinds (node can come
+      # back root:root); the installer is root, so fix it in place now. The
+      # firewall-helper-permissions.service oneshot keeps it healed on
+      # every later service start.
+      chgrp "${vn_group}" "${FIREWALL_HELPER_SOCKET}" 2>/dev/null || true
+      sock_perm=$(stat -c '%a' "${FIREWALL_HELPER_SOCKET}" 2>/dev/null || echo "?")
+      sock_grp=$(stat -c '%G' "${FIREWALL_HELPER_SOCKET}" 2>/dev/null || echo "?")
+      if [ "$sock_perm" = "660" ] && [ "$sock_grp" = "${vn_group}" ]; then
+        info "socket 0660 ${sock_grp} ✓"
       else
-        warn "socket mode is ${sock_mode}, expected 660 — check Group=/SocketMode= in firewall-helper.socket"
+        warn "socket is ${sock_perm} group=${sock_grp}, expected 660 ${vn_group:-verynginx} — check SocketMode=/Group= in firewall-helper.socket"
+      fi
+      if [ -n "${vn_web_uid:-}" ]; then
+        info "peer auth allows nginx worker ${vn_web_user} (uid ${vn_web_uid}) via VN_HELPER_ALLOWED_UIDS ✓"
+      else
+        warn "nginx worker uid unknown — the panel will show helper_unavailable until you add Environment=VN_HELPER_ALLOWED_UIDS=<uid> to firewall-helper.service and restart it"
       fi
       info "firewall-helper.socket is active ✓"
       if [ "${_VN_GROUP_JOINED:-0}" = "1" ]; then
