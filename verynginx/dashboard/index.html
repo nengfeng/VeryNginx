@@ -2171,7 +2171,7 @@
       <!-- Kernel Blocking -->
       <div v-if="page==='kb'">
         <h2 class="page-title">内核 IP 封禁</h2>
-        <details class="page-desc"><summary>说明</summary><div>把屡教不改的恶意 IP 直接封在系统内核层，比应用层拦截更快、更省资源。配合扫描器和 CC 规则自动晋升，通常只需关注「已安装」页是否有异常条目。</div></details>
+        <details class="page-desc"><summary>说明</summary><div>把屡教不改的恶意 IP 直接封在系统内核层，比应用层拦截更快、更省资源。配合扫描器和 CC 规则自动晋升，通常只需关注「封禁中」页是否有异常条目。</div></details>
         <div v-if="kbError" class="error" style="margin-bottom:8px">{{ kbError }}</div>
           <div v-if="kbBusy" class="empty" style="text-align:left;padding:8px 0">处理中…</div>
 
@@ -2190,7 +2190,7 @@
             </div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">已安装</div>
+            <div class="stat-label">封禁中</div>
             <div class="stat-value">{{ kbStatus.counters.installed || 0 }}</div>
             <div class="stat-sub">扫描器 {{ kbStatus.counters.installed_scanner || 0 }} / CC {{ kbStatus.counters.installed_cc || 0 }} / 手动 {{ kbStatus.counters.installed_manual || 0 }}</div>
           </div>
@@ -2426,12 +2426,12 @@
 
         <!-- Tabs -->
         <div class="tabs mb-8">
-          <button type="button" :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">已安装</button>
+          <button type="button" :class="{active:kbTab==='entries'}" @click="kbTab='entries';loadKbEntries()">封禁中</button>
           <button type="button" :class="{active:kbTab==='candidates'}" @click="kbTab='candidates';loadKbCandidates()">候选</button>
           <button type="button" :class="{active:kbTab==='timeline'}" @click="kbTab='timeline';loadKbTimeline()">时间线</button>
           <button type="button" :class="{active:kbTab==='dashboard'}" @click="kbTab='dashboard';loadKbDashboard()">仪表盘</button>
         </div>
-        <details class="page-desc"><summary>说明</summary><div>已安装：内核中当前生效的封禁条目；候选：等待晋升的 IP 列表；时间线：封禁/解除操作的历史记录；仪表盘：令牌桶余额趋势与规则可达性可视化。</div></details>
+        <details class="page-desc"><summary>说明</summary><div>封禁中：内核里正在生效的封禁 IP；候选：等待晋升的 IP 列表；时间线：封禁/解除操作的历史记录；仪表盘：令牌桶余额趋势与规则可达性可视化。</div></details>
 
         <!-- Filters -->
         <div class="flex mb-8" style="gap:8px;flex-wrap:wrap" v-if="kbTab!=='timeline'">
@@ -2459,7 +2459,7 @@
           <input v-model="kbEntriesTbl.state.filter" class="tbl-filter" placeholder="过滤当前页条目（IP/来源/模式…）">
           <div v-if="!kbEntries.length" class="empty">
             <span v-if="kbFilterPolicy || kbFilterIP">无匹配当前过滤 (策略: {{ kbFilterPolicy || '全部' }}, IP: {{ kbFilterIP || '全部' }})</span>
-            <span v-else>无已安装条目。<button type="button" class="linklike" @click="navigateTo('kb')">查看候选 IP</button></span>
+            <span v-else>暂无正在封禁的 IP。<button type="button" class="linklike" @click="navigateTo('kb')">查看候选 IP</button></span>
           </div>
           <div v-else-if="!kbEntriesTbl.rows.length" class="empty">无匹配当前过滤。</div>
            <table v-else class="data-table">
@@ -2467,7 +2467,7 @@
                <th scope="col" class="sortable" tabindex="0" data-sort-col="ip" :aria-sort="ariaSort(kbEntriesTbl,'ip')" @click="kbEntriesTbl.sortBy('ip')">IP <span v-if="kbEntriesTbl.state.sortKey==='ip'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th scope="col" class="sortable" tabindex="0" data-sort-col="list" :aria-sort="ariaSort(kbEntriesTbl,'list')" @click="kbEntriesTbl.sortBy('list')" title="scanner=扫描器自动封禁，cc=CC攻击自动封禁，manual=管理员手动封禁">集合 <span v-if="kbEntriesTbl.state.sortKey==='list'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th scope="col" title="ipv4=IPv4 地址，ipv6=IPv6 地址">协议族</th><th scope="col" title="manual=手动封禁，auto=自动晋升（scanner/cc）">来源</th><th scope="col" title="ensure=确保存在，delete=确保移除">模式</th>
-               <th scope="col" class="sortable" tabindex="0" data-sort-col="installed_at" :aria-sort="ariaSort(kbEntriesTbl,'installed_at')" @click="kbEntriesTbl.sortBy('installed_at')">已安装 <span v-if="kbEntriesTbl.state.sortKey==='installed_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+               <th scope="col" class="sortable" tabindex="0" data-sort-col="installed_at" :aria-sort="ariaSort(kbEntriesTbl,'installed_at')" @click="kbEntriesTbl.sortBy('installed_at')">封禁时间 <span v-if="kbEntriesTbl.state.sortKey==='installed_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th scope="col" class="sortable" tabindex="0" data-sort-col="expires_at" :aria-sort="ariaSort(kbEntriesTbl,'expires_at')" @click="kbEntriesTbl.sortBy('expires_at')">过期 <span v-if="kbEntriesTbl.state.sortKey==='expires_at'" class="sort-ind">{{ kbEntriesTbl.state.sortDir===1?'▲':'▼' }}</span></th>
                <th scope="col">内核</th><th scope="col">操作</th>
              </tr></thead>
@@ -2657,7 +2657,7 @@
               </div>
               <div v-if="kbDiff.orphan_in_kernel.length">
                  <div style="font-size:12px;color:var(--err);margin-bottom:6px">
-                   ▲ 内核孤儿 ({{ kbDiff.orphan_in_kernel.length }}) — 已安装但非期望
+                   ▲ 内核孤儿 ({{ kbDiff.orphan_in_kernel.length }}) — 已在内核封禁但非期望
                  </div>
                 <table class="data-table">
                    <thead><tr><th scope="col">IP</th><th scope="col">集合</th><th scope="col">协议族</th></tr></thead>
