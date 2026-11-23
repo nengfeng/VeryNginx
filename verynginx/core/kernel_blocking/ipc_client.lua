@@ -25,9 +25,16 @@ local READ_TIMEOUT    = 2000
 local WRITE_TIMEOUT   = 2000
 -- local IDLE_TIMEOUT = 5000  -- reserved for future idle-purpose logic
 
--- Connection lifecycle limits
+-- Connection lifecycle limits. MAX_CONN_LIFETIME MUST stay BELOW the Go
+-- helper's connIdleTimeout (30s in helper/main.go): Go closes an idle
+-- connection after 30s of inactivity, and this module reuses a cached cosocket
+-- across requests. If Lua kept a socket up to 30s old, the first request after
+-- an idle gap could hit a socket Go had already closed -> send_error (which
+-- surfaced to the panel as helper_unavailable). Reconnecting at 20s guarantees
+-- the socket is never older than Go's idle window, so a stale reuse cannot
+-- happen; the transparent retry below still covers an unexpected peer restart.
 local MAX_REQUESTS_PER_CONN = 100
-local MAX_CONN_LIFETIME     = 30  -- seconds
+local MAX_CONN_LIFETIME     = 20  -- seconds; MUST be < helper connIdleTimeout (30)
 
 -- Socket path (validated to be fixed)
 local SOCK_TEMPLATE = "/run/verynginx/firewall-helper.sock"
@@ -313,7 +320,36 @@ function _M.request(operation, source, payload)
             return nil, ecode
         end
     end
-    ok_result, err_result = do_request()
+    -- Transparent one-time retry on a stale cached connection.
+    -- The Go helper closes idle connections after connIdleTimeout (30s), but
+    -- this module reuses a cached cosocket across requests. The first request
+    -- after an idle gap therefore hits a half-closed socket: ngx.cosocket:send
+    -- returns nil ("send_error"), or the response read returns "closed".
+    -- Surfacing that as a failed health() makes the panel show
+    -- helper_unavailable even though the helper is healthy and the very next
+    -- request would succeed. Retry once on a fresh socket + fresh request_id;
+    -- the id is regenerated per attempt so the helper's replay guard is fine.
+    -- We do NOT retry protocol/validation errors (duplicate_request_id,
+    -- frame_too_large, decode_error, ...) — those are not connection failures.
+    -- Importantly, only retry operations that do NOT require a scope-bound
+    -- session (health/probe/list). Write ops (add/delete/reconcile/...) go
+    -- through the executor's ensure_drop_scope before dispatch, and a retry on
+    -- a fresh connection there could race scope re-establishment; let those
+    -- surface the error to the fail-safe caller instead.
+    local try = 0
+    local RETRYABLE = { send_error = true, closed = true, read_timeout = true }
+    local SCOPE_FREE = { health = true, probe = true, list = true }
+    local may_retry = SCOPE_FREE[operation] == true
+    while true do
+        try = try + 1
+        ok_result, err_result = do_request()
+        if ok_result or not may_retry or not RETRYABLE[err_result] or try >= 2 then break end
+        -- A failed send/read already closed the socket via close_socket_no_backoff,
+        -- which invalidated scope binding; ensure_connected() on the retry will
+        -- reconnect and the executor re-establishes scope before drop writes.
+        ngx.log(ngx.DEBUG, "ipc_client: retrying '", operation,
+            "' after connection error '", tostring(err_result), "'")
+    end
     release_request_lock(lock_token)
     return ok_result, err_result
 end

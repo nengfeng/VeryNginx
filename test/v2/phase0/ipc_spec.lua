@@ -182,6 +182,57 @@ describe("IPC Protocol client (mock socket)", function()
         assert.truthy(resp, "should get response: " .. tostring(err))
         assert.are.equal(1, sent_count)
     end)
+    it("health retries transparently once on a stale closed socket", function()
+        local dkjson = require "dkjson"
+        local connect_count = 0
+        local send_count = 0
+        _G.ngx.socket = {
+            tcp = function()
+                connect_count = connect_count + 1
+                local this_conn = connect_count
+                local conn = {}
+                local resp_buf = ""
+                function conn:settimeouts() end
+                function conn:settimeout() end
+                function conn:connect() return true end
+                function conn:send(data)
+                    send_count = send_count + 1
+                    -- First cached socket is half-closed by the helper: send fails.
+                    if this_conn == 1 then return nil, "broken pipe" end
+                    local env = dkjson.decode(string.sub(data, 5))
+                    local resp = {
+                        version = 1, request_id = env.request_id,
+                        ok = true, result = { state = "ok" },
+                    }
+                    local body = dkjson.encode(resp)
+                    local len = #body
+                    local hdr = string.char(
+                        math.floor(len / 16777216) % 256, math.floor(len / 65536) % 256,
+                        math.floor(len / 256) % 256, len % 256)
+                    mock_responses[#mock_responses + 1] = hdr .. body
+                    return #data
+                end
+                function conn:receive(n)
+                    while #resp_buf < n and #mock_responses > 0 do
+                        resp_buf = resp_buf .. table.remove(mock_responses, 1)
+                    end
+                    if #resp_buf < n then return nil, "timeout" end
+                    local d = string.sub(resp_buf, 1, n)
+                    resp_buf = string.sub(resp_buf, n + 1)
+                    return d
+                end
+                function conn:setkeepalive() end
+                function conn:close() end
+                return conn
+            end,
+        }
+        package.loaded["core.kernel_blocking.ipc_client"] = nil
+        local client = require "core.kernel_blocking.ipc_client"
+        local resp, err = client.request("health", "automatic", {})
+        assert.truthy(resp, "health must recover on retry: " .. tostring(err))
+        assert.are.equal("ok", resp.result.state)
+        assert.is_true(connect_count >= 2, "a fresh socket must be opened on retry")
+    end)
 end)
 
 describe("IPC executor reconcile metadata", function()
