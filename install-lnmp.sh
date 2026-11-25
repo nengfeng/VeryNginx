@@ -773,31 +773,23 @@ patch_nginx_conf() {
 }
 
 replace_server_block() {
-  # Use python3 to parse nginx.conf and insert server-level Lua handlers
-  # inside the first server {} block, so WAF covers ALL requests.
-  local py_script
+  # Inject server-level Lua handlers into EVERY HTTP server{} block, both in
+  # nginx.conf and in its directly-included files (LNMP-style vhosts). The old
+  # patcher chose ONE server from nginx.conf; when domains live in include
+  # files the filed domain's server block never received the handlers and the
+  # dashboard was unreachable by domain (field-reported).
+  local py_script out token detail
   py_script=$(mktemp /tmp/vn_replace.XXXXXX.py)
   cat > "$py_script" << 'PYEOF'
-import re, sys
+import re, sys, os, glob, shutil, datetime
 
 nginx_conf = sys.argv[1]
 vn_dir = sys.argv[2]
+BACKUP_KEEP = 5
 
-with open(nginx_conf) as f:
-    text = f.read()
-
-# NOTE: no early-exit on a marker. A previous install may have left the
-# marker in place while pointing at a DIFFERENT (now stale) prefix — skipping
-# then keeps serving old files forever (field-reported: 7-day-cached stale
-# static location survived every reinstall). Always clean + re-inject with
-# the CURRENT vn_dir; the cleanup below is generation-agnostic.
-
-# --- Locate an HTTP server{} block robustly -------------------------------
-# text.find('server {') was a literal match: it hit COMMENTED-OUT blocks,
-# quoted strings, and stream{} upstream servers; brace counting ignored
-# comments/strings entirely. Mask comments+strings (length-preserving), then
-# scan structurally. Masked offsets map 1:1 onto the original text.
 def mask_comments_strings(t):
+    # Length-preserving mask: comments and quoted strings become spaces so
+    # brace matching is structural (no commented-out / quoted "server {").
     out=[]; i=0; n=len(t); q=None; h=False
     while i < n:
         c = t[i]
@@ -835,167 +827,155 @@ def find_named_blocks(t, name):
         if cb != -1: res.append((m.start(), ob, cb))
     return res
 
-masked = mask_comments_strings(text)
-http_spans   = find_named_blocks(masked, 'http')
-stream_spans = find_named_blocks(masked, 'stream')
+def collect_files():
+    # nginx.conf plus one level of glob-expanded includes (mirrors the shell
+    # helper directive_file). Vhosts in include files are the common LNMP case.
+    files = [nginx_conf]
+    seen = {os.path.realpath(nginx_conf)}
+    try:
+        with open(nginx_conf) as f: main = f.read()
+    except OSError:
+        return files
+    masked = mask_comments_strings(main)
+    base = os.path.dirname(nginx_conf) or '.'
+    for m in re.finditer(r'^[ \t]*include[ \t]+([^;]+);', masked, re.M):
+        inc = m.group(1).strip()
+        if not inc: continue
+        if not os.path.isabs(inc): inc = os.path.join(base, inc)
+        for exp in glob.glob(inc):
+            if os.path.isfile(exp) and os.path.realpath(exp) not in seen:
+                seen.add(os.path.realpath(exp)); files.append(exp)
+    return files
 
-candidates = []
-for m in re.finditer(r'\bserver\b[ \t]*\{', masked):
-    ob = m.end() - 1
-    cb = match_brace(masked, ob)
-    if cb == -1: continue
-    # A server{} inside stream{} is L4 proxying, not an HTTP vhost — skip.
-    if any(a <= m.start() <= c for a, b, c in stream_spans): continue
-    candidates.append((m.start(), ob, cb))
-
-chosen = None
-for ha, hob, hcb in http_spans:
-    for cand in candidates:
-        if ha < cand[0] < hcb:
-            chosen = cand; break
-    if chosen: break
-if not chosen and candidates:
-    chosen = candidates[0]
-
-if not chosen:
-    # LNMP-style conf: all vhosts live in include files. Degrade instead of
-    # dying AFTER nginx has been fully configured.
-    print("NO_SERVER")
-    sys.exit(0)
-
-brace_pos = chosen[1]
-server_end = chosen[2]
-server_inner = text[brace_pos+1:server_end]
-after = text[server_end:]
-
-# --- Clean old VeryNginx Lua handlers from the server block ---
-# (handles location-level AND server-level, from ANY previous install
-# prefix — not just the current one; a stale prefix's handlers must go too)
-# [ \t] not \s: a greedy \s* after ';' swallows the NEWLINE plus the next
-# line's indentation, so the following line loses its line-start anchor '^'
-# and escapes matching entirely (two consecutive include/lua lines -> only
-# the first removed). Whitespace around directives never spans lines.
 lua_pattern = re.compile(
     r'^[ \t]*(rewrite|access|log)_by_lua_file\s+\S*on_(?:rewrite|access|log)\.lua[ \t]*;[ \t]*$',
-    re.MULTILINE
-)
-server_inner = lua_pattern.sub('', server_inner)
+    re.M)
 
-# Remove empty location /verynginx/ { } blocks left after cleanup
-server_inner = re.sub(
-    r'^\s*location /verynginx/\s*\{\s*\}\s*\n?',
-    '',
-    server_inner,
-    flags=re.MULTILINE
-)
+def clean_server(inner):
+    # Remove handlers / locations from ANY previous install prefix, then
+    # re-inject with the CURRENT vn_dir (a marker alone proves nothing about
+    # WHERE the handlers point — a stale prefix serves old files forever).
+    inner = lua_pattern.sub('', inner)
+    inner = re.sub(r'^\s*location /verynginx/\s*\{\s*\}\s*\n?', '', inner, flags=re.M)
+    inner = re.sub(r'^[ \t]*include[ \t]+[^;\n]*in_server_block\.conf[ \t]*;[ \t]*\n?', '', inner, flags=re.M)
+    inner = re.sub(r'^\s*location /verynginx/static/ \{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}', '', inner, flags=re.M)
+    inner = re.sub(r'^\s*location /verynginx/ \{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}', '', inner, flags=re.M)
+    # Remove our own marker comments so a re-run is byte-idempotent.
+    inner = re.sub(r'^[ \t]*# VeryNginx (?:v2 - server-level handlers|dashboard static files|v2 - API & dashboard)[^\n]*\n?', '', inner, flags=re.M)
+    inner = re.sub(r'\n{3,}', '\n\n', inner)
+    # Trim trailing blank/whitespace-only lines so make_vn_new()'s leading
+    # newline produces byte-identical output on every run (true idempotence).
+    return re.sub(r'\n[ \t]*$', '', inner)
 
-# Remove manual include lines pointing at our server-block snippet (any
-# prefix). Users following the DO_PATCH=n guidance added
-#   include /path/in_server_block.conf;
-# by hand; if kept alongside the handlers we inject here, nginx ends up
-# with DUPLICATE server-level lua handlers and fails `nginx -t`.
-server_inner = re.sub(
-    r'^[ \t]*include[ \t]+[^;\n]*in_server_block\.conf[ \t]*;[ \t]*\n?',
-    '',
-    server_inner,
-    flags=re.MULTILINE
-)
+def make_vn_new(indent):
+    return (
+        '\n'
+        + indent + '# VeryNginx v2 - server-level handlers (WAF for all requests)\n'
+        + indent + 'rewrite_by_lua_file ' + vn_dir + '/on_rewrite.lua;\n'
+        + indent + 'access_by_lua_file ' + vn_dir + '/on_access.lua;\n'
+        + indent + 'log_by_lua_file ' + vn_dir + '/on_log.lua;\n'
+        + '\n'
+        + indent + '# VeryNginx dashboard static files (bypass Lua for performance)\n'
+        + indent + 'location /verynginx/static/ {\n'
+        + indent + '    alias ' + vn_dir + '/dashboard/;\n'
+        + indent + '    access_by_lua_block { }\n'
+        + indent + '    log_by_lua_block { }\n'
+        + indent + '    expires epoch;\n'
+        + indent + '    add_header X-Content-Type-Options "nosniff" always;\n'
+        + indent + '    add_header X-Frame-Options "SAMEORIGIN" always;\n'
+        + indent + '    add_header X-XSS-Protection "1; mode=block" always;\n'
+        + indent + '    add_header Content-Security-Policy "default-src '
+        + "'self'; "
+        + "script-src 'self'; "
+        + "style-src 'self' 'unsafe-inline'; "
+        + "img-src 'self' data:; "
+        + "connect-src 'self'; "
+        + "frame-ancestors 'self'\" always;\n"
+        + indent + '}\n'
+        + '\n'
+        + indent + '# VeryNginx v2 - API & dashboard (handled by router plugin)\n'
+        + indent + 'location /verynginx/ {\n'
+        + indent + '    # Managed by VeryNginx router plugin\n'
+        + indent + '}\n'
+    )
 
-# Collapse runs of blank lines left by directive removal
-server_inner = re.sub(r'\n{3,}', '\n\n', server_inner)
+def backup(path):
+    ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    bak = path + '.bak.' + ts
+    try:
+        shutil.copy2(path, bak)
+        olds = sorted(glob.glob(re.escape(path) + '.bak.*'))
+        for old in olds[:-BACKUP_KEEP]:
+            try: os.remove(old)
+            except OSError: pass
+    except OSError:
+        pass  # backup is best-effort; never block the patch
 
-# Remove entire location /verynginx/static/ blocks (will be re-added)
-# Match from "location /verynginx/static/ {" to matching "}"
-def remove_loc(m):
-    block = m.group(0)
-    # Remove only if this is the old format (with alias but no Lua skip)
-    # We'll always re-add, so just remove it.
-    return ''
-server_inner = re.sub(
-    r'^\s*location /verynginx/static/ \{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}',
-    '',
-    server_inner,
-    flags=re.MULTILINE
-)
+changed_files = 0
+found_blocks = 0
+for path in collect_files():
+    try:
+        with open(path) as f: text = f.read()
+    except OSError:
+        continue
+    masked = mask_comments_strings(text)
+    http_spans = find_named_blocks(masked, 'http')
+    stream_spans = find_named_blocks(masked, 'stream')
+    blocks = []
+    for m in re.finditer(r'\bserver\b[ \t]*\{', masked):
+        ob = m.end() - 1
+        cb = match_brace(masked, ob)
+        if cb == -1: continue
+        if any(a <= m.start() <= c for a, b, c in stream_spans): continue
+        # A pure vhost file has no http{} wrapper: accept all its servers.
+        if http_spans and not any(a < m.start() < c for a, b, c in http_spans): continue
+        blocks.append((m.start(), ob, cb))
+    if not blocks: continue
+    found_blocks += len(blocks)
+    new_text = text
+    for start, ob, cb in reversed(blocks):  # reverse keeps earlier offsets valid
+        line_start = text.rfind('\n', 0, start) + 1
+        leading = re.match(r'[ \t]*', text[line_start:start]).group(0)
+        inner = clean_server(new_text[ob + 1:cb])
+        new_text = new_text[:ob + 1] + inner + make_vn_new(leading + '    ') + new_text[cb:]
+    if new_text == text: continue  # already current — idempotent
+    backup(path)
+    with open(path, 'w') as f: f.write(new_text)
+    changed_files += 1
 
-# Also remove location /verynginx/ { ... } blocks that contain old
-# lua directives (may still have content_by_lua_file or other refs)
-def remove_vn_loc(m):
-    return ''
-server_inner = re.sub(
-    r'^\s*location /verynginx/ \{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}',
-    '',
-    server_inner,
-    flags=re.MULTILINE
-)
-
-# --- Build new server-level directives ---
-INDENT = '    '
-vn_new = (
-    '\n'
-    + INDENT + '# VeryNginx v2 - server-level handlers (WAF for all requests)\n'
-    + INDENT + 'rewrite_by_lua_file ' + vn_dir + '/on_rewrite.lua;\n'
-    + INDENT + 'access_by_lua_file ' + vn_dir + '/on_access.lua;\n'
-    + INDENT + 'log_by_lua_file ' + vn_dir + '/on_log.lua;\n'
-    + '\n'
-    + INDENT + '# VeryNginx dashboard static files (bypass Lua for performance)\n'
-    + INDENT + 'location /verynginx/static/ {\n'
-    + INDENT + '    alias ' + vn_dir + '/dashboard/;\n'
-    + INDENT + '    access_by_lua_block { }\n'
-    + INDENT + '    log_by_lua_block { }\n'
-    + INDENT + '    expires epoch;\n'
-    + INDENT + '    add_header X-Content-Type-Options "nosniff" always;\n'
-    + INDENT + '    add_header X-Frame-Options "SAMEORIGIN" always;\n'
-    + INDENT + '    add_header X-XSS-Protection "1; mode=block" always;\n'
-    + INDENT + '    add_header Content-Security-Policy "default-src '
-    + "'self'; "
-    + "script-src 'self'; "
-    + "style-src 'self' 'unsafe-inline'; "
-    + "img-src 'self' data:; "
-    + "connect-src 'self'; "
-    + "frame-ancestors 'self'\" always;\n"
-    + INDENT + '}\n'
-    + '\n'
-    + INDENT + '# VeryNginx v2 - API & dashboard (handled by router plugin)\n'
-    + INDENT + 'location /verynginx/ {\n'
-    + INDENT + '    # Managed by VeryNginx router plugin\n'
-    + INDENT + '}\n'
-)
-
-result = text[:brace_pos+1] + server_inner + vn_new + after
-
-with open(nginx_conf, 'w') as f:
-    f.write(result)
-print("OK")
+if changed_files:
+    print("OK files=%d blocks=%d" % (changed_files, found_blocks))
+elif found_blocks:
+    print("ALREADY_PRESENT")
+else:
+    print("NO_SERVER")
 PYEOF
-
-  if ! command -v python3 >/dev/null 2>&1; then
-    rm -f "$py_script"
-    warn "python3 unavailable — cannot rewrite server block automatically"
-    echo "    Finish with ONE line inside each server{} you want protected:"
-    echo "      include ${VN_DIR}/nginx_conf/in_server_block.conf;"
-    return 0
-  fi
-  local out
-  out=$(python3 "$py_script" "$NGINX_CONF" "$VN_DIR" 2>&1) || { rm -f "$py_script"; die "Failed to patch server block: $out"; }
+  out=$(python3 "$py_script" "$NGINX_CONF" "$VN_DIR" 2>&1) || {
+    rm -f "$py_script"; die "Failed to patch server blocks: $out"
+  }
   rm -f "$py_script"
-
-  if [ "$out" = "OK" ]; then
-    info "Server block patched with server-level VeryNginx handlers ✓"
-    info "→ WAF now protects all requests in this server block"
-    info "→ Dashboard: http://your-ip/verynginx/index.html"
-  elif [ "$out" = "ALREADY_PRESENT" ]; then
-    info "Server-level VeryNginx handlers already present, skipping ✓"
-  elif [ "$out" = "NO_SERVER" ]; then
-    # Pure vhost-include layout: don't die this late — tell the user how to
-    # finish manually. Everything else (paths/dicts/upstream) already landed.
-    warn "No server{} block in ${NGINX_CONF} (vhosts live in include files?)"
-    echo "    Finish with ONE line inside each server{} you want protected:"
-    echo "      include ${VN_DIR}/nginx_conf/in_server_block.conf;"
-    echo "    then reload nginx. Dashboard: http://your-ip/verynginx/index.html"
-  else
-    die "Server block patch failed: $out"
-  fi
+  token=${out%% *}; detail=${out#* }
+  case "$token" in
+    OK)
+      info "Server blocks patched ✓ ($detail)"
+      info "→ WAF now protects all requests in every patched server block"
+      info "→ Dashboard reachable on each patched domain at https://<domain>${VN_BASE_URI:-/verynginx}/index.html"
+      ;;
+    ALREADY_PRESENT)
+      info "Server-level VeryNginx handlers already present, skipping ✓"
+      ;;
+    NO_SERVER)
+      # Nothing found in nginx.conf or its includes — tell the operator how to
+      # finish manually. Everything else (paths/dicts/upstream) already landed.
+      warn "No server{} block found in ${NGINX_CONF} or its includes"
+      echo "    Finish with ONE line inside each server{} you want protected:"
+      echo "      include ${VN_DIR}/nginx_conf/in_server_block.conf;"
+      echo "    then reload nginx. Dashboard: https://<domain>${VN_BASE_URI:-/verynginx}/index.html"
+      ;;
+    *)
+      die "Server block patch failed: $out"
+      ;;
+  esac
 }
 
 # ----- nginx test & reload -------------------------------------------------
