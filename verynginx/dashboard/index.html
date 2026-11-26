@@ -10,7 +10,7 @@
 <!-- Vue 3: vendored local copy with SRI (no CDN fallback - would be blocked by the
      page CSP script-src 'self' and is an unnecessary supply-chain surface) -->
 <script src="/verynginx/static/vue.global.prod.js?v=2.3.2-1" integrity="sha384-yrrm1s9PCS0I4n39ldjMqQlTorYls89GAS3wXVJooje/BSWnC2vTgky2LIyzRLEo" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.3.2-3">
+  <link rel="stylesheet" href="/verynginx/static/style.css?v=2.3.2-4">
 </head>
 <body>
 
@@ -1495,7 +1495,7 @@
             </div>
             <div class="grid grid-2 mb-8">
                <div class="field"><label for="f-阻止代码">阻止代码</label><input id="f-阻止代码" v-model.number="freqTemplateModal.code" type="number" min="100" max="599" title="触发限流时返回的 HTTP 状态码，通常用 429（Too Many Requests）"></div>
-               <div class="field"><label for="f-匹配器-JSON-可选">匹配器 JSON (可选)</label><input id="f-匹配器-JSON-可选" v-model="freqTemplateModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
+               <div class="field"><label for="f-匹配器-JSON-可选">匹配器 JSON (可选) <button type="button" class="linklike" @click="mbOpen('freqTemplate')" title="用可视化条件构建器生成匹配器">可视化编辑</button></label><input id="f-匹配器-JSON-可选" v-model="freqTemplateModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
             </div>
             <div class="modal-actions">
              <button class="outline" @click="freqTemplateModal.show=false">取消</button>
@@ -1523,7 +1523,7 @@
             </div>
 <div class="grid grid-2 mb-8">
                 <div class="field"><label for="f-阻止代码-2">阻止代码</label><input id="f-阻止代码-2" v-model.number="freqRuleModal.code" type="number" min="100" max="599" placeholder="429" title="触发限流时返回的 HTTP 状态码，通常用 429（Too Many Requests）"></div>
-                <div class="field"><label for="f-匹配器-JSON-可选-2">匹配器 JSON (可选)</label><input id="f-匹配器-JSON-可选-2" v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
+                <div class="field"><label for="f-匹配器-JSON-可选-2">匹配器 JSON (可选) <button type="button" class="linklike" @click="mbOpen('freqRule')" title="用可视化条件构建器生成匹配器">可视化编辑</button></label><input id="f-匹配器-JSON-可选-2" v-model="freqRuleModal.matcherJson" placeholder='{"URI":{"operator":"≈","value":"/login"}}' title="可选，限定只限制匹配此条件的请求。留空则限制所有请求；如只限制 /login 路径可防暴力破解"></div>
              <div style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:8px">留空匹配所有请求；内联格式见占位符，或引用已有匹配器名。</div>
              </div>
              <div class="field" style="margin-bottom:0">
@@ -2753,7 +2753,7 @@
         </div>
       </div>
       <div class="field">
-         <label for="f-匹配器-JSON-">匹配器 (JSON) *</label>
+         <label for="f-匹配器-JSON-">匹配器 (JSON) * <button type="button" class="linklike" @click="mbOpen('waf')" title="用可视化条件构建器生成匹配器">可视化编辑</button></label>
         <textarea id="f-匹配器-JSON-" v-model="wafEditModal.matcherJson" spellcheck="false" class="code-editor" style="min-height:90px" placeholder='{"URI":{"operator":"≈","value":"\\(\\.\\./\"}}' title='{"URI": {"operator":"≈","value":"/admin"}} 匹配 URI 字段；operator ≈ 正则匹配，= 精确匹配；支持 URI/IP/UA/Host/Referer/Header/Cookie/Args/Method 等字段'></textarea>
       </div>
       <div class="field">
@@ -2861,7 +2861,7 @@
          <input id="f-名称" v-model="editMatcherModal.name" type="text" placeholder="匹配器名称">
       </div>
       <div class="field">
-         <label for="matcher-json">条件 (JSON, 例如 {"URI":{"operator":"≈","value":"/api/*"}})</label>
+         <label for="matcher-json">条件 (JSON, 例如 {"URI":{"operator":"≈","value":"/api/*"}}) <button type="button" class="linklike" @click="mbOpen('cfgMatcher')" title="用可视化条件构建器生成条件">可视化编辑</button></label>
         <textarea id="matcher-json" v-model="editMatcherModal.conditions" spellcheck="false" class="code-editor" style="min-height:120px"></textarea>
       </div>
        <div class="modal-actions">
@@ -2956,7 +2956,7 @@
          <label for="f-启用"><input id="f-启用" type="checkbox" v-model="ruleEditModal.enable"> 启用</label>
       </div>
       <div class="field">
-         <label for="f-匹配器">匹配器</label>
+         <label for="f-匹配器">匹配器 <button type="button" class="linklike" v-if="ruleEditModal.matcherType==='inline'" @click="mbOpen('cfgRule')" title="用可视化条件构建器生成匹配器">可视化编辑</button></label>
          <select id="f-匹配器" v-model="ruleEditModal.matcherType" @change="ruleEditModalChanged" style="width:100%">
            <option value="inline">内联 JSON</option>
           <option v-for="m in matcherKeys" :key="m" :value="m">{{ m }}</option>
@@ -3073,13 +3073,93 @@
     </div>
   </div>
 
+  <!-- Visual matcher builder (shared by WAF / frequency / config editors) -->
+  <div class="modal-overlay" v-if="mb.show" @click.self="mb.show=false">
+    <div class="modal" role="dialog" aria-modal="true" style="max-width:720px">
+      <h3>条件构建器</h3>
+      <div class="tabs mb-8">
+        <button type="button" :class="{active:mb.mode==='visual'}" @click="mbMode('visual')">可视化</button>
+        <button type="button" :class="{active:mb.mode==='json'}" @click="mbMode('json')">JSON</button>
+      </div>
+
+      <div v-if="mb.mode==='visual'">
+        <div class="field mb-8">
+          <label>条件组合</label>
+          <select v-model="mb.logic" @change="mbEmit()" style="width:220px" title="single=单个条件；AND/OR/NOT=把下面所有条件组合成一个 Composite">
+            <option value="single">单条件</option>
+            <option value="AND">全部满足 (AND)</option>
+            <option value="OR">任一满足 (OR)</option>
+            <option value="NOT">全部不满足 (NOT)</option>
+          </select>
+        </div>
+        <div v-for="(r,i) in mb.rows" :key="i" class="mb-row">
+          <div class="mb-row-head">
+            <strong>条件 {{ i+1 }}</strong>
+            <span class="flex gap-8">
+              <button type="button" class="linklike" @click="mbMoveRow(i,-1)" :disabled="i===0">↑</button>
+              <button type="button" class="linklike" @click="mbMoveRow(i,1)" :disabled="i===mb.rows.length-1">↓</button>
+              <button type="button" class="linklike" @click="mbRemoveRow(i)" :disabled="mb.rows.length<=1">删除</button>
+            </span>
+          </div>
+          <div class="grid grid-3 mb-8">
+            <div class="field">
+              <label :for="'mb-field-'+i">字段</label>
+              <select :id="'mb-field-'+i" v-model="r.field" @change="mbEmit()" style="width:100%">
+                <option v-for="f in mbFields" :key="f.key" :value="f.key">{{ f.label }}</option>
+              </select>
+            </div>
+            <div class="field" v-if="mbFieldNamed(r.field)">
+              <label :for="'mb-nop-'+i">名称运算</label>
+              <select :id="'mb-nop-'+i" v-model="r.nameOp" @change="mbEmit()" style="width:100%">
+                <option value="=">名称等于 (=)</option>
+                <option value="≈">名称正则 (≈)</option>
+                <option value="*">任意名称 (*)</option>
+              </select>
+            </div>
+            <div class="field" v-if="mbFieldNamed(r.field) && r.nameOp!=='*'">
+              <label :for="'mb-nval-'+i">名称 / 键</label>
+              <input :id="'mb-nval-'+i" v-model="r.nameVal" @input="mbEmit()" placeholder="如 id、X-Forwarded-For">
+            </div>
+            <div class="field">
+              <label :for="'mb-op-'+i">运算</label>
+              <select :id="'mb-op-'+i" v-model="r.op" @change="mbEmit()" style="width:100%">
+                <option v-for="o in mbOps" :key="o.key" :value="o.key">{{ o.label }}</option>
+              </select>
+            </div>
+            <div class="field" v-if="r.op!=='*'">
+              <label :for="'mb-val-'+i">值</label>
+              <input :id="'mb-val-'+i" v-model="r.value" @input="mbEmit()" placeholder="正则或精确值" spellcheck="false">
+            </div>
+          </div>
+        </div>
+        <button type="button" class="outline small mb-8" @click="mbAddRow()">+ 添加条件</button>
+        <details class="mb-8">
+          <summary style="font-size:12px;color:var(--muted);cursor:pointer">生成的 JSON</summary>
+          <pre class="code-editor" style="font-size:11px;margin-top:6px;max-height:160px;overflow:auto">{{ mb.json }}</pre>
+        </details>
+      </div>
+
+      <div v-else class="field">
+        <label for="mb-json">匹配器 JSON（可手改，切回「可视化」会尝试解析）</label>
+        <textarea id="mb-json" v-model="mb.json" spellcheck="false" class="code-editor" style="min-height:220px"></textarea>
+        <button type="button" class="linklike" @click="mbRawToRows()">解析到可视化</button>
+      </div>
+
+      <div class="error" v-if="mb.error" style="margin-bottom:8px">{{ mb.error }}</div>
+      <div class="modal-actions">
+        <button class="outline" @click="mb.show=false">取消</button>
+        <button class="primary" @click="mbApply()">应用到编辑器</button>
+      </div>
+    </div>
+  </div>
+
 </template>
 </div>
-  <script src="/verynginx/static/vn-common.js?v=2.3.2-1"></script>
+  <script src="/verynginx/static/vn-common.js?v=2.3.2-2"></script>
   <script src="/verynginx/static/vn-dashboard.js?v=2.3.2-4"></script>
-  <script src="/verynginx/static/vn-config.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-waf.js?v=2.3.2-4"></script>
-  <script src="/verynginx/static/vn-frequency.js?v=2.3.2-2"></script>
+  <script src="/verynginx/static/vn-config.js?v=2.3.2-2"></script>
+  <script src="/verynginx/static/vn-waf.js?v=2.3.2-5"></script>
+  <script src="/verynginx/static/vn-frequency.js?v=2.3.2-3"></script>
   <script src="/verynginx/static/vn-iploc.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-reputation.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-advanced.js?v=2.3.2-1"></script>

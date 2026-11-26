@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnconfig'] = function createvnconfigModule(shared) {
-        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showUndoToast, showConfirm, validateMatcherIps, configSaveHeaders, configErrorMessage } = shared;
+        const { ctx, view, api, store, page, cfgTab, cfg, rawJson, jsonError, jsonSaving, editMatcherModal, loadConfig, refreshCsrf, showToast, showUndoToast, showConfirm, validateMatcherIps, configSaveHeaders, configErrorMessage, mbBindTarget } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -19,6 +19,9 @@
       root: '', path: '', expires: '', response: '',
     });
     const ruleSaving = ref(false);
+    // Visual matcher builder writes back into named-matcher and inline-rule fields.
+    mbBindTarget('cfgMatcher', () => editMatcherModal.conditions, v => { editMatcherModal.conditions = v; });
+    mbBindTarget('cfgRule', () => ruleEditModal.matcherJson, v => { ruleEditModal.matcherJson = v; });
     const upstreamKeys = computed(() => Object.keys(cfg.value.backend_upstream || {}).sort());
     view('upstreamKeys', upstreamKeys);
 

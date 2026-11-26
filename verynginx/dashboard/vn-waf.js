@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnwaf'] = function createvnwafModule(shared) {
-        const { ctx, view, api, store, page, showToast, showUndoToast, showConfirm, validateMatcherIps, asList } = shared;
+        const { ctx, view, api, store, page, showToast, showUndoToast, showConfirm, validateMatcherIps, asList, mbBindTarget } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -36,6 +36,8 @@
       rateLimitEnabled: false, rateLimitMax: 10, rateLimitWindow: 60, rateLimitAction: 'log'
     });
     const wafEditError = ref('');
+    // Visual matcher builder: the shared builder writes back into this field.
+    mbBindTarget('waf', () => wafEditModal.matcherJson, v => { wafEditModal.matcherJson = v; });
     const wafSaving = ref(false);
     const wafTestRuleJson = ref('');
     const wafTestCasesJson = ref('');

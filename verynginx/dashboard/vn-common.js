@@ -1216,6 +1216,163 @@
     }
     view('openHostStats', openHostStats);
 
+    // ---- Visual matcher builder -------------------------------------------
+    // Hand-writing matcher JSON in production is error-prone. This builder
+    // edits a CONDITION MODEL (rows + AND/OR/NOT logic) and emits the exact
+    // JSON the matcher module expects. It writes back into whichever editor
+    // field opened it (registered by name via ctx('mbBindTarget')), so no
+    // save path changes: editors still JSON.parse their own field on save.
+    const MB_FIELDS = [
+      { key: 'URI', label: 'URI 路径', named: false, ph: '/admin' },
+      { key: 'IP', label: '客户端 IP', named: false, ph: '203.0.113.10' },
+      { key: 'UserAgent', label: 'User-Agent', named: false, ph: '(?:curl|Go-http-client)' },
+      { key: 'Host', label: 'Host 域名', named: false, ph: 'example.com' },
+      { key: 'Referer', label: 'Referer', named: false, ph: 'evil.example' },
+      { key: 'Method', label: '请求方法', named: false, ph: 'POST' },
+      { key: 'Args', label: 'URL/表单参数', named: true, ph: 'union select' },
+      { key: 'Header', label: '请求头', named: true, ph: 'X-Forwarded-For' },
+      { key: 'Cookie', label: 'Cookie', named: true, ph: 'session=' },
+    ];
+    const MB_OPS = [
+      { key: '≈', label: '正则匹配 (≈)' },
+      { key: '!≈', label: '正则不匹配 (!≈)' },
+      { key: '=', label: '精确相等 (=)' },
+      { key: '*', label: '存在任意值 (*)' },
+    ];
+    const mbTargets = {}; // name -> { get, set }
+    const mb = reactive({
+      show: false, target: '', mode: 'visual', logic: 'single',
+      rows: [], json: '', error: '',
+    });
+
+    function mbBindTarget(name, get, set) { mbTargets[name] = { get, set }; }
+    ctx('mbBindTarget', mbBindTarget);
+
+    function mbNewRow() {
+      return { field: 'URI', nameOp: '=', nameVal: '', op: '≈', value: '' };
+    }
+
+    // Parse a matcher definition object into rows + logic. Supports the
+    // single-condition shape {Field:{...}} and Composite (one level; nested
+    // composites are left as raw JSON rather than silently mangled).
+    function mbParse(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw new Error('匹配器必须是 JSON 对象');
+      const keys = Object.keys(obj);
+      if (keys.length === 1 && keys[0] === 'Composite') {
+        const c = obj.Composite || {};
+        const logic = ['AND', 'OR', 'NOT'].includes(c.operator) ? c.operator : 'OR';
+        if (!Array.isArray(c.conditions) || c.conditions.length === 0) throw new Error('Composite.conditions 不能为空');
+        const rows = [];
+        for (const cond of c.conditions) {
+          const inner = mbParseCondition(cond);
+          if (inner === null) throw new Error('嵌套 Composite 暂不支持可视化编辑，请用 JSON 模式');
+          rows.push(inner);
+        }
+        return { logic, rows };
+      }
+      if (keys.length === 1) {
+        return { logic: 'single', rows: [mbParseCondition({ [keys[0]]: obj[keys[0]] })] };
+      }
+      throw new Error('顶层只能有一个字段或 Composite；多条件请用 Composite 包裹');
+    }
+
+    function mbParseCondition(cond) {
+      if (!cond || typeof cond !== 'object') throw new Error('条件必须是对象');
+      const keys = Object.keys(cond);
+      if (keys.length !== 1) throw new Error('每个条件只能有一个字段');
+      if (keys[0] === 'Composite') return null;
+      const field = keys[0];
+      const c = cond[field];
+      if (!c || typeof c !== 'object') throw new Error('字段 ' + field + ' 的条件必须是对象');
+      const row = mbNewRow();
+      row.field = MB_FIELDS.some(f => f.key === field) ? field : 'URI';
+      row.op = ['≈', '!≈', '=', '*'].includes(c.operator) ? c.operator : '≈';
+      row.value = c.value != null ? String(c.value) : '';
+      row.nameOp = ['=', '≈', '*'].includes(c.name_operator) ? c.name_operator : '=';
+      row.nameVal = c.name_value != null ? String(c.name_value) : '';
+      return row;
+    }
+
+    function mbFieldNamed(field) {
+      const f = MB_FIELDS.find(x => x.key === field);
+      return !!(f && f.named);
+    }
+    function mbAddRow() { mb.rows.push(mbNewRow()); mbEmit(); }
+    function mbRemoveRow(i) { if (mb.rows.length > 1) { mb.rows.splice(i, 1); mbEmit(); } }
+    function mbMoveRow(i, delta) {
+      const j = i + delta;
+      if (j < 0 || j >= mb.rows.length) return;
+      const r = mb.rows[i]; mb.rows[i] = mb.rows[j]; mb.rows[j] = r; mbEmit();
+    }
+
+    function mbEmit() {
+      const conditions = mb.rows.map(r => {
+        const c = { operator: r.op };
+        if (r.op !== '*') c.value = r.value;
+        if (mbFieldNamed(r.field)) {
+          c.name_operator = r.nameOp;
+          if (r.nameOp !== '*') c.name_value = r.nameVal;
+        }
+        return { [r.field]: c };
+      });
+      let obj;
+      if (mb.logic === 'single' && conditions.length === 1) obj = conditions[0];
+      else obj = { Composite: { operator: mb.logic === 'single' ? 'OR' : mb.logic, conditions } };
+      mb.json = JSON.stringify(obj, null, 2);
+      mb.error = '';
+    }
+
+    function mbOpen(name) {
+      const t = mbTargets[name];
+      if (!t) { showToast('该编辑器未注册条件构建器', 'error'); return; }
+      mb.target = name; mb.show = true; mb.error = ''; mb.mode = 'visual';
+      const raw = t.get();
+      try {
+        const obj = JSON.parse(raw && raw.trim() ? raw : '{}');
+        const parsed = mbParse(obj);
+        mb.logic = parsed.logic; mb.rows = parsed.rows.length ? parsed.rows : [mbNewRow()];
+        mbEmit();
+      } catch (e) {
+        mb.mode = 'json'; mb.json = raw || '{}'; mb.error = '无法可视化解析现有匹配器：' + e.message;
+      }
+    }
+    function mbRawToRows() {
+      try {
+        const parsed = mbParse(JSON.parse(mb.json));
+        mb.logic = parsed.logic; mb.rows = parsed.rows.length ? parsed.rows : [mbNewRow()];
+        mb.mode = 'visual'; mb.error = '';
+      } catch (e) { mb.error = e.message; }
+    }
+    function mbMode(m) {
+      if (m === mb.mode) return;
+      if (m === 'visual') { mbRawToRows(); }
+      else { mb.error = ''; }
+      mb.mode = m;
+    }
+    function mbApply() {
+      const t = mbTargets[mb.target];
+      if (!t) { showToast('该编辑器未注册条件构建器', 'error'); return; }
+      if (mb.mode === 'json') {
+        try { JSON.parse(mb.json); } catch (e) { mb.error = 'JSON 语法错误：' + e.message; return; }
+      } else { mbEmit(); }
+      t.set(mb.json);
+      mb.show = false;
+      showToast('条件已写入编辑器，保存规则后生效', 'success');
+    }
+
+    view('mb', mb);
+    view('mbFields', MB_FIELDS);
+    view('mbOps', MB_OPS);
+    view('mbFieldNamed', mbFieldNamed);
+    view('mbAddRow', mbAddRow);
+    view('mbRemoveRow', mbRemoveRow);
+    view('mbMoveRow', mbMoveRow);
+    view('mbEmit', mbEmit);
+    view('mbOpen', mbOpen);
+    view('mbMode', mbMode);
+    view('mbRawToRows', mbRawToRows);
+    view('mbApply', mbApply);
+
     // ---- Table accessible names ----
     // 54 tables, mostly built inline in the template with no caption. Rather
     // than hand-name every one (and forget the next), derive a name from the

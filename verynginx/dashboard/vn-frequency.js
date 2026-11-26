@@ -7,7 +7,7 @@
     window.VN.modules = window.VN.modules || {};
 
     window.VN.modules['vnfrequency'] = function createvnfrequencyModule(shared) {
-        const { ctx, view, api, showToast, showUndoToast, showConfirm, validateMatcherIps, asList } = shared;
+        const { ctx, view, api, showToast, showUndoToast, showConfirm, validateMatcherIps, asList, mbBindTarget } = shared;
         // Vue Composition API
         const { reactive, ref, computed, watch } = Vue;
 
@@ -19,6 +19,9 @@
     const freqError = ref('');
     const freqRuleModal = reactive({ show: false, mode: 'create', _matcherRef: null, id: '', key: 'ip', limit: 60, window: 60, code: 429, enable: true, matcherJson: '{}', ccRule: false });
     const freqTemplateModal = reactive({ show: false, name: '', label: '', description: '', id: '', key: 'ip', limit: 60, window: 60, code: 429, matcherJson: '{}' });
+    // Visual matcher builder writes back into these matcher fields.
+    mbBindTarget('freqRule', () => freqRuleModal.matcherJson, v => { freqRuleModal.matcherJson = v; });
+    mbBindTarget('freqTemplate', () => freqTemplateModal.matcherJson, v => { freqTemplateModal.matcherJson = v; });
 
     // Stale-response guard for the frequency data loader.
     const gFreqData = shared.createStaleGuard();
