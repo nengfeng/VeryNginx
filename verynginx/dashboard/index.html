@@ -2088,67 +2088,72 @@
             <h2 class="page-title" style="margin-bottom:0">审计日志</h2>
             <details class="page-desc" style="margin-bottom:0"><summary>说明</summary><div>记录所有管理员操作（配置修改、规则增删、封禁变更等），用于事后追溯和安全审计。最多保留 1000 条记录，可按用户、操作类型和时间范围筛选。</div></details>
           </div>
-<button class="outline small" @click="loadAudit">刷新</button>
+          <button class="outline small" @click="loadAudit">刷新</button>
         </div>
         <!-- Filters -->
-          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">
-           <div>
-              <label style="font-size:11px;color:var(--muted)" for="f-用户">用户</label>
-              <input id="f-用户" v-model="auditFilterUser" placeholder="全部" style="width:100px">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-start">
+          <div>
+            <label style="font-size:11px;color:var(--muted)" for="f-用户">用户</label>
+            <input id="f-用户" v-model="auditFilterUser" placeholder="全部" style="width:100px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted)" for="f-操作类型">操作类型</label>
+            <input id="f-操作类型" v-model="auditFilterAction" placeholder="全部" style="width:120px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted)" for="f-起始时间">起始时间</label>
+            <input id="f-起始时间" v-model="auditFilterSince" type="datetime-local" style="width:160px">
+            <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+              <button class="outline xsmall" @click="setAuditSincePreset('1h')" style="font-size:10px">最近1h</button>
+              <button class="outline xsmall" @click="setAuditSincePreset('24h')" style="font-size:10px">最近24h</button>
+              <button class="outline xsmall" @click="setAuditSincePreset('7d')" style="font-size:10px">最近7d</button>
+              <button class="outline xsmall" @click="setAuditSincePreset('today')" style="font-size:10px">今天</button>
             </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted)" for="f-操作类型">操作类型</label>
-              <input id="f-操作类型" v-model="auditFilterAction" placeholder="全部" style="width:120px">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted)" for="f-起始时间">起始时间</label>
-              <input id="f-起始时间" v-model="auditFilterSince" type="datetime-local" style="width:160px">
-              <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
-                <button class="outline xsmall" @click="setAuditSincePreset('1h')" style="font-size:10px">最近1h</button>
-                <button class="outline xsmall" @click="setAuditSincePreset('24h')" style="font-size:10px">最近24h</button>
-                <button class="outline xsmall" @click="setAuditSincePreset('7d')" style="font-size:10px">最近7d</button>
-                <button class="outline xsmall" @click="setAuditSincePreset('today')" style="font-size:10px">今天</button>
-              </div>
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted)" for="f-结束时间">结束时间</label>
-              <input id="f-结束时间" v-model="auditFilterUntil" type="datetime-local" style="width:160px">
-            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted)" for="f-结束时间">结束时间</label>
+            <input id="f-结束时间" v-model="auditFilterUntil" type="datetime-local" style="width:160px">
+          </div>
+          <!-- 按钮本身没有可见标签；这里放一个同字号的隐形标签，让按钮顶端
+               与左侧输入框对齐，而不是跑到标签那一行。 -->
+          <div>
+            <label style="display:block;font-size:11px;visibility:hidden" aria-hidden="true">&nbsp;</label>
             <button class="outline small" @click="clearAuditFilters">清除筛选</button>
-           </div>
-         <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
-         <div style="font-size:13px;color:var(--muted);margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
-         <input v-model="auditTbl.state.filter" class="tbl-filter" placeholder="过滤当前页记录（用户/操作/IP/详情…）">
-         <div style="overflow-x:auto">
-           <table>
-             <thead><tr>
-               <th scope="col" class="sortable" tabindex="0" data-sort-col="time" :aria-sort="ariaSort(auditTbl,'time')" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th scope="col" class="sortable" tabindex="0" data-sort-col="user" :aria-sort="ariaSort(auditTbl,'user')" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th scope="col" class="sortable" tabindex="0" data-sort-col="action" :aria-sort="ariaSort(auditTbl,'action')" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
-               <th scope="col">详情</th>
-             </tr></thead>
-             <tbody>
-               <tr v-for="(e, i) in auditPagedRows" :key="(e.time||'') + '|' + (e.action||'') + '|' + (e.user||'') + '|' + (e.ip||'') + '|' + i">
-                 <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
-                 <td><code>{{ e.user }}</code></td>
-                 <td><span class="tag" :class="auditActionClass(e.action)">{{ e.action }}</span></td>
-                 <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.detail }}</td>
-               </tr>
-             </tbody>
-           </table>
-            <div v-if="!auditEntries.length" class="empty">
-              <div>无审计记录。</div>
-              <div style="font-size:12px;color:var(--muted);margin-top:6px">审计日志记录管理员操作（配置修改、规则增删、封禁变更等）。当您开始进行配置操作后，这里会显示操作历史。</div>
-            </div>
-            <div v-else-if="!auditPagedRows.length" class="empty">无匹配当前过滤。</div>
-         </div>
-         <div v-if="auditTotalPages > 1" class="flex flex-between mt-8">
-           <span style="font-size:13px;color:var(--muted)">第 {{ auditPage }} / {{ auditTotalPages }} 页（每页 {{ AUDIT_PAGE_SIZE }} 条）</span>
-           <div class="flex gap-4">
-             <button class="outline small" :disabled="auditPage<=1" @click="auditPage=auditPage-1">上一页</button>
-             <button class="outline small" :disabled="auditPage>=auditTotalPages" @click="auditPage=auditPage+1">下一页</button>
-           </div>
-         </div>
+          </div>
+        </div>
+        <div v-if="auditError" class="error" style="margin-bottom:8px">{{ auditError }}</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">共 {{ auditEntries.length }} 条记录（最多 1000 条）</div>
+        <input v-model="auditTbl.state.filter" class="tbl-filter" placeholder="过滤当前页记录（用户/操作/IP/详情…）">
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th scope="col" class="sortable" tabindex="0" data-sort-col="time" :aria-sort="ariaSort(auditTbl,'time')" @click="auditTbl.sortBy('time')">时间 <span v-if="auditTbl.state.sortKey==='time'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th scope="col" class="sortable" tabindex="0" data-sort-col="user" :aria-sort="ariaSort(auditTbl,'user')" @click="auditTbl.sortBy('user')">用户 <span v-if="auditTbl.state.sortKey==='user'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th scope="col" class="sortable" tabindex="0" data-sort-col="action" :aria-sort="ariaSort(auditTbl,'action')" @click="auditTbl.sortBy('action')">操作 <span v-if="auditTbl.state.sortKey==='action'" class="sort-ind">{{ auditTbl.state.sortDir===1?'▲':'▼' }}</span></th>
+              <th scope="col">详情</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="(e, i) in auditPagedRows" :key="(e.time||'') + '|' + (e.action||'') + '|' + (e.user||'') + '|' + (e.ip||'') + '|' + i">
+                <td style="white-space:nowrap">{{ fmtTime(e.time) }}</td>
+                <td><code>{{ e.user }}</code></td>
+                <td><span class="tag" :class="auditActionClass(e.action)">{{ e.action }}</span></td>
+                <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.detail }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="!auditEntries.length" class="empty">
+            <div>无审计记录。</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">审计日志记录管理员操作（配置修改、规则增删、封禁变更等）。当您开始进行配置操作后，这里会显示操作历史。</div>
+          </div>
+          <div v-else-if="!auditPagedRows.length" class="empty">无匹配当前过滤。</div>
+        </div>
+        <div v-if="auditTotalPages > 1" class="flex flex-between mt-8">
+          <span style="font-size:13px;color:var(--muted)">第 {{ auditPage }} / {{ auditTotalPages }} 页（每页 {{ AUDIT_PAGE_SIZE }} 条）</span>
+          <div class="flex gap-4">
+            <button class="outline small" :disabled="auditPage<=1" @click="auditPage=auditPage-1">上一页</button>
+            <button class="outline small" :disabled="auditPage>=auditTotalPages" @click="auditPage=auditPage+1">下一页</button>
+          </div>
+        </div>
       </div>
 
       <!-- About -->
