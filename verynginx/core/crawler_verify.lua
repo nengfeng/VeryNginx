@@ -75,8 +75,28 @@ end
 
 local function vendor_cfg()
     local v = cfg().vendors
-    if type(v) ~= "table" then return {} end
-    return v
+    local merged = {}
+    if type(v) == "table" then
+        for k, item in pairs(v) do merged[k] = item end
+    end
+    -- AI crawlers configured by the operator are claims, not trust: they only
+    -- add a vendor whose identity must be DNS-verified. Merging here means
+    -- claimed_vendor(), schedule() and verify_now() all see them uniformly;
+    -- the config validator has already checked key / ua_pattern / domains.
+    local ai = config.ip_reputation and config.ip_reputation.allowed_ai_crawlers
+    if type(ai) == "table" then
+        for _, item in ipairs(ai) do
+            if type(item) == "table" and type(item.key) == "string" then
+                merged[item.key] = {
+                    enabled = item.enabled ~= false,
+                    ua_pattern = item.ua_pattern,
+                    domains = item.domains,
+                    require_forward_confirm = item.require_forward_confirm ~= false,
+                }
+            end
+        end
+    end
+    return merged
 end
 
 function _M.is_enabled()

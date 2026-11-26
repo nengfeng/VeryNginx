@@ -123,4 +123,43 @@ describe("config crawler list/source validation", function()
         assert.is_false(ok3)
     end)
 
+    it("accepts a well-formed allowed_ai_crawlers claim", function()
+        local ok, err = config.validate_config(cfg({
+            allowed_ai_crawlers = {
+                { key = "claude", ua_pattern = "(?i)claudebot", domains = { "anthropic.com" } },
+            },
+        }))
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("requires domains on an AI crawler claim (no verifiable identity)", function()
+        local ok, err = config.validate_config(cfg({
+            allowed_ai_crawlers = {
+                { key = "claude", ua_pattern = "(?i)claudebot", domains = {} },
+            },
+        }))
+        assert.is_false(ok)
+        assert.is_truthy(tostring(err):find("domains", 1, true))
+    end)
+
+    it("rejects a bad UA regex and an invalid key in a claim", function()
+        -- Install a compile stub for this case so the regex check actually runs.
+        local saved_re = ngx.re
+        ngx.re = {
+            compile = function(pat, opts)
+                if pat == "(" then return nil, "unbalanced" end
+                return function() return nil end
+            end,
+        }
+        local ok1 = config.validate_config(cfg({
+            allowed_ai_crawlers = { { key = "x", ua_pattern = "(", domains = { "x.com" } } },
+        }))
+        ngx.re = saved_re
+        assert.is_false(ok1)
+        local ok2 = config.validate_config(cfg({
+            allowed_ai_crawlers = { { key = "bad key!", ua_pattern = "x", domains = { "x.com" } } },
+        }))
+        assert.is_false(ok2)
+    end)
+
 end)

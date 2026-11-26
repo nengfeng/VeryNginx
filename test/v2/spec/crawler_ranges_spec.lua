@@ -119,6 +119,10 @@ describe("crawler_ranges source overrides (deployment inside China)", function()
         assert.are.equal("https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
                          by.google)
         assert.are.equal("https://www.bing.com/toolbox/bingbot.json", by.bing)
+        assert.are.equal("https://openai.com/gptbot.json", by.openai,
+            "OpenAI publishes GPTBot / OAI-SearchBot ranges")
+        assert.are.equal("gptbot.json", require("core.crawler_ranges")._test_source_filename(by.openai),
+            "drop-in file must keep the URL basename")
     end)
 
     it("redirects a vendor to a reachable mirror", function()
@@ -164,7 +168,7 @@ describe("crawler_ranges source overrides (deployment inside China)", function()
         for _, s in ipairs(srcs) do
             assert.is_not.equal("nonesuch", s.key, "an unknown key must not create a source")
         end
-        assert.are.equal(5, #srcs, "the built-in source count must not change")
+        assert.are.equal(6, #srcs, "the built-in source count must not change")
     end)
 end)
 

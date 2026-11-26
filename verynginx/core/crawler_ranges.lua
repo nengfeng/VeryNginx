@@ -36,6 +36,10 @@ local json = pcall(require, "cjson") and require("cjson") or require("dkjson")
 local DEFAULT_SOURCES = {
     { key = "google", url = "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
       note = "Googlebot, Google-InspectionTool, GoogleOther, Google-Extended, Storebot-Google, APIs-Google" },
+    -- OpenAI publishes GPTBot / OAI-SearchBot / ChatGPT-User ranges as a
+    -- Google-shaped prefixes[] document. Confirm live: openai.com/gptbot.json
+    { key = "openai", url = "https://openai.com/gptbot.json",
+      note = "GPTBot, OAI-SearchBot, ChatGPT-User — official IPv4 prefixes" },
     { key = "bing", url = "https://www.bing.com/toolbox/bingbot.json",
       note = "Bingbot" },
     { key = "apple", url = "https://search.developer.apple.com/applebot.json",

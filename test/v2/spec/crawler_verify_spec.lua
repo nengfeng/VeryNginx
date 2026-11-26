@@ -138,6 +138,26 @@ describe("crawler_verify claimed_vendor", function()
         config.ip_reputation.crawler_verify = nil
         assert.is_false(cv.is_enabled(), "an absent block must leave the feature off")
     end)
+
+    it("claims configured AI crawlers via allowed_ai_crawlers (claim != trust)", function()
+        local cfg = base_cfg()
+        config.ip_reputation.crawler_verify = cfg
+        config.ip_reputation.allowed_ai_crawlers = {
+            { key = "claude", ua_pattern = "(?i)claudebot", domains = { "anthropic.com" } },
+        }
+        with_pcre(function()
+            local claimed = cv.claimed_vendor(
+                "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; "
+                .. "ClaudeBot/1.0; +claudebot@anthropic.com)")
+            assert.are.equal("claude", claimed)
+            -- An unverified claim is NOT a verified crawler.
+            assert.is_false(cv.is_verified("203.0.113.77"))
+            -- Built-in vendor still works after the merge.
+            assert.are.equal("baidu", cv.claimed_vendor("Baiduspider/2.0"))
+        end)
+        config.ip_reputation.allowed_ai_crawlers = nil
+        config.ip_reputation.crawler_verify = nil
+    end)
 end)
 
 describe("crawler_verify verdicts", function()

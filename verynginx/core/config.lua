@@ -303,6 +303,13 @@ _M.schema = {
                 --
                 -- `url` wins over `mirror` when both are given.
                 crawler_sources = leaf({ type = "array", default = {}, items = "table" }),
+                -- AI crawler UA patterns that may CLAIM an identity. A claim
+                -- alone NEVER grants access: it only triggers the DNS check
+                -- in core/crawler_verify (PTR in `domains` + forward confirm).
+                -- Entries: { key, ua_pattern, domains = {...} }. Ships EMPTY —
+                -- adding a UA without verifying its domains would let a
+                -- forged UA be treated as a real crawler.
+                allowed_ai_crawlers = leaf({ type = "array", default = {}, items = "table" }),
                 -- Drop-in directory for deployments that cannot reach the vendor
                 -- URLs (typical inside China). On refresh, each vendor is tried
                 -- over HTTP first; if that fails, <crawler_import_dir>/<basename
@@ -1271,6 +1278,48 @@ local function validate_config(config)
                 and import_dir ~= root
                 and import_dir:sub(1, #root + 1) ~= root .. "/" then
                 return false, "ip_reputation.crawler_import_dir must be under " .. root
+            end
+        end
+
+        -- allowed_ai_crawlers: each entry must carry a safe key, a compilable
+        -- UA regex and at least one PTR domain. Without domains the DNS check
+        -- can never verify the claim, and a claim that cannot be verified
+        -- must not be accepted (it would let a forged UA through).
+        if type(ip_rep.allowed_ai_crawlers) == "table" then
+            if #ip_rep.allowed_ai_crawlers > 32 then
+                return false, "ip_reputation.allowed_ai_crawlers: too many entries (max 32)"
+            end
+            for i, entry in ipairs(ip_rep.allowed_ai_crawlers) do
+                if type(entry) ~= "table" then
+                    return false, string.format("ip_reputation.allowed_ai_crawlers[%d]: must be a table", i)
+                end
+                if type(entry.key) ~= "string" or not entry.key:match("^[%w_-]+$") or #entry.key > 32 then
+                    return false, string.format("ip_reputation.allowed_ai_crawlers[%d].key: invalid", i)
+                end
+                if type(entry.ua_pattern) ~= "string" or #entry.ua_pattern == 0 or #entry.ua_pattern > 500 then
+                    return false, string.format("ip_reputation.allowed_ai_crawlers[%d].ua_pattern: invalid", i)
+                end
+                -- Validate the regex when the compile API exists. Minimal
+                -- test rigs without it degrade (like matcher/compare.lua)
+                -- rather than rejecting every config wholesale.
+                if ngx.re and type(ngx.re.compile) == "function" then
+                    local compiled, cerr = pcall(ngx.re.compile, entry.ua_pattern, "isjo")
+                    if not compiled or not cerr then
+                        return false, string.format("ip_reputation.allowed_ai_crawlers[%d].ua_pattern: bad regex: %s",
+                            i, tostring(cerr))
+                    end
+                end
+                if type(entry.domains) ~= "table" or #entry.domains == 0 then
+                    return false, string.format(
+                        "ip_reputation.allowed_ai_crawlers[%d].domains: at least one PTR domain required", i)
+                end
+                for j, d in ipairs(entry.domains) do
+                    if type(d) ~= "string" or d == "" or #d > 253
+                        or d:find("[/\\]") or d:find("%s") then
+                        return false, string.format(
+                            "ip_reputation.allowed_ai_crawlers[%d].domains[%d]: invalid domain", i, j)
+                    end
+                end
             end
         end
 
