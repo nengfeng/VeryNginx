@@ -134,6 +134,27 @@ local TEMPLATES = {
             matcherJson = "{}",
         },
     },
+    hotspot_flood = {
+        name = "hotspot_flood",
+        label = "热点文件 CC 防护",
+        -- Long description split via Lua string concatenation to keep lines
+        -- under the 120-char luacheck limit.
+        description = "防多 IP 轮换刷单一文件：按 URI 全局计数（所有来源共享一个"
+            .. "计数桶，换 IP 无效），命中 /favicon.ico 或 /wp-content/uploads/ 的请求"
+            .. "每分钟超过 200 次即拦截。按正常站点峰值调整 limit；不要用在全站所有路径上。",
+        rule = {
+            id = "freq_hotspot_flood",
+            action = "block",
+            key = "uri",
+            limit = 200,
+            window = 60,
+            code = 444,
+            enable = true,
+            matcherJson = '{"Composite":{"operator":"OR","conditions":['
+                .. '{"URI":{"operator":"=","value":"/favicon.ico"}},'
+                .. '{"URI":{"operator":"≈","value":"/wp-content/uploads/"}}]}}',
+        },
+    },
 }
 
 -- List all available templates (metadata only, no rule details).

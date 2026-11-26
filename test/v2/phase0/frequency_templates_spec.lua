@@ -56,6 +56,23 @@ describe("frequency_templates", function()
         assert.are.equal("ip", rule.key)
     end)
 
+    it("hotspot_flood keys by URI (global bucket) to defeat multi-IP rotation", function()
+        local tpl = require "core.frequency_templates"
+        local rule = tpl.apply("hotspot_flood")
+        assert.truthy(rule)
+        assert.are.equal("freq_hotspot_flood", rule.id)
+        assert.are.equal("uri", rule.key,
+            "per-IP keys cannot stop many IPs each hitting a file once")
+        assert.is_true(rule.code >= 400)
+        assert.are.equal("block", rule.action)
+        -- matcher must be materialised (not left as matcherJson only)
+        assert.is_table(rule.matcher)
+        local comp = rule.matcher.Composite
+        assert.is_table(comp)
+        assert.are.equal("OR", comp.operator)
+        assert.are.equal(2, #comp.conditions)
+    end)
+
     -- v20: the crawler and global-CC templates used to ship code = 200 with a
     -- description promising a JS challenge that the limiter never issues —
     -- it hardcodes action "block", and the challenge branch needs action type

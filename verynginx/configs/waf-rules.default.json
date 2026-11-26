@@ -1,6 +1,6 @@
 {
-  "version": 19,
-  "timestamp": "2026-10-14T02:20:00Z",
+  "version": 20,
+  "timestamp": "2026-11-26T00:00:00Z",
   "rules": [
     {
       "id": "vn_sqli_0001",
@@ -985,6 +985,44 @@
       "version": 3,
       "created_at": "2026-10-13T08:32:06Z",
       "updated_at": "2026-10-14T02:20:00Z",
+      "created_by": "system"
+    },
+    {
+      "id": "vn_bot_0026",
+      "name": "Malicious Bot — HTTP client library on static hot paths",
+      "category": "bot",
+      "severity": "low",
+      "action": "block",
+      "enable": true,
+      "priority": 41,
+      "matcher": {
+        "Composite": {
+          "operator": "AND",
+          "conditions": [
+            {
+              "UserAgent": {
+                "operator": "≈",
+                "value": "(?i:(?:go-http-client|python-requests|curl|wget))"
+              }
+            },
+            {
+              "URI": {
+                "operator": "≈",
+                "value": "(?i:(?:/favicon\\.ico$|/wp-content/uploads/))"
+              }
+            }
+          ]
+        }
+      },
+      "description": "阻断脚本工具对热点静态文件（favicon.ico、wp-content/uploads）的批量抓取。必须同时命中工具 UA 与热点路径，正常浏览器访问不受影响；对 /health、/api 等路径的 Go 健康检查也不会误伤。应对多 IP 轮换刷单一文件场景，配合 hotspot_flood 频率模板（key=uri）使用。",
+      "tags": [
+        "cc",
+        "bot",
+        "hotspot"
+      ],
+      "version": 1,
+      "created_at": "2026-11-26T00:00:00Z",
+      "updated_at": "2026-11-26T00:00:00Z",
       "created_by": "system"
     }
   ]

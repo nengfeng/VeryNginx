@@ -223,8 +223,8 @@ def main():
     for rid, pat in (("vn_rce_0007", bp), ("vn_rce_0025", lp)):
         uris = regex_values(by[rid]["matcher"])
         check(NEW_EX in uris, f"{rid} keeps the admin-path exemption")
-    check(d.get("version") == 19, f"file version == 19 (got {d.get('version')})")
-    check(len(d["rules"]) == 27, f"27 rules (got {len(d['rules'])})")
+    check(d.get("version") == 20, f"file version == 20 (got {d.get('version')})")
+    check(len(d["rules"]) == 28, f"28 rules (got {len(d['rules'])})")
     check(by["vn_rce_0007"]["version"] >= 8, "vn_rce_0007 v8 (&& separator, guard split)")
     check(by["vn_rce_0025"]["version"] >= 3, "vn_rce_0025 v3 (&& separator)")
     check(by["vn_sqli_0001"]["version"] >= 8, "vn_sqli_0001 v8 (comment/line-comment separators)")
@@ -238,6 +238,22 @@ def main():
 
     bx = re.compile(bp, re.I)
     lg = re.compile(lp, re.I)
+
+    # ---- 2b. hotspot bot rule must require BOTH tool UA and hot path ------
+    # A future edit that drops the path branch would turn this into a blanket
+    # tool-UA block and break health checks / CI — exactly what vn_bot_0017's
+    # description promises not to do.
+    hr = by.get("vn_bot_0026")
+    check(hr is not None, "vn_bot_0026 factory rule present")
+    if hr:
+        hm = hr.get("matcher") or {}
+        comp = hm.get("Composite") or {}
+        check(comp.get("operator") == "AND", "vn_bot_0026 uses AND composite")
+        has_ua = any("UserAgent" in c for c in comp.get("conditions", []))
+        has_uri = any("URI" in c for c in comp.get("conditions", []))
+        check(has_ua and has_uri,
+              f"vn_bot_0026 requires both UA and URI branches (ua={has_ua}, uri={has_uri})")
+        check(hr.get("action") == "block", "vn_bot_0026 action is block")
 
     def tier(v):
         if bx.search(v):
