@@ -170,11 +170,12 @@
       if (repFetchBusy.value) return;
       if (apply && !await showConfirm({
         title: '拉取并写入爬虫 IP 段',
-        message: '将从各厂商官方地址拉取已公布的爬虫网段，合并写入 '
-          + 'ip_reputation.crawler_ip_whitelist。\n\n'
+        message: '刷新名单：先尝试从各厂商官方地址拉取；拉取失败时，若配置了 '
+          + 'ip_reputation.crawler_import_dir，则从该目录读取同名文件（如 '
+          + 'common-crawlers.json、bingbot.json）。合并写入 crawler_ip_whitelist。\n\n'
           + '• 只在至少一个厂商返回可用名单时才写入；全部失败则原样保留现有名单\n'
           + '• 写入的名单会替换当前列表（不是追加）\n'
-          + '• 每个来源的条数与厂商自报的发布时间都会记入配置，便于日后核对',
+          + '• 每个来源的条数、出处（网络/本地）与厂商自报发布时间都会记入配置',
         type: 'primary',
       })) return;
 

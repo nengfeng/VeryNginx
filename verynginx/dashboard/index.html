@@ -1637,7 +1637,8 @@
                   <td style="color:var(--muted)">{{ s.ok ? (s.published_at || '未标注') : '—' }}</td>
                   <td style="color:var(--muted)">{{ s.ok ? s.fetched_at : '—' }}</td>
                   <td style="color:var(--muted);font-size:12px">
-                    <span :title="s.url">{{ s.url }}</span>
+                    <span v-if="s.via==='import'" :title="s.import_file || s.url">本地导入 · {{ s.import_file || s.url }}</span>
+                    <span v-else :title="s.url">{{ s.url }}</span>
                   </td>
                 </tr>
                 <tr v-if="!repCrawlerInfo.sources || !repCrawlerInfo.sources.length">
@@ -3161,7 +3162,7 @@
   <script src="/verynginx/static/vn-waf.js?v=2.3.2-5"></script>
   <script src="/verynginx/static/vn-frequency.js?v=2.3.2-3"></script>
   <script src="/verynginx/static/vn-iploc.js?v=2.3.2-1"></script>
-  <script src="/verynginx/static/vn-reputation.js?v=2.3.2-1"></script>
+  <script src="/verynginx/static/vn-reputation.js?v=2.3.2-2"></script>
   <script src="/verynginx/static/vn-advanced.js?v=2.3.2-1"></script>
   <script src="/verynginx/static/vn-kb.js?v=2.3.2-10"></script>
   <script src="/verynginx/static/app.js?v=2.3.2-1"></script>

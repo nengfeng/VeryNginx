@@ -303,6 +303,18 @@ _M.schema = {
                 --
                 -- `url` wins over `mirror` when both are given.
                 crawler_sources = leaf({ type = "array", default = {}, items = "table" }),
+                -- Drop-in directory for deployments that cannot reach the vendor
+                -- URLs (typical inside China). On refresh, each vendor is tried
+                -- over HTTP first; if that fails, <crawler_import_dir>/<basename
+                -- of the vendor URL> is read instead — so the file you download
+                -- keeps its original name (common-crawlers.json, bingbot.json,
+                -- applebot.json, duckduckbot.json). Empty = fallback disabled.
+                -- Must be an absolute path under the install directory so a
+                -- config edit cannot turn the panel into a file-read oracle.
+                -- install-lnmp.sh creates <install>/crawler-import/ and its
+                -- path is the natural value here; files keep the vendor's URL
+                -- basename (common-crawlers.json, bingbot.json, ...).
+                crawler_import_dir = leaf({ type = "string", default = "" }),
                 crawler_ip_verified = leaf({ type = "array", default = {}, items = "string" }),
                 -- DNS identity check for vendors that publish no IP list
                 -- (Baiduspider). Deliberately a LIST of resolvers rather than
@@ -1236,6 +1248,29 @@ local function validate_config(config)
                     return false, string.format(
                         "ip_reputation.crawler_ip_verified[%d]: %s", i, tostring(err))
                 end
+            end
+        end
+
+        -- crawler_import_dir is a read path for the fetch fallback. Constrain
+        -- it to an absolute directory under the VeryNginx install root so a
+        -- config edit cannot make the panel read arbitrary host files.
+        local import_dir = ip_rep.crawler_import_dir
+        if type(import_dir) == "string" and import_dir ~= "" then
+            if import_dir:sub(1, 1) ~= "/" or import_dir:find("%.%.") then
+                return false, "ip_reputation.crawler_import_dir must be an absolute path with no '..'"
+            end
+            local root = home_path():sub(1, -2) -- strip trailing '/'
+            -- Production MODULE_ROOT is absolute (/opt/verynginx/). Test rigs
+            -- load via a relative lpath ("verynginx/"), so resolve it against
+            -- cwd here instead of skipping the check entirely.
+            if root:sub(1, 1) ~= "/" then
+                local cwd = os.getenv("PWD") or ""
+                root = (cwd ~= "" and cwd .. "/" or "") .. root:gsub("^%./", "")
+            end
+            if root:sub(1, 1) == "/"
+                and import_dir ~= root
+                and import_dir:sub(1, #root + 1) ~= root .. "/" then
+                return false, "ip_reputation.crawler_import_dir must be under " .. root
             end
         end
 

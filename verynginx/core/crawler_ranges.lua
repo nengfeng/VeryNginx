@@ -53,6 +53,41 @@ local TIMEOUT_MS = 8000
 local MAX_BODY = 1024 * 1024        -- these documents are ~20-60 KB
 local MAX_REDIRECTS = 3
 
+--- Filename for a vendor's drop-in file: the basename of its official URL.
+--- "Download what the vendor publishes, keep the name" — a file saved from
+--- common-crawlers.json must be imported as common-crawlers.json, not renamed.
+local function source_filename(url)
+    if type(url) ~= "string" then return nil end
+    local path = url:match("^https?://[^/]+(/.-)$") or url
+    path = path:match("^([^%?]+)") or path   -- drop query string
+    -- Refuse traversal components in the URL path: the leaf filename must be
+    -- derivable without ever resolving '..' against the import directory.
+    if path:find("/%.%./") or path:find("/%.%.$") then return nil end
+    local name = path:match("([^/]+)/?$")
+    -- Only a safe leaf name; no traversal or separators can come from a URL.
+    if not name or name == "" or name == "." or name == ".."
+        or name:find("[/\\]") then return nil end
+    return name
+end
+
+--- Read a vendor's document from the configured drop-in directory, used when
+--- the HTTP fetch fails (the usual case for Google/Bing from inside China).
+--- Returns body, nil on success; nil, reason otherwise. Never caches: a file
+--- replaced on disk is picked up on the next refresh.
+local function read_import(import_dir, url)
+    if not import_dir or import_dir == "" then return nil, "no import dir configured" end
+    local name = source_filename(url)
+    if not name then return nil, "cannot derive filename from URL" end
+    local path = import_dir:gsub("/+$", "") .. "/" .. name
+    local f, ferr = io.open(path, "rb")
+    if not f then return nil, "local file not found: " .. path .. (ferr and (" (" .. ferr .. ")") or "") end
+    local body = f:read(MAX_BODY + 1)
+    f:close()
+    if not body or body == "" then return nil, "local file empty: " .. path end
+    if #body > MAX_BODY then return nil, "local file too large: " .. path end
+    return body, nil, path
+end
+
 --- Sources in force: defaults, overlaid by ip_reputation.crawler_sources so
 -- an operator can repoint a vendor or add a mirror without a code change.
 local function sources()
@@ -204,10 +239,28 @@ end
 -- Each entry carries its parsed `ranges`, so a caller that merges does not
 -- have to fetch the same document a second time.
 function _M.fetch()
+    local import_dir = config.ip_reputation and config.ip_reputation.crawler_import_dir
     local results = {}
     for _, s in ipairs(sources()) do
         local entry = { key = s.key, url = s.url, note = s.note }
         local body, err = fetch_url(s.url)
+        if body then
+            entry.via = "fetch"
+        else
+            -- China-mainland fallback: the operator downloaded the same
+            -- document by hand and dropped it into the import directory under
+            -- the vendor's original filename. Try that before giving up.
+            local local_body, local_err, local_path = read_import(import_dir, s.url)
+            if local_body then
+                body = local_body
+                entry.via = "import"
+                entry.import_file = local_path
+                err = nil
+            else
+                body = nil
+                err = tostring(err) .. "; import fallback: " .. tostring(local_err)
+            end
+        end
         if not body then
             entry.ok = false
             entry.error = tostring(err)
@@ -272,6 +325,7 @@ function _M.apply()
         provenance[#provenance + 1] = {
             source = r.key, url = r.url, ok = r.ok, count = r.count or 0,
             error = r.error, published_at = r.published_at,
+            via = r.via or "fetch", import_file = r.import_file,
             fetched_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
         }
     end
@@ -329,6 +383,7 @@ end
 -- the JSON shapes and the normaliser can be tested against real vendor
 -- documents rather than a hand-written approximation of one.
 _M._test_sources = sources
+_M._test_source_filename = source_filename
 _M._test_ipv4_from_json = ipv4_from_json
 _M._test_normalize_entry = normalize_entry
 

@@ -107,4 +107,20 @@ describe("config crawler list/source validation", function()
         assert.is_truthy(tostring(err):find("https", 1, true))
     end)
 
+    it("accepts an absolute crawler_import_dir under the install root", function()
+        local ok, err = config.validate_config(cfg({
+            crawler_import_dir = os.getenv("PWD") .. "/verynginx/configs/crawler-import",
+        }))
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("rejects a crawler_import_dir outside the install root or with '..'", function()
+        local ok1 = config.validate_config(cfg({ crawler_import_dir = "/etc" }))
+        assert.is_false(ok1)
+        local ok2 = config.validate_config(cfg({ crawler_import_dir = "/opt/verynginx/../etc" }))
+        assert.is_false(ok2)
+        local ok3 = config.validate_config(cfg({ crawler_import_dir = "relative/path" }))
+        assert.is_false(ok3)
+    end)
+
 end)

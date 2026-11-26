@@ -304,6 +304,15 @@ install_files() {
   chmod 755 "$geoip_dir"
   info "Created GeoIP directory: ${geoip_dir}"
 
+  # Create crawler drop-in directory (for hosts that cannot reach vendor URLs)
+  local crawler_dir="${VN_DIR}/crawler-import"
+  mkdir -p "$crawler_dir"
+  chmod 755 "$crawler_dir"
+  if [ -n "$nginx_user" ] && id "$nginx_user" &>/dev/null; then
+    chown "${nginx_user}:${nginx_user}" "$crawler_dir" 2>/dev/null || true
+  fi
+  info "Crawler import directory: ${crawler_dir} ✓"
+
   # Ensure config.json has geoip.geodb_path set
   if [ -f "${VN_DIR}/configs/config.json" ]; then
     python3 -c "

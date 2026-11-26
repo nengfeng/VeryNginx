@@ -89,6 +89,23 @@ describe("crawler_ranges source overrides (deployment inside China)", function()
 
     teardown(function()
         config.ip_reputation.crawler_sources = nil
+        config.ip_reputation.crawler_import_dir = nil
+    end)
+
+    it("derives drop-in filenames from the vendor URL basename", function()
+        local saved = package.loaded["core.crawler_ranges"]
+        package.loaded["core.crawler_ranges"] = nil
+        local fn = require("core.crawler_ranges")._test_source_filename
+        package.loaded["core.crawler_ranges"] = saved
+        assert.are.equal("common-crawlers.json",
+            fn("https://developers.google.com/static/crawling/ipranges/common-crawlers.json"))
+        assert.are.equal("bingbot.json", fn("https://www.bing.com/toolbox/bingbot.json"))
+        assert.are.equal("applebot.json", fn("https://search.developer.apple.com/applebot.json"))
+        assert.are.equal("duckduckbot.json", fn("https://duckduckgo.com/duckduckbot.json"))
+        -- Query strings and path traversal in a configured URL must not leak
+        -- into a filename.
+        assert.are.equal("list.json", fn("https://x.example/a/list.json?v=2"))
+        assert.is_nil(fn("https://x.example/a/../secret.json"))
     end)
 
     it("falls back to the built-in URLs when nothing is configured", function()
@@ -296,5 +313,34 @@ describe("crawler_ranges apply refuses to leave memory ahead of disk", function(
         end)
         config.atomic_mutate = restore
         config.ip_reputation.crawler_ip_whitelist = nil
+    end)
+end)
+
+describe("crawler_ranges local-file fallback (fetch fails)", function()
+    it("reads <import_dir>/<vendor-basename> through the same parse pipeline", function()
+        local config = require "core.config"
+        local saved = config.ip_reputation.crawler_import_dir
+        os.execute("mkdir -p /tmp/vn-crawler-spec")
+        local f = io.open("/tmp/vn-crawler-spec/common-crawlers.json", "w")
+        f:write('{"creationTime":"2026-11-26","prefixes":['
+            .. '{"ipv4Prefix":"66.249.64.0/19"},{"ipv4Prefix":"192.178.6.224/27"}]}')
+        f:close()
+        config.ip_reputation.crawler_import_dir = "/tmp/vn-crawler-spec"
+        local r = require "core.crawler_ranges"
+        local orig = r._test_sources
+        r._test_sources = function()
+            return {{ key = "google",
+                     url = "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+                     note = "g" }}
+        end
+        local results = r.fetch()
+        local x = results[1]
+        assert.is_true(x.ok, "expected ok, got: " .. tostring(x.error))
+        assert.are.equal("import", x.via)
+        assert.are.equal(2, x.count)
+        assert.are.same({ "66.249.64.0/19", "192.178.6.224/27" }, x.ranges)
+        r._test_sources = orig
+        config.ip_reputation.crawler_import_dir = saved
+        os.execute("rm -rf /tmp/vn-crawler-spec")
     end)
 end)
